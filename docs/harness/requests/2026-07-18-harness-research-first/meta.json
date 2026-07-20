@@ -1,0 +1,38 @@
+{
+  "id": "2026-07-18-harness-research-first",
+  "title": "Harness 开发前业界调研",
+  "scope": "repository",
+  "phase": "acceptance",
+  "status": "done",
+  "riskLevel": "low",
+  "changeTypes": [
+    "docs",
+    "process"
+  ],
+  "research": {
+    "required": true,
+    "status": "done",
+    "sources": [
+      "https://fastapi.tiangolo.com/tutorial/bigger-applications/",
+      "https://fastapi.tiangolo.com/tutorial/testing/",
+      "https://12factor.net/config"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": false,
+  "approvalGranted": false,
+  "approvalReasons": [],
+  "approvalRecords": [],
+  "owner": "ai",
+  "createdAt": "2026-07-18",
+  "updatedAt": "2026-07-18",
+  "relatedPaths": [
+    "docs/harness/README.md",
+    "docs/harness/backend.md",
+    "docs/harness/policies/global.md",
+    "docs/harness/templates",
+    "docs/harness/examples",
+    "AGENTS.md"
+  ],
+  "notes": "新功能先完成业界调研，再定 spec 和 plan。"
+}

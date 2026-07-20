@@ -1,0 +1,45 @@
+{
+  "id": "2026-07-19-backend-technical-spec",
+  "title": "后端技术方案与技术规范",
+  "scope": "backend",
+  "phase": "acceptance",
+  "status": "done",
+  "riskLevel": "high",
+  "changeTypes": [
+    "docs",
+    "architecture"
+  ],
+  "research": {
+    "required": true,
+    "status": "done",
+    "sources": [
+      "https://fastapi.tiangolo.com/tutorial/bigger-applications/",
+      "https://fastapi.tiangolo.com/advanced/events/",
+      "https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html",
+      "https://alembic.sqlalchemy.org/en/latest/tutorial.html",
+      "https://github.com/fastapi/full-stack-fastapi-template"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": [
+    "架构边界变化"
+  ],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-07-19",
+      "scope": "确认后端技术栈、异步数据库访问、Alembic 迁移和模块化目录方案",
+      "note": "用户明确回复“按这个定”。"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-07-19",
+  "updatedAt": "2026-07-19",
+  "relatedPaths": [
+    "docs/harness/specs/backend-technical-spec.md",
+    "apps/backend"
+  ],
+  "notes": "已完成后端技术规范调研、设计、讨论与确认。本 request 闭环完成，实现工作应在后续 request 推进。"
+}

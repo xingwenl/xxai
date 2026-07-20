@@ -1,0 +1,45 @@
+{
+  "id": "2026-07-19-backend-foundation-bootstrap",
+  "title": "后端基础设施第一阶段骨架",
+  "scope": "backend",
+  "phase": "acceptance",
+  "status": "done",
+  "riskLevel": "medium",
+  "changeTypes": [
+    "code",
+    "docs",
+    "api-contract"
+  ],
+  "research": {
+    "required": true,
+    "status": "done",
+    "sources": [
+      "https://fastapi.tiangolo.com/tutorial/bigger-applications/",
+      "https://fastapi.tiangolo.com/tutorial/handling-errors/",
+      "https://fastapi.tiangolo.com/tutorial/query-params-str-validations/",
+      "https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html",
+      "https://alembic.sqlalchemy.org/en/latest/tutorial.html",
+      "https://github.com/fastapi/full-stack-fastapi-template"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": false,
+  "approvalGranted": true,
+  "approvalReasons": [],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-07-19",
+      "scope": "继续推进后端基础设施，并优先处理日志、数据库、分页查询和固定返回格式",
+      "note": "用户明确要求继续并归纳先做哪些基础能力。"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-07-19",
+  "updatedAt": "2026-07-19",
+  "relatedPaths": [
+    "apps/backend",
+    "docs/harness/specs/backend-technical-spec.md"
+  ],
+  "notes": "已完成第一阶段后端基础设施骨架、共享响应与分页基线、健康检查样例、依赖安装与最小验证。"
+}

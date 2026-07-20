@@ -1,0 +1,28 @@
+{
+  "id": "YYYY-MM-DD-topic",
+  "title": "任务标题",
+  "scope": "backend",
+  "phase": "research",
+  "status": "active",
+  "riskLevel": "medium",
+  "changeTypes": [
+    "docs"
+  ],
+  "research": {
+    "required": true,
+    "status": "pending",
+    "sources": [],
+    "decisionRecorded": false
+  },
+  "approvalRequired": false,
+  "approvalGranted": false,
+  "approvalReasons": [],
+  "approvalRecords": [],
+  "owner": "ai",
+  "createdAt": "2026-07-18",
+  "updatedAt": "2026-07-18",
+  "relatedPaths": [
+    "docs/harness/README.md"
+  ],
+  "notes": "按实际任务补充字段。若触发人工确认，需同步更新审批字段。"
+}

@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  # 1. PostgreSQL 数据库服务
+  db:
+    image: postgres:16-alpine  # 推荐使用 alpine 版本，体积更小
+    container_name: my_fastapi_db
+    restart: always            # 容器异常退出时自动重启
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+      TZ: Asia/Shanghai        # 设置时区，避免时间不一致
+    ports:
+      - "127.0.0.1:5432:5432"  # 安全配置：仅允许本机访问数据库
+    volumes:
+      - postgres_data:/var/lib/postgresql/data  # 数据持久化
+      - ./init-scripts:/docker-entrypoint-initdb.d  # 可选：自动执行初始化SQL
+    networks:
+      - app-network
+
+  # 2. Python FastAPI 服务 (预留模板，后续取消注释即可)
+  # app:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: my_fastapi_app
+  #   restart: always
+  #   environment:
+  #     DATABASE_URL: postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+  #   ports:
+  #     - "8000:8000"
+  #   depends_on:
+  #     - db
+  #   networks:
+  #     - app-network
+
+# 定义数据卷，确保容器删除后数据不丢失
+volumes:
+  postgres_data:
+
+# 定义自定义网络，让容器之间可以通过服务名互相访问
+networks:
+  app-network:
+    driver: bridge

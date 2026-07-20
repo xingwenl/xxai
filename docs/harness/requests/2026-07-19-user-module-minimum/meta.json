@@ -1,0 +1,61 @@
+{
+  "id": "2026-07-19-user-module-minimum",
+  "title": "用户模块最小闭环",
+  "scope": "backend",
+  "phase": "acceptance",
+  "status": "done",
+  "riskLevel": "high",
+  "changeTypes": [
+    "code",
+    "docs",
+    "data-model",
+    "api-contract"
+  ],
+  "research": {
+    "required": true,
+    "status": "done",
+    "sources": [
+      "https://fastapi.tiangolo.com/tutorial/response-model/",
+      "https://fastapi.tiangolo.com/tutorial/handling-errors/",
+      "https://fastapi.tiangolo.com/tutorial/query-params-str-validations/",
+      "https://docs.sqlalchemy.org/en/20/orm/declarative_tables.html",
+      "https://alembic.sqlalchemy.org/en/latest/autogenerate.html",
+      "https://github.com/fastapi/full-stack-fastapi-template"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": [
+    "数据模型变化",
+    "API 契约变化"
+  ],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-07-19",
+      "scope": "允许继续实现 user 模块，包含真实数据模型与接口",
+      "note": "用户明确回复“可以 写一个user模块”。"
+    },
+    {
+      "by": "user",
+      "at": "2026-07-19",
+      "scope": "允许为 user 模块补充更新与删除接口",
+      "note": "用户明确要求“给 user 模块补 update/delete”。"
+    },
+    {
+      "by": "user",
+      "at": "2026-07-20",
+      "scope": "允许调整分页返回格式",
+      "note": "用户明确要求将分页结果改为 data 中直接包含 page_no、page_size、items、total、pages。"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-07-19",
+  "updatedAt": "2026-07-20",
+  "relatedPaths": [
+    "apps/backend",
+    "docs/harness/specs/backend-technical-spec.md"
+  ],
+  "notes": "已完成 user 模块最小闭环、真实落库、update/delete 接口扩展，以及分页响应结构重构与最小验证。"
+}

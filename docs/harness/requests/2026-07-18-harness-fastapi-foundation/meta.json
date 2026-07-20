@@ -1,0 +1,26 @@
+{
+  "id": "2026-07-18-harness-fastapi-foundation",
+  "title": "完善 Harness 与 FastAPI 后端工程基础",
+  "scope": "backend",
+  "phase": "acceptance",
+  "status": "done",
+  "riskLevel": "medium",
+  "changeTypes": [
+    "docs",
+    "process"
+  ],
+  "approvalRequired": false,
+  "approvalGranted": false,
+  "approvalReasons": [],
+  "approvalRecords": [],
+  "owner": "ai",
+  "createdAt": "2026-07-18",
+  "updatedAt": "2026-07-18",
+  "relatedPaths": [
+    "docs/harness/README.md",
+    "docs/harness/backend.md",
+    "docs/harness/templates",
+    "docs/harness/examples"
+  ],
+  "notes": "本次任务用于完善仓库内 Harness 工程基础设施。"
+}
