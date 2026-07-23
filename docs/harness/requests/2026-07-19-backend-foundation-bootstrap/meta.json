@@ -36,10 +36,10 @@
   ],
   "owner": "ai",
   "createdAt": "2026-07-19",
-  "updatedAt": "2026-07-19",
+  "updatedAt": "2026-07-20",
   "relatedPaths": [
     "apps/backend",
     "docs/harness/specs/backend-technical-spec.md"
   ],
-  "notes": "已完成第一阶段后端基础设施骨架、共享响应与分页基线、健康检查样例、依赖安装与最小验证。"
+  "notes": "已完成第一阶段后端基础设施骨架、共享响应与分页基线、健康检查样例、依赖安装、最小验证，以及统一的 Alembic 自动建表脚本与真实落库验证。"
 }

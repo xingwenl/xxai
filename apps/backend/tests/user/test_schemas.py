@@ -4,15 +4,21 @@ from app.modules.user.schemas import UserCreate, UserUpdate
 
 
 def test_user_create_schema_accepts_valid_payload() -> None:
-    payload = UserCreate(name="Alice", email="alice@example.com")
+    payload = UserCreate(
+        name="Alice",
+        email="alice@example.com",
+        account="alice",
+        password="secret123",
+    )
 
     assert payload.name == "Alice"
     assert payload.email == "alice@example.com"
+    assert payload.account == "alice"
 
 
 def test_user_create_schema_rejects_empty_name() -> None:
     try:
-        UserCreate(name="", email="alice@example.com")
+        UserCreate(name="", email="alice@example.com", account="alice", password="secret123")
     except ValidationError:
         return
 
@@ -24,4 +30,5 @@ def test_user_update_schema_accepts_partial_payload() -> None:
 
     assert payload.name == "Bob"
     assert payload.email is None
+    assert payload.account is None
     assert payload.is_active is None

@@ -28,6 +28,8 @@
   - 最小测试用例。
 - `apps/backend/pyproject.toml`
   - 补齐基础依赖声明。
+- `apps/backend/scripts/create_tables.sh`
+  - 统一执行数据库 migration 的建表脚本。
 
 ## 实施步骤
 
@@ -38,6 +40,7 @@
 5. 增加最小 `system` 模块，用健康检查接口验证装配路径。
 6. 补最小测试，优先覆盖共享响应和分页能力。
 7. 执行可运行的最小验证命令，并把受环境限制的项写入 `verify.md`。
+8. 为数据库迁移补仓库内脚本入口，统一执行 `alembic upgrade head`。
 
 ## 测试步骤
 
@@ -47,6 +50,8 @@
   - 预期结果：基础代码无 lint 报错。
 - `python -m compileall apps/backend/app apps/backend/main.py`
   - 预期结果：代码可被解释器编译，无语法错误。
+- `bash apps/backend/scripts/create_tables.sh`
+  - 预期结果：脚本能成功执行 Alembic migration，或至少在当前环境下给出稳定失败信息。
 
 ## 回滚说明
 

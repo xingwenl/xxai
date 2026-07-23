@@ -1,0 +1,48 @@
+{
+  "id": "2026-07-23-auth-foundation",
+  "title": "登录注册与受保护路由基础能力",
+  "scope": "backend",
+  "phase": "acceptance",
+  "status": "done",
+  "riskLevel": "high",
+  "changeTypes": [
+    "docs",
+    "api-contract",
+    "auth-behavior"
+  ],
+  "research": {
+    "required": true,
+    "status": "done",
+    "sources": [
+      "https://fastapi.tiangolo.com/tutorial/security/oauth2-jwt/",
+      "https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html",
+      "https://fastapi-users.github.io/fastapi-users/latest/configuration/authentication/",
+      "https://docs.djangoproject.com/en/5.2/topics/auth/default/"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": [
+    "API 契约变化",
+    "鉴权或权限行为变化"
+  ],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-07-23",
+      "scope": "确认实现 auth 方案，包括公开 auth 接口、Bearer JWT 登录态以及 user/role 受保护路由",
+      "note": "用户在当前对话中明确回复“确认实现 auth 方案”。"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-07-23",
+  "updatedAt": "2026-07-23",
+  "relatedPaths": [
+    "apps/backend/app/core/security.py",
+    "apps/backend/app/modules/user",
+    "apps/backend/app/modules/role",
+    "apps/backend/app/__init__.py"
+  ],
+  "notes": "已完成 auth 基础能力实现，包括 auth 模块、scrypt 密码哈希、JWT access token、当前用户依赖、user/role 路由登录保护，以及最小自动化测试与 lint 验证。"
+}

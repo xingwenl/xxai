@@ -85,7 +85,14 @@ description: Use when adding or modifying a basic CRUD table/module in this repo
 - 默认混入 `TimeModel`，统一提供 `created_at` 和 `updated_at`
 - 主键使用 typed `mapped_column`
 - 唯一约束、索引、非空约束在 ORM 层明确声明
-- 表名可显式声明；否则遵循基类的驼峰转下划线逻辑
+- 基础资料表必须显式声明 `__tablename__`
+- 建表命名默认采用“模块前缀 + 资源复数名”规则，避免不同业务域后续碰撞：
+  - 系统模块使用 `sys_` 前缀，例如 `sys_users`、`sys_roles`
+  - 聊天模块使用 `chat_` 前缀，例如 `chat_messages`、`chat_conversations`
+  - 其他模块按同样模式扩展，例如 `<module>_<resources>`
+- 不再默认直接使用裸表名如 `users`、`roles`、`messages`；除非已有历史表需要兼容
+- 若是已有旧表做增量开发，优先兼容现有表名，不要为了追求统一强改存量表名
+- migration、schema、repository、router 中涉及资源命名时，应围绕同一个模块前缀保持一致
 
 示例骨架：
 
@@ -96,8 +103,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.shared.base_model import BaseModel, TimeModel
 
 
-class Example(BaseModel, TimeModel):
-    __tablename__ = "examples"
+class SysUser(BaseModel, TimeModel):
+    __tablename__ = "sys_users"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)

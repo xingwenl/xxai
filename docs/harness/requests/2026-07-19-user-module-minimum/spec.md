@@ -27,6 +27,12 @@
   - `GET /api/v1/users`
   - `PATCH /api/v1/users/{user_id}`
   - `DELETE /api/v1/users/{user_id}`
+- 扩展 `GET /api/v1/users` 的查询能力：
+  - `page`、`page_size` 分页
+  - `name` 按姓名模糊查询
+  - `email` 按邮箱精确查询
+  - `sort` 支持 `created_at` / `-created_at`
+  - `fields` 支持逗号分隔字段裁剪
 - 接通 Alembic 基础配置，并提供首个用户表 migration。
 - 增加最小测试。
 
@@ -36,6 +42,7 @@
 - 本次不存储密码。
 - 本次不实现角色、权限或组织关系。
 - 本次不实现登录相关状态更新。
+- 本次不实现复杂 DSL 过滤、多字段复合排序和跨字段全文搜索。
 
 ## 风险
 
@@ -58,6 +65,7 @@
 - `POST /api/v1/users` 支持创建用户，并对重复邮箱给出稳定错误语义。
 - `GET /api/v1/users/{user_id}` 支持按 ID 查询用户详情。
 - `GET /api/v1/users` 支持分页列表，并将 `page_no`、`page_size`、`items`、`total`、`pages` 直接放入 `data`。
+- `GET /api/v1/users` 支持 `name` 模糊查询、`email` 精确查询、`sort` 创建时间排序与 `fields` 字段裁剪。
 - `PATCH /api/v1/users/{user_id}` 支持局部更新 `name`、`email`、`is_active`。
 - `DELETE /api/v1/users/{user_id}` 支持删除用户，并返回稳定成功响应。
 - 至少有最小自动化测试覆盖 schema 或 service 逻辑。
@@ -106,3 +114,17 @@
 - 变更内容：将分页基础改为在 `data` 中直接返回 `page_no`、`page_size`、`items`、`total`、`pages`
 - 影响章节：验收标准
 - 是否触发人工确认：是，已在当前对话中获得确认
+
+### 2026-07-20 第 6 次变更
+
+- 变更原因：用户要求为 `GET /api/v1/users` 补充分页以外的基础查询能力
+- 变更内容：新增 `name` 模糊查询、`email` 精确查询、`sort` 创建时间排序，以及 `fields` 字段裁剪
+- 影响章节：范围、非目标、验收标准
+- 是否触发人工确认：是，已在当前对话中获得确认
+
+### 2026-07-20 第 7 次变更
+
+- 变更原因：用户要求将列表过滤、排序、分页等通用查询拼装尽量沉到 `BaseRepository`，便于后续模块复用
+- 变更内容：为 `BaseRepository` 补充可复用的条件过滤与排序拼装能力，并让 `UserRepository` 改为复用这些通用方法；同时对齐当前已存在的 `account/password` schema 基线，确保 user 模块测试通过
+- 影响章节：验收标准
+- 是否触发人工确认：否

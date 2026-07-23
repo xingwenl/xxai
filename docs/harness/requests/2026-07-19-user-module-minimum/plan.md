@@ -6,6 +6,8 @@
   - 记录本次 `user` 模块闭环。
 - `apps/backend/app/modules/user/*`
   - 新增用户模块代码。
+- `apps/backend/tests/user/*`
+  - 补充用户列表查询增强测试。
 - 扩展用户模块支持 update/delete。
 - `apps/backend/app/shared/base_repository.py`
   - 抽象共享 CRUD 仓储基类。
@@ -36,6 +38,9 @@
 6. 增加最小测试，覆盖 update/delete 服务逻辑与路由基线。
 7. 运行最小验证命令，记录可执行项与环境限制。
 8. 调整共享分页基础与 `GET /api/v1/users` 的返回结构，去掉 `meta.pagination`。
+9. 扩展 `GET /api/v1/users` 的查询参数，支持 `name` 模糊、`email` 精确、`sort` 创建时间排序与 `fields` 字段裁剪。
+10. 为服务层与 OpenAPI 增加最小自动化测试，覆盖过滤、排序和字段选择。
+11. 将列表查询的过滤与排序拼装下沉到 `BaseRepository`，并确保 `UserRepository` 只保留 user 专属语义。
 
 ## 测试步骤
 
@@ -49,6 +54,8 @@
   - 预期结果：能看到 `/api/v1/users` 相关路由。
 - `apps/backend/.venv/bin/python -c "from main import app; import json; print(json.dumps(app.openapi()['paths']['/api/v1/users']['get'], ensure_ascii=False))"`
   - 预期结果：分页列表接口的响应模型不再包含 `meta.pagination`，而是在 `data` 中直接声明分页字段。
+- `apps/backend/.venv/bin/python -c "import json,sys; sys.path.insert(0, 'apps/backend'); from main import app; params=app.openapi()['paths']['/api/v1/users']['get']['parameters']; print(json.dumps(params, ensure_ascii=False))"`
+  - 预期结果：OpenAPI 中 `GET /api/v1/users` 至少声明 `page`、`page_size`、`name`、`email`、`sort`、`fields` 六个查询参数。
 
 ## 回滚说明
 
@@ -59,3 +66,4 @@
 
 - 已确认：用户允许继续实现 `user` 模块。
 - 已确认：用户于 2026-07-20 要求调整分页返回格式，属于 API 契约变更，允许继续修改。
+- 已确认：用户于 2026-07-20 要求为 `GET /api/v1/users` 增加过滤、排序和字段参数，属于 API 契约变更，允许继续修改。

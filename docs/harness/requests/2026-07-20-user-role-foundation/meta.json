@@ -1,0 +1,47 @@
+{
+  "id": "2026-07-20-user-role-foundation",
+  "title": "用户角色基础能力设计",
+  "scope": "backend",
+  "phase": "acceptance",
+  "status": "done",
+  "riskLevel": "high",
+  "changeTypes": [
+    "docs",
+    "data-model",
+    "api-contract"
+  ],
+  "research": {
+    "required": true,
+    "status": "done",
+    "sources": [
+      "https://csrc.nist.gov/Projects/role-based-access-control/faqs",
+      "https://csrc.nist.gov/pubs/ir/6192/final",
+      "https://docs.djangoproject.com/en/3.2/topics/auth/default/",
+      "https://auth0.com/docs/manage-users/access-control/rbac",
+      "https://www.keycloak.org/docs/latest/server_admin/"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": [
+    "数据模型变化",
+    "API 契约变化"
+  ],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-07-20",
+      "scope": "允许实现 sys_roles、sys_user_roles、role 模块 CRUD，以及用户角色关联和按角色过滤",
+      "note": "用户明确回复“确认”。"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-07-20",
+  "updatedAt": "2026-07-21",
+  "relatedPaths": [
+    "apps/backend",
+    "docs/harness/requests/2026-07-19-user-module-minimum"
+  ],
+  "notes": "已完成 user-role 基础能力第一版，包括 sys_roles、sys_user_roles、role 模块 CRUD、用户角色关联、用户列表角色摘要返回、按角色过滤，以及基于 ORM relationship + selectinload 的查询实现，并通过最小自动化验证。"
+}

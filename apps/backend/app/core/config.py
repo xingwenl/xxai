@@ -35,6 +35,9 @@ class Settings:
     database_echo: bool
     docs_url: str | None
     openapi_url: str | None
+    jwt_secret_key: str
+    jwt_algorithm: str
+    access_token_expire_minutes: int
 
 
 def _build_database_url() -> str:
@@ -68,4 +71,7 @@ def get_settings() -> Settings:
         database_echo=_get_bool("DATABASE_ECHO", default=False),
         docs_url="/docs" if docs_enabled else None,
         openapi_url="/openapi.json" if docs_enabled else None,
+        jwt_secret_key=os.getenv("JWT_SECRET_KEY", "dev-secret-change-me"),
+        jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
+        access_token_expire_minutes=int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30")),
     )

@@ -20,7 +20,10 @@
       "https://fastapi.tiangolo.com/tutorial/query-params-str-validations/",
       "https://docs.sqlalchemy.org/en/20/orm/declarative_tables.html",
       "https://alembic.sqlalchemy.org/en/latest/autogenerate.html",
-      "https://github.com/fastapi/full-stack-fastapi-template"
+      "https://github.com/fastapi/full-stack-fastapi-template",
+      "https://jsonapi.org/format/#fetching-sorting",
+      "https://jsonapi.org/format/#fetching-sparse-fieldsets",
+      "https://docs.postgrest.org/en/stable/references/api/tables_views.html"
     ],
     "decisionRecorded": true
   },
@@ -48,6 +51,12 @@
       "at": "2026-07-20",
       "scope": "允许调整分页返回格式",
       "note": "用户明确要求将分页结果改为 data 中直接包含 page_no、page_size、items、total、pages。"
+    },
+    {
+      "by": "user",
+      "at": "2026-07-20",
+      "scope": "允许为 GET /api/v1/users 增加 name、email、sort、fields 查询参数",
+      "note": "用户明确提出需要分页参数之外，再支持 name 模糊查询、email 精确查询、创建时间排序和指定字段参数。"
     }
   ],
   "owner": "ai",
@@ -57,5 +66,5 @@
     "apps/backend",
     "docs/harness/specs/backend-technical-spec.md"
   ],
-  "notes": "已完成 user 模块最小闭环、真实落库、update/delete 接口扩展，以及分页响应结构重构与最小验证。"
+  "notes": "已完成 user 模块最小闭环、真实落库、update/delete 接口扩展、分页结构重构、user 列表过滤/排序/字段裁剪能力，以及可复用查询能力向 BaseRepository 的下沉。"
 }

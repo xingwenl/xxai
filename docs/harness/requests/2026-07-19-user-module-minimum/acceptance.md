@@ -8,8 +8,12 @@
   - `user` 模块的 schema、repository、service、router
   - 用户创建、用户详情、分页列表、用户更新、用户删除 5 个接口
   - 分页列表改为 `code/message/data` 信封，且 `data` 内直接返回分页字段
+  - 用户列表支持 `name` 模糊查询、`email` 精确查询、`sort` 创建时间排序、`fields` 字段裁剪
+  - 列表查询的过滤与排序拼装已下沉到 `BaseRepository`，便于后续模块复用
   - 用户邮箱重复冲突异常
+  - 用户 account 重复冲突异常
   - 空更新请求的稳定错误语义
+  - 更新接口 OpenAPI 与 spec 统一为 `PATCH /api/v1/users/{user_id}`
   - Alembic 配置与首个 `users` 表 migration
   - 本地 PostgreSQL 容器真实落库
   - 最小自动化测试
@@ -21,6 +25,8 @@
 - 邮箱唯一冲突目前先通过服务层前置检查表达语义，后续若引入高并发写入，建议再补数据库唯一异常到业务错误的兜底转换。
 - 当前数据库容器正在本地运行，若后续不需要继续使用，可手动执行 `docker compose down` 停止。
 - 当前删除是硬删除；如果后续需要审计留痕或恢复能力，建议再开 request 设计软删除。
+- 当前 `sort` 仅开放 `created_at` 升降序，若后续出现更多列表页排序诉求，再统一抽象多字段排序约定。
+- 当前工作区里已经出现 `account/password` 字段扩展，但数据库 migration、接口文档和鉴权语义尚未形成完整闭环；若准备正式推进账号体系，建议单开 request 补完整 research/spec。
 
 ## 人工验收记录
 
@@ -28,3 +34,5 @@
 - 2026-07-19：用户进一步要求“真正的落库”，本次已完成本地 PostgreSQL 实际 migration。
 - 2026-07-19：用户进一步要求“给 user 模块补 update/delete”，本次已完成并通过自动化验证。
 - 2026-07-20：用户进一步要求调整分页返回格式，本次已完成分页响应结构重构并通过自动化验证。
+- 2026-07-20：用户进一步要求为 `GET /api/v1/users` 增加 `name`、`email`、`sort`、`fields` 参数，本次已完成并通过自动化验证。
+- 2026-07-20：用户进一步要求将可复用查询能力下沉到 `BaseRepository`，本次已完成并通过自动化验证。

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
@@ -12,10 +14,12 @@ class AppException(Exception):
         message: str,
         *,
         status_code: int = status.HTTP_400_BAD_REQUEST,
+        headers: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message)
         self.message = message
         self.status_code = status_code
+        self.headers = headers
 
 
 class NotFoundException(AppException):
@@ -33,6 +37,15 @@ class BadRequestException(AppException):
         super().__init__(message, status_code=status.HTTP_400_BAD_REQUEST)
 
 
+class UnauthorizedException(AppException):
+    def __init__(self, message: str = "unauthorized") -> None:
+        super().__init__(
+            message,
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppException)
     async def handle_app_exception(
@@ -40,7 +53,8 @@ def register_exception_handlers(app: FastAPI) -> None:
     ) -> JSONResponse:
         return JSONResponse(
             status_code=exc.status_code,
-            content=error_response(message=exc.message).model_dump(),
+            content=error_response(message=exc.message, code=exc.status_code).model_dump(),
+            headers=exc.headers,
         )
 
     @app.exception_handler(Exception)
@@ -49,5 +63,8 @@ def register_exception_handlers(app: FastAPI) -> None:
     ) -> JSONResponse:
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content=error_response(message="internal server error").model_dump(),
+            content=error_response(
+                message="internal server error",
+                code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            ).model_dump(),
         )

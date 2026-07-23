@@ -7,6 +7,8 @@ from fastapi import FastAPI
 from app.core.config import get_settings
 from app.core.database import dispose_database
 from app.core.logging import get_logger, setup_logging
+from app.modules.auth.router import router as auth_router
+from app.modules.role.router import router as role_router
 from app.modules.system.router import router as system_router
 from app.modules.user.router import router as user_router
 from app.shared.exceptions import register_exception_handlers
@@ -37,5 +39,7 @@ def create_app() -> FastAPI:
 
     register_exception_handlers(app)
     app.include_router(system_router, prefix=settings.api_v1_prefix)
+    app.include_router(auth_router, prefix=settings.api_v1_prefix)
+    app.include_router(role_router, prefix=settings.api_v1_prefix)
     app.include_router(user_router, prefix=settings.api_v1_prefix)
     return app
