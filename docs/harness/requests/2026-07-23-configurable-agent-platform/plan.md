@@ -30,10 +30,10 @@
 
 ### 任务 3：知识库
 
-- [ ] 新增知识库、文档、切片、向量和导入任务模型。
-- [ ] 使用 LlamaIndex 处理文件解析、切片、embedding 和检索。
-- [ ] 使用 Celery + Redis 异步导入，加入 URL SSRF 防护。
-- [ ] 返回文档标题、来源 URL 和命中片段。
+- [x] 新增知识库、文档、切片、向量和导入任务模型。
+- [x] 使用 LlamaIndex 处理文件解析、切片、embedding 和检索。
+- [x] 使用 Celery + Redis 异步导入，加入 URL SSRF 防护。
+- [x] 返回文档标题、来源 URL 和命中片段。
 
 ### 任务 4：Skill、任务 5：MCP、任务 6：对话与 SSE
 

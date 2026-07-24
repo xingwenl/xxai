@@ -27,11 +27,17 @@ request 已在持久化 worktree 中恢复，任务 0（依赖与运行时配置
 - `poetry run black --check app/modules/knowledge tests/knowledge migrations/versions/20260723_0005_knowledge.py`：通过。
 - `poetry run alembic history`（任务 3 基础）：通过，知识库迁移 `20260723_0005` 为当前 head。
 - 知识库基础行为测试覆盖 LlamaIndex 切片、embedding 维度校验、非 HTTP URL、凭证 URL、回环地址和云元数据地址拒绝。
+- `poetry run pytest -q`（任务 3 完成）：通过，`62 passed`。
+- 知识库定向 Ruff 与 Black：通过。
+- OpenAPI 构建检查：通过，生成知识库配置、文件导入、URL 导入、文档状态和检索共 6 个路径。
+- Celery 注册检查：通过，`knowledge.ingest_document` 已注册。
+- embedding 配置变更会增加索引版本，并为已有文档创建新的导入任务。
 
 ## 待执行
 
 - `poetry run black --check .`：未通过，仓库现有 29 个文件会被 Black 重新格式化；本次没有格式化无关文件，待后续集中处理或单独建任务。
 - 迁移、启动和安全测试将在后续实现任务完成后逐项记录。
+- 当前未启动 PostgreSQL、pgvector、Redis 和 Celery Worker，真实文件解析、外部 embedding 请求、向量查询及 Worker 重试需要在基础设施启动后联调。
 
 ## 失败项与例外
 
