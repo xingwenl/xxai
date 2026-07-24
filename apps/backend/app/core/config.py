@@ -38,6 +38,14 @@ class Settings:
     jwt_secret_key: str
     jwt_algorithm: str
     access_token_expire_minutes: int
+    model_default_name: str
+    model_default_base_url: str | None
+    agent_file_storage_path: str
+    agent_max_upload_bytes: int
+    agent_fetch_timeout_seconds: int
+    agent_master_key: str
+    celery_broker_url: str
+    celery_result_backend: str
 
 
 def _build_database_url() -> str:
@@ -74,4 +82,14 @@ def get_settings() -> Settings:
         jwt_secret_key=os.getenv("JWT_SECRET_KEY", "dev-secret-change-me"),
         jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
         access_token_expire_minutes=int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30")),
+        model_default_name=os.getenv("MODEL_DEFAULT_NAME", "gpt-4o-mini"),
+        model_default_base_url=os.getenv("MODEL_DEFAULT_BASE_URL") or None,
+        agent_file_storage_path=os.getenv("AGENT_FILE_STORAGE_PATH", str(BASE_DIR / "storage")),
+        agent_max_upload_bytes=int(os.getenv("AGENT_MAX_UPLOAD_BYTES", str(25 * 1024 * 1024))),
+        agent_fetch_timeout_seconds=int(os.getenv("AGENT_FETCH_TIMEOUT_SECONDS", "15")),
+        agent_master_key=os.getenv("AGENT_MASTER_KEY", "dev-agent-master-key-change-me"),
+        celery_broker_url=os.getenv("CELERY_BROKER_URL", "redis://127.0.0.1:6379/0"),
+        celery_result_backend=os.getenv(
+            "CELERY_RESULT_BACKEND", "redis://127.0.0.1:6379/0"
+        ),
     )
