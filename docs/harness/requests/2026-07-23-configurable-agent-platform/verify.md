@@ -38,6 +38,10 @@ request 已在持久化 worktree 中恢复，任务 0（依赖与运行时配置
 - `poetry run black --check .`：未通过，仓库现有 29 个文件会被 Black 重新格式化；本次没有格式化无关文件，待后续集中处理或单独建任务。
 - 迁移、启动和安全测试将在后续实现任务完成后逐项记录。
 - 当前未启动 PostgreSQL、pgvector、Redis 和 Celery Worker，真实文件解析、外部 embedding 请求、向量查询及 Worker 重试需要在基础设施启动后联调。
+- `poetry run pytest -q`（任务 4）：通过，`64 passed`。
+- Skill 定向 Ruff 与 Black：通过。
+- `poetry run alembic history`（任务 4）：通过，Skill 迁移 `20260723_0006` 为当前 head。
+- Skill 测试覆盖声明式模板参数渲染和缺失参数拒绝；首期不执行上传脚本。
 
 ## 失败项与例外
 
