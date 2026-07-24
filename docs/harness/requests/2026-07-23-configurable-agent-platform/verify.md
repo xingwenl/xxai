@@ -17,6 +17,11 @@ request 已在持久化 worktree 中恢复，任务 0（依赖与运行时配置
 - `poetry run pytest tests/platform/test_platform_services.py -q`：通过，`2 passed`。
 - `poetry run ruff check app/modules/platform app/__init__.py migrations/env.py tests/platform`：通过。
 - `poetry run alembic history`：通过，平台迁移 `20260723_0003` 为当前 head。
+- `poetry run pytest -q`（任务 2）：通过，`49 passed`。
+- `poetry run ruff check app/modules/agent app/__init__.py migrations/env.py migrations/versions/20260723_0004_agent.py tests/agent`：通过。
+- `poetry run black --check app/modules/agent tests/agent migrations/versions/20260723_0004_agent.py`：通过。
+- `poetry run alembic history`（任务 2）：通过，Agent 迁移 `20260723_0004` 为当前 head。
+- OpenAPI 构建检查：通过，生成 Agent 创建、版本创建、发布和回滚 4 个路径。
 
 ## 待执行
 

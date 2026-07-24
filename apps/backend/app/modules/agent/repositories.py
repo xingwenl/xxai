@@ -1,0 +1,83 @@
+from datetime import UTC, datetime
+
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.modules.agent.models import Agent, AgentVersion
+from app.modules.agent.schemas import AgentCreate, AgentVersionCreate
+from app.shared.base_repository import BaseRepository
+
+
+class AgentRepository(BaseRepository[Agent]):
+    def __init__(self, session: AsyncSession) -> None:
+        super().__init__(session, Agent)
+
+    async def get_by_slug(self, platform_id: int, slug: str) -> Agent | None:
+        result = await self.session.execute(
+            select(Agent).where(Agent.platform_id == platform_id, Agent.slug == slug)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_agent(self, agent_id: int, platform_id: int) -> Agent | None:
+        result = await self.session.execute(
+            select(Agent).where(Agent.id == agent_id, Agent.platform_id == platform_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def create_agent(self, payload: AgentCreate, platform_id: int) -> Agent:
+        count = await self.session.scalar(
+            select(func.count())
+            .select_from(Agent)
+            .where(Agent.platform_id == platform_id)
+        )
+        agent = Agent(
+            platform_id=platform_id,
+            is_default=(count or 0) == 0,
+            **payload.model_dump(),
+        )
+        self.session.add(agent)
+        await self.session.commit()
+        await self.session.refresh(agent)
+        return agent
+
+    async def create_version(
+        self, agent_id: int, payload: AgentVersionCreate
+    ) -> AgentVersion:
+        latest = await self.session.scalar(
+            select(func.max(AgentVersion.version)).where(
+                AgentVersion.agent_id == agent_id
+            )
+        )
+        values = payload.model_dump(exclude={"api_key"})
+        values["api_key_encrypted"] = payload.api_key
+        version = AgentVersion(
+            agent_id=agent_id,
+            version=(latest or 0) + 1,
+            created_at=datetime.now(UTC),
+            **values,
+        )
+        self.session.add(version)
+        await self.session.commit()
+        await self.session.refresh(version)
+        return version
+
+    async def get_version(self, agent_id: int, version_id: int) -> AgentVersion | None:
+        result = await self.session.execute(
+            select(AgentVersion).where(
+                AgentVersion.id == version_id, AgentVersion.agent_id == agent_id
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def publish_version(self, agent: Agent, version_id: int) -> AgentVersion:
+        version = await self.get_version(agent.id, version_id)
+        if version is None:
+            raise LookupError("agent version not found")
+        version.published_at = datetime.now(UTC)
+        agent.default_version_id = version.id
+        await self.session.commit()
+        await self.session.refresh(version)
+        return version
+
+    async def rollback(self, agent: Agent, version_id: int) -> AgentVersion:
+        return await self.publish_version(agent, version_id)

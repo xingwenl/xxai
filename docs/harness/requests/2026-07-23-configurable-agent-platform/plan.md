@@ -24,9 +24,9 @@
 
 ### 任务 2：Agent 配置
 
-- [ ] 新增 Agent 草稿和不可变发布版本。
-- [ ] 使用 LangGraph/LangChain OpenAI 客户端构造聊天模型。
-- [ ] 增加 Fernet 密钥加密、发布和回滚测试。
+- [x] 新增 Agent 草稿和不可变发布版本。
+- [x] 使用 LangGraph/LangChain OpenAI 客户端构造聊天模型。
+- [x] 增加 Fernet 密钥加密、发布和回滚测试。
 
 ### 任务 3：知识库
 
