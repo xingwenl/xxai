@@ -1,0 +1,33 @@
+{
+  "id": "2026-07-24-ai-agent-js-sdk",
+  "title": "AI Agent JS SDK 开发",
+  "scope": "apps/ai-sdk",
+  "phase": "acceptance",
+  "status": "done",
+  "riskLevel": "medium",
+  "changeTypes": [
+    "new-feature",
+    "frontend"
+  ],
+  "research": {
+    "required": true,
+    "status": "done",
+    "sources": [
+      "https://www.npmjs.com/package/agentpage",
+      "/Users/lixingwen/xw/study/ai-base/.worktrees/configurable-agent-platform/docs/design/agent-js-sdk-integration-brief.md"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": ["项目已按计划完成，功能符合需求"],
+  "approvalRecords": [],
+  "owner": "ai",
+  "createdAt": "2026-07-24",
+  "updatedAt": "2026-07-24",
+  "relatedPaths": [
+    "apps/ai-sdk",
+    ".worktrees/configurable-agent-platform/docs/design/agent-js-sdk-integration-brief.md"
+  ],
+  "notes": "创建 AI Agent JS SDK，支持 headless 模式和 floating 聊天窗口"
+}
