@@ -22,6 +22,11 @@ request 已在持久化 worktree 中恢复，任务 0（依赖与运行时配置
 - `poetry run black --check app/modules/agent tests/agent migrations/versions/20260723_0004_agent.py`：通过。
 - `poetry run alembic history`（任务 2）：通过，Agent 迁移 `20260723_0004` 为当前 head。
 - OpenAPI 构建检查：通过，生成 Agent 创建、版本创建、发布和回滚 4 个路径。
+- `poetry run pytest -q`（任务 3 基础）：通过，`56 passed`。
+- `poetry run ruff check app/modules/knowledge migrations/env.py migrations/versions/20260723_0005_knowledge.py tests/knowledge`：通过。
+- `poetry run black --check app/modules/knowledge tests/knowledge migrations/versions/20260723_0005_knowledge.py`：通过。
+- `poetry run alembic history`（任务 3 基础）：通过，知识库迁移 `20260723_0005` 为当前 head。
+- 知识库基础行为测试覆盖 LlamaIndex 切片、embedding 维度校验、非 HTTP URL、凭证 URL、回环地址和云元数据地址拒绝。
 
 ## 待执行
 
