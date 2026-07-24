@@ -14,6 +14,9 @@ request 已在持久化 worktree 中恢复，任务 0（依赖与运行时配置
 - `poetry run pytest -q`：通过，`43 passed`。
 - `poetry run ruff check .`：通过。
 - `poetry run python -c 'import langgraph, llama_index.core, mcp, celery, cryptography, httpx'`：通过。
+- `poetry run pytest tests/platform/test_platform_services.py -q`：通过，`2 passed`。
+- `poetry run ruff check app/modules/platform app/__init__.py migrations/env.py tests/platform`：通过。
+- `poetry run alembic history`：通过，平台迁移 `20260723_0003` 为当前 head。
 
 ## 待执行
 

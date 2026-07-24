@@ -1,0 +1,36 @@
+from fastapi import APIRouter, Depends, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database import get_db_session
+from app.core.security import require_current_active_user
+from app.modules.platform.repositories import PlatformRepository
+from app.modules.platform.schemas import PlatformCreate, PlatformRead
+from app.modules.platform.services import create_platform, get_platform
+from app.shared.responses import ApiResponse, success_response
+
+
+router = APIRouter(prefix="/platforms", tags=["platforms"])
+
+
+@router.post("", response_model=ApiResponse[PlatformRead], status_code=status.HTTP_201_CREATED)
+async def create_platform_endpoint(
+    payload: PlatformCreate,
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> ApiResponse[PlatformRead]:
+    platform = await create_platform(
+        PlatformRepository(session), payload, user_id=current_user.id
+    )
+    return success_response(data=platform, message="platform created")
+
+
+@router.get("/{platform_id}", response_model=ApiResponse[PlatformRead])
+async def get_platform_endpoint(
+    platform_id: int,
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> ApiResponse[PlatformRead]:
+    platform = await get_platform(
+        PlatformRepository(session), platform_id=platform_id, user_id=current_user.id
+    )
+    return success_response(data=platform)
