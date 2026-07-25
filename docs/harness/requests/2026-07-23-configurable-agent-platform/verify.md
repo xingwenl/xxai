@@ -32,16 +32,26 @@ request 已在持久化 worktree 中恢复，任务 0（依赖与运行时配置
 - OpenAPI 构建检查：通过，生成知识库配置、文件导入、URL 导入、文档状态和检索共 6 个路径。
 - Celery 注册检查：通过，`knowledge.ingest_document` 已注册。
 - embedding 配置变更会增加索引版本，并为已有文档创建新的导入任务。
-
-## 待执行
-
-- `poetry run black --check .`：未通过，仓库现有 29 个文件会被 Black 重新格式化；本次没有格式化无关文件，待后续集中处理或单独建任务。
-- 迁移、启动和安全测试将在后续实现任务完成后逐项记录。
-- 当前未启动 PostgreSQL、pgvector、Redis 和 Celery Worker，真实文件解析、外部 embedding 请求、向量查询及 Worker 重试需要在基础设施启动后联调。
 - `poetry run pytest -q`（任务 4）：通过，`64 passed`。
 - Skill 定向 Ruff 与 Black：通过。
 - `poetry run alembic history`（任务 4）：通过，Skill 迁移 `20260723_0006` 为当前 head。
 - Skill 测试覆盖声明式模板参数渲染和缺失参数拒绝；首期不执行上传脚本。
+- `poetry run pytest -q`（任务 5）：通过，`80 passed`。
+- `poetry run ruff check .`（任务 5）：通过。
+- `poetry run black --check app/modules/mcp tests/mcp migrations/versions/20260725_0007_mcp.py`：通过。
+- OpenAPI 构建检查：通过，生成 MCP 配置、工具同步、策略更新、Agent 绑定、工具调用、人工确认和审计查询共 7 个路径。
+- `poetry run alembic history`（任务 5）：通过，MCP 迁移 `20260725_0007` 为当前 head。
+- MCP 定向测试共 16 个，覆盖工具白名单、JSON Schema 参数校验、只读自动调用、副作用确认、拒绝、确认过期、原子领取防重复执行、审计脱敏、认证头加密、私网目标拒绝和官方 Streamable HTTP 客户端适配。
+- MCP 工具首次发现默认禁用且标记为高风险；远端工具 Schema 变化或工具消失时自动撤销已有白名单，要求管理员重新确认。
+- 增加显式 `greenlet` 运行依赖，修复 macOS arm64 下 Poetry 未安装 SQLAlchemy 异步运行依赖的问题。
+
+## 待执行
+
+- `poetry run black --check .`：未通过，仓库现有 33 个文件会被 Black 重新格式化；本次 MCP 新增文件均已通过定向 Black，没有格式化无关文件。
+- 迁移、启动和安全测试将在后续实现任务完成后逐项记录。
+- 当前未启动 PostgreSQL、pgvector、Redis 和 Celery Worker，真实文件解析、外部 embedding 请求、向量查询及 Worker 重试需要在基础设施启动后联调。
+- 本机 PostgreSQL 和 Redis 容器正在运行，但 worktree 默认数据库密码与容器配置不一致，`poetry run alembic current` 返回 `InvalidPasswordError`，因此未执行 `alembic upgrade head`。需要提供正确的 `DATABASE_URL` 后重做真实迁移验证。
+- 当前没有可用的远程 Streamable HTTP MCP 测试服务，官方 MCP 客户端已通过注入会话测试，真实服务的初始化、工具发现和调用仍需联调。
 
 ## 失败项与例外
 
