@@ -12,11 +12,11 @@ from app.modules.agent import models as agent_models  # noqa: F401
 from app.modules.knowledge import models as knowledge_models  # noqa: F401
 from app.modules.mcp import models as mcp_models  # noqa: F401
 from app.modules.skill import models as skill_models  # noqa: F401
+from app.modules.conversation import models as conversation_models  # noqa: F401
 from app.modules.role import models as role_models  # noqa: F401
 from app.modules.platform import models as platform_models  # noqa: F401
 from app.modules.user import models as user_models  # noqa: F401
 from app.shared.base_model import BaseModel
-
 
 config = context.config
 

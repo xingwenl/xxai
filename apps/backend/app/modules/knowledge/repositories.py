@@ -2,6 +2,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.knowledge.models import (
+    AgentKnowledgeBase,
     IngestionTask,
     KnowledgeBase,
     KnowledgeChunk,
@@ -27,6 +28,53 @@ class KnowledgeRepository:
             )
         )
         return result.scalar_one_or_none()
+
+    async def list_enabled_for_agent(self, agent_id: int, platform_id: int):
+        result = await self.session.execute(
+            select(KnowledgeBase)
+            .join(
+                AgentKnowledgeBase,
+                AgentKnowledgeBase.knowledge_base_id == KnowledgeBase.id,
+            )
+            .where(
+                AgentKnowledgeBase.agent_id == agent_id,
+                AgentKnowledgeBase.is_enabled.is_(True),
+                KnowledgeBase.platform_id == platform_id,
+            )
+            .order_by(AgentKnowledgeBase.sort_order, KnowledgeBase.id)
+        )
+        return list(result.scalars().all())
+
+    async def bind_to_agent(
+        self, agent_id: int, knowledge_base_id: int, platform_id: int, sort_order: int
+    ):
+        from app.modules.agent.models import Agent
+
+        agent = await self.session.scalar(
+            select(Agent).where(Agent.id == agent_id, Agent.platform_id == platform_id)
+        )
+        base = await self.get_base(knowledge_base_id, platform_id)
+        if agent is None or base is None:
+            return None
+        binding = await self.session.scalar(
+            select(AgentKnowledgeBase).where(
+                AgentKnowledgeBase.agent_id == agent_id,
+                AgentKnowledgeBase.knowledge_base_id == knowledge_base_id,
+            )
+        )
+        if binding is None:
+            binding = AgentKnowledgeBase(
+                agent_id=agent_id,
+                knowledge_base_id=knowledge_base_id,
+                sort_order=sort_order,
+            )
+            self.session.add(binding)
+        else:
+            binding.is_enabled = True
+            binding.sort_order = sort_order
+        await self.session.commit()
+        await self.session.refresh(binding)
+        return binding
 
     async def create_base(self, platform_id: int, payload: KnowledgeBaseCreate):
         values = payload.model_dump(exclude={"embedding_api_key"})

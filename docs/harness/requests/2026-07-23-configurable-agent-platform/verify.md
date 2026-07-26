@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-request 已在持久化 worktree 中恢复，任务 0（依赖与运行时配置）已完成，任务 1 开始前提交了 checkpoint。
+任务 6 已实现并完成单元级验证；真实数据库迁移和外部模型/MCP 联调仍未完成。
 
 ## 已执行
 
@@ -44,6 +44,13 @@ request 已在持久化 worktree 中恢复，任务 0（依赖与运行时配置
 - MCP 定向测试共 16 个，覆盖工具白名单、JSON Schema 参数校验、只读自动调用、副作用确认、拒绝、确认过期、原子领取防重复执行、审计脱敏、认证头加密、私网目标拒绝和官方 Streamable HTTP 客户端适配。
 - MCP 工具首次发现默认禁用且标记为高风险；远端工具 Schema 变化或工具消失时自动撤销已有白名单，要求管理员重新确认。
 - 增加显式 `greenlet` 运行依赖，修复 macOS arm64 下 Poetry 未安装 SQLAlchemy 异步运行依赖的问题。
+- 任务 6 定向测试：`poetry run pytest tests/conversation -q`，通过，`8 passed`。
+- 任务 6 全量测试：`poetry run pytest -q`，通过，`88 passed`。
+- 任务 6 全仓 Ruff：`poetry run ruff check .`，通过。
+- 任务 6 定向 Black：`poetry run black --check app/modules/conversation tests/conversation migrations/versions/20260725_0008_conversation.py app/modules/agent/models.py app/modules/agent/repositories.py app/modules/knowledge/models.py app/modules/knowledge/repositories.py app/modules/knowledge/router.py app/modules/knowledge/schemas.py app/modules/skill/models.py app/modules/skill/repositories.py app/modules/mcp/repositories.py migrations/env.py app/__init__.py`，通过。
+- OpenAPI 构建检查：通过，包含 `/api/v1/agents/{agent_id}/chat`。
+- `poetry run alembic history`：通过，`20260725_0008` 为当前 head。
+- SQLAlchemy mapper 检查：通过，Conversation、AgentKnowledgeBase 和已有模型可完成 mapper 配置。
 
 ## 待执行
 
@@ -52,6 +59,7 @@ request 已在持久化 worktree 中恢复，任务 0（依赖与运行时配置
 - 当前未启动 PostgreSQL、pgvector、Redis 和 Celery Worker，真实文件解析、外部 embedding 请求、向量查询及 Worker 重试需要在基础设施启动后联调。
 - 本机 PostgreSQL 和 Redis 容器正在运行，但 worktree 默认数据库密码与容器配置不一致，`poetry run alembic current` 返回 `InvalidPasswordError`，因此未执行 `alembic upgrade head`。需要提供正确的 `DATABASE_URL` 后重做真实迁移验证。
 - 当前没有可用的远程 Streamable HTTP MCP 测试服务，官方 MCP 客户端已通过注入会话测试，真实服务的初始化、工具发现和调用仍需联调。
+- `poetry run alembic upgrade head`：未执行成功；当前 worktree 数据库密码与本机 PostgreSQL 容器不一致，不能据此声称真实迁移通过。
 
 ## 失败项与例外
 

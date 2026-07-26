@@ -13,6 +13,7 @@ from app.modules.knowledge.schemas import (
     KnowledgeBaseCreate,
     KnowledgeBaseRead,
     KnowledgeBaseUpdate,
+    AgentKnowledgeBaseBind,
     KnowledgeSearchRequest,
     KnowledgeSearchResponse,
     UrlDocumentCreate,
@@ -204,3 +205,26 @@ async def search_endpoint(
         ]
     )
     return success_response(data=KnowledgeSearchResponse(citations=citations))
+
+
+@router.put("/{base_id}/agents/{agent_id}", response_model=ApiResponse[dict])
+async def bind_agent_endpoint(
+    platform_id: int,
+    base_id: int,
+    agent_id: int,
+    payload: AgentKnowledgeBaseBind,
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    await _require_admin(platform_id, current_user.id, session)
+    if payload.knowledge_base_id != base_id:
+        raise BadRequestException("knowledge base id does not match path")
+    binding = await KnowledgeRepository(session).bind_to_agent(
+        agent_id, base_id, platform_id, payload.sort_order
+    )
+    if binding is None:
+        raise NotFoundException("agent or knowledge base not found")
+    return success_response(
+        data={"agent_id": agent_id, "knowledge_base_id": base_id},
+        message="knowledge base bound",
+    )

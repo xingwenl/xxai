@@ -1,9 +1,11 @@
 from datetime import UTC, datetime
 
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.agent.models import Agent, AgentVersion
+from app.modules.platform.models import PlatformAdmin
 from app.modules.agent.schemas import AgentCreate, AgentVersionCreate
 from app.shared.base_repository import BaseRepository
 
@@ -23,6 +25,39 @@ class AgentRepository(BaseRepository[Agent]):
             select(Agent).where(Agent.id == agent_id, Agent.platform_id == platform_id)
         )
         return result.scalar_one_or_none()
+
+    async def get_published_agent(
+        self, agent_id: int, platform_id: int
+    ) -> Agent | None:
+        result = await self.session.execute(
+            select(Agent)
+            .options(selectinload(Agent.default_version))
+            .where(
+                Agent.id == agent_id,
+                Agent.platform_id == platform_id,
+                Agent.default_version_id.is_not(None),
+            )
+        )
+        agent = result.scalar_one_or_none()
+        if agent is None or agent.default_version is None:
+            return None
+        return agent if agent.default_version.published_at is not None else None
+
+    async def get_published_agent_for_user(self, agent_id: int, user_id: int):
+        result = await self.session.execute(
+            select(Agent)
+            .join(PlatformAdmin, PlatformAdmin.platform_id == Agent.platform_id)
+            .options(selectinload(Agent.default_version))
+            .where(
+                Agent.id == agent_id,
+                PlatformAdmin.user_id == user_id,
+                Agent.default_version_id.is_not(None),
+            )
+        )
+        agent = result.scalar_one_or_none()
+        if agent is None or agent.default_version is None:
+            return None
+        return agent if agent.default_version.published_at is not None else None
 
     async def create_agent(self, payload: AgentCreate, platform_id: int) -> Agent:
         count = await self.session.scalar(

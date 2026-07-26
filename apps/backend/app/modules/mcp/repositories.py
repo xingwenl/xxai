@@ -126,6 +126,30 @@ class McpRepository:
             )
         )
 
+    async def list_enabled_tools_for_agent(self, agent_id: int, platform_id: int):
+        return list(
+            (
+                await self.session.execute(
+                    select(McpTool)
+                    .join(McpServer, McpServer.id == McpTool.server_id)
+                    .join(
+                        AgentMcpServer,
+                        AgentMcpServer.server_id == McpServer.id,
+                    )
+                    .where(
+                        AgentMcpServer.agent_id == agent_id,
+                        AgentMcpServer.is_enabled.is_(True),
+                        McpServer.platform_id == platform_id,
+                        McpServer.is_active.is_(True),
+                        McpTool.is_allowed.is_(True),
+                    )
+                    .order_by(McpTool.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
     async def create_audit(self, *, tool, **values):
         audit = McpToolCallAudit(
             server_id=tool.server_id,

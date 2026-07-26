@@ -61,13 +61,13 @@
 
 **TDD 实施切分与 checkpoint：**
 
-- [ ] 6.1 先写 Conversation、Message、AgentKnowledgeBase 及平台/唯一约束失败测试，再写模型和迁移；执行定向测试与 `alembic history`，提交 checkpoint。
-- [ ] 6.2 先写 Agent 发布版本、绑定知识库、Skill 排序和 MCP 白名单加载器失败测试，再实现仓储和运行时能力对象；提交 checkpoint。
-- [ ] 6.3 先写 Citation/grounded 与无工具回答失败测试，再实现最小 LangGraph 图和 fake model 注入；提交 checkpoint。
-- [ ] 6.4 先写只读工具自动执行与副作用确认不执行失败测试，再接入 `invoke_tool()` 和工具结果限制；提交 checkpoint。
-- [ ] 6.5 先写 JSON 响应和权限隔离失败测试，再实现 chat router；提交 checkpoint。
-- [ ] 6.6 先写 SSE 事件顺序、完成、错误和客户端取消失败测试，再实现异步事件生成器；提交 checkpoint。
-- [ ] 6.7 执行定向/全量验证，更新 Harness 文档；数据库密码不正确时不得声称真实迁移通过，提交最终 checkpoint。
+- [x] 6.1 先写 Conversation、Message、AgentKnowledgeBase 及平台/唯一约束失败测试，再写模型和迁移；执行定向测试与 `alembic history`，提交 checkpoint。
+- [x] 6.2 先写 Agent 发布版本、绑定知识库、Skill 排序和 MCP 白名单加载器失败测试，再实现仓储和运行时能力对象；提交 checkpoint。
+- [x] 6.3 先写 Citation/grounded 与无工具回答失败测试，再实现最小 LangGraph 图和 fake model 注入；提交 checkpoint。
+- [x] 6.4 先写只读工具自动执行与副作用确认不执行失败测试，再接入 `invoke_tool()` 和工具结果限制；提交 checkpoint。
+- [x] 6.5 先写 JSON 响应和权限隔离失败测试，再实现 chat router；提交 checkpoint。
+- [x] 6.6 先写 SSE 事件顺序、完成、错误和客户端取消失败测试，再实现异步事件生成器；提交 checkpoint。
+- [x] 6.7 执行定向/全量验证，更新 Harness 文档；数据库密码不正确时不得声称真实迁移通过，提交最终 checkpoint。
 
 ### 验证与回滚
 

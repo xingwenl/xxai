@@ -75,3 +75,8 @@ class KnowledgeSearchRequest(BaseModel):
 
 class KnowledgeSearchResponse(BaseModel):
     citations: list[Citation]
+
+
+class AgentKnowledgeBaseBind(BaseModel):
+    knowledge_base_id: int = Field(ge=1)
+    sort_order: int = Field(default=0, ge=0)

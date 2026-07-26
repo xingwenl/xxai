@@ -42,6 +42,9 @@ class Agent(BaseModel, TimeModel):
         cascade="all, delete-orphan",
         lazy="selectin",
     )
+    default_version: Mapped[AgentVersion | None] = relationship(
+        foreign_keys=[default_version_id], uselist=False, viewonly=True
+    )
 
 
 class AgentVersion(BaseModel):

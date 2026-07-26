@@ -3,7 +3,15 @@ from __future__ import annotations
 from typing import Any
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import ForeignKey, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    ForeignKey,
+    Integer,
+    JSON,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.base_model import BaseModel, TimeModel
@@ -31,6 +39,25 @@ class KnowledgeBase(BaseModel, TimeModel):
     )
     chunk_overlap: Mapped[int] = mapped_column(
         Integer, nullable=False, default=50, server_default="50"
+    )
+
+
+class AgentKnowledgeBase(BaseModel, TimeModel):
+    __tablename__ = "agent_knowledge_bases"
+    __table_args__ = (UniqueConstraint("agent_id", "knowledge_base_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    agent_id: Mapped[int] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), index=True
+    )
+    knowledge_base_id: Mapped[int] = mapped_column(
+        ForeignKey("knowledge_bases.id", ondelete="CASCADE"), index=True
+    )
+    is_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    sort_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
     )
 
 

@@ -9,7 +9,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.shared.base_model import BaseModel, TimeModel
 
@@ -54,3 +54,4 @@ class AgentSkill(BaseModel, TimeModel):
     is_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
+    skill: Mapped[Skill] = relationship(lazy="joined")

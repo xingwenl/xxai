@@ -23,6 +23,20 @@ class SkillRepository:
         await self.session.refresh(skill)
         return skill
 
+    async def list_enabled_for_agent(self, agent_id: int, platform_id: int):
+        result = await self.session.execute(
+            select(AgentSkill)
+            .join(Skill, Skill.id == AgentSkill.skill_id)
+            .where(
+                AgentSkill.agent_id == agent_id,
+                AgentSkill.is_enabled.is_(True),
+                Skill.platform_id == platform_id,
+                Skill.is_active.is_(True),
+            )
+            .order_by(AgentSkill.sort_order, AgentSkill.id)
+        )
+        return list(result.scalars().all())
+
     async def bind(self, platform_id: int, agent_id: int, payload: AgentSkillBind):
         agent = await self.session.scalar(
             select(Agent).where(Agent.id == agent_id, Agent.platform_id == platform_id)
