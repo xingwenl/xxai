@@ -1,5 +1,9 @@
 # Changelog
 
+## - 2026-07-26
+- 📝 docs：完成可配置 Agent 第一阶段验收 `🧑‍💻 lixingwen`
+- 🐛 fix：固定 AI Agent SDK 兼容的 TypeScript 版本 `🧑‍💻 lixingwen`
+
 ## - 2026-07-24
 - ✨ feat：新增 AI Agent JavaScript SDK，包含核心客户端、WebSocket 传输、工具注册和 UI 组件 `🧑‍💻 lixingwen`
 

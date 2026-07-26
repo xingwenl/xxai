@@ -1,0 +1,19 @@
+{
+  "id": "2026-07-23-configurable-agent-platform",
+  "title": "多平台可配置 AI Agent 第一阶段",
+  "scope": "backend",
+  "phase": "acceptance",
+  "status": "done",
+  "riskLevel": "high",
+  "changeTypes": ["architecture", "data-model", "api", "auth", "docs"],
+  "research": {"required": true, "status": "completed", "sources": ["LangGraph", "LlamaIndex", "MCP", "Dify", "pgvector", "Celery", "OWASP SSRF", "SSE"], "decisionRecorded": true},
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": ["架构、数据模型、API 和鉴权变化"],
+  "approvalRecords": [{"by": "user", "at": "2026-07-24", "scope": "继续重建并采用持久化 worktree", "note": "用户确认继续实现。"}],
+  "owner": "ai",
+  "createdAt": "2026-07-23",
+  "updatedAt": "2026-07-26",
+  "relatedPaths": ["apps/backend", "docs/harness/requests/2026-07-23-configurable-agent-platform"],
+  "notes": "第一阶段已完成验收，持久化 worktree：.worktrees/configurable-agent-platform；合并后启动 JS SDK 与 WebSocket 第二阶段 request。"
+}
