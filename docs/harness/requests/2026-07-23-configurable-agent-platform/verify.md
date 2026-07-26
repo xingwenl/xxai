@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-任务 6 已实现并完成单元级验证；真实数据库迁移和外部模型/MCP 联调仍未完成。
+任务 6 已实现并完成第一阶段约定的代码、单元测试和静态检查验证；真实数据库迁移和外部模型/MCP 联调作为剩余运行时风险保留。
 
 ## 已执行
 
@@ -52,6 +52,7 @@
 - `poetry run alembic history`：通过，`20260725_0008` 为当前 head。
 - SQLAlchemy mapper 检查：通过，Conversation、AgentKnowledgeBase 和已有模型可完成 mapper 配置。
 - SSE 流式单元测试：通过，`stream_graph()` 使用 `astream` 逐段发送 `message_delta`，结束后持久化最终结果；工具调用场景仍使用一次运行完成后的结构化事件路径。
+- 合并前全量测试（2026-07-26）：`poetry run pytest -q`，通过，`89 passed in 4.02s`。
 
 ## 待执行
 
