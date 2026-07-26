@@ -2,6 +2,7 @@ from app.modules.conversation.repositories import ConversationRepository
 from app.modules.conversation.runtime import (
     build_system_prompt,
     run_graph,
+    stream_graph,
 )
 from app.modules.knowledge.runtime import build_embedding_model
 from app.modules.knowledge.services import build_citations, validate_embedding_dimension
@@ -74,3 +75,57 @@ async def execute_chat(
         knowledge_grounded=result.knowledge_grounded,
     )
     return conversation, assistant, result
+
+
+async def stream_chat(
+    repo: ConversationRepository,
+    context,
+    *,
+    platform_id: int,
+    user_id: int,
+    message: str,
+    conversation_id: int | None,
+    model,
+    citations: list[dict],
+):
+    conversation = None
+    if conversation_id is not None:
+        conversation = await repo.get(conversation_id, platform_id, user_id)
+        if conversation is None or conversation.agent_id != context.agent.id:
+            raise NotFoundException("conversation not found")
+    if conversation is None:
+        conversation = await repo.create(
+            platform_id, context.agent.id, user_id, message
+        )
+    await repo.create_message(
+        conversation.id,
+        role="user",
+        content=message,
+        citations=[],
+        knowledge_grounded=False,
+    )
+    async for item in stream_graph(
+        model,
+        system_prompt=build_system_prompt(
+            context.version, context.skill_instructions, citations
+        ),
+        user_message=message,
+        citations=citations,
+    ):
+        if item["type"] == "message_delta":
+            yield {"type": "message_delta", "conversation": conversation, **item}
+            continue
+        result = item["result"]
+        assistant = await repo.create_message(
+            conversation.id,
+            role="assistant",
+            content=result.content,
+            citations=result.citations,
+            knowledge_grounded=result.knowledge_grounded,
+        )
+        yield {
+            "type": "completed",
+            "conversation": conversation,
+            "assistant": assistant,
+            "result": result,
+        }

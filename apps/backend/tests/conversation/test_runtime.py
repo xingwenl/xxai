@@ -9,6 +9,7 @@ from app.modules.conversation.runtime import (
     format_sse_event,
     load_runtime_context,
     run_graph,
+    stream_graph,
 )
 
 
@@ -210,3 +211,30 @@ def test_sse_event_has_stable_envelope_and_event_name():
     assert event.startswith("event: message_completed\n")
     assert '"sequence":2' in event
     assert event.endswith("\n\n")
+
+
+class StreamingChatModel:
+    async def astream(self, messages):
+        for content in ("退款", "规则是 30 天。"):
+            yield AIMessage(content=content)
+
+
+def test_graph_streams_model_deltas_and_returns_final_result():
+    async def collect():
+        deltas = []
+        final = None
+        async for item in stream_graph(
+            StreamingChatModel(),
+            system_prompt="回答问题",
+            user_message="退款规则是什么？",
+        ):
+            if item["type"] == "message_delta":
+                deltas.append(item["content"])
+            else:
+                final = item
+        return deltas, final
+
+    deltas, final = asyncio.run(collect())
+
+    assert deltas == ["退款", "规则是 30 天。"]
+    assert final["result"].content == "退款规则是 30 天。"

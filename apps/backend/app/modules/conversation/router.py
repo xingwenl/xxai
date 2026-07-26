@@ -10,7 +10,11 @@ from app.modules.agent.repositories import AgentRepository
 from app.modules.agent.services import build_chat_model
 from app.modules.conversation.repositories import ConversationRepository
 from app.modules.conversation.schemas import ChatRequest, ChatResponse
-from app.modules.conversation.services import execute_chat, retrieve_citations
+from app.modules.conversation.services import (
+    execute_chat,
+    retrieve_citations,
+    stream_chat,
+)
 from app.modules.conversation.runtime import format_sse_event, load_runtime_context
 from app.modules.knowledge.repositories import KnowledgeRepository
 from app.modules.mcp.repositories import McpRepository
@@ -23,7 +27,7 @@ from app.shared.responses import success_response
 router = APIRouter(prefix="/agents", tags=["conversation"])
 
 
-async def _execute(
+async def _prepare(
     agent_id: int,
     payload: ChatRequest,
     current_user,
@@ -57,6 +61,18 @@ async def _execute(
             **kwargs,
         )
 
+    return agent, context, citations, invoke
+
+
+async def _execute(
+    agent_id: int,
+    payload: ChatRequest,
+    current_user,
+    session: AsyncSession,
+):
+    agent, context, citations, invoke = await _prepare(
+        agent_id, payload, current_user, session
+    )
     return await execute_chat(
         ConversationRepository(session),
         context,
@@ -93,47 +109,112 @@ async def chat_endpoint(
 
     async def events() -> AsyncIterator[str]:
         try:
-            conversation, assistant, result = await _execute(
+            agent, context, citations, invoke = await _prepare(
                 agent_id, payload, current_user, session
             )
             sequence = 0
 
-            def emit(event_type: str, payload_data: dict, message_id=assistant.id):
+            def emit(
+                event_type: str,
+                payload_data: dict,
+                conversation_id: int,
+                message_id: int | None,
+            ):
                 nonlocal sequence
                 sequence += 1
                 return format_sse_event(
                     {
                         "type": event_type,
-                        "conversation_id": conversation.id,
+                        "conversation_id": conversation_id,
                         "message_id": message_id,
                         "sequence": sequence,
                         "payload": payload_data,
                     }
                 )
 
-            for citation in result.citations:
-                yield emit("citation", citation)
-            for tool_event in result.tool_events or []:
-                yield emit("tool_call", {"tool": tool_event["tool"]})
-                outcome = tool_event["outcome"]
-                yield emit(
-                    (
-                        "confirmation_required"
-                        if outcome.status == "confirmation_required"
-                        else "tool_result"
-                    ),
-                    outcome.model_dump(),
+            if context.mcp_tools:
+                conversation, assistant, result = await execute_chat(
+                    ConversationRepository(session),
+                    context,
+                    platform_id=agent.platform_id,
+                    user_id=current_user.id,
+                    message=payload.message,
+                    conversation_id=payload.conversation_id,
+                    model=build_chat_model(context.version),
+                    citations=[citation.model_dump() for citation in citations],
+                    invoke_tool_fn=invoke,
                 )
-            if result.content:
-                yield emit("message_delta", {"content": result.content})
-            yield emit(
-                "message_completed",
-                {
-                    "content": result.content,
-                    "citations": result.citations,
-                    "knowledge_grounded": result.knowledge_grounded,
-                },
-            )
+                for citation in result.citations:
+                    yield emit("citation", citation, conversation.id, assistant.id)
+                for tool_event in result.tool_events or []:
+                    yield emit(
+                        "tool_call",
+                        {"tool": tool_event["tool"]},
+                        conversation.id,
+                        assistant.id,
+                    )
+                    outcome = tool_event["outcome"]
+                    yield emit(
+                        (
+                            "confirmation_required"
+                            if outcome.status == "confirmation_required"
+                            else "tool_result"
+                        ),
+                        outcome.model_dump(),
+                        conversation.id,
+                        assistant.id,
+                    )
+                if result.content:
+                    yield emit(
+                        "message_delta",
+                        {"content": result.content},
+                        conversation.id,
+                        assistant.id,
+                    )
+                yield emit(
+                    "message_completed",
+                    {
+                        "content": result.content,
+                        "citations": result.citations,
+                        "knowledge_grounded": result.knowledge_grounded,
+                    },
+                    conversation.id,
+                    assistant.id,
+                )
+            else:
+                async for item in stream_chat(
+                    ConversationRepository(session),
+                    context,
+                    platform_id=agent.platform_id,
+                    user_id=current_user.id,
+                    message=payload.message,
+                    conversation_id=payload.conversation_id,
+                    model=build_chat_model(context.version),
+                    citations=[citation.model_dump() for citation in citations],
+                ):
+                    conversation = item["conversation"]
+                    if item["type"] == "message_delta":
+                        yield emit(
+                            "message_delta",
+                            {"content": item["content"]},
+                            conversation.id,
+                            None,
+                        )
+                        continue
+                    assistant = item["assistant"]
+                    result = item["result"]
+                    for citation in result.citations:
+                        yield emit("citation", citation, conversation.id, assistant.id)
+                    yield emit(
+                        "message_completed",
+                        {
+                            "content": result.content,
+                            "citations": result.citations,
+                            "knowledge_grounded": result.knowledge_grounded,
+                        },
+                        conversation.id,
+                        assistant.id,
+                    )
         except Exception:
             yield format_sse_event(
                 {

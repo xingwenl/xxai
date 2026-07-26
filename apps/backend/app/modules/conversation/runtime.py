@@ -37,6 +37,50 @@ def format_sse_event(event: dict[str, Any]) -> str:
     )
 
 
+async def stream_graph(
+    model,
+    *,
+    system_prompt: str,
+    user_message: str,
+    citations: list[dict[str, Any]] | None = None,
+):
+    if not hasattr(model, "astream"):
+        result = await run_graph(
+            model,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            citations=citations,
+        )
+        if result.content:
+            yield {"type": "message_delta", "content": result.content}
+        yield {"type": "completed", "result": result}
+        return
+    content_parts = []
+    async for chunk in model.astream(
+        [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_message),
+        ]
+    ):
+        content = chunk.content
+        if not isinstance(content, str):
+            content = "".join(
+                item.get("text", "") if isinstance(item, dict) else str(item)
+                for item in content
+            )
+        if content:
+            content_parts.append(content)
+            yield {"type": "message_delta", "content": content}
+    yield {
+        "type": "completed",
+        "result": GraphResult(
+            content="".join(content_parts),
+            citations=citations or [],
+            knowledge_grounded=bool(citations),
+        ),
+    }
+
+
 async def run_graph(
     model,
     *,

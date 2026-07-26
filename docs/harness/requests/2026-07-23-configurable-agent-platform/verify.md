@@ -44,13 +44,14 @@
 - MCP 定向测试共 16 个，覆盖工具白名单、JSON Schema 参数校验、只读自动调用、副作用确认、拒绝、确认过期、原子领取防重复执行、审计脱敏、认证头加密、私网目标拒绝和官方 Streamable HTTP 客户端适配。
 - MCP 工具首次发现默认禁用且标记为高风险；远端工具 Schema 变化或工具消失时自动撤销已有白名单，要求管理员重新确认。
 - 增加显式 `greenlet` 运行依赖，修复 macOS arm64 下 Poetry 未安装 SQLAlchemy 异步运行依赖的问题。
-- 任务 6 定向测试：`poetry run pytest tests/conversation -q`，通过，`8 passed`。
-- 任务 6 全量测试：`poetry run pytest -q`，通过，`88 passed`。
+- 任务 6 定向测试：`poetry run pytest tests/conversation -q`，通过，`9 passed`。
+- 任务 6 全量测试：`poetry run pytest -q`，通过，`89 passed`。
 - 任务 6 全仓 Ruff：`poetry run ruff check .`，通过。
 - 任务 6 定向 Black：`poetry run black --check app/modules/conversation tests/conversation migrations/versions/20260725_0008_conversation.py app/modules/agent/models.py app/modules/agent/repositories.py app/modules/knowledge/models.py app/modules/knowledge/repositories.py app/modules/knowledge/router.py app/modules/knowledge/schemas.py app/modules/skill/models.py app/modules/skill/repositories.py app/modules/mcp/repositories.py migrations/env.py app/__init__.py`，通过。
 - OpenAPI 构建检查：通过，包含 `/api/v1/agents/{agent_id}/chat`。
 - `poetry run alembic history`：通过，`20260725_0008` 为当前 head。
 - SQLAlchemy mapper 检查：通过，Conversation、AgentKnowledgeBase 和已有模型可完成 mapper 配置。
+- SSE 流式单元测试：通过，`stream_graph()` 使用 `astream` 逐段发送 `message_delta`，结束后持久化最终结果；工具调用场景仍使用一次运行完成后的结构化事件路径。
 
 ## 待执行
 
