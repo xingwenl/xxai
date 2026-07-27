@@ -2,7 +2,7 @@
   "id": "2026-07-26-agent-sdk-websocket-foundation",
   "title": "AI Agent SDK WebSocket 连接与聊天基础",
   "scope": "fullstack",
-  "phase": "plan",
+  "phase": "implement",
   "status": "active",
   "riskLevel": "high",
   "changeTypes": ["architecture", "data-model", "api", "auth", "sdk", "docs"],
@@ -13,12 +13,19 @@
     "decisionRecorded": true
   },
   "approvalRequired": true,
-  "approvalGranted": false,
+  "approvalGranted": true,
   "approvalReasons": ["新增 WebSocket 架构边界", "新增 Embed Client 和平台最终用户数据模型", "新增 token exchange 与线协议", "新增嵌入式鉴权和权限行为"],
-  "approvalRecords": [],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-07-27",
+      "scope": "Phase 2A：原生 ai-agent.v1 WebSocket、Embed Client 短期 token、PlatformEndUser 与 Conversation 双主体、Redis Streams 15 分钟事件窗口，以及 Phase 2A 仅实施连接与聊天",
+      "note": "用户确认按当前 research.md、spec.md 和 plan.md 方案继续实现；宿主工具进入后续 Phase 2B。"
+    }
+  ],
   "owner": "ai",
   "createdAt": "2026-07-26",
-  "updatedAt": "2026-07-26",
+  "updatedAt": "2026-07-27",
   "relatedPaths": ["apps/backend", "apps/ai-sdk", "docs/design/agent-sdk-phase-2-requirements.md", "docs/harness/requests/2026-07-26-agent-sdk-websocket-foundation"],
   "notes": "完整需求已拆为 Phase 2A/2B/2C/2D；本 request 只实施 Phase 2A。进入 implement 前必须取得人工确认。"
 }

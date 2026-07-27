@@ -156,3 +156,11 @@ token TTL 默认 600 秒，允许范围 300 至 900 秒。签名算法来自服�
 - 变更内容：定义 Embed Client、平台最终用户、token exchange、WebSocket 协议、Redis 恢复和 SDK 真实接入。
 - 影响章节：全部。
 - 是否触发人工确认：是，涉及架构、数据模型、API 和鉴权。
+
+### 2026-07-27 方案确认
+
+- 变更原因：用户确认 Phase 2A 的架构、数据模型、API 和鉴权方案，解除实现前审批停点。
+- 变更内容：确认使用原生 `ai-agent.v1` WebSocket、Embed Client 服务端换取 5 至 15 分钟 token、`PlatformEndUser` 与 Conversation 双主体、Redis Streams 15 分钟事件窗口；本 request 不实现宿主工具。
+- 影响章节：范围、非目标、风险、停点判断、验收标准。
+- 是否触发人工确认：是，已于 2026-07-27 获得用户确认。
+- 关联计划更新：Task 0 审批步骤完成，进入 `implement` 阶段。

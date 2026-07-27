@@ -25,11 +25,11 @@
 - Modify: `docs/harness/requests/2026-07-26-agent-sdk-websocket-foundation/spec.md`
 - Modify: `docs/harness/requests/2026-07-26-agent-sdk-websocket-foundation/plan.md`
 
-- [ ] **Step 1:** 向用户提交以下整体方案确认：原生 WebSocket、Embed Client 短期 token、PlatformEndUser、Conversation 双主体、Redis Streams、Phase 2A 不做宿主工具。
-- [ ] **Step 2:** 用户确认后，在 `approvalRecords` 记录确认人、日期、范围和备注，将 `approvalGranted=true`。
-- [ ] **Step 3:** 若用户改变数据主体、token 或网关方案，先更新 `research.md` 方案比较和 `spec.md`，再重新确认。
-- [ ] **Step 4:** 运行 `python3 -m json.tool .../meta.json` 和 `git diff --check`。
-- [ ] **Step 5:** 提交 `docs(agent-sdk): 确认 WebSocket 基础方案`。
+- [x] **Step 1:** 向用户提交以下整体方案确认：原生 WebSocket、Embed Client 短期 token、PlatformEndUser、Conversation 双主体、Redis Streams、Phase 2A 不做宿主工具。
+- [x] **Step 2:** 用户确认后，在 `approvalRecords` 记录确认人、日期、范围和备注，将 `approvalGranted=true`。
+- [x] **Step 3:** 若用户改变数据主体、token 或网关方案，先更新 `research.md` 方案比较和 `spec.md`，再重新确认。
+- [x] **Step 4:** 运行 `python3 -m json.tool .../meta.json` 和 `git diff --check`。
+- [x] **Step 5:** 提交 `docs(agent-sdk): 确认 WebSocket 基础方案`。
 
 ### Task 1：测试基础设施与协议契约
 
