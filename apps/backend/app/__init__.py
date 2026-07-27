@@ -17,6 +17,7 @@ from app.modules.platform.router import router as platform_router
 from app.modules.system.router import router as system_router
 from app.modules.user.router import router as user_router
 from app.modules.conversation.router import router as conversation_router
+from app.modules.embed.router import router as embed_router
 from app.shared.exceptions import register_exception_handlers
 
 
@@ -54,4 +55,5 @@ def create_app() -> FastAPI:
     app.include_router(platform_router, prefix=settings.api_v1_prefix)
     app.include_router(user_router, prefix=settings.api_v1_prefix)
     app.include_router(conversation_router, prefix=settings.api_v1_prefix)
+    app.include_router(embed_router, prefix=settings.api_v1_prefix)
     return app

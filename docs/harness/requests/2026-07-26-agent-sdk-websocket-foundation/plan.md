@@ -85,12 +85,12 @@
 - Create: `apps/backend/tests/embed/test_client_services.py`
 - Create: `apps/backend/tests/embed/test_token_routes.py`
 
-- [ ] **Step 1:** 先写管理权限和 secret 一次展示失败测试。
-- [ ] **Step 2:** 写 token 失败测试：错误 secret、禁用 Client、未绑定 Agent、跨平台 Agent、非法 TTL、重复 external_user_id 映射、audience/issuer/alg 错误。
-- [ ] **Step 3:** 实现 Client CRUD、密钥轮换和 Agent 绑定；所有查询带 platform_id。
-- [ ] **Step 4:** 实现 Client 认证和 token 签发/验证；使用与后台 access token 不同的 audience、依赖和配置项。
-- [ ] **Step 5:** 实现 Redis jti 撤销，Redis key TTL 不超过 token 剩余寿命。
-- [ ] **Step 6:** 运行定向测试、OpenAPI 构建、Ruff/Black 并提交 `feat(embed): issue scoped session tokens`。
+- [x] **Step 1:** 先写管理权限和 secret 一次展示失败测试。
+- [x] **Step 2:** 写 token 失败测试：错误 secret、禁用 Client、未绑定 Agent、跨平台 Agent、非法 TTL、重复 external_user_id 映射、audience/issuer/alg 错误。
+- [x] **Step 3:** 实现 Client CRUD、密钥轮换和 Agent 绑定；所有查询带 platform_id。
+- [x] **Step 4:** 实现 Client 认证和 token 签发/验证；使用与后台 access token 不同的 audience、依赖和配置项。
+- [x] **Step 5:** 实现 Redis jti 撤销，Redis key TTL 不超过 token 剩余寿命。
+- [x] **Step 6:** 运行定向测试、OpenAPI 构建、Ruff/Black 并提交 `feat(embed): issue scoped session tokens`。
 
 ### Task 4：WebSocket 认证与连接生命周期
 
