@@ -17,11 +17,54 @@ class ConversationRepository:
             )
         )
 
+    async def get_for_principal(
+        self,
+        conversation_id: int,
+        platform_id: int,
+        *,
+        user_id: int | None = None,
+        end_user_id: int | None = None,
+    ):
+        statement = select(Conversation).where(
+            Conversation.id == conversation_id,
+            Conversation.platform_id == platform_id,
+        )
+        if user_id is not None:
+            statement = statement.where(Conversation.user_id == user_id)
+        elif end_user_id is not None:
+            statement = statement.where(
+                Conversation.platform_end_user_id == end_user_id
+            )
+        else:
+            return None
+        return await self.session.scalar(statement)
+
     async def create(self, platform_id: int, agent_id: int, user_id: int, title: str):
         conversation = Conversation(
             platform_id=platform_id,
             agent_id=agent_id,
             user_id=user_id,
+            title=title[:255],
+        )
+        self.session.add(conversation)
+        await self.session.commit()
+        await self.session.refresh(conversation)
+        return conversation
+
+    async def create_for_principal(
+        self,
+        platform_id: int,
+        agent_id: int,
+        *,
+        user_id: int | None = None,
+        end_user_id: int | None = None,
+        title: str,
+    ):
+        conversation = Conversation(
+            platform_id=platform_id,
+            agent_id=agent_id,
+            user_id=user_id,
+            platform_end_user_id=end_user_id,
             title=title[:255],
         )
         self.session.add(conversation)

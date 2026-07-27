@@ -122,12 +122,12 @@
 - Create: `apps/backend/tests/gateway/test_chat_flow.py`
 - Create: `apps/backend/tests/gateway/test_cancel.py`
 
-- [ ] **Step 1:** 先写端到端 fake model 失败测试，固定 started/delta/citation/completed 顺序和 sequence。
-- [ ] **Step 2:** 写内部用户与 embed 主体 Conversation 隔离失败测试。
-- [ ] **Step 3:** 写相同 requestId 幂等和 message_cancel 失败测试，断言取消后模型迭代停止且不执行后续工具。
-- [ ] **Step 4:** 抽取 HTTP/SSE/WebSocket 共用的事件语义适配层，避免复制 Agent Runtime。
-- [ ] **Step 5:** 实现 WebSocket message_send、MCP 状态事件和结构化错误。
-- [ ] **Step 6:** 运行 conversation + gateway 定向测试和全量 pytest，提交 `feat(gateway): stream agent conversations over websocket`。
+- [x] **Step 1:** 先写端到端 fake model 失败测试，固定 started/delta/citation/completed 顺序和 sequence。
+- [x] **Step 2:** 写内部用户与 embed 主体 Conversation 隔离失败测试。
+- [x] **Step 3:** 写相同 requestId 幂等和 message_cancel 失败测试，断言取消后模型迭代停止且不执行后续工具。
+- [x] **Step 4:** 抽取 HTTP/SSE/WebSocket 共用的事件语义适配层，避免复制 Agent Runtime。
+- [x] **Step 5:** 实现 WebSocket message_send、MCP 状态事件和结构化错误。
+- [x] **Step 6:** 运行 conversation + gateway 定向测试和全量 pytest，提交 `feat(gateway): stream agent conversations over websocket`。
 
 ### Task 6：Redis Streams 重放与消息快照
 
