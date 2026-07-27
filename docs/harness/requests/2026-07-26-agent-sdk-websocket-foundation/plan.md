@@ -44,12 +44,12 @@
 - Create: `apps/ai-sdk/src/core/__tests__/protocol.test.ts`
 - Modify: `apps/ai-sdk/src/core/types.ts`
 
-- [ ] **Step 1:** 后端先写失败测试，固定 camelCase envelope、snake_case type、protocolVersion=1、requestId、sequence 和结构化 error。
-- [ ] **Step 2:** 运行 `poetry run pytest tests/gateway/test_protocol.py -q`，确认因协议模型缺失失败。
-- [ ] **Step 3:** SDK 安装 Vitest，先写同一组 JSON fixture 的解析失败测试，覆盖未知主版本、缺失字段和未知可选字段。
-- [ ] **Step 4:** 运行 `npm run test -- --run src/core/__tests__/protocol.test.ts`，确认因解析器缺失失败。
-- [ ] **Step 5:** 实现两端最小协议模型和判别联合；核心事件不保留无边界 `Record<string, unknown>`。
-- [ ] **Step 6:** 重跑两端定向测试、SDK type-check，并提交 `feat(agent-sdk): define websocket protocol v1`。
+- [x] **Step 1:** 后端先写失败测试，固定 camelCase envelope、snake_case type、protocolVersion=1、requestId、sequence 和结构化 error。
+- [x] **Step 2:** 运行 `poetry run pytest tests/gateway/test_protocol.py -q`，确认因协议模型缺失失败。
+- [x] **Step 3:** SDK 安装 Vitest，先写同一组 JSON fixture 的解析失败测试，覆盖未知主版本、缺失字段和未知可选字段。
+- [x] **Step 4:** 运行 `npm run test -- --run src/core/__tests__/protocol.test.ts`，确认因解析器缺失失败。
+- [x] **Step 5:** 实现两端最小协议模型和判别联合；核心事件不保留无边界 `Record<string, unknown>`。
+- [x] **Step 6:** 重跑两端定向测试、SDK type-check，并提交 `feat(agent-sdk): define websocket protocol v1`。
 
 ### Task 2：Embed Client 与平台最终用户数据模型
 

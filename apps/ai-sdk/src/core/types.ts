@@ -9,7 +9,7 @@ export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
 export type MessageType =
   | 'text'
-  | 'text_delta'
+  | 'message_delta'
   | 'tool_call'
   | 'tool_result'
   | 'citation'
@@ -116,8 +116,10 @@ export interface AgentClientOptions {
 export interface WebSocketMessage {
   id: string
   type: string
+  protocolVersion?: 1
   conversationId?: string
   requestId?: string
+  sequence?: number
   timestamp: string
   payload: Record<string, unknown>
 }
