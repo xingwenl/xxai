@@ -66,11 +66,11 @@
 - Create: `apps/backend/tests/embed/test_models.py`
 - Create: `apps/backend/tests/conversation/test_principals.py`
 
-- [ ] **Step 1:** 先写失败测试：Client code 唯一、Client-Agent 唯一、平台最终用户外部 ID 唯一、Conversation 恰好一个主体、现有内部会话不变。
-- [ ] **Step 2:** 运行定向测试确认模型和迁移缺失。
-- [ ] **Step 3:** 实现模型、仓储和迁移；secret 仅保存 Argon2/现有密码哈希工具产生的 hash，allowed_origins 使用规范化 JSON 数组。
-- [ ] **Step 4:** 运行 mapper 检查、`alembic history`、upgrade/downgrade 临时数据库测试和 Conversation 回归测试。
-- [ ] **Step 5:** 提交 `feat(embed): add clients and platform end users`。
+- [x] **Step 1:** 先写失败测试：Client code 唯一、Client-Agent 唯一、平台最终用户外部 ID 唯一、Conversation 恰好一个主体、现有内部会话不变。
+- [x] **Step 2:** 运行定向测试确认模型和迁移缺失。
+- [x] **Step 3:** 实现模型、仓储和迁移；secret 仅保存 Argon2/现有密码哈希工具产生的 hash，allowed_origins 使用规范化 JSON 数组。
+- [x] **Step 4:** 运行 mapper 检查、`alembic history`、upgrade/downgrade 临时数据库测试和 Conversation 回归测试。
+- [x] **Step 5:** 提交 `feat(embed): add clients and platform end users`。
 
 ### Task 3：Embed Client 管理与 token exchange
 

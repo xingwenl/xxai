@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from sqlalchemy import ForeignKey, JSON, String, Text
+from sqlalchemy import CheckConstraint, ForeignKey, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.base_model import BaseModel, TimeModel
@@ -10,6 +10,13 @@ from app.shared.base_model import BaseModel, TimeModel
 
 class Conversation(BaseModel, TimeModel):
     __tablename__ = "conversations"
+    __table_args__ = (
+        CheckConstraint(
+            "(user_id IS NOT NULL AND platform_end_user_id IS NULL) OR "
+            "(user_id IS NULL AND platform_end_user_id IS NOT NULL)",
+            name="ck_conversations_exactly_one_principal",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     platform_id: Mapped[int] = mapped_column(
@@ -18,8 +25,13 @@ class Conversation(BaseModel, TimeModel):
     agent_id: Mapped[int] = mapped_column(
         ForeignKey("agents.id", ondelete="CASCADE"), index=True
     )
-    user_id: Mapped[int] = mapped_column(
-        ForeignKey("sys_users.id", ondelete="CASCADE"), index=True
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("sys_users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    platform_end_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("platform_end_users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
     )
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(
