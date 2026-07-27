@@ -104,11 +104,11 @@
 - Create: `apps/backend/tests/gateway/test_authentication.py`
 - Create: `apps/backend/tests/gateway/test_connection_limits.py`
 
-- [ ] **Step 1:** 先写 WebSocket TestClient 失败测试：Origin 不匹配、subprotocol 不匹配、5 秒无 auth、token 过期/撤销、Agent 不匹配、重复 auth。
-- [ ] **Step 2:** 写限制失败测试：消息超过 64 KiB、文本超过 16 KiB、并发请求、空闲超时、ping/pong。
-- [ ] **Step 3:** 实现握手预检、auth 状态机、稳定 close code 和连接清理。
-- [ ] **Step 4:** 认证成功返回 session_ready，但此任务不接 LangGraph。
-- [ ] **Step 5:** 运行安全定向测试和连接泄漏检查，提交 `feat(gateway): authenticate embed websocket sessions`。
+- [x] **Step 1:** 先写 WebSocket TestClient 失败测试：Origin 不匹配、subprotocol 不匹配、5 秒无 auth、token 过期/撤销、Agent 不匹配、重复 auth。
+- [x] **Step 2:** 写限制失败测试：消息超过 64 KiB、文本超过 16 KiB、并发请求、空闲超时、ping/pong。
+- [x] **Step 3:** 实现握手预检、auth 状态机、稳定 close code 和连接清理。
+- [x] **Step 4:** 认证成功返回 session_ready，但此任务不接 LangGraph。
+- [x] **Step 5:** 运行安全定向测试和连接泄漏检查，提交 `feat(gateway): authenticate embed websocket sessions`。
 
 ### Task 5：Conversation Runtime 接入与取消
 
