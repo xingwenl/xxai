@@ -36,6 +36,7 @@ export class WebSocketTransport extends EventEmitter implements Transport {
   private _explicitDisconnect = false
   private _lastSequence = 0
   private _sessionReady = false
+  private _conversationId: string | undefined
 
   constructor(options: {
     endpoint: string
@@ -107,7 +108,13 @@ export class WebSocketTransport extends EventEmitter implements Transport {
       this._ws.send(JSON.stringify({
         id: this.generateId(), type: 'auth', protocolVersion: 1,
         timestamp: new Date().toISOString(),
-        payload: { token, platformId: this._platformId, agentId: this._agentId, lastSequence: this._lastSequence || undefined }
+        payload: {
+          token,
+          platformId: this._platformId,
+          agentId: this._agentId,
+          conversationId: this._conversationId,
+          lastSequence: this._lastSequence || undefined
+        }
       }))
     } catch (error) { this.failConnect(error) }
   }
@@ -115,9 +122,11 @@ export class WebSocketTransport extends EventEmitter implements Transport {
   private handleMessage(raw: string): void {
     try {
       const event = parseProtocolEvent(JSON.parse(raw))
-      if (event.sequence <= this._lastSequence) return
-      this._lastSequence = event.sequence
+      if (event.conversationId) this._conversationId = event.conversationId
       if (event.type === 'session_ready') {
+        const sessionId = (event.payload as Record<string, unknown>).sessionId
+        if (typeof sessionId === 'string') this._conversationId = sessionId
+        if (event.sequence > this._lastSequence) this._lastSequence = event.sequence
         this._sessionReady = true
         this._reconnectAttempts = 0
         this.setState('connected')
@@ -127,6 +136,9 @@ export class WebSocketTransport extends EventEmitter implements Transport {
         const queued = this._queue
         this._queue = []
         queued.forEach((message) => this.send(message))
+      } else {
+        if (event.sequence <= this._lastSequence) return
+        this._lastSequence = event.sequence
       }
       this.emit('message', event as WebSocketMessage)
     } catch (error) { this.emit('error', error instanceof Error ? error : new Error('Invalid WebSocket message')) }

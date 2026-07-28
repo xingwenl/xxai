@@ -197,13 +197,13 @@
 - Modify: `docs/harness/requests/2026-07-26-agent-sdk-websocket-foundation/meta.json`
 - Modify: `docs/CHANGELOG.md`
 
-- [ ] **Step 1:** 启动 PostgreSQL/pgvector、Redis、FastAPI 和 SDK demo，执行真实迁移到最新 head。
-- [ ] **Step 2:** 自动化验证两个平台、两个 Agent、两个最终用户的隔离和所有 token 拒绝路径。
-- [ ] **Step 3:** 浏览器验证流式聊天、引用、取消、断网重连、token 过期刷新、恢复失败快照和 destroy。
-- [ ] **Step 4:** 运行 `poetry run pytest -q`、`poetry run ruff check .`、定向 Black、`poetry check`、Alembic history；运行 `npm run test`、`npm run type-check`、`npm run build`。
-- [ ] **Step 5:** 完成安全检查：URL/日志/存储无 token，Origin 精确匹配，消息和连接限制生效。
-- [ ] **Step 6:** 将真实命令输出写入 verify，完成人工验收后将 meta 推进到 acceptance/done。
-- [ ] **Step 7:** 提交最终 checkpoint，再选择本地合并或 PR；保留永久 worktree 以便追溯。
+- [ ] **Step 1:** 启动 PostgreSQL/pgvector、Redis、FastAPI 和 SDK demo，执行真实迁移到最新 head。（当前环境不可用）
+- [x] **Step 2:** 已完成单元/契约层的平台、Agent、主体和 token 拒绝路径验证；真实服务矩阵待执行。
+- [ ] **Step 3:** SDK 行为已完成自动化覆盖；浏览器流式、重连、过期刷新、快照和 destroy 待执行。
+- [x] **Step 4:** 已运行后端全量 pytest、Ruff、Poetry check、Alembic history，以及 SDK test、type-check、build。
+- [x] **Step 5:** 已检查 token 不进入 URL/日志/存储的代码路径，Origin、消息大小、连接认证限制已有测试覆盖。
+- [x] **Step 6:** 已更新 verify、acceptance、meta 和本地联调手册；最终验收仍保持 active。
+- [ ] **Step 7:** 待真实联调完成后提交最终 checkpoint，并选择本地合并或 PR。
 
 ## 回滚说明
 

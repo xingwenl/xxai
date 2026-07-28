@@ -112,7 +112,7 @@ token TTL 默认 600 秒，允许范围 300 至 900 秒。签名算法来自服�
 - API 契约变化：是，新增管理、token、快照和 WebSocket 协议。
 - 鉴权或权限变化：是，新增 Client 认证和 embed token 权限域。
 
-结论：`research -> spec -> plan` 可以完成；进入实现前必须等待人工确认。当前 `meta.json.approvalGranted=false`。
+结论：本方案涉及架构、数据模型、API 和鉴权变更，已于 2026-07-27 获得人工确认，进入实现和验证阶段。
 
 ## 验收标准
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## - 2026-07-28
+- ✨ feat：完成 Agent SDK 原生 `ai-agent.v1` WebSocket transport、流式消息、引用展示、停止生成和有限重连基础
+- 📝 docs：增加 Phase 2A 本地联调手册，并记录真实基础设施验收前置条件
+
 ## - 2026-07-26
 - 📝 docs：完成可配置 Agent 第一阶段验收 `🧑‍💻 lixingwen`
 - 🐛 fix：固定 AI Agent SDK 兼容的 TypeScript 版本 `🧑‍💻 lixingwen`

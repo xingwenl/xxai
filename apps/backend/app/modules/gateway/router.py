@@ -3,7 +3,9 @@ import json
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from redis.asyncio import Redis
 
+from app.core.config import get_settings
 from app.core.database import get_session_factory
 from app.modules.agent.repositories import AgentRepository
 from app.modules.agent.services import build_chat_model
@@ -11,6 +13,7 @@ from app.modules.conversation.repositories import ConversationRepository
 from app.modules.conversation.runtime import load_runtime_context
 from app.modules.conversation.services import retrieve_citations
 from app.modules.gateway.runtime import RequestRegistry, stream_embed_chat
+from app.modules.gateway.replay import ReplayStore
 from app.modules.gateway.auth import PROTOCOL_SUBPROTOCOL, authenticate_embed_token
 from app.modules.gateway.connection import validate_incoming_message
 from app.modules.knowledge.repositories import KnowledgeRepository
@@ -41,9 +44,26 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
         payload = await authenticate_embed_token(
             token, agent_id=agent_id, origin=origin or ""
         )
+        auth_payload = message.get("payload", {})
+        replay_redis = Redis.from_url(get_settings().celery_broker_url)
+        replay_store = ReplayStore(replay_redis)
+        replay_conversation_id = auth_payload.get("conversationId")
+        replay_cursor = auth_payload.get("lastSequence")
+        replay_result = (
+            await replay_store.replay(replay_conversation_id, replay_cursor)
+            if isinstance(replay_conversation_id, str)
+            and isinstance(replay_cursor, str)
+            else None
+        )
         sequence = 1
 
-        def envelope(event_type: str, event_payload: dict) -> str:
+        def envelope(
+            event_type: str,
+            event_payload: dict,
+            *,
+            conversation_id: int | None = None,
+            request_id: str | None = None,
+        ) -> str:
             nonlocal sequence
             value = {
                 "id": f"evt_{sequence}",
@@ -53,12 +73,26 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                 "timestamp": datetime.now(UTC).isoformat(),
                 "payload": event_payload,
             }
+            if conversation_id is not None:
+                value["conversationId"] = str(conversation_id)
+            if request_id is not None:
+                value["requestId"] = request_id
             sequence += 1
             return json.dumps(value)
 
         await websocket.send_text(
-            envelope("session_ready", {"subject": payload["sub"], "recovered": False})
+            envelope(
+                "session_ready",
+                {
+                    "subject": payload["sub"],
+                    "recovered": replay_result.recovered if replay_result else False,
+                    "latestSequence": replay_result.latest_sequence if replay_result else None,
+                },
+            )
         )
+        if replay_result and replay_result.recovered:
+            for recovered_event in replay_result.events:
+                await websocket.send_text(json.dumps(recovered_event, ensure_ascii=False))
         registry = RequestRegistry()
         active_request: str | None = None
         active_task: asyncio.Task | None = None
@@ -120,7 +154,17 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                             "citations": event["result"].citations,
                             "knowledgeGrounded": event["result"].knowledge_grounded,
                         }
-                    await websocket.send_text(envelope(event_type, event_payload))
+                    conversation_id = getattr(event.get("conversation"), "id", None)
+                    request_id = event.get("request_id")
+                    encoded = envelope(
+                        event_type,
+                        event_payload,
+                        conversation_id=conversation_id,
+                        request_id=request_id,
+                    )
+                    if conversation_id is not None:
+                        await replay_store.append(conversation_id, json.loads(encoded))
+                    await websocket.send_text(encoded)
                 else:
                     active_task = None
                     active_request = None
@@ -194,3 +238,7 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
         return
     except Exception:
         await websocket.close(code=4401)
+    finally:
+        replay_redis = locals().get("replay_redis")
+        if replay_redis is not None:
+            await replay_redis.aclose()
