@@ -3,10 +3,14 @@ from typing import Any
 from uuid import uuid4
 
 import jwt
+from fastapi import Depends
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from redis.asyncio import Redis
 
 from app.core.config import get_settings
 from app.shared.exceptions import UnauthorizedException
+
+embed_bearer_scheme = HTTPBearer(auto_error=False)
 
 
 class EmbedTokenRevocationStore:
@@ -81,3 +85,11 @@ def decode_embed_token(token: str) -> dict[str, Any]:
     if payload.get("protocol_version") != 1:
         raise UnauthorizedException("unsupported embed protocol")
     return payload
+
+
+async def get_current_embed_claims(
+    credentials: HTTPAuthorizationCredentials | None = Depends(embed_bearer_scheme),
+) -> dict[str, Any]:
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise UnauthorizedException("embed token required")
+    return decode_embed_token(credentials.credentials)

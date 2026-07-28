@@ -140,12 +140,12 @@
 - Modify: `apps/backend/app/modules/embed/router.py`
 - Create: `apps/backend/tests/embed/test_message_snapshot.py`
 
-- [ ] **Step 1:** 先写 Redis fake/integration 失败测试：事件追加、最大 1000 条、15 分钟窗口、游标补发和窗口失效。
-- [ ] **Step 2:** 写消息快照主体隔离失败测试。
-- [ ] **Step 3:** 实现 ReplayStore 接口和 Redis 实现；路由不直接依赖 Redis client 细节。
-- [ ] **Step 4:** session_ready 返回 recovered 和 latestSequence；恢复失败不伪造补发结果。
-- [ ] **Step 5:** 实现 embed 消息快照 API，并验证只能读取 token subject 自己的会话。
-- [ ] **Step 6:** 使用真实 Redis 运行集成测试，提交 `feat(gateway): recover recent conversation events`。
+- [x] **Step 1:** 先写 Redis fake/integration 失败测试：事件追加、最大 1000 条、15 分钟窗口、游标补发和窗口失效。
+- [x] **Step 2:** 写消息快照主体隔离失败测试。
+- [x] **Step 3:** 实现 ReplayStore 接口和 Redis 实现；路由不直接依赖 Redis client 细节。
+- [x] **Step 4:** session_ready 返回 recovered 和 latestSequence；恢复失败不伪造补发结果。
+- [x] **Step 5:** 实现 embed 消息快照 API，并验证只能读取 token subject 自己的会话。
+- [x] **Step 6:** 使用真实 Redis 运行集成测试，提交 `feat(gateway): recover recent conversation events`。
 
 ### Task 7：SDK 真实 WebSocket Transport
 

@@ -80,6 +80,16 @@ class ConversationRepository:
         )
         return list(result.scalars().all())
 
+    async def list_messages_for_principal(
+        self, conversation_id: int, platform_id: int, *, end_user_id: int
+    ):
+        conversation = await self.get_for_principal(
+            conversation_id, platform_id, end_user_id=end_user_id
+        )
+        if conversation is None:
+            return None
+        return await self.list_messages(conversation.id)
+
     async def create_message(self, conversation_id: int, **values):
         message = ConversationMessage(conversation_id=conversation_id, **values)
         self.session.add(message)

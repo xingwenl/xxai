@@ -108,3 +108,14 @@ async def unbind_embed_client_agent(
     if client is None:
         raise NotFoundException("embed client not found")
     await repo.unbind_agent(client.id, agent_id)
+
+
+async def get_embed_message_snapshot(repo, *, conversation_id: int, claims: dict):
+    messages = await repo.list_messages_for_principal(
+        conversation_id,
+        int(claims["platform_id"]),
+        end_user_id=int(claims["sub"]),
+    )
+    if messages is None:
+        raise NotFoundException("conversation not found")
+    return messages

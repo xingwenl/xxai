@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
@@ -66,3 +68,17 @@ class EmbedTokenResponse(BaseModel):
     token_type: str = "bearer"
     expires_in: int
     jti: str
+
+
+class ConversationMessageRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    conversation_id: int
+    role: str
+    content: str
+    citations: list[dict]
+    knowledge_grounded: bool
+    tool_call_id: str | None
+    created_at: datetime
+    updated_at: datetime

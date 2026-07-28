@@ -4,10 +4,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db_session
 from app.core.security import require_current_active_user
 from app.modules.agent.repositories import AgentRepository
+from app.modules.conversation.repositories import ConversationRepository
 from app.modules.embed.repositories import EmbedRepository
 from app.modules.embed.schemas import (
     EmbedTokenRequest,
     EmbedTokenResponse,
+    ConversationMessageRead,
     PlatformEmbedClientCreate,
     PlatformEmbedClientCreated,
     PlatformEmbedClientRead,
@@ -17,10 +19,12 @@ from app.modules.embed.services import (
     bind_embed_client_agent,
     create_embed_client,
     issue_embed_token,
+    get_embed_message_snapshot,
     rotate_embed_client_secret,
     unbind_embed_client_agent,
     update_embed_client,
 )
+from app.modules.embed.security import get_current_embed_claims
 from app.modules.platform.repositories import PlatformRepository
 from app.shared.exceptions import NotFoundException
 from app.shared.responses import ApiResponse, success_response
@@ -166,3 +170,18 @@ async def issue_token_endpoint(
     )
     await session.commit()
     return success_response(data=token, message="embed token issued")
+
+
+@router.get(
+    "/embed/conversations/{conversation_id}/messages",
+    response_model=ApiResponse[list[ConversationMessageRead]],
+)
+async def get_message_snapshot_endpoint(
+    conversation_id: int,
+    claims=Depends(get_current_embed_claims),
+    session: AsyncSession = Depends(get_db_session),
+):
+    messages = await get_embed_message_snapshot(
+        ConversationRepository(session), conversation_id=conversation_id, claims=claims
+    )
+    return success_response(data=messages)
