@@ -35,6 +35,14 @@ poetry run uvicorn app.main:app --reload --port 8000
 
 由平台管理员创建 Embed Client 并绑定 Agent；接入方服务端调用 `POST /api/v1/embed/tokens` 换取短期 token。浏览器只接收 `access_token`，不得接触 `client_secret`。
 
+也可以配置 `EMBED_CLIENT_ID`、`EMBED_CLIENT_SECRET`、`EMBED_AGENT_ID` 和 `EMBED_ORIGIN`，使用便捷代理接口：
+
+```text
+GET /api/agent-token?external_user_id=demo-user
+```
+
+该接口从后端环境变量读取 secret，适合本地 Demo。生产环境必须把 `external_user_id` 绑定到业务登录态，不能允许客户端任意指定用户 ID。
+
 ## SDK Demo
 
 ```bash

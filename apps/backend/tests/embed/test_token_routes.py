@@ -15,3 +15,10 @@ def test_embed_client_management_routes_are_platform_scoped():
     assert (
         "/platforms/{platform_id}/embed-clients/{client_id}/agents/{agent_id}" in paths
     )
+
+
+def test_demo_agent_token_route_is_registered_outside_embed_exchange():
+    from app import create_app
+
+    paths = set(create_app().openapi()["paths"])
+    assert "/api/agent-token" in paths

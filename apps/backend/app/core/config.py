@@ -41,6 +41,10 @@ class Settings:
     embed_jwt_algorithm: str
     embed_token_issuer: str
     embed_token_audience: str
+    embed_client_id: str
+    embed_client_secret: str
+    embed_agent_id: int
+    embed_origin: str
     model_default_name: str
     model_default_base_url: str | None
     agent_file_storage_path: str
@@ -91,6 +95,10 @@ def get_settings() -> Settings:
         embed_jwt_algorithm=os.getenv("EMBED_JWT_ALGORITHM", "HS256"),
         embed_token_issuer=os.getenv("EMBED_TOKEN_ISSUER", "ai-base"),
         embed_token_audience=os.getenv("EMBED_TOKEN_AUDIENCE", "agent-embed"),
+        embed_client_id=os.getenv("EMBED_CLIENT_ID", ""),
+        embed_client_secret=os.getenv("EMBED_CLIENT_SECRET", ""),
+        embed_agent_id=int(os.getenv("EMBED_AGENT_ID", "0")),
+        embed_origin=os.getenv("EMBED_ORIGIN", ""),
         model_default_name=os.getenv("MODEL_DEFAULT_NAME", "gpt-4o-mini"),
         model_default_base_url=os.getenv("MODEL_DEFAULT_BASE_URL") or None,
         agent_file_storage_path=os.getenv(
