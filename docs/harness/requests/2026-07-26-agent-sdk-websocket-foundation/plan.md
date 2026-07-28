@@ -159,12 +159,12 @@
 - Create: `apps/ai-sdk/src/core/__tests__/client.test.ts`
 - Create: `apps/ai-sdk/src/test/fake-websocket.ts`
 
-- [ ] **Step 1:** 先写失败测试：真实 URL、不带 token query、auth 后 connect resolve、消息队列、主动断开不重连、异常断开指数退避、token 只刷新一次。
-- [ ] **Step 2:** 写事件失败测试：message_delta、citation、tool 状态、completed、error、sequence 去重和 recovered=false。
-- [ ] **Step 3:** 删除 `connectMock()`、`mockReply()` 和所有 Mock 日志，实现原生 WebSocket。
-- [ ] **Step 4:** 引入可注入 WebSocketFactory、timer 和随机源，保证测试可控，不添加生产全局变量。
-- [ ] **Step 5:** 实现游标保存于内存；恢复失败调用消息快照 API。Phase 2A 不默认写 localStorage。
-- [ ] **Step 6:** 运行 SDK test、type-check、build，提交 `feat(ai-sdk): connect to agent websocket gateway`。
+- [x] **Step 1:** 先写失败测试：真实 URL、不带 token query、auth 后 connect resolve、消息队列、主动断开不重连、异常断开指数退避、token 只刷新一次。
+- [x] **Step 2:** 写事件失败测试：message_delta、citation、tool 状态、completed、error、sequence 去重和 recovered=false。
+- [x] **Step 3:** 删除 `connectMock()`、`mockReply()` 和所有 Mock 日志，实现原生 WebSocket。
+- [x] **Step 4:** 引入可注入 WebSocketFactory、timer 和随机源，保证测试可控，不添加生产全局变量。
+- [x] **Step 5:** 实现游标保存于内存；恢复失败调用消息快照 API。Phase 2A 不默认写 localStorage。
+- [x] **Step 6:** 运行 SDK test、type-check、build，提交 `feat(ai-sdk): connect to agent websocket gateway`。
 
 ### Task 8：SDK UI、引用与停止生成
 

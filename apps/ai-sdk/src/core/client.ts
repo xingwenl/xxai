@@ -30,6 +30,7 @@ export class AgentClient {
   private conversationId: string | undefined
   private currentRequestId: string | undefined
   private pendingAssistantMessage: { id: string; text: string } | null = null
+  private pendingCitations: unknown[] = []
   private uiMounted = false
   private uiContainer: HTMLElement | null = null
 
@@ -114,16 +115,29 @@ export class AgentClient {
           id: generateId(),
           text: ''
         }
+        this.pendingCitations = []
         break
-      case 'text_delta':
+      case 'message_delta':
         if (this.pendingAssistantMessage) {
-          this.pendingAssistantMessage.text += msg.payload.text as string
+          this.pendingAssistantMessage.text += (msg.payload.content as string) || ''
           this.updatePendingMessage()
         }
         break
+      case 'citation':
+        this.pendingCitations.push(msg.payload)
+        this.eventEmitter.emit('citation', msg.payload)
+        break
+      case 'tool_call':
+        this._callbacks.onToolCall?.(msg.payload.name as string, msg.payload.input)
+        this.eventEmitter.emit('tool_call', msg.payload)
+        break
+      case 'tool_result':
+        this._callbacks.onToolResult?.(msg.payload.name as string, msg.payload.result)
+        this.eventEmitter.emit('tool_result', msg.payload)
+        break
       case 'message_completed':
         if (this.pendingAssistantMessage) {
-          const finalText = (msg.payload.text as string) || ''
+          const finalText = (msg.payload.content as string) || this.pendingAssistantMessage.text
           message = {
             id: this.pendingAssistantMessage.id,
             role: 'assistant',
@@ -134,11 +148,20 @@ export class AgentClient {
             },
             timestamp: new Date(),
             conversationId: this.conversationId,
-            requestId: this.currentRequestId
+            requestId: this.currentRequestId,
+            metadata: {
+              citations: this.pendingCitations,
+              knowledgeGrounded: msg.payload.knowledgeGrounded
+            }
           }
           this.messageStore.addMessage(message)
           this.pendingAssistantMessage = null
+          this.pendingCitations = []
         }
+        break
+      case 'error':
+        this._callbacks.onError?.(new Error(String(msg.payload.message || msg.payload.code)))
+        this.eventEmitter.emit('error', msg.payload)
         break
       default:
         console.log('Unhandled message type:', msg.type)
@@ -217,6 +240,7 @@ export class AgentClient {
 
     const outgoing: OutgoingMessage = {
       type: 'message_send',
+      requestId: generateId(),
       payload: {
         text: text
       }

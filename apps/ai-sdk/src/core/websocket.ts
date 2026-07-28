@@ -1,23 +1,41 @@
-import type {
-  ConnectionState,
-  OutgoingMessage,
-  WebSocketMessage
-} from './types'
 import { EventEmitter } from './event-emitter'
+import { parseProtocolEvent } from './protocol'
+import type { ConnectionState, OutgoingMessage, WebSocketMessage } from './types'
 import type { Transport } from './transport'
 
+interface SocketLike {
+  readonly readyState: number
+  onopen: ((event: any) => void) | null
+  onmessage: ((event: any) => void) | null
+  onerror: ((event: any) => void) | null
+  onclose: ((event: any) => void) | null
+  send(data: string): void
+  close(code?: number): void
+}
+type SocketFactory = (url: string, protocols: string | string[]) => SocketLike
+const OPEN = 1
+
 export class WebSocketTransport extends EventEmitter implements Transport {
-  private _ws: WebSocket | null = null
+  private _ws: SocketLike | null = null
   private _state: ConnectionState = 'disconnected'
   private _reconnectAttempts = 0
-  private _maxRetries: number
-  private _reconnectDelay: number
-  private _endpoint: string
-  private _getToken: () => Promise<string>
-  private _platformId: string
-  private _agentId: string
+  private readonly _maxRetries: number
+  private readonly _reconnectDelay: number
+  private readonly _endpoint: string
+  private readonly _getToken: () => Promise<string>
+  private readonly _platformId: string
+  private readonly _agentId: string
+  private readonly _websocketFactory: SocketFactory
+  private readonly _setTimeout: typeof setTimeout
+  private readonly _clearTimeout: typeof clearTimeout
   private _reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private _messageId = 0
+  private _queue: OutgoingMessage[] = []
+  private _connectResolve: (() => void) | null = null
+  private _connectReject: ((error: Error) => void) | null = null
+  private _explicitDisconnect = false
+  private _lastSequence = 0
+  private _sessionReady = false
 
   constructor(options: {
     endpoint: string
@@ -25,6 +43,9 @@ export class WebSocketTransport extends EventEmitter implements Transport {
     platformId: string
     agentId: string
     reconnect?: { maxRetries?: number; delayMs?: number }
+    websocketFactory?: SocketFactory
+    setTimeout?: typeof setTimeout
+    clearTimeout?: typeof clearTimeout
   }) {
     super()
     this._endpoint = options.endpoint
@@ -33,11 +54,13 @@ export class WebSocketTransport extends EventEmitter implements Transport {
     this._agentId = options.agentId
     this._maxRetries = options.reconnect?.maxRetries ?? 5
     this._reconnectDelay = options.reconnect?.delayMs ?? 3000
+    this._websocketFactory = options.websocketFactory ?? ((url, protocols) => new WebSocket(url, protocols))
+    this._setTimeout = options.setTimeout ?? setTimeout
+    this._clearTimeout = options.clearTimeout ?? clearTimeout
   }
 
-  get state(): ConnectionState {
-    return this._state
-  }
+  get state(): ConnectionState { return this._state }
+  get lastSequence(): number { return this._lastSequence }
 
   private setState(state: ConnectionState): void {
     if (this._state !== state) {
@@ -46,145 +69,115 @@ export class WebSocketTransport extends EventEmitter implements Transport {
     }
   }
 
-  private generateId(): string {
-    return `msg_${++this._messageId}_${Date.now()}`
-  }
+  private generateId(): string { return `req_${++this._messageId}_${Date.now()}` }
 
   async connect(): Promise<void> {
-    if (this._ws && this._ws.readyState === WebSocket.OPEN) {
+    if (this._sessionReady && this._ws?.readyState === OPEN) return
+    if (this._connectResolve) return new Promise((resolve, reject) => {
+      const resolvePrevious = this._connectResolve
+      const rejectPrevious = this._connectReject
+      this._connectResolve = () => { resolvePrevious?.(); resolve() }
+      this._connectReject = (error) => { rejectPrevious?.(error); reject(error) }
+    })
+    this._explicitDisconnect = false
+    this.setState(this._reconnectAttempts ? 'reconnecting' : 'connecting')
+    return new Promise((resolve, reject) => {
+      this._connectResolve = resolve
+      this._connectReject = reject
+      this.openSocket()
+    })
+  }
+
+  private openSocket(): void {
+    try {
+      const socket = this._websocketFactory(this._endpoint, 'ai-agent.v1')
+      this._ws = socket
+      this._sessionReady = false
+      socket.onopen = () => { void this.authenticate(); this.emit('open') }
+      socket.onmessage = (event) => this.handleMessage(event.data)
+      socket.onerror = (error) => this.emit('error', error instanceof Error ? error : new Error('WebSocket error'))
+      socket.onclose = (event) => this.handleClose(event)
+    } catch (error) { this.failConnect(error) }
+  }
+
+  private async authenticate(): Promise<void> {
+    try {
+      const token = await this._getToken()
+      if (!this._ws || this._ws.readyState !== OPEN) return
+      this._ws.send(JSON.stringify({
+        id: this.generateId(), type: 'auth', protocolVersion: 1,
+        timestamp: new Date().toISOString(),
+        payload: { token, platformId: this._platformId, agentId: this._agentId, lastSequence: this._lastSequence || undefined }
+      }))
+    } catch (error) { this.failConnect(error) }
+  }
+
+  private handleMessage(raw: string): void {
+    try {
+      const event = parseProtocolEvent(JSON.parse(raw))
+      if (event.sequence <= this._lastSequence) return
+      this._lastSequence = event.sequence
+      if (event.type === 'session_ready') {
+        this._sessionReady = true
+        this._reconnectAttempts = 0
+        this.setState('connected')
+        this._connectResolve?.()
+        this._connectResolve = null
+        this._connectReject = null
+        const queued = this._queue
+        this._queue = []
+        queued.forEach((message) => this.send(message))
+      }
+      this.emit('message', event as WebSocketMessage)
+    } catch (error) { this.emit('error', error instanceof Error ? error : new Error('Invalid WebSocket message')) }
+  }
+
+  private handleClose(event: { code: number; wasClean: boolean }): void {
+    this._ws = null
+    this._sessionReady = false
+    this.emit('close')
+    if (this._explicitDisconnect) { this.setState('disconnected'); return }
+    if (this._reconnectAttempts >= this._maxRetries) {
+      this.setState('error')
+      this.failConnect(new Error(`WebSocket closed (${event.code})`))
       return
     }
-
-    this.setState('connecting')
-
-    try {
-      // Mock WebSocket 连接，用于演示
-      this.connectMock()
-    } catch (error) {
-      this.setState('error')
-      this.emit('error', error)
-      throw error
-    }
+    this._reconnectAttempts += 1
+    this.setState('reconnecting')
+    const delay = this._reconnectDelay * 2 ** (this._reconnectAttempts - 1)
+    this._reconnectTimer = this._setTimeout(() => { this._reconnectTimer = null; this.openSocket() }, delay)
   }
 
-  private connectMock(): void {
-    // Mock WebSocket 实现
-    this.setState('connected')
-    this.emit('open')
-
-    // Mock 回复
-    setTimeout(() => {
-      const mockMessage: WebSocketMessage = {
-        id: this.generateId(),
-        type: 'session_ready',
-        timestamp: new Date().toISOString(),
-        payload: {
-          sessionId: 'mock_session_123'
-        }
-      }
-      this.handleMessage(mockMessage)
-    }, 500)
-  }
-
-  private handleMessage(data: WebSocketMessage): void {
-    this.emit('message', data)
+  private failConnect(error: unknown): void {
+    const normalized = error instanceof Error ? error : new Error(String(error))
+    this._connectReject?.(normalized)
+    this._connectResolve = null
+    this._connectReject = null
+    this.setState('error')
+    this.emit('error', normalized)
   }
 
   send(message: OutgoingMessage): void {
-    if (this._state !== 'connected') {
-      console.warn('WebSocket not connected, cannot send message')
-      return
-    }
-
-    const wsMessage: WebSocketMessage = {
-      id: this.generateId(),
-      type: message.type,
-      timestamp: new Date().toISOString(),
-      payload: message.payload
-    }
-
-    // Mock 发送，直接触发回复
-    if (message.type === 'message_send') {
-      this.mockReply(wsMessage)
-    }
-
-    console.log('Mock sending message:', wsMessage)
-  }
-
-  private mockReply(requestMessage: WebSocketMessage): void {
-    setTimeout(() => {
-      const responseId = this.generateId()
-
-      // 回复开始
-      this.handleMessage({
-        id: responseId,
-        type: 'message_started',
-        requestId: requestMessage.id,
-        timestamp: new Date().toISOString(),
-        payload: {}
-      })
-
-      // 流式文本
-      const text = (requestMessage.payload.text as string) || 'Hello'
-      const chunks = text.split('')
-      let delay = 100
-
-      chunks.forEach((char, i) => {
-        setTimeout(() => {
-          this.handleMessage({
-            id: `${responseId}_delta_${i}`,
-            type: 'text_delta',
-            requestId: requestMessage.id,
-            timestamp: new Date().toISOString(),
-            payload: {
-              text: char
-            }
-          })
-        }, delay)
-        delay += 50
-      })
-
-      // 回复完成
-      setTimeout(() => {
-        this.handleMessage({
-          id: `${responseId}_completed`,
-          type: 'message_completed',
-          requestId: requestMessage.id,
-          timestamp: new Date().toISOString(),
-          payload: {
-            text: text.toUpperCase()
-          }
-        })
-      }, delay + 100)
-    }, 300)
+    if (!this._sessionReady || !this._ws || this._ws.readyState !== OPEN) { this._queue.push(message); return }
+    this._ws.send(JSON.stringify({
+      id: message.requestId || this.generateId(), type: message.type, protocolVersion: 1,
+      ...(message.requestId ? { requestId: message.requestId } : {}),
+      timestamp: new Date().toISOString(), payload: message.payload
+    }))
   }
 
   disconnect(): void {
-    if (this._reconnectTimer) {
-      clearTimeout(this._reconnectTimer)
-      this._reconnectTimer = null
-    }
-
-    if (this._ws) {
-      this._ws.close()
-      this._ws = null
-    }
-
+    this._explicitDisconnect = true
+    if (this._reconnectTimer) { this._clearTimeout(this._reconnectTimer); this._reconnectTimer = null }
+    this._queue = []
+    this._ws?.close(1000)
+    this._ws = null
+    this._sessionReady = false
+    this._connectResolve = null
+    this._connectReject = null
     this.setState('disconnected')
-    this.emit('close')
   }
 
-  override on(
-    event: 'message' | 'open' | 'close' | 'error' | 'state',
-    handler: (...args: any[]) => void
-  ): void {
-    super.on(event, handler)
-  }
-
-  override off(
-    event: 'message' | 'open' | 'close' | 'error' | 'state',
-    handler: (...args: any[]) => void
-  ): void {
-    super.off(event, handler)
-  }
+  override on(event: 'message' | 'open' | 'close' | 'error' | 'state', handler: (...args: any[]) => void): void { super.on(event, handler) }
+  override off(event: 'message' | 'open' | 'close' | 'error' | 'state', handler: (...args: any[]) => void): void { super.off(event, handler) }
 }

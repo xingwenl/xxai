@@ -85,7 +85,7 @@ function handleButtonClick(value: string) {
   handleSend(value)
 }
 
-function handleMessage(msg: Message) {
+function handleMessage(_msg: Message) {
   messages.value = agent.getMessages()
   pendingMessage.value = null
 }

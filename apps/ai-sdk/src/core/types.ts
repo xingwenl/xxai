@@ -126,5 +126,6 @@ export interface WebSocketMessage {
 
 export interface OutgoingMessage {
   type: string
+  requestId?: string
   payload: Record<string, unknown>
 }
