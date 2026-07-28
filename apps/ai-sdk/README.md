@@ -81,6 +81,7 @@ const agent = createAgentClient({
 | toggle() | 切换聊天窗口 |
 | destroy() | 销毁实例 |
 | sendMessage(text) | 发送消息 |
+| cancelMessage() | 停止当前生成 |
 | getMessages() | 获取消息列表 |
 | addMessage(message) | 添加消息 |
 | clearMessages() | 清空消息 |
@@ -102,6 +103,7 @@ const agent = createAgentClient({
 | message | 收到新消息 | (message: Message) |
 | connection_state | 连接状态变化 | (state: ConnectionState) |
 | error | 错误事件 | (error: Error) |
+| citation | 收到知识库引用 | (citation: object) |
 
 ## 示例
 

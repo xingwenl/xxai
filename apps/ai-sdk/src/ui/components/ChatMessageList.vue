@@ -7,6 +7,9 @@
       ref="bubbleRefs"
       @button-click="handleButtonClick"
     />
+    <div v-if="pendingMessage" class="xxai-message assistant xxai-pending-message">
+      <div class="xxai-message-content">{{ pendingMessage.text || '...' }}</div>
+    </div>
   </div>
 </template>
 

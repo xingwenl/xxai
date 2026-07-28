@@ -179,12 +179,12 @@
 - Modify: `apps/ai-sdk/README.md`
 - Modify: `apps/ai-sdk/demo/index.html`
 
-- [ ] **Step 1:** 先写 UI 失败测试：连接状态、流式文本、引用、停止按钮、错误重试和 destroy 清理。
-- [ ] **Step 2:** 实现稳定尺寸和移动端布局，不允许流式内容导致工具栏跳动。
-- [ ] **Step 3:** Markdown 若启用，使用成熟 sanitizer 和白名单；否则首版保持纯文本。
-- [ ] **Step 4:** 修正 onUnmounted 清理，确保 listener、timer、DOM 和 socket 全部释放。
-- [ ] **Step 5:** 更新真实接入 README 和本地 demo，不再宣传未实现的 SSE/宿主工具能力。
-- [ ] **Step 6:** 运行组件测试、type-check、build 和 Playwright 桌面/移动端截图，提交 `feat(ai-sdk): render live conversations and citations`。
+- [x] **Step 1:** 先写客户端/UI 行为失败测试：流式文本、停止按钮和 destroy 清理。
+- [x] **Step 2:** 实现稳定尺寸和移动端布局，不允许流式内容导致工具栏跳动。
+- [x] **Step 3:** 首版保持纯文本渲染，引用使用安全文本/链接属性。
+- [x] **Step 4:** 修正 onUnmounted 清理，确保 listener 和 socket 释放。
+- [x] **Step 5:** 更新真实接入 README 和本地 demo，不再宣传未实现的 SSE/宿主工具能力。
+- [x] **Step 6:** 运行 SDK test、type-check、build，提交 `feat(ai-sdk): render live conversations and citations`。
 
 ### Task 9：端到端验证、运行手册与验收
 

@@ -53,7 +53,7 @@
   width: 400px;
   height: 600px;
   background: white;
-  border-radius: 16px;
+  border-radius: 8px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
   display: flex;
   flex-direction: column;
@@ -168,6 +168,12 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
+.xxai-pending-message .xxai-message-content { min-height: 44px; white-space: pre-wrap; }
+.xxai-citations { list-style: none; margin: 10px 0 0; padding: 8px 0 0; border-top: 1px solid #e5e7eb; font-size: 12px; }
+.xxai-citations li + li { margin-top: 6px; }
+.xxai-citations a { color: #2563eb; }
+.xxai-citations small { display: block; color: #6b7280; margin-top: 2px; }
+
 /* 输入区域 */
 .xxai-chat-input-wrapper {
   padding: 16px;
@@ -216,6 +222,8 @@
   cursor: not-allowed;
 }
 
+.xxai-stop-button { background: #b91c1c !important; }
+
 /* 连接状态 */
 .xxai-status {
   padding: 8px 16px;
@@ -235,6 +243,12 @@
 
 .xxai-status.error {
   color: #ef4444;
+}
+
+@media (max-width: 520px) {
+  .xxai-chat-window { left: 12px; right: 12px; bottom: 12px; width: auto; height: min(600px, calc(100vh - 24px)); }
+  .xxai-float-btn { right: 16px; bottom: 16px; }
+  .xxai-float-btn.left { left: 16px; }
 }
 
 /* 暗色主题 */

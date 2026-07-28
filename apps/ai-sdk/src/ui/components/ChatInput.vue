@@ -8,9 +8,8 @@
         @keydown.enter="handleSend"
         :disabled="isSending"
       />
-      <button @click="handleSend" :disabled="isSending || !inputText.trim()">
-        发送
-      </button>
+      <button v-if="!isSending" @click="handleSend" :disabled="!inputText.trim()">发送</button>
+      <button v-else class="xxai-stop-button" type="button" @click="$emit('stop')">停止</button>
     </div>
   </div>
 </template>
@@ -26,6 +25,7 @@ const { isSending = false } = defineProps<Props>();
 
 const emit = defineEmits<{
   send: [text: string]
+  stop: []
 }>()
 
 const inputText = ref('')

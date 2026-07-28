@@ -21,6 +21,7 @@
           </div>
         </div>
         <p v-else>{{ displayText }}</p>
+        <CitationList v-if="message.metadata?.citations" :citations="message.metadata.citations as Array<{ title?: string; text?: string; sourceUrl?: string }>" />
       </template>
     </div>
   </div>
@@ -29,6 +30,7 @@
 <script setup lang="ts">
 import { ref, computed, h } from 'vue'
 import type { Message, TextContent } from '../../core'
+import CitationList from './CitationList.vue'
 
 interface Props {
   message: Message

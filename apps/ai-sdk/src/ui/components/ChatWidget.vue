@@ -18,7 +18,7 @@
         :pending-message="pendingMessage"
         @button-click="handleButtonClick"
       />
-      <ChatInput :is-sending="isSending" @send="handleSend" />
+      <ChatInput :is-sending="isSending" @send="handleSend" @stop="handleStop" />
     </div>
   </div>
 </template>
@@ -74,11 +74,13 @@ function close() {
 async function handleSend(text: string) {
   if (isSending.value) return
   isSending.value = true
-  try {
-    await agent.sendMessage(text)
-  } finally {
-    isSending.value = false
-  }
+  await agent.sendMessage(text)
+}
+
+function handleStop() {
+  agent.cancelMessage()
+  isSending.value = false
+  pendingMessage.value = null
 }
 
 function handleButtonClick(value: string) {
@@ -88,10 +90,12 @@ function handleButtonClick(value: string) {
 function handleMessage(_msg: Message) {
   messages.value = agent.getMessages()
   pendingMessage.value = null
+  isSending.value = false
 }
 
 function handleMessageUpdating(data: { id: string; text: string }) {
   pendingMessage.value = data
+  isSending.value = true
 }
 
 function handleConnectionStateChange(state: ConnectionState) {
@@ -115,7 +119,10 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  // 清理事件监听应该在 AgentClient.destroy() 中处理
+  agent.off('message', handleMessage)
+  agent.off('message_updating', handleMessageUpdating)
+  agent.off('connection_state', handleConnectionStateChange)
+  agent.disconnect()
 })
 
 // 注册自定义组件

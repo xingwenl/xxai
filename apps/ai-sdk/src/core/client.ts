@@ -29,6 +29,7 @@ export class AgentClient {
   private _callbacks: AgentCallbacks = {}
   private conversationId: string | undefined
   private currentRequestId: string | undefined
+  private activeRequestId: string | undefined
   private pendingAssistantMessage: { id: string; text: string } | null = null
   private pendingCitations: unknown[] = []
   private uiMounted = false
@@ -111,6 +112,7 @@ export class AgentClient {
         break
       case 'message_started':
         this.currentRequestId = msg.requestId
+        this.activeRequestId = msg.requestId
         this.pendingAssistantMessage = {
           id: generateId(),
           text: ''
@@ -156,6 +158,7 @@ export class AgentClient {
           }
           this.messageStore.addMessage(message)
           this.pendingAssistantMessage = null
+          this.activeRequestId = undefined
           this.pendingCitations = []
         }
         break
@@ -247,6 +250,18 @@ export class AgentClient {
     }
 
     this.transport.send(outgoing)
+  }
+
+  cancelMessage(): void {
+    if (!this.activeRequestId) return
+    this.transport.send({
+      type: 'message_cancel',
+      requestId: this.activeRequestId,
+      payload: {}
+    })
+    this.activeRequestId = undefined
+    this.pendingAssistantMessage = null
+    this.eventEmitter.emit('message_cancelled')
   }
 
   getMessages(): Message[] {

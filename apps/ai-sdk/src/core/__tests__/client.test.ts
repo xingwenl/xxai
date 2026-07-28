@@ -36,4 +36,19 @@ describe('AgentClient protocol events', () => {
     expect(lastMessage).toMatchObject({ role: 'assistant', content: { text: 'Hi' } })
     expect(lastMessage.metadata.citations).toEqual([{ title: 'FAQ', text: 'Answer' }])
   })
+
+  it('exposes cancellation for the active request', () => {
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token'
+    })
+    const transport = (client as any).transport
+    const sent: any[] = []
+    transport.send = (message: any) => sent.push(message)
+    transport.emit('message', {
+      id: '1', type: 'message_started', protocolVersion: 1, sequence: 1,
+      timestamp: new Date().toISOString(), requestId: 'req-1', payload: {}
+    })
+    client.cancelMessage()
+    expect(sent).toEqual([{ type: 'message_cancel', requestId: 'req-1', payload: {} }])
+  })
 })
