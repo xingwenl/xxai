@@ -40,3 +40,4 @@ class RuntimeContext(BaseModel):
     knowledge_bases: list[Any] = Field(default_factory=list)
     skill_instructions: list[str] = Field(default_factory=list)
     mcp_tools: list[Any] = Field(default_factory=list)
+    host_tools: list[Any] = Field(default_factory=list)

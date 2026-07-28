@@ -69,21 +69,85 @@
       <button id="closeBtn">关闭聊天</button>
       <button id="toggleBtn">切换</button>
     </div>
+    <p id="toolStatus"></p>
+    <button id="runToolBtn" type="button">执行全部本地 Tools</button>
+    <pre id="toolResult"></pre>
   </div>
 
   <script type="module">
     import { createAgentClient } from './src/index.ts'
 
     const agent = createAgentClient({
-      endpoint: 'wss://api.example.com',
-      platformId: 'platform-123',
-      agentId: 'agent-456',
-      getToken: async () => 'mock-token',
+      endpoint: 'ws://localhost:8000/api/v1/ws/agents/1',
+      platformId: '1',
+      agentId: '1',
+      getToken: async () => {
+        const response = await fetch('/api/agent-token?external_user_id=2')
+        const result = await response.json()
+        return result.data.access_token
+      },
+      // getToken: async () => 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3IiwiZXhwIjoxNzg1MjMxMzQ0fQ.NfhIvXw1qx99DTyoltPkbXBjli1M_V32VdziGDdtt7M',
       ui: {
         mode: 'floating',
         position: 'right',
         theme: 'auto'
+      },
+    })
+
+    const demoTools = [
+      {
+        name: 'get_weather',
+        description: '查询演示城市天气',
+        inputSchema: {
+          type: 'object',
+          properties: { city: { type: 'string' } },
+          required: ['city']
+        },
+        sideEffect: 'none',
+        async execute(params) {
+          const { city } = params
+          return { city, temperature: 26, condition: '晴', source: 'demo' }
+        }
+      },
+      {
+        name: 'calculate_total',
+        description: '计算两个数字之和',
+        inputSchema: {
+          type: 'object',
+          properties: { left: { type: 'number' }, right: { type: 'number' } },
+          required: ['left', 'right']
+        },
+        sideEffect: 'none',
+        async execute(params) {
+          const { left, right } = params
+          return { value: Number(left) + Number(right) }
+        }
+      },
+      {
+        name: 'get_order_status',
+        description: '查询演示订单状态',
+        inputSchema: {
+          type: 'object',
+          properties: { orderId: { type: 'string' } },
+          required: ['orderId']
+        },
+        sideEffect: 'none',
+        async execute(params) {
+          return { orderId: params.orderId, status: 'processing', source: 'demo' }
+        }
       }
+    ]
+
+    agent.registerTools(demoTools)
+    document.getElementById('toolStatus').textContent =
+      `已注册 Tools: ${agent.getToolNames().join(', ')}`
+    document.getElementById('runToolBtn')?.addEventListener('click', async () => {
+      const results = {
+        weather: await agent.getTool('get_weather')?.execute({ city: '上海' }, {}),
+        calculation: await agent.getTool('calculate_total')?.execute({ left: 12, right: 30 }, {}),
+        order: await agent.getTool('get_order_status')?.execute({ orderId: 'demo-order-001' }, {})
+      }
+      document.getElementById('toolResult').textContent = JSON.stringify(results, null, 2)
     })
 
     document.getElementById('openBtn')?.addEventListener('click', () => {

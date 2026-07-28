@@ -1,0 +1,31 @@
+{
+  "id": "2026-07-28-agent-sdk-host-tools",
+  "title": "AI Agent SDK Phase 2B 宿主页面工具",
+  "scope": "fullstack",
+  "phase": "acceptance",
+  "status": "active",
+  "riskLevel": "high",
+  "changeTypes": ["architecture", "data-model", "api", "auth", "sdk", "docs"],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": ["MCP Tools 规范", "JSON Schema 2020-12", "Ajv 8", "Stripe Idempotency", "OWASP WebSocket Security"],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": ["新增宿主工具策略和调用审计数据模型", "扩展 WebSocket 事件契约", "新增 Client/Agent/token/页面三重权限语义"],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-07-28",
+      "scope": "Phase 2B：后端权威授权、SDK 执行、三重白名单、callId 幂等、确认状态机和独立审计",
+      "note": "用户确认推荐方案并授权进入 spec、plan 和实现。"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-07-28",
+  "updatedAt": "2026-07-28",
+  "relatedPaths": ["apps/backend", "apps/ai-sdk", "docs/design/agent-sdk-phase-2-requirements.md", "docs/harness/requests/2026-07-28-agent-sdk-host-tools"],
+  "notes": "Phase 2A request 2026-07-26-agent-sdk-websocket-foundation 已完成验收；本 request 已完成主要实现和本地自动化验证，但因 PostgreSQL/浏览器联调及完整 Draft 2020-12 SDK 验证器缺失，暂不标记 done。"
+}

@@ -61,6 +61,7 @@ class EmbedTokenRequest(BaseModel):
     external_user_id: str = Field(min_length=1, max_length=255)
     display_name: str | None = Field(default=None, max_length=120)
     origin: str = Field(min_length=1, max_length=500)
+    host_tool_names: list[str] = Field(default_factory=list, max_length=100)
 
 
 class EmbedTokenResponse(BaseModel):

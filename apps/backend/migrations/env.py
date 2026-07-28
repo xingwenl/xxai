@@ -14,6 +14,7 @@ from app.modules.mcp import models as mcp_models  # noqa: F401
 from app.modules.skill import models as skill_models  # noqa: F401
 from app.modules.conversation import models as conversation_models  # noqa: F401
 from app.modules.embed import models as embed_models  # noqa: F401
+from app.modules.host_tool import models as host_tool_models  # noqa: F401
 from app.modules.role import models as role_models  # noqa: F401
 from app.modules.platform import models as platform_models  # noqa: F401
 from app.modules.user import models as user_models  # noqa: F401

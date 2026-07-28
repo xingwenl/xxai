@@ -1,6 +1,7 @@
 import asyncio
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from redis.asyncio import Redis
@@ -19,6 +20,13 @@ from app.modules.gateway.connection import validate_incoming_message
 from app.modules.knowledge.repositories import KnowledgeRepository
 from app.modules.mcp.repositories import McpRepository
 from app.modules.skill.repositories import SkillRepository
+from app.modules.host_tool.repositories import HostToolRepository
+from app.modules.host_tool.services import (
+    allowed_host_tool_names,
+    canonical_fingerprint,
+    redact_sensitive,
+    validate_registration,
+)
 
 router = APIRouter()
 
@@ -55,6 +63,11 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
             and isinstance(replay_cursor, str)
             else None
         )
+        host_tool_session = get_session_factory()()
+        host_tool_repo = HostToolRepository(host_tool_session)
+        registered_host_tools: set[str] = set()
+        registered_host_policies: dict[str, object] = {}
+        pending_host_results: dict[str, asyncio.Future] = {}
         sequence = 1
 
         def envelope(
@@ -86,13 +99,17 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                 {
                     "subject": payload["sub"],
                     "recovered": replay_result.recovered if replay_result else False,
-                    "latestSequence": replay_result.latest_sequence if replay_result else None,
+                    "latestSequence": (
+                        replay_result.latest_sequence if replay_result else None
+                    ),
                 },
             )
         )
         if replay_result and replay_result.recovered:
             for recovered_event in replay_result.events:
-                await websocket.send_text(json.dumps(recovered_event, ensure_ascii=False))
+                await websocket.send_text(
+                    json.dumps(recovered_event, ensure_ascii=False)
+                )
         registry = RequestRegistry()
         active_request: str | None = None
         active_task: asyncio.Task | None = None
@@ -114,6 +131,82 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                     context.knowledge_bases,
                     message["text"],
                 )
+
+                async def invoke_host_tool(*, tool, call):
+                    call_id = str(call.get("id") or f"{request_id}_{tool.name}")
+                    arguments = call.get("args", {})
+                    existing = await host_tool_repo.get_call(
+                        call_id,
+                        platform_id=int(payload["platform_id"]),
+                        agent_id=agent_id,
+                        end_user_id=int(payload["sub"]),
+                    )
+                    if existing is not None:
+                        if existing.arguments_fingerprint != canonical_fingerprint(
+                            arguments
+                        ):
+                            raise ValueError(
+                                "host tool call id reused with different arguments"
+                            )
+                        if existing.status in {
+                            "succeeded",
+                            "failed",
+                            "rejected",
+                            "expired",
+                        }:
+                            return SimpleNamespace(
+                                status="completed", result=existing.result
+                            )
+                    else:
+                        requires_confirmation = (
+                            tool.side_effect != "none"
+                            and tool.confirmation_policy == "always"
+                        )
+                        existing = await host_tool_repo.create_audit(
+                            call_id=call_id,
+                            platform_id=int(payload["platform_id"]),
+                            agent_id=agent_id,
+                            platform_end_user_id=int(payload["sub"]),
+                            conversation_id=None,
+                            request_id=request_id,
+                            tool_name=tool.name,
+                            arguments=redact_sensitive(arguments),
+                            arguments_fingerprint=canonical_fingerprint(arguments),
+                            status=(
+                                "awaiting_confirmation"
+                                if requires_confirmation
+                                else "running"
+                            ),
+                            expires_at=datetime.now(UTC) + timedelta(minutes=10),
+                        )
+                    future = pending_host_results.get(call_id)
+                    if future is None:
+                        future = asyncio.get_running_loop().create_future()
+                        pending_host_results[call_id] = future
+                    await event_queue.put(
+                        {
+                            "type": "host_tool_call",
+                            "conversation": None,
+                            "request_id": request_id,
+                            "call_id": call_id,
+                            "name": tool.name,
+                            "arguments": arguments,
+                            "side_effect": tool.side_effect,
+                            "requires_confirmation": existing.status
+                            == "awaiting_confirmation",
+                        }
+                    )
+                    result = await future
+                    pending_host_results.pop(call_id, None)
+                    if isinstance(result, dict) and "error" in result:
+                        return SimpleNamespace(status="completed", result=result)
+                    return SimpleNamespace(status="completed", result=result)
+
+                context.host_tools = [
+                    registered_host_policies[name]
+                    for name in registered_host_tools
+                    if name in registered_host_policies
+                ]
                 async for event in stream_embed_chat(
                     ConversationRepository(session),
                     context,
@@ -124,6 +217,8 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                     conversation_id=message.get("conversationId"),
                     request_id=request_id,
                     citations=[item.model_dump() for item in citations],
+                    host_tools=context.host_tools,
+                    invoke_host_tool_fn=invoke_host_tool,
                 ):
                     await event_queue.put(event)
             await event_queue.put(None)
@@ -148,6 +243,14 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                     )
                     if event_type == "citation":
                         event_payload = event["citation"]
+                    if event_type == "host_tool_call":
+                        event_payload = {
+                            "callId": event["call_id"],
+                            "name": event["name"],
+                            "arguments": redact_sensitive(event["arguments"]),
+                            "sideEffect": event["side_effect"],
+                            "requiresConfirmation": event["requires_confirmation"],
+                        }
                     if event_type == "message_completed":
                         event_payload = {
                             "content": event["content"],
@@ -232,6 +335,111 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                             produce(request_id, message_payload)
                         )
                         registry.register(request_id, active_task)
+                elif message_type == "host_tools_register":
+                    registrations = message.get("payload", {}).get("tools", [])
+                    if not isinstance(registrations, list):
+                        await websocket.send_text(
+                            envelope(
+                                "error",
+                                {
+                                    "code": "invalid_host_tools",
+                                    "message": "tools must be a list",
+                                    "retryable": False,
+                                },
+                            )
+                        )
+                        continue
+                    token_names = set(payload.get("host_tools", []))
+                    agent_names = await host_tool_repo.list_agent_tool_names(
+                        int(payload["platform_id"]), agent_id
+                    )
+                    names = {
+                        item.get("name")
+                        for item in registrations
+                        if isinstance(item, dict) and isinstance(item.get("name"), str)
+                    }
+                    allowed = allowed_host_tool_names(
+                        token_names=token_names,
+                        agent_names=agent_names,
+                        registered_names=names,
+                    )
+                    policies = await host_tool_repo.list_authorized_policies(
+                        int(payload["platform_id"]), agent_id, allowed
+                    )
+                    by_name = {item.name: item for item in policies}
+                    for item in registrations:
+                        if (
+                            not isinstance(item, dict)
+                            or item.get("name") not in by_name
+                        ):
+                            continue
+                        try:
+                            validate_registration(by_name[item["name"]], item)
+                        except ValueError:
+                            continue
+                        registered_host_tools.add(item["name"])
+                        registered_host_policies[item["name"]] = by_name[item["name"]]
+                elif message_type == "confirmation_resolve":
+                    call_id = message.get("payload", {}).get("callId")
+                    approved = message.get("payload", {}).get("approved")
+                    if isinstance(call_id, str) and isinstance(approved, bool):
+                        audit = await host_tool_repo.get_call(
+                            call_id,
+                            platform_id=int(payload["platform_id"]),
+                            agent_id=agent_id,
+                            end_user_id=int(payload["sub"]),
+                        )
+                        if (
+                            audit is not None
+                            and audit.status == "awaiting_confirmation"
+                        ):
+                            await host_tool_repo.transition_call(
+                                audit, "running" if approved else "rejected"
+                            )
+                            if not approved:
+                                future = pending_host_results.get(call_id)
+                                if future is not None and not future.done():
+                                    future.set_result({"error": "host_tool_rejected"})
+                elif message_type in {"host_tool_result", "host_tool_error"}:
+                    call_id = message.get("payload", {}).get("callId")
+                    if not isinstance(call_id, str):
+                        continue
+                    audit = await host_tool_repo.get_call(
+                        call_id,
+                        platform_id=int(payload["platform_id"]),
+                        agent_id=agent_id,
+                        end_user_id=int(payload["sub"]),
+                    )
+                    if audit is None or audit.status != "running":
+                        continue
+                    if message_type == "host_tool_result":
+                        result = redact_sensitive(
+                            message.get("payload", {}).get("result")
+                        )
+                        if len(json.dumps(result, ensure_ascii=False)) > 32 * 1024:
+                            await host_tool_repo.transition_call(
+                                audit, "failed", error="host_tool_result_too_large"
+                            )
+                        else:
+                            await host_tool_repo.transition_call(
+                                audit, "succeeded", result=result
+                            )
+                            future = pending_host_results.get(call_id)
+                            if future is not None and not future.done():
+                                future.set_result(result)
+                    else:
+                        await host_tool_repo.transition_call(
+                            audit,
+                            "failed",
+                            error=str(
+                                message.get("payload", {}).get(
+                                    "message", "host tool failed"
+                                )
+                            ),
+                        )
+                        future = pending_host_results.get(call_id)
+                        if future is not None and not future.done():
+                            future.set_result({"error": "host_tool_failed"})
     except asyncio.TimeoutError:
         await websocket.close(code=4408)
     except WebSocketDisconnect:
@@ -239,6 +447,9 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
     except Exception:
         await websocket.close(code=4401)
     finally:
+        host_session = locals().get("host_tool_session")
+        if host_session is not None:
+            await host_session.close()
         replay_redis = locals().get("replay_redis")
         if replay_redis is not None:
             await replay_redis.aclose()

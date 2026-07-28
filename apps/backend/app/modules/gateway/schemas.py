@@ -34,6 +34,20 @@ class ToolStatePayload(_WireModel):
     status: str
 
 
+class HostToolCallPayload(_WireModel):
+    call_id: str
+    name: str
+    arguments: dict
+    side_effect: str
+    requires_confirmation: bool
+
+
+class ConfirmationRequiredPayload(_WireModel):
+    call_id: str
+    name: str
+    summary: dict | None = None
+
+
 class ErrorPayload(_WireModel):
     code: str
     message: str
@@ -46,6 +60,8 @@ ProtocolPayload = Annotated[
     | MessageDeltaPayload
     | CitationPayload
     | ToolStatePayload
+    | HostToolCallPayload
+    | ConfirmationRequiredPayload
     | ErrorPayload,
     Field(discriminator=None),
 ]
@@ -59,6 +75,8 @@ ProtocolEventType = Literal[
     "message_completed",
     "tool_call",
     "tool_result",
+    "host_tool_call",
+    "confirmation_required",
     "error",
     "pong",
 ]

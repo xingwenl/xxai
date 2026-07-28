@@ -20,6 +20,7 @@ from app.modules.conversation.router import router as conversation_router
 from app.modules.embed.router import router as embed_router
 from app.modules.embed.token_router import router as agent_token_router
 from app.modules.gateway.router import router as gateway_router
+from app.modules.host_tool.router import router as host_tool_router
 from app.shared.exceptions import register_exception_handlers
 
 
@@ -60,4 +61,5 @@ def create_app() -> FastAPI:
     app.include_router(embed_router, prefix=settings.api_v1_prefix)
     app.include_router(agent_token_router, prefix="/api")
     app.include_router(gateway_router, prefix=settings.api_v1_prefix)
+    app.include_router(host_tool_router, prefix=settings.api_v1_prefix)
     return app

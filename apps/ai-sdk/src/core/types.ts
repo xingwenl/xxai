@@ -75,6 +75,7 @@ export interface ToolDefinition {
 export interface ToolContext {
   conversationId?: string
   requestId?: string
+  signal?: AbortSignal
 }
 
 export interface UIOptions {
@@ -91,6 +92,22 @@ export interface AgentCallbacks {
   onToolCall?: (name: string, input: unknown) => void
   onToolResult?: (name: string, result: unknown) => void
   onError?: (error: Error) => void
+  onConfirmationRequired?: (confirmation: HostToolConfirmation) => void
+}
+
+export type HostToolStatus =
+  | 'requested'
+  | 'awaiting_confirmation'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'rejected'
+  | 'expired'
+
+export interface HostToolConfirmation {
+  callId: string
+  name: string
+  summary?: Record<string, unknown>
 }
 
 export interface AgentClientOptions {
@@ -128,4 +145,12 @@ export interface OutgoingMessage {
   type: string
   requestId?: string
   payload: Record<string, unknown>
+}
+
+export interface HostToolCall {
+  callId: string
+  name: string
+  arguments: unknown
+  sideEffect: ToolDefinition['sideEffect']
+  requiresConfirmation: boolean
 }

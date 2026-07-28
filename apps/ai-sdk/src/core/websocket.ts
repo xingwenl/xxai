@@ -37,6 +37,7 @@ export class WebSocketTransport extends EventEmitter implements Transport {
   private _lastSequence = 0
   private _sessionReady = false
   private _conversationId: string | undefined
+  private _registeredTools: OutgoingMessage | null = null
 
   constructor(options: {
     endpoint: string
@@ -56,7 +57,7 @@ export class WebSocketTransport extends EventEmitter implements Transport {
     this._maxRetries = options.reconnect?.maxRetries ?? 5
     this._reconnectDelay = options.reconnect?.delayMs ?? 3000
     this._websocketFactory = options.websocketFactory ?? ((url, protocols) => new WebSocket(url, protocols))
-    this._setTimeout = options.setTimeout ?? setTimeout
+    this._setTimeout = options.setTimeout ?? globalThis.setTimeout
     this._clearTimeout = options.clearTimeout ?? clearTimeout
   }
 
@@ -144,6 +145,27 @@ export class WebSocketTransport extends EventEmitter implements Transport {
     } catch (error) { this.emit('error', error instanceof Error ? error : new Error('Invalid WebSocket message')) }
   }
 
+  registerHostTools(tools: OutgoingMessage): void {
+    this._registeredTools = tools
+    this.send(tools)
+  }
+
+  resolveToolCall(callId: string, approved: boolean): void {
+    this.send({
+      type: 'confirmation_resolve',
+      requestId: callId,
+      payload: { callId, approved }
+    })
+  }
+
+  sendHostToolResult(callId: string, result: unknown): void {
+    this.send({ type: 'host_tool_result', requestId: callId, payload: { callId, result } })
+  }
+
+  sendHostToolError(callId: string, code: string, message: string): void {
+    this.send({ type: 'host_tool_error', requestId: callId, payload: { callId, code, message } })
+  }
+
   private handleClose(event: { code: number; wasClean: boolean }): void {
     this._ws = null
     this._sessionReady = false
@@ -182,6 +204,7 @@ export class WebSocketTransport extends EventEmitter implements Transport {
     this._explicitDisconnect = true
     if (this._reconnectTimer) { this._clearTimeout(this._reconnectTimer); this._reconnectTimer = null }
     this._queue = []
+    this._registeredTools = null
     this._ws?.close(1000)
     this._ws = null
     this._sessionReady = false

@@ -56,6 +56,12 @@ async def issue_embed_token(
         end_user = await embed_repo.create_end_user(
             platform_id, request.external_user_id, request.display_name
         )
+    list_client_tool_names = getattr(embed_repo, "list_client_tool_names", None)
+    client_tool_names = (
+        await list_client_tool_names(client.id)
+        if list_client_tool_names is not None
+        else set()
+    )
     token, jti = create_embed_token(
         subject=str(end_user.id),
         platform_id=platform_id,
@@ -63,6 +69,7 @@ async def issue_embed_token(
         client_id=client.client_id,
         origin=request.origin.rstrip("/"),
         expires_in=client.token_ttl_seconds,
+        host_tools=sorted(set(request.host_tool_names) & client_tool_names),
     )
     return EmbedTokenResponse(
         access_token=token, expires_in=client.token_ttl_seconds, jti=jti

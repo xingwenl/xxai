@@ -39,6 +39,7 @@ def create_embed_token(
     client_id: str,
     origin: str,
     expires_in: int,
+    host_tools: list[str] | None = None,
 ) -> tuple[str, str]:
     settings = get_settings()
     jti = str(uuid4())
@@ -51,6 +52,7 @@ def create_embed_token(
         "agent_id": agent_id,
         "client_id": client_id,
         "origin": origin,
+        "host_tools": sorted(set(host_tools or [])),
         "protocol_version": 1,
         "jti": jti,
         "iat": now,
@@ -77,7 +79,15 @@ def decode_embed_token(token: str) -> dict[str, Any]:
             issuer=settings.embed_token_issuer,
             audience=settings.embed_token_audience,
             options={
-                "require": ["sub", "jti", "exp", "platform_id", "agent_id", "client_id"]
+                "require": [
+                    "sub",
+                    "jti",
+                    "exp",
+                    "platform_id",
+                    "agent_id",
+                    "client_id",
+                    "host_tools",
+                ]
             },
         )
     except jwt.PyJWTError as exc:

@@ -34,6 +34,8 @@ export class AgentClient {
   private pendingCitations: unknown[] = []
   private uiMounted = false
   private uiContainer: HTMLElement | null = null
+  private pendingConfirmations = new Set<string>()
+  private pendingHostCalls = new Map<string, { name: string; arguments: unknown }>()
 
   constructor(options: AgentClientOptions) {
     this.options = {
@@ -137,6 +139,18 @@ export class AgentClient {
         this._callbacks.onToolResult?.(msg.payload.name as string, msg.payload.result)
         this.eventEmitter.emit('tool_result', msg.payload)
         break
+      case 'host_tool_call':
+        void this.executeHostTool(msg)
+        break
+      case 'confirmation_required':
+        this.pendingConfirmations.add(String(msg.payload.callId))
+        this._callbacks.onConfirmationRequired?.({
+          callId: String(msg.payload.callId),
+          name: String(msg.payload.name),
+          summary: msg.payload.summary as Record<string, unknown> | undefined
+        })
+        this.eventEmitter.emit('confirmation_required', msg.payload)
+        break
       case 'message_completed':
         if (this.pendingAssistantMessage) {
           const finalText = (msg.payload.content as string) || this.pendingAssistantMessage.text
@@ -216,6 +230,8 @@ export class AgentClient {
     this.eventEmitter.removeAllListeners()
     this.messageStore.clearMessages()
     this.toolRegistry.clearCustomTools()
+    this.pendingConfirmations.clear()
+    this.pendingHostCalls.clear()
 
     if (this.uiContainer && this.uiMounted) {
       this.uiContainer.remove()
@@ -281,10 +297,22 @@ export class AgentClient {
 
   registerTool(tool: ToolDefinition): void {
     this.toolRegistry.registerTool(tool)
+    if (this.transport instanceof WebSocketTransport) {
+      const { execute: _execute, outputSchema: _outputSchema, timeoutMs: _timeoutMs, sideEffect: _sideEffect, ...definition } = tool
+      this.transport.registerHostTools({ type: 'host_tools_register', payload: { tools: [definition] } })
+    }
   }
 
   registerTools(tools: ToolDefinition[]): void {
     this.toolRegistry.registerTools(tools)
+    if (this.transport instanceof WebSocketTransport) {
+      this.transport.registerHostTools({
+        type: 'host_tools_register',
+        payload: {
+          tools: tools.map(({ execute: _execute, outputSchema: _outputSchema, timeoutMs: _timeoutMs, sideEffect: _sideEffect, ...tool }) => tool)
+        }
+      })
+    }
   }
 
   unregisterTool(name: string): void {
@@ -301,6 +329,63 @@ export class AgentClient {
 
   clearCustomTools(): void {
     this.toolRegistry.clearCustomTools()
+  }
+
+  resolveToolCall(callId: string, approved: boolean): void {
+    if (!this.pendingConfirmations.has(callId)) return
+    this.pendingConfirmations.delete(callId)
+    const pending = this.pendingHostCalls.get(callId)
+    if (this.transport instanceof WebSocketTransport) {
+      this.transport.resolveToolCall(callId, approved)
+    }
+    if (approved && pending) void this.runHostTool(callId, pending.name, pending.arguments)
+    if (!approved) this.pendingHostCalls.delete(callId)
+  }
+
+  private async executeHostTool(msg: WebSocketMessage): Promise<void> {
+    const callId = String(msg.payload.callId || '')
+    const name = String(msg.payload.name || '')
+    const tool = this.toolRegistry.getTool(name)
+    if (!callId || !tool) {
+      this.sendHostToolError(callId, 'host_tool_not_registered', 'Host tool is not registered')
+      return
+    }
+    try {
+      this.toolRegistry.validate(name, msg.payload.arguments)
+      if (msg.payload.requiresConfirmation) {
+        this.pendingConfirmations.add(callId)
+        this.pendingHostCalls.set(callId, { name, arguments: msg.payload.arguments })
+        this._callbacks.onConfirmationRequired?.({ callId, name, summary: { arguments: msg.payload.arguments } })
+        this.eventEmitter.emit('confirmation_required', { callId, name })
+        return
+      }
+      await this.runHostTool(callId, name, msg.payload.arguments)
+    } catch (error) {
+      this.sendHostToolError(callId, 'host_tool_arguments_invalid', error instanceof Error ? error.message : 'Invalid arguments')
+    }
+  }
+
+  private async runHostTool(callId: string, name: string, params: unknown): Promise<void> {
+    const tool = this.toolRegistry.getTool(name)
+    if (!tool) return
+    const timeout = tool.timeoutMs ?? 10000
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeout)
+    try {
+      const result = await tool.execute(params, { conversationId: this.conversationId, requestId: callId, signal: controller.signal } as any)
+      const encoded = JSON.stringify(result)
+      if (encoded.length > 32 * 1024) throw new Error('host_tool_result_too_large')
+      if (this.transport instanceof WebSocketTransport) this.transport.sendHostToolResult(callId, result)
+    } catch (error) {
+      this.sendHostToolError(callId, 'host_tool_execution_failed', error instanceof Error ? error.message : 'Tool execution failed')
+    } finally {
+      clearTimeout(timer)
+      this.pendingHostCalls.delete(callId)
+    }
+  }
+
+  private sendHostToolError(callId: string, code: string, message: string): void {
+    if (this.transport instanceof WebSocketTransport) this.transport.sendHostToolError(callId, code, message)
   }
 
   setSystemPrompt(prompt: string): void {

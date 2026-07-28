@@ -16,7 +16,7 @@ class User(BaseModel, TimeModel):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
 
     account: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
-    password: Mapped[str] = mapped_column(String(60), nullable=False)
+    password: Mapped[str] = mapped_column(String(160), nullable=False)
     roles: Mapped[list[Role]] = relationship(
         secondary="sys_user_roles",
         back_populates="users",

@@ -45,6 +45,8 @@ async def stream_embed_chat(
     conversation_id: int | None,
     request_id: str,
     citations: list[dict],
+    host_tools: list | None = None,
+    invoke_host_tool_fn=None,
 ) -> AsyncIterator[dict]:
     conversation = None
     if conversation_id is not None:
@@ -82,6 +84,8 @@ async def stream_embed_chat(
         ),
         user_message=message,
         citations=citations,
+        tools=host_tools,
+        invoke_tool_fn=invoke_host_tool_fn,
     ):
         if item["type"] == "message_delta":
             yield {

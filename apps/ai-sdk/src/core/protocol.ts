@@ -8,6 +8,8 @@ export type ProtocolEventType =
   | 'message_completed'
   | 'tool_call'
   | 'tool_result'
+  | 'host_tool_call'
+  | 'confirmation_required'
   | 'error'
   | 'pong'
 
@@ -23,6 +25,8 @@ export type ProtocolPayload =
   | { content: string }
   | { title: string; text: string; sourceUrl?: string }
   | { name: string; status: string }
+  | { callId: string; name: string; arguments: unknown; sideEffect?: string; requiresConfirmation?: boolean }
+  | { callId: string; name: string; summary?: Record<string, unknown> }
   | ErrorPayload
 
 export interface ProtocolEvent {
@@ -69,6 +73,8 @@ export function parseProtocolEvent(input: unknown): ProtocolEvent {
     'message_completed',
     'tool_call',
     'tool_result',
+    'host_tool_call',
+    'confirmation_required',
     'error',
     'pong'
   ]

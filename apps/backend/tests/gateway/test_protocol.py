@@ -60,3 +60,24 @@ def test_error_payload_has_stable_retry_contract():
 
     assert error.code == "token_expired"
     assert error.retryable is True
+
+
+def test_protocol_envelope_supports_host_tool_call_and_confirmation():
+    event = ProtocolEnvelope.model_validate(
+        {
+            "id": "evt_host",
+            "type": "host_tool_call",
+            "protocolVersion": 1,
+            "sequence": 4,
+            "timestamp": "2026-07-28T00:00:00Z",
+            "payload": {
+                "callId": "call_123456",
+                "name": "orders.get_status",
+                "arguments": {"orderId": "o-1"},
+                "sideEffect": "none",
+                "requiresConfirmation": False,
+            },
+        }
+    )
+    assert event.payload.call_id == "call_123456"
+    assert event.payload.requires_confirmation is False

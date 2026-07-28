@@ -43,7 +43,22 @@ async def stream_graph(
     system_prompt: str,
     user_message: str,
     citations: list[dict[str, Any]] | None = None,
+    tools: list[Any] | None = None,
+    invoke_tool_fn=None,
 ):
+    if tools:
+        result = await run_graph(
+            model,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            citations=citations,
+            tools=tools,
+            invoke_tool_fn=invoke_tool_fn,
+        )
+        if result.content:
+            yield {"type": "message_delta", "content": result.content}
+        yield {"type": "completed", "result": result}
+        return
     if not hasattr(model, "astream"):
         result = await run_graph(
             model,
@@ -142,11 +157,14 @@ async def run_graph(
             )
             if tool is None:
                 continue
-            outcome = await invoke_tool_fn(
-                server_id=tool.server_id,
-                tool_name=tool.name,
-                arguments=call.get("args", {}),
-            )
+            if hasattr(tool, "server_id"):
+                outcome = await invoke_tool_fn(
+                    server_id=tool.server_id,
+                    tool_name=tool.name,
+                    arguments=call.get("args", {}),
+                )
+            else:
+                outcome = await invoke_tool_fn(tool=tool, call=call)
             tool_events.append({"tool": tool.name, "outcome": outcome})
             if outcome.status == "confirmation_required":
                 pending_confirmation_id = outcome.confirmation_id
