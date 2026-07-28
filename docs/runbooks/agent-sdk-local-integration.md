@@ -6,6 +6,20 @@
 
 启动 PostgreSQL/pgvector 和 Redis，并确认应用配置中的数据库连接和 `celery_broker_url` 指向这些服务。Redis 测试使用：
 
+数据库表统一使用仓库脚本创建或升级，不需要应用启动时自动建表：
+
+```bash
+cd apps/backend
+bash scripts/create_tables.sh
+```
+
+查看迁移状态：
+
+```bash
+bash scripts/create_tables.sh current
+bash scripts/create_tables.sh history
+```
+
 ```bash
 cd apps/backend
 PHASE2_REDIS_URL=redis://127.0.0.1:6379/15 poetry run pytest tests/gateway/test_replay_integration.py -q
