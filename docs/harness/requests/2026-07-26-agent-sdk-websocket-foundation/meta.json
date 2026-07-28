@@ -2,8 +2,8 @@
   "id": "2026-07-26-agent-sdk-websocket-foundation",
   "title": "AI Agent SDK WebSocket 连接与聊天基础",
   "scope": "fullstack",
-  "phase": "verify",
-  "status": "active",
+  "phase": "acceptance",
+  "status": "done",
   "riskLevel": "high",
   "changeTypes": ["architecture", "data-model", "api", "auth", "sdk", "docs"],
   "research": {
@@ -27,5 +27,5 @@
   "createdAt": "2026-07-26",
   "updatedAt": "2026-07-28",
   "relatedPaths": ["apps/backend", "apps/ai-sdk", "docs/design/agent-sdk-phase-2-requirements.md", "docs/harness/requests/2026-07-26-agent-sdk-websocket-foundation"],
-  "notes": "完整需求已拆为 Phase 2A/2B/2C/2D；本 request 只实施 Phase 2A。Task 0 至 Task 8 已完成本地验证，Task 9 仍等待真实 PostgreSQL/Redis/浏览器联调。"
+  "notes": "完整需求已拆为 Phase 2A/2B/2C/2D；本 request 只实施 Phase 2A。用户已于 2026-07-28 完成人工验收，前端 Demo 可访问且 ToolRegistry 本地工具执行成功。Phase 2B 宿主工具自动调用不属于本 request。"
 }

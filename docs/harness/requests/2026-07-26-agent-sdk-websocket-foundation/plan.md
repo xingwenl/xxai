@@ -197,13 +197,13 @@
 - Modify: `docs/harness/requests/2026-07-26-agent-sdk-websocket-foundation/meta.json`
 - Modify: `docs/CHANGELOG.md`
 
-- [ ] **Step 1:** 启动 PostgreSQL/pgvector、Redis、FastAPI 和 SDK demo，执行真实迁移到最新 head。（当前环境不可用）
+- [x] **Step 1:** 用户已在本地启动 FastAPI 和 SDK demo，并完成前端人工联调；独立 PostgreSQL/pgvector、Redis 容器验证因当前环境不可用未执行。
 - [x] **Step 2:** 已完成单元/契约层的平台、Agent、主体和 token 拒绝路径验证；真实服务矩阵待执行。
-- [ ] **Step 3:** SDK 行为已完成自动化覆盖；浏览器流式、重连、过期刷新、快照和 destroy 待执行。
+- [x] **Step 3:** SDK 行为已完成自动化覆盖；用户已完成本地浏览器 Demo 人工验收，自动化浏览器专项矩阵作为未覆盖风险记录。
 - [x] **Step 4:** 已运行后端全量 pytest、Ruff、Poetry check、Alembic history，以及 SDK test、type-check、build。
 - [x] **Step 5:** 已检查 token 不进入 URL/日志/存储的代码路径，Origin、消息大小、连接认证限制已有测试覆盖。
-- [x] **Step 6:** 已更新 verify、acceptance、meta 和本地联调手册；最终验收仍保持 active。
-- [ ] **Step 7:** 待真实联调完成后提交最终 checkpoint，并选择本地合并或 PR。
+- [x] **Step 6:** 已更新 verify、acceptance、meta 和本地联调手册；最终验收结论为通过。
+- [x] **Step 7:** 用户确认人工验收完成；Harness 验收文档形成最终 checkpoint，代码此前已合并到根仓库 `main`。
 
 ## 回滚说明
 
