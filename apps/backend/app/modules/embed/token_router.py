@@ -18,6 +18,7 @@ async def get_agent_token(
     external_user_id: str = Query(min_length=1, max_length=255),
     display_name: str | None = Query(default=None, max_length=120),
     origin: str | None = Query(default=None, max_length=500),
+    host_tool_names: list[str] = Query(default=[]),
     session: AsyncSession = Depends(get_db_session),
 ) -> ApiResponse[EmbedTokenResponse]:
     """为本地 Demo/业务后端代理签发短期 SDK token。
@@ -50,6 +51,7 @@ async def get_agent_token(
             external_user_id=external_user_id,
             display_name=display_name,
             origin=(origin or settings.embed_origin),
+            host_tool_names=host_tool_names,
         ),
         platform_id=client.platform_id,
     )

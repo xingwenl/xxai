@@ -1,5 +1,3 @@
-from datetime import UTC, datetime
-
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,7 +7,11 @@ from app.modules.host_tool.models import (
     HostToolCallAudit,
     HostToolPolicy,
 )
-from app.modules.host_tool.services import canonical_fingerprint, transition_status
+from app.modules.host_tool.services import (
+    canonical_fingerprint,
+    transition_status,
+    utc_naive_now,
+)
 
 
 class HostToolRepository:
@@ -123,9 +125,9 @@ class HostToolRepository:
         transition_status(audit.status, target)
         values = {"status": target}
         if target == "running":
-            values["started_at"] = datetime.now(UTC)
+            values["started_at"] = utc_naive_now()
         if target in {"succeeded", "failed", "rejected", "expired"}:
-            values["completed_at"] = datetime.now(UTC)
+            values["completed_at"] = utc_naive_now()
         if result is not None:
             values["result"] = result
         if error is not None:

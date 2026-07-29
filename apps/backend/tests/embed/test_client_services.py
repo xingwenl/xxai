@@ -5,6 +5,7 @@ import pytest
 
 from app.modules.embed.schemas import EmbedTokenRequest, PlatformEmbedClientCreate
 from app.modules.embed.services import create_embed_client, issue_embed_token
+from app.modules.embed.security import decode_embed_token
 from app.shared.exceptions import UnauthorizedException
 
 
@@ -59,6 +60,9 @@ class FakeEmbedRepository:
 
     async def is_agent_allowed(self, client_id: int, agent_id: int):
         return agent_id == 11
+
+    async def list_client_tool_names(self, client_id: int):
+        return {"get_weather", "calculate_total"}
 
     async def create_end_user(
         self, platform_id: int, external_user_id: str, display_name: str | None
@@ -140,14 +144,17 @@ def test_token_exchange_contains_scoped_claims_and_creates_external_user():
                 client_secret=created.client_secret,
                 agent_id=11,
                 external_user_id="user_1",
-                display_name="Alice",
-                origin="https://app.acme.test",
-            ),
+                    display_name="Alice",
+                    origin="https://app.acme.test",
+                    host_tool_names=["get_weather", "calculate_total"],
+                ),
             platform_id=7,
         )
 
         assert token.access_token
         assert token.expires_in == 600
         assert repo.created_end_users[0]["external_user_id"] == "user_1"
+        claims = decode_embed_token(token.access_token)
+        assert claims["host_tools"] == ["calculate_total", "get_weather"]
 
     asyncio.run(run())

@@ -1,3 +1,5 @@
+"""基于 Redis Stream 的 WebSocket 事件重放。"""
+
 import json
 from dataclasses import dataclass
 
@@ -15,14 +17,27 @@ class ReplayResult:
 
 
 class ReplayStore:
+    """把已发送事件按会话保存一段有限时间，支持断线续传。
+
+    事件重放不是聊天内容的永久存储：Stream 有长度上限和 TTL，
+    Conversation 数据库仍是消息事实来源。这里保存的是带 sequence 的
+    协议事件，客户端可用上次收到的 cursor 请求缺失事件。
+    """
+
     def __init__(self, redis: Redis) -> None:
         self.redis = redis
 
     @staticmethod
     def key(conversation_id: str | int) -> str:
+        """为会话生成稳定且不会跨会话混用的 Redis key。"""
         return f"agent:events:{conversation_id}"
 
     async def append(self, conversation_id: str | int, event: dict) -> str:
+        """追加事件并刷新 TTL。
+
+        ``maxlen`` 控制单个会话的事件数量，``approximate=False`` 保证
+        Redis 按精确长度裁剪，便于测试和故障排查时得到确定行为。
+        """
         key = self.key(conversation_id)
         identifier = await self.redis.xadd(
             key,
@@ -36,6 +51,12 @@ class ReplayStore:
     async def replay(
         self, conversation_id: str | int, cursor: str | None
     ) -> ReplayResult:
+        """根据客户端 cursor 读取尚未确认的事件。
+
+        如果 cursor 早于 Stream 当前保留的第一条事件，说明中间事件已经
+        因 TTL/长度限制丢失，返回 ``recovered=False``，上层可以让客户端
+        重新建立完整状态，而不是伪造不完整的恢复结果。
+        """
         key = self.key(conversation_id)
         info = await self.redis.xinfo_stream(key)
         first = info.get(b"first-entry") or info.get("first-entry")

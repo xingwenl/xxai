@@ -1,3 +1,5 @@
+"""WebSocket 入站消息的大小和基础结构校验。"""
+
 import json
 
 MAX_MESSAGE_BYTES = 64 * 1024
@@ -5,6 +7,13 @@ MAX_TEXT_BYTES = 16 * 1024
 
 
 def validate_incoming_message(raw: str) -> dict:
+    """把客户端文本消息解析为受限的协议字典。
+
+    该函数不负责校验每一种业务消息的完整 Schema，而是先完成网关层
+    必须的三件事：限制单条消息大小、保证 JSON 顶层是对象、为带 payload
+    的宿主工具消息建立统一入口。更细的权限和状态校验在 WebSocket 主循环中
+    根据消息类型执行，避免把认证前的任意数据直接送入业务层。
+    """
     if len(raw.encode("utf-8")) > MAX_MESSAGE_BYTES:
         raise ValueError("message_too_large")
     try:
@@ -28,6 +37,13 @@ def validate_incoming_message(raw: str) -> dict:
 
 
 class RequestLimiter:
+    """保留单连接请求互斥状态的轻量工具。
+
+    当前网关主循环使用 ``active_task`` 做实际调度，这个类保留给需要在
+    其他传输实现中复用的 begin/end 场景，核心语义是同一连接只允许一个
+    活跃请求。
+    """
+
     def __init__(self) -> None:
         self.active = False
 

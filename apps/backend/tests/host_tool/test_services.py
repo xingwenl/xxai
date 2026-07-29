@@ -4,7 +4,14 @@ from app.modules.host_tool.schemas import HostToolPolicyCreate
 from app.modules.host_tool.services import (
     allowed_host_tool_names,
     transition_status,
+    utc_naive_now,
 )
+
+
+def test_database_timestamp_is_utc_and_timezone_naive():
+    value = utc_naive_now()
+
+    assert value.tzinfo is None
 
 
 def test_policy_requires_object_input_schema_and_valid_tool_name():

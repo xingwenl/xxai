@@ -57,8 +57,8 @@ export class WebSocketTransport extends EventEmitter implements Transport {
     this._maxRetries = options.reconnect?.maxRetries ?? 5
     this._reconnectDelay = options.reconnect?.delayMs ?? 3000
     this._websocketFactory = options.websocketFactory ?? ((url, protocols) => new WebSocket(url, protocols))
-    this._setTimeout = options.setTimeout ?? globalThis.setTimeout
-    this._clearTimeout = options.clearTimeout ?? clearTimeout
+    this._setTimeout = (options.setTimeout ?? globalThis.setTimeout).bind(globalThis)
+    this._clearTimeout = (options.clearTimeout ?? globalThis.clearTimeout).bind(globalThis)
   }
 
   get state(): ConnectionState { return this._state }

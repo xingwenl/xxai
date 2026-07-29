@@ -105,6 +105,27 @@
 
 ## 变更记录
 
+### 2026-07-29 审计时间兼容与异常回传修复（fix）
+
+- 变更原因：真实 PostgreSQL 联调时发现审计时间列为 `TIMESTAMP WITHOUT TIME ZONE`，带时区时间导致审计写入失败；runtime 异常也未向客户端暴露错误 payload。
+- 变更内容：统一宿主工具审计时间为 UTC 无时区值；网关将 runtime 异常编码为非空 `error` payload。
+- 影响章节：状态与副作用、SDK 与协议、工程验证。
+- 是否触发人工确认：否，不改变权限和 API 契约。
+
+### 2026-07-28 Demo 自动调用接入（modify）
+
+- 变更原因：Phase 2B Demo 已能注册本地工具，但 token proxy 未携带 host tool claim，无法验证 AI 自动调用。
+- 变更内容：Demo token proxy 接收 host_tool_names；index.html 请求三个 Demo 工具；新增本地 seed 脚本配置策略、Agent 绑定和 Client 绑定。
+- 影响章节：SDK、管理 API、验收标准。
+- 是否触发人工确认：否，复用已确认的三重白名单设计，不改变生产权限语义。
+
+### 2026-07-28 WebSocket timer 调用修复（fix）
+
+- 变更原因：浏览器触发 WebSocket 非正常关闭时，原生 timer 方法以错误 receiver 调用，导致 Illegal invocation。
+- 变更内容：在 WebSocketTransport 构造时将 setTimeout 和 clearTimeout 绑定到 globalThis，并增加回归测试。
+- 影响章节：SDK、风险、验收标准。
+- 是否触发人工确认：否，不改变协议、数据模型或权限语义。
+
 ### 2026-07-28 初始版本
 
 - 变更原因：Phase 2A 已验收，开始独立 Phase 2B 宿主页面工具 request。

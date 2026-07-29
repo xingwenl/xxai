@@ -94,6 +94,34 @@ describe('WebSocketTransport', () => {
     vi.useRealTimers()
   })
 
+  it('binds native timer methods to the global receiver during reconnect', async () => {
+    const nativeSetTimeout = function (
+      this: typeof globalThis,
+      callback: TimerHandler,
+      delay?: number
+    ) {
+      if (this !== globalThis) throw new TypeError('Illegal invocation')
+      return globalThis.setTimeout(callback, delay)
+    }
+    const socket = new FakeWebSocket('wss://agent.test/ws')
+    const transport = new WebSocketTransport({
+      endpoint: socket.url,
+      getToken: vi.fn().mockResolvedValue('token'),
+      platformId: 'p',
+      agentId: 'a',
+      websocketFactory: () => socket,
+      setTimeout: nativeSetTimeout,
+      reconnect: { maxRetries: 1, delayMs: 1 }
+    })
+    const connected = transport.connect()
+    socket.open()
+    await Promise.resolve()
+    socket.receive(event(1, 'session_ready'))
+    await connected
+
+    expect(() => socket.close(1006)).not.toThrow()
+  })
+
   it('deduplicates events by sequence and remembers the last cursor', async () => {
     const socket = new FakeWebSocket('wss://agent.test/ws')
     const received: unknown[] = []

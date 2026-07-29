@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import UTC, datetime
 from typing import Iterable
 
 from jsonschema import ValidationError, validate
@@ -17,6 +18,11 @@ _TRANSITIONS: dict[str, set[str]] = {
     "rejected": set(),
     "expired": set(),
 }
+
+
+def utc_naive_now() -> datetime:
+    """Return UTC time for legacy PostgreSQL timestamp-without-time-zone columns."""
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def allowed_host_tool_names(

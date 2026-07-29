@@ -1,3 +1,5 @@
+"""网关请求任务和 Embed 对话流的运行时编排。"""
+
 import asyncio
 from collections.abc import AsyncIterator
 
@@ -7,11 +9,19 @@ from app.shared.exceptions import NotFoundException
 
 
 class RequestRegistry:
+    """按 requestId 管理连接内任务，提供幂等和取消能力。
+
+    ``_completed`` 防止同一个 requestId 在任务结束后被重复提交；
+    ``_tasks`` 保存仍可取消的 asyncio Task。它只管理请求生命周期，
+    宿主工具的 callId 幂等由 HostToolRepository 单独负责。
+    """
+
     def __init__(self) -> None:
         self._tasks: dict[str, asyncio.Task] = {}
         self._completed: set[str] = set()
 
     def register(self, request_id: str, task: asyncio.Task) -> bool:
+        """注册新任务；活跃或已完成的同一 requestId 都不重复执行。"""
         existing = self._tasks.get(request_id)
         if existing is not None and not existing.done():
             return False
@@ -21,10 +31,12 @@ class RequestRegistry:
         return True
 
     def complete(self, request_id: str) -> None:
+        """将请求标记为完成，释放 Task 引用并保留幂等记录。"""
         self._tasks.pop(request_id, None)
         self._completed.add(request_id)
 
     async def cancel(self, request_id: str) -> bool:
+        """取消仍在运行的请求，并等待 Task 真正收尾。"""
         task = self._tasks.get(request_id)
         if task is None or task.done():
             return False
@@ -48,6 +60,13 @@ async def stream_embed_chat(
     host_tools: list | None = None,
     invoke_host_tool_fn=None,
 ) -> AsyncIterator[dict]:
+    """把一次 Embed 消息转换为网关事件流。
+
+    流程分为四段：先按平台和最终用户校验/创建会话，再写入用户消息，
+    然后把模型和宿主工具的中间事件转成网关事件，最后保存并发送助手消息。
+    ``host_tools`` 与 ``invoke_host_tool_fn`` 由 WebSocket 连接层注入，
+    因此这个运行时不会绕过当前连接的 token 和页面注册权限。
+    """
     conversation = None
     if conversation_id is not None:
         conversation = await repo.get_for_principal(
@@ -71,6 +90,7 @@ async def stream_embed_chat(
         knowledge_grounded=False,
     )
     yield {
+        # 先通知前端请求已被接受，后续模型调用可能需要等待外部服务或页面工具。
         "type": "message_started",
         "conversation": conversation,
         "request_id": request_id,
@@ -87,6 +107,8 @@ async def stream_embed_chat(
         tools=host_tools,
         invoke_tool_fn=invoke_host_tool_fn,
     ):
+        # message_delta 立即向前端流式发送；completed 事件只保留最终 GraphResult，
+        # 避免同一段回答被重复写入消息表。
         if item["type"] == "message_delta":
             yield {
                 "type": "message_delta",

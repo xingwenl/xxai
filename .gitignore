@@ -39,3 +39,4 @@ build/
 .worktrees/
 
 node_modules/
+backend-admin/

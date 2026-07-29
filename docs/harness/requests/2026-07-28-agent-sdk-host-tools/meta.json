@@ -3,7 +3,7 @@
   "title": "AI Agent SDK Phase 2B 宿主页面工具",
   "scope": "fullstack",
   "phase": "acceptance",
-  "status": "active",
+  "status": "done",
   "riskLevel": "high",
   "changeTypes": ["architecture", "data-model", "api", "auth", "sdk", "docs"],
   "research": {
@@ -25,7 +25,7 @@
   ],
   "owner": "ai",
   "createdAt": "2026-07-28",
-  "updatedAt": "2026-07-28",
+  "updatedAt": "2026-07-29",
   "relatedPaths": ["apps/backend", "apps/ai-sdk", "docs/design/agent-sdk-phase-2-requirements.md", "docs/harness/requests/2026-07-28-agent-sdk-host-tools"],
-  "notes": "Phase 2A request 2026-07-26-agent-sdk-websocket-foundation 已完成验收；本 request 已完成主要实现和本地自动化验证，但因 PostgreSQL/浏览器联调及完整 Draft 2020-12 SDK 验证器缺失，暂不标记 done。"
+  "notes": "Phase 2A request 2026-07-26-agent-sdk-websocket-foundation 已完成验收；本 request 已完成核心宿主工具自动调用链、真实 PostgreSQL/模型/WebSocket 联调和自动化验证。完整 Draft 2020-12 验证器、Redis 重放和 Playwright E2E 作为后续增强风险记录。"
 }

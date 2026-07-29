@@ -6,6 +6,7 @@ from app.modules.embed.models import (
     PlatformEmbedClientAgent,
     PlatformEndUser,
 )
+from app.modules.host_tool.models import EmbedClientHostTool, HostToolPolicy
 
 
 class EmbedRepository:
@@ -83,6 +84,17 @@ class EmbedRepository:
             )
             is not None
         )
+
+    async def list_client_tool_names(self, client_id: int) -> set[str]:
+        result = await self.session.execute(
+            select(HostToolPolicy.name)
+            .join(
+                EmbedClientHostTool,
+                EmbedClientHostTool.tool_id == HostToolPolicy.id,
+            )
+            .where(EmbedClientHostTool.client_id == client_id)
+        )
+        return set(result.scalars().all())
 
     async def create_client(self, **values):
         client = PlatformEmbedClient(**values)
