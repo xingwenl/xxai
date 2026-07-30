@@ -23,6 +23,15 @@ class PlatformRepository(BaseRepository[Platform]):
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
+    async def list_for_user(self, user_id: int) -> list[Platform]:
+        result = await self.session.execute(
+            select(Platform)
+            .join(PlatformAdmin, PlatformAdmin.platform_id == Platform.id)
+            .where(PlatformAdmin.user_id == user_id)
+            .order_by(Platform.id)
+        )
+        return list(result.scalars().all())
+
     async def create_platform(self, payload: PlatformCreate, owner_id: int) -> Platform:
         platform = Platform(name=payload.name, code=payload.code)
         self.session.add(platform)

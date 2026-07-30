@@ -6,7 +6,7 @@ from langchain_openai import ChatOpenAI
 
 from app.core.config import get_settings
 from app.modules.agent.repositories import AgentRepository
-from app.modules.agent.schemas import AgentCreate, AgentVersionCreate
+from app.modules.agent.schemas import AgentCreate, AgentUpdate, AgentVersionCreate
 from app.shared.exceptions import (
     BadRequestException,
     ConflictException,
@@ -55,6 +55,33 @@ async def create_agent_version(
             update={"api_key": encrypt_secret(payload.api_key)}
         )
     return await repo.create_version(agent_id, encrypted_payload)
+
+
+async def update_agent(
+    repo: AgentRepository,
+    agent_id: int,
+    payload: AgentUpdate,
+    *,
+    platform_id: int,
+):
+    agent = await repo.get_agent(agent_id, platform_id)
+    if agent is None:
+        raise NotFoundException("agent not found")
+    if payload.slug is not None and payload.slug != agent.slug:
+        existing = await repo.get_by_slug(platform_id, payload.slug)
+        if existing is not None and existing.id != agent_id:
+            raise ConflictException("agent slug already exists")
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise BadRequestException("no fields to update")
+    return await repo.update_agent(agent, payload)
+
+
+async def delete_agent(repo: AgentRepository, agent_id: int, *, platform_id: int) -> None:
+    agent = await repo.get_agent(agent_id, platform_id)
+    if agent is None:
+        raise NotFoundException("agent not found")
+    await repo.delete_agent(agent)
 
 
 async def publish_agent_version(

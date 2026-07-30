@@ -1,0 +1,33 @@
+{
+  "id": "2026-07-29-front-user-management",
+  "title": "前端用户管理接入真实用户与角色接口",
+  "scope": "frontend",
+  "phase": "acceptance",
+  "status": "active",
+  "riskLevel": "medium",
+  "changeTypes": ["frontend", "docs"],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "https://tanstack.com/query/latest/docs/framework/react/guides/mutations",
+      "https://github.com/satnaing/shadcn-admin",
+      "apps/backend/app/modules/user/router.py"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": false,
+  "approvalGranted": false,
+  "approvalReasons": [],
+  "approvalRecords": [],
+  "owner": "ai",
+  "createdAt": "2026-07-29",
+  "updatedAt": "2026-07-29",
+  "relatedPaths": [
+    "apps/front/src/api/user.ts",
+    "apps/front/src/api/role.ts",
+    "apps/front/src/features/system/users.tsx",
+    "apps/front/src/routes/_authenticated/system/users.tsx"
+  ],
+  "notes": "改造现有系统用户入口，保留模板假数据页面不变。"
+}

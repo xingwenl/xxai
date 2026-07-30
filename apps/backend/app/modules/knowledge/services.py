@@ -112,3 +112,12 @@ async def update_knowledge_base(repo, base_id: int, platform_id: int, payload):
             update={"embedding_api_key": encrypt_secret(payload.embedding_api_key)}
         )
     return await repo.update_base(base, stored, version)
+
+
+async def retry_knowledge_document(repo, base_id: int, document_id: int):
+    document = await repo.get_document(document_id)
+    if document is None or document.knowledge_base_id != base_id:
+        raise NotFoundException("document not found")
+    if document.status != "failed":
+        raise BadRequestException("only failed documents can be retried")
+    return await repo.retry_document(document)

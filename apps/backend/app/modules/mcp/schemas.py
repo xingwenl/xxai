@@ -27,6 +27,21 @@ class McpServerRead(BaseModel):
     updated_at: datetime
 
 
+class McpServerListData(BaseModel):
+    page_no: int
+    page_size: int
+    items: list[McpServerRead]
+    total: int
+    pages: int
+
+
+class McpServerUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    endpoint_url: str | None = Field(default=None, min_length=1, max_length=2000)
+    auth_headers: dict[str, str] | None = None
+    is_active: bool | None = None
+
+
 class McpToolPolicyUpdate(BaseModel):
     is_allowed: bool
     side_effect: SideEffect
@@ -42,6 +57,17 @@ class McpToolRead(BaseModel):
     input_schema: dict[str, Any]
     is_allowed: bool
     side_effect: SideEffect
+
+
+class AgentMcpServerRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    agent_id: int
+    server_id: int
+    is_enabled: bool
+    created_at: datetime
+    updated_at: datetime
 
 
 class AgentMcpBind(BaseModel):

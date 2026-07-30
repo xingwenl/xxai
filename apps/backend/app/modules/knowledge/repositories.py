@@ -1,4 +1,4 @@
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.knowledge.models import (
@@ -9,6 +9,7 @@ from app.modules.knowledge.models import (
     KnowledgeDocument,
 )
 from app.modules.knowledge.schemas import KnowledgeBaseCreate, KnowledgeBaseUpdate
+from app.shared.pagination import PaginationParams, build_page_data
 
 
 class KnowledgeRepository:
@@ -28,6 +29,22 @@ class KnowledgeRepository:
             )
         )
         return result.scalar_one_or_none()
+
+    async def list_bases(self, platform_id: int, params: PaginationParams):
+        statement = (
+            select(KnowledgeBase)
+            .where(KnowledgeBase.platform_id == platform_id)
+            .order_by(KnowledgeBase.id.desc())
+            .offset(params.offset)
+            .limit(params.limit)
+        )
+        items = list((await self.session.execute(statement)).scalars().all())
+        total = await self.session.scalar(
+            select(func.count())
+            .select_from(KnowledgeBase)
+            .where(KnowledgeBase.platform_id == platform_id)
+        )
+        return build_page_data(items, params, int(total or 0))
 
     async def list_enabled_for_agent(self, agent_id: int, platform_id: int):
         result = await self.session.execute(
@@ -113,6 +130,46 @@ class KnowledgeRepository:
 
     async def get_document(self, document_id: int):
         return await self.session.get(KnowledgeDocument, document_id)
+
+    async def list_documents(self, base_id: int):
+        result = await self.session.execute(
+            select(KnowledgeDocument)
+            .where(KnowledgeDocument.knowledge_base_id == base_id)
+            .order_by(KnowledgeDocument.id.desc())
+        )
+        return list(result.scalars().all())
+
+    async def delete_base(self, base: KnowledgeBase) -> list[str]:
+        documents = await self.list_documents(base.id)
+        storage_paths = [
+            document.storage_path
+            for document in documents
+            if document.storage_path
+        ]
+        await self.session.delete(base)
+        await self.session.commit()
+        return storage_paths
+
+    async def delete_document(self, document: KnowledgeDocument) -> str | None:
+        storage_path = document.storage_path
+        await self.session.delete(document)
+        await self.session.commit()
+        return storage_path
+
+    async def retry_document(self, document: KnowledgeDocument):
+        document.status = "pending"
+        document.error_message = None
+        task = IngestionTask(
+            knowledge_base_id=document.knowledge_base_id,
+            document_id=document.id,
+            status="queued",
+            attempts=0,
+            error_message=None,
+        )
+        self.session.add(task)
+        await self.session.commit()
+        await self.session.refresh(document)
+        return document
 
     async def get_task_for_document(self, document_id: int):
         result = await self.session.execute(

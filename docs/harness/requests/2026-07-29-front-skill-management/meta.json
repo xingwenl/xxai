@@ -1,0 +1,38 @@
+{
+  "id": "2026-07-29-front-skill-management",
+  "title": "技能管理",
+  "scope": "frontend-backend",
+  "phase": "acceptance",
+  "status": "active",
+  "riskLevel": "high",
+  "changeTypes": ["api", "frontend", "backend", "docs"],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "https://jinja.palletsprojects.com/en/stable/sandbox/",
+      "https://openai.github.io/openai-agents-python/tools/"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": ["API 契约变化", "技能硬删除行为"],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-07-29",
+      "scope": "技能管理 API、智能体绑定/解绑 API 和硬删除行为",
+      "note": "用户确认继续实现"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-07-29",
+  "updatedAt": "2026-07-29",
+  "relatedPaths": [
+    "apps/backend/app/modules/skill",
+    "apps/front/src/api/skills.ts",
+    "apps/front/src/routes/_authenticated/ai/skills.tsx"
+  ],
+  "notes": "用户已确认新增 API 和技能硬删除语义，进入 implement。"
+}

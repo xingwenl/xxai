@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 import json
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.agent.models import Agent
@@ -14,6 +14,7 @@ from app.modules.mcp.models import (
     McpToolConfirmation,
 )
 from app.modules.mcp.services import policy_after_schema_sync
+from app.shared.pagination import PaginationParams, build_page_data
 
 
 class McpRepository:
@@ -33,6 +34,22 @@ class McpRepository:
             statement = statement.where(McpServer.platform_id == platform_id)
         return await self.session.scalar(statement)
 
+    async def list_servers(self, platform_id: int, params: PaginationParams):
+        statement = (
+            select(McpServer)
+            .where(McpServer.platform_id == platform_id)
+            .order_by(McpServer.id.desc())
+            .offset(params.offset)
+            .limit(params.limit)
+        )
+        items = list((await self.session.execute(statement)).scalars().all())
+        total = await self.session.scalar(
+            select(func.count())
+            .select_from(McpServer)
+            .where(McpServer.platform_id == platform_id)
+        )
+        return build_page_data(items, params, int(total or 0))
+
     async def create_server(self, platform_id: int, payload):
         values = payload.model_dump(exclude={"auth_headers"})
         values["auth_headers_encrypted"] = payload.auth_headers
@@ -41,6 +58,35 @@ class McpRepository:
         await self.session.commit()
         await self.session.refresh(server)
         return server
+
+    async def update_server(self, server: McpServer, values: dict):
+        for key, value in values.items():
+            setattr(server, key, value)
+        await self.session.commit()
+        await self.session.refresh(server)
+        return server
+
+    async def has_audits(self, server_id: int) -> bool:
+        return bool(
+            await self.session.scalar(
+                select(McpToolCallAudit.id)
+                .where(McpToolCallAudit.server_id == server_id)
+                .limit(1)
+            )
+        )
+
+    async def delete_server(self, server: McpServer) -> None:
+        await self.session.delete(server)
+        await self.session.commit()
+
+    async def list_tools(self, server_id: int, platform_id: int):
+        result = await self.session.execute(
+            select(McpTool)
+            .join(McpServer, McpServer.id == McpTool.server_id)
+            .where(McpTool.server_id == server_id, McpServer.platform_id == platform_id)
+            .order_by(McpTool.id)
+        )
+        return list(result.scalars().all())
 
     async def sync_tools(self, server_id: int, tools):
         existing = {
@@ -109,6 +155,38 @@ class McpRepository:
             binding.is_enabled = True
         await self.session.commit()
         return binding
+
+    async def list_server_bindings(self, platform_id: int, agent_id: int):
+        result = await self.session.execute(
+            select(AgentMcpServer)
+            .join(Agent, Agent.id == AgentMcpServer.agent_id)
+            .join(McpServer, McpServer.id == AgentMcpServer.server_id)
+            .where(
+                AgentMcpServer.agent_id == agent_id,
+                Agent.platform_id == platform_id,
+                McpServer.platform_id == platform_id,
+            )
+            .order_by(AgentMcpServer.id)
+        )
+        return list(result.scalars().all())
+
+    async def unbind_server(self, platform_id: int, agent_id: int, server_id: int):
+        binding = await self.session.scalar(
+            select(AgentMcpServer)
+            .join(Agent, Agent.id == AgentMcpServer.agent_id)
+            .join(McpServer, McpServer.id == AgentMcpServer.server_id)
+            .where(
+                AgentMcpServer.agent_id == agent_id,
+                AgentMcpServer.server_id == server_id,
+                Agent.platform_id == platform_id,
+                McpServer.platform_id == platform_id,
+            )
+        )
+        if binding is None:
+            return False
+        await self.session.delete(binding)
+        await self.session.commit()
+        return True
 
     async def get_allowed_tool(self, platform_id, agent_id, server_id, tool_name):
         return await self.session.scalar(

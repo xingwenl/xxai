@@ -1,0 +1,32 @@
+{
+  "id": "2026-07-29-front-role-management",
+  "title": "前端角色管理接入真实角色接口",
+  "scope": "frontend",
+  "phase": "acceptance",
+  "status": "active",
+  "riskLevel": "medium",
+  "changeTypes": ["frontend", "docs"],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "https://tanstack.com/query/latest/docs/framework/react/guides/mutations",
+      "https://github.com/satnaing/shadcn-admin",
+      "apps/backend/app/modules/role/router.py"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": false,
+  "approvalGranted": false,
+  "approvalReasons": [],
+  "approvalRecords": [],
+  "owner": "ai",
+  "createdAt": "2026-07-29",
+  "updatedAt": "2026-07-29",
+  "relatedPaths": [
+    "apps/front/src/api/role.ts",
+    "apps/front/src/features/system/roles.tsx",
+    "apps/front/src/routes/_authenticated/system/roles.tsx"
+  ],
+  "notes": "改造现有角色管理入口，保留旧 API 导出兼容用户管理和未迁移代码。"
+}

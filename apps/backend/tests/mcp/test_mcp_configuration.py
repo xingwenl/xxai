@@ -5,9 +5,11 @@ from app.modules.agent.services import decrypt_secret
 from app.modules.mcp.schemas import McpServerCreate
 from app.modules.mcp.services import (
     create_mcp_server,
+    delete_mcp_server,
     policy_after_schema_sync,
     sync_mcp_tools,
 )
+from app.shared.exceptions import ConflictException
 from app.modules.mcp.schemas import DiscoveredMcpTool
 
 
@@ -127,3 +129,48 @@ def test_changed_tool_schema_resets_existing_allow_policy() -> None:
 
     assert allowed is False
     assert side_effect == "external"
+
+
+def test_server_without_audits_can_be_deleted() -> None:
+    async def run() -> None:
+        class DeleteRepository:
+            server = object()
+            deleted = False
+
+            async def get_server(self, server_id, platform_id):
+                return self.server
+
+            async def has_audits(self, server_id):
+                return False
+
+            async def delete_server(self, server):
+                self.deleted = True
+
+        repo = DeleteRepository()
+        await delete_mcp_server(repo, platform_id=1, server_id=2)
+        assert repo.deleted is True
+
+    asyncio.run(run())
+
+
+def test_server_with_audits_cannot_be_deleted() -> None:
+    async def run() -> None:
+        class DeleteRepository:
+            async def get_server(self, server_id, platform_id):
+                return object()
+
+            async def has_audits(self, server_id):
+                return True
+
+            async def delete_server(self, server):
+                raise AssertionError("audited server must not be deleted")
+
+        try:
+            await delete_mcp_server(DeleteRepository(), platform_id=1, server_id=2)
+        except ConflictException as exc:
+            assert "only be disabled" in exc.message
+            return
+
+        raise AssertionError("audited server deletion should be rejected")
+
+    asyncio.run(run())

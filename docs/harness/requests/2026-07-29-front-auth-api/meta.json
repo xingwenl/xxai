@@ -1,0 +1,41 @@
+{
+  "id": "2026-07-29-front-auth-api",
+  "title": "前端接入登录注册与当前用户接口",
+  "scope": "frontend",
+  "phase": "acceptance",
+  "status": "active",
+  "riskLevel": "high",
+  "changeTypes": ["frontend", "auth", "docs"],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "https://tanstack.com/router/latest/docs/framework/react/guide/authenticated-routes",
+      "https://axios-http.com/docs/interceptors",
+      "https://github.com/satnaing/shadcn-admin"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": ["鉴权行为变化"],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-07-29",
+      "scope": "前端接入登录、注册、当前用户接口；注册成功跳转登录页；VITE_API_URL 已包含 /api/v1",
+      "note": "用户确认继续实现"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-07-29",
+  "updatedAt": "2026-07-29",
+  "relatedPaths": [
+    "apps/front/src/api/auth.ts",
+    "apps/front/src/api/user.ts",
+    "apps/front/src/lib/http.ts",
+    "apps/front/src/stores/auth-store.ts",
+    "apps/front/src/features/auth"
+  ],
+  "notes": "沿用前端已有模板，不修改后端 API 契约。"
+}

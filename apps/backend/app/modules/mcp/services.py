@@ -62,6 +62,38 @@ async def sync_mcp_tools(repo, client, server):
     return await repo.sync_tools(server.id, discovered)
 
 
+async def update_mcp_server(repo, platform_id: int, server_id: int, payload):
+    server = await repo.get_server(server_id, platform_id)
+    if server is None:
+        raise NotFoundException("MCP server not found")
+    values = payload.model_dump(exclude_unset=True, exclude_none=True)
+    if "endpoint_url" in values:
+        validate_mcp_url(values["endpoint_url"])
+    if "auth_headers" in values:
+        values["auth_headers_encrypted"] = (
+            encrypt_secret(json.dumps(values.pop("auth_headers"), separators=(",", ":")))
+            if values["auth_headers"]
+            else None
+        )
+    return await repo.update_server(server, values)
+
+
+async def delete_mcp_server(repo, platform_id: int, server_id: int) -> None:
+    server = await repo.get_server(server_id, platform_id)
+    if server is None:
+        raise NotFoundException("MCP server not found")
+    if await repo.has_audits(server_id):
+        raise ConflictException(
+            "MCP server has audit records and can only be disabled"
+        )
+    await repo.delete_server(server)
+
+
+async def unbind_mcp_server(repo, platform_id: int, agent_id: int, server_id: int):
+    if not await repo.unbind_server(platform_id, agent_id, server_id):
+        raise NotFoundException("agent MCP server binding not found")
+
+
 def policy_after_schema_sync(
     *,
     previous_schema: dict,

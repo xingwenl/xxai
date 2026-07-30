@@ -1,0 +1,39 @@
+{
+  "id": "2026-07-29-front-knowledge-management",
+  "title": "知识库管理",
+  "scope": "frontend-backend",
+  "phase": "acceptance",
+  "status": "active",
+  "riskLevel": "high",
+  "changeTypes": ["api", "frontend", "backend", "docs"],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "https://qdrant.tech/documentation/concepts/collections/",
+      "https://python.langchain.com/docs/concepts/document_loaders/",
+      "https://tanstack.com/query/latest/docs/framework/react/guides/mutations"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": ["API 契约变化", "硬删除行为"],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-07-29",
+      "scope": "知识库管理 API、文档管理 API 和硬删除行为",
+      "note": "用户确认继续实现"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-07-29",
+  "updatedAt": "2026-07-29",
+  "relatedPaths": [
+    "apps/backend/app/modules/knowledge",
+    "apps/front/src/api/knowledge.ts",
+    "apps/front/src/routes/_authenticated/ai/knowledge-bases.tsx"
+  ],
+  "notes": "用户已确认新增 API 和硬删除语义，进入 implement。"
+}

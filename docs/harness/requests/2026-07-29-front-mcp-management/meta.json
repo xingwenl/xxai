@@ -1,0 +1,38 @@
+{
+  "id": "2026-07-29-front-mcp-management",
+  "title": "MCP 服务管理",
+  "scope": "frontend-backend",
+  "phase": "acceptance",
+  "status": "active",
+  "riskLevel": "high",
+  "changeTypes": ["api", "frontend", "backend", "docs"],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "https://modelcontextprotocol.io/specification/2025-06-18",
+      "https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": ["API 契约变化", "外部服务调用", "审计保护删除语义"],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-07-29",
+      "scope": "MCP 平台级管理 API、工具/绑定管理以及审计保护删除语义",
+      "note": "用户确认开始实现"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-07-29",
+  "updatedAt": "2026-07-29",
+  "relatedPaths": [
+    "apps/backend/app/modules/mcp",
+    "apps/front/src/api/mcp-servers.ts",
+    "apps/front/src/routes/_authenticated/system/mcp-servers.tsx"
+  ],
+  "notes": "用户已确认开始实现 MCP 管理，采用审计保护删除语义。"
+}

@@ -1,0 +1,42 @@
+{
+  "id": "2026-07-29-front-agent-management",
+  "title": "前端智能体管理",
+  "scope": "frontend-and-backend",
+  "phase": "acceptance",
+  "status": "active",
+  "riskLevel": "high",
+  "changeTypes": ["frontend", "backend", "api", "data-model", "docs"],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "apps/backend/app/modules/agent/router.py",
+      "apps/backend/app/modules/platform/router.py",
+      "https://tanstack.com/query/latest/docs/framework/react/guides/mutations"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": [
+    "新增智能体管理 API 契约",
+    "可能新增智能体启用状态和删除行为"
+  ],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-07-29",
+      "scope": "允许新增智能体管理接口；支持停用和删除；删除采用硬删除",
+      "note": "用户确认继续实现"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-07-29",
+  "updatedAt": "2026-07-29",
+  "relatedPaths": [
+    "apps/backend/app/modules/agent",
+    "apps/backend/app/modules/platform",
+    "apps/front/src/features/agents"
+  ],
+  "notes": "后端补齐管理契约，前端实现平台级智能体与版本管理。"
+}

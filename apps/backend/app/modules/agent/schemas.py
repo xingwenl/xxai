@@ -19,9 +19,27 @@ class AgentRead(BaseModel):
     slug: str
     description: str | None = None
     is_default: bool = False
+    is_active: bool = True
     default_version_id: int | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class AgentUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    slug: str | None = Field(
+        default=None, min_length=2, max_length=80, pattern=r"^[a-z0-9][a-z0-9_-]*$"
+    )
+    description: str | None = Field(default=None, max_length=500)
+    is_active: bool | None = None
+
+
+class AgentListData(BaseModel):
+    page_no: int
+    page_size: int
+    items: list[AgentRead]
+    total: int
+    pages: int
 
 
 class AgentVersionCreate(BaseModel):

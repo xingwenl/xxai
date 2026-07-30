@@ -28,3 +28,22 @@ async def bind_skill(repo, platform_id: int, agent_id: int, payload):
     if binding is None:
         raise NotFoundException("agent or skill not found")
     return binding
+
+
+async def update_skill(repo, platform_id: int, skill_id: int, payload):
+    skill = await repo.get_skill(skill_id, platform_id)
+    if skill is None:
+        raise NotFoundException("skill not found")
+    return await repo.update_skill(skill, payload)
+
+
+async def delete_skill(repo, platform_id: int, skill_id: int) -> None:
+    skill = await repo.get_skill(skill_id, platform_id)
+    if skill is None:
+        raise NotFoundException("skill not found")
+    await repo.delete_skill(skill)
+
+
+async def unbind_skill(repo, platform_id: int, agent_id: int, skill_id: int) -> None:
+    if not await repo.unbind(platform_id, agent_id, skill_id):
+        raise NotFoundException("agent skill binding not found")

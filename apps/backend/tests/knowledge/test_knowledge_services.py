@@ -12,8 +12,30 @@ from app.modules.knowledge.services import (
     store_file,
     validate_embedding_dimension,
     validate_fetch_url,
+    retry_knowledge_document,
 )
 from app.shared.exceptions import BadRequestException
+
+
+class FakeDocument:
+    def __init__(self, status: str) -> None:
+        self.id = 7
+        self.knowledge_base_id = 3
+        self.status = status
+
+
+class FakeRetryRepository:
+    def __init__(self, document: FakeDocument) -> None:
+        self.document = document
+        self.retried = False
+
+    async def get_document(self, document_id: int):
+        return self.document if document_id == self.document.id else None
+
+    async def retry_document(self, document: FakeDocument):
+        self.retried = True
+        document.status = "pending"
+        return document
 
 
 def test_split_text_uses_configured_chunk_size() -> None:
@@ -97,6 +119,30 @@ def test_build_citations_contains_source_and_matched_text() -> None:
     assert citations[0].title == "手册"
     assert citations[0].source_url == "https://example.com/manual"
     assert citations[0].text == "退款规则"
+
+
+def test_failed_document_can_be_retried() -> None:
+    async def run() -> None:
+        repo = FakeRetryRepository(FakeDocument("failed"))
+
+        document = await retry_knowledge_document(repo, base_id=3, document_id=7)
+
+        assert document.status == "pending"
+        assert repo.retried is True
+
+    asyncio.run(run())
+
+
+def test_ready_document_cannot_be_retried() -> None:
+    async def run() -> None:
+        repo = FakeRetryRepository(FakeDocument("ready"))
+
+        with pytest.raises(BadRequestException, match="only failed documents"):
+            await retry_knowledge_document(repo, base_id=3, document_id=7)
+
+        assert repo.retried is False
+
+    asyncio.run(run())
 
 
 def test_fetch_target_rejects_hostname_resolving_to_private_ip(monkeypatch) -> None:

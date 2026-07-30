@@ -12,6 +12,15 @@ from app.shared.responses import ApiResponse, success_response
 router = APIRouter(prefix="/platforms", tags=["platforms"])
 
 
+@router.get("", response_model=ApiResponse[list[PlatformRead]])
+async def list_platforms_endpoint(
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> ApiResponse[list[PlatformRead]]:
+    platforms = await PlatformRepository(session).list_for_user(current_user.id)
+    return success_response(data=[PlatformRead.model_validate(item) for item in platforms])
+
+
 @router.post("", response_model=ApiResponse[PlatformRead], status_code=status.HTTP_201_CREATED)
 async def create_platform_endpoint(
     payload: PlatformCreate,

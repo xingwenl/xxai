@@ -42,6 +42,14 @@ class KnowledgeBaseRead(BaseModel):
     updated_at: datetime
 
 
+class KnowledgeBaseListData(BaseModel):
+    page_no: int
+    page_size: int
+    items: list[KnowledgeBaseRead]
+    total: int
+    pages: int
+
+
 class UrlDocumentCreate(BaseModel):
     url: str = Field(min_length=1, max_length=2000)
     title: str | None = Field(default=None, max_length=255)

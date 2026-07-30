@@ -6,7 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.agent.models import Agent, AgentVersion
 from app.modules.platform.models import PlatformAdmin
-from app.modules.agent.schemas import AgentCreate, AgentVersionCreate
+from app.modules.agent.schemas import AgentCreate, AgentUpdate, AgentVersionCreate
+from app.shared.pagination import PaginationParams, build_page_data
 from app.shared.base_repository import BaseRepository
 
 
@@ -25,6 +26,40 @@ class AgentRepository(BaseRepository[Agent]):
             select(Agent).where(Agent.id == agent_id, Agent.platform_id == platform_id)
         )
         return result.scalar_one_or_none()
+
+    async def list_agents(self, platform_id: int, params: PaginationParams):
+        statement = (
+            select(Agent)
+            .where(Agent.platform_id == platform_id)
+            .order_by(Agent.id.desc())
+            .offset(params.offset)
+            .limit(params.limit)
+        )
+        result = await self.session.execute(statement)
+        items = list(result.scalars().all())
+        total = await self.session.scalar(
+            select(func.count()).select_from(Agent).where(Agent.platform_id == platform_id)
+        )
+        return build_page_data(items, params, int(total or 0))
+
+    async def list_versions(self, agent_id: int):
+        result = await self.session.execute(
+            select(AgentVersion)
+            .where(AgentVersion.agent_id == agent_id)
+            .order_by(AgentVersion.version.desc())
+        )
+        return list(result.scalars().all())
+
+    async def update_agent(self, agent: Agent, payload: AgentUpdate) -> Agent:
+        for key, value in payload.model_dump(exclude_unset=True).items():
+            setattr(agent, key, value)
+        await self.session.commit()
+        await self.session.refresh(agent)
+        return agent
+
+    async def delete_agent(self, agent: Agent) -> None:
+        await self.session.delete(agent)
+        await self.session.commit()
 
     async def get_published_agent(
         self, agent_id: int, platform_id: int

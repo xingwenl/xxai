@@ -10,7 +10,10 @@ from app.modules.mcp.schemas import (
     ConfirmationResolveRequest,
     McpAuditRead,
     McpServerCreate,
+    McpServerListData,
     McpServerRead,
+    McpServerUpdate,
+    AgentMcpServerRead,
     McpToolPolicyUpdate,
     McpToolRead,
     ToolInvocationOutcome,
@@ -18,12 +21,16 @@ from app.modules.mcp.schemas import (
 )
 from app.modules.mcp.services import (
     create_mcp_server,
+    delete_mcp_server,
     invoke_tool,
     resolve_tool_confirmation,
     sync_mcp_tools,
+    unbind_mcp_server,
+    update_mcp_server,
 )
 from app.modules.platform.repositories import PlatformRepository
 from app.shared.exceptions import NotFoundException
+from app.shared.pagination import PaginationParams, pagination_dependency
 from app.shared.responses import ApiResponse, success_response
 
 router = APIRouter(prefix="/platforms/{platform_id}", tags=["mcp"])
@@ -59,6 +66,48 @@ async def create_server_endpoint(
     return success_response(data=_server_read(server), message="MCP server created")
 
 
+@router.get("/mcp-servers", response_model=ApiResponse[McpServerListData])
+async def list_servers_endpoint(
+    platform_id: int,
+    params: PaginationParams = Depends(pagination_dependency),
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    await _require_admin(platform_id, current_user.id, session)
+    page = await McpRepository(session).list_servers(platform_id, params)
+    return success_response(
+        data=McpServerListData.model_validate(page.model_dump()),
+        message="MCP servers listed",
+    )
+
+
+@router.patch("/mcp-servers/{server_id}", response_model=ApiResponse[McpServerRead])
+async def update_server_endpoint(
+    platform_id: int,
+    server_id: int,
+    payload: McpServerUpdate,
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    await _require_admin(platform_id, current_user.id, session)
+    server = await update_mcp_server(
+        McpRepository(session), platform_id, server_id, payload
+    )
+    return success_response(data=_server_read(server), message="MCP server updated")
+
+
+@router.delete("/mcp-servers/{server_id}", response_model=ApiResponse[None])
+async def delete_server_endpoint(
+    platform_id: int,
+    server_id: int,
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    await _require_admin(platform_id, current_user.id, session)
+    await delete_mcp_server(McpRepository(session), platform_id, server_id)
+    return success_response(message="MCP server deleted")
+
+
 @router.post(
     "/mcp-servers/{server_id}/sync", response_model=ApiResponse[list[McpToolRead]]
 )
@@ -75,6 +124,28 @@ async def sync_tools_endpoint(
         raise NotFoundException("MCP server not found")
     tools = await sync_mcp_tools(repo, StreamableHttpMcpClient(), server)
     return success_response(data=[McpToolRead.model_validate(tool) for tool in tools])
+
+
+@router.get(
+    "/mcp-servers/{server_id}/tools", response_model=ApiResponse[list[McpToolRead]]
+)
+async def list_tools_endpoint(
+    platform_id: int,
+    server_id: int,
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    await _require_admin(platform_id, current_user.id, session)
+    repo = McpRepository(session)
+    if await repo.get_server(server_id, platform_id) is None:
+        raise NotFoundException("MCP server not found")
+    return success_response(
+        data=[
+            McpToolRead.model_validate(tool)
+            for tool in await repo.list_tools(server_id, platform_id)
+        ],
+        message="MCP tools listed",
+    )
 
 
 @router.patch("/mcp-tools/{tool_id}", response_model=ApiResponse[McpToolRead])
@@ -114,6 +185,39 @@ async def bind_server_endpoint(
         data={"agent_id": agent_id, "server_id": payload.server_id},
         message="MCP server bound",
     )
+
+
+@router.get(
+    "/agents/{agent_id}/mcp-servers",
+    response_model=ApiResponse[list[AgentMcpServerRead]],
+)
+async def list_agent_servers_endpoint(
+    platform_id: int,
+    agent_id: int,
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    await _require_admin(platform_id, current_user.id, session)
+    bindings = await McpRepository(session).list_server_bindings(platform_id, agent_id)
+    return success_response(
+        data=[AgentMcpServerRead.model_validate(item) for item in bindings],
+        message="agent MCP servers listed",
+    )
+
+
+@router.delete(
+    "/agents/{agent_id}/mcp-servers/{server_id}", response_model=ApiResponse[None]
+)
+async def unbind_server_endpoint(
+    platform_id: int,
+    agent_id: int,
+    server_id: int,
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    await _require_admin(platform_id, current_user.id, session)
+    await unbind_mcp_server(McpRepository(session), platform_id, agent_id, server_id)
+    return success_response(message="MCP server unbound")
 
 
 @router.post(

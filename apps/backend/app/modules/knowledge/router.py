@@ -12,6 +12,7 @@ from app.modules.knowledge.schemas import (
     DocumentRead,
     KnowledgeBaseCreate,
     KnowledgeBaseRead,
+    KnowledgeBaseListData,
     KnowledgeBaseUpdate,
     AgentKnowledgeBaseBind,
     KnowledgeSearchRequest,
@@ -25,10 +26,12 @@ from app.modules.knowledge.services import (
     update_knowledge_base,
     validate_embedding_dimension,
     validate_fetch_url,
+    retry_knowledge_document,
 )
 from app.modules.knowledge.tasks import ingest_document_task
 from app.modules.platform.repositories import PlatformRepository
 from app.shared.exceptions import BadRequestException, NotFoundException
+from app.shared.pagination import PaginationParams, pagination_dependency
 from app.shared.responses import ApiResponse, success_response
 
 router = APIRouter(
@@ -71,6 +74,19 @@ async def create_base_endpoint(
     return success_response(data=_base_read(base), message="knowledge base created")
 
 
+@router.get("", response_model=ApiResponse[KnowledgeBaseListData])
+async def list_bases_endpoint(
+    platform_id: int,
+    params: PaginationParams = Depends(pagination_dependency),
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    await _require_admin(platform_id, current_user.id, session)
+    page = await KnowledgeRepository(session).list_bases(platform_id, params)
+    data = KnowledgeBaseListData.model_validate(page.model_dump())
+    return success_response(data=data, message="knowledge bases listed")
+
+
 @router.patch("/{base_id}", response_model=ApiResponse[KnowledgeBaseRead])
 async def update_base_endpoint(
     platform_id: int,
@@ -92,6 +108,24 @@ async def update_base_endpoint(
     return success_response(
         data=_base_read(base), message="knowledge base updated; reindex required"
     )
+
+
+@router.delete("/{base_id}", response_model=ApiResponse[None])
+async def delete_base_endpoint(
+    platform_id: int,
+    base_id: int,
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    await _require_admin(platform_id, current_user.id, session)
+    repo = KnowledgeRepository(session)
+    base = await repo.get_base(base_id, platform_id)
+    if base is None:
+        raise NotFoundException("knowledge base not found")
+    storage_paths = await repo.delete_base(base)
+    for storage_path in storage_paths:
+        Path(storage_path).unlink(missing_ok=True)
+    return success_response(message="knowledge base deleted")
 
 
 @router.post(
@@ -155,6 +189,71 @@ async def create_url_document_endpoint(
     ingest_document_task.delay(document.id)
     return success_response(
         data=DocumentRead.model_validate(document), message="document queued"
+    )
+
+
+@router.get(
+    "/{base_id}/documents", response_model=ApiResponse[list[DocumentRead]]
+)
+async def list_documents_endpoint(
+    platform_id: int,
+    base_id: int,
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    await _require_admin(platform_id, current_user.id, session)
+    repo = KnowledgeRepository(session)
+    if await repo.get_base(base_id, platform_id) is None:
+        raise NotFoundException("knowledge base not found")
+    documents = await repo.list_documents(base_id)
+    return success_response(
+        data=[DocumentRead.model_validate(document) for document in documents],
+        message="documents listed",
+    )
+
+
+@router.delete(
+    "/{base_id}/documents/{document_id}", response_model=ApiResponse[None]
+)
+async def delete_document_endpoint(
+    platform_id: int,
+    base_id: int,
+    document_id: int,
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    await _require_admin(platform_id, current_user.id, session)
+    repo = KnowledgeRepository(session)
+    if await repo.get_base(base_id, platform_id) is None:
+        raise NotFoundException("knowledge base not found")
+    document = await repo.get_document(document_id)
+    if document is None or document.knowledge_base_id != base_id:
+        raise NotFoundException("document not found")
+    storage_path = await repo.delete_document(document)
+    if storage_path:
+        Path(storage_path).unlink(missing_ok=True)
+    return success_response(message="document deleted")
+
+
+@router.post(
+    "/{base_id}/documents/{document_id}/retry",
+    response_model=ApiResponse[DocumentRead],
+)
+async def retry_document_endpoint(
+    platform_id: int,
+    base_id: int,
+    document_id: int,
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    await _require_admin(platform_id, current_user.id, session)
+    repo = KnowledgeRepository(session)
+    if await repo.get_base(base_id, platform_id) is None:
+        raise NotFoundException("knowledge base not found")
+    document = await retry_knowledge_document(repo, base_id, document_id)
+    ingest_document_task.delay(document.id)
+    return success_response(
+        data=DocumentRead.model_validate(document), message="document retry queued"
     )
 
 
