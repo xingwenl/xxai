@@ -84,6 +84,30 @@ class HostToolRepository:
         )
         return set(result.scalars().all())
 
+    async def list_agent_bindings(self, platform_id: int, agent_id: int):
+        result = await self.session.execute(
+            select(AgentHostTool)
+            .join(HostToolPolicy, HostToolPolicy.id == AgentHostTool.tool_id)
+            .where(
+                HostToolPolicy.platform_id == platform_id,
+                AgentHostTool.agent_id == agent_id,
+            )
+            .order_by(AgentHostTool.tool_id)
+        )
+        return list(result.scalars().all())
+
+    async def list_client_bindings(self, platform_id: int, client_id: int):
+        result = await self.session.execute(
+            select(EmbedClientHostTool)
+            .join(HostToolPolicy, HostToolPolicy.id == EmbedClientHostTool.tool_id)
+            .where(
+                HostToolPolicy.platform_id == platform_id,
+                EmbedClientHostTool.client_id == client_id,
+            )
+            .order_by(EmbedClientHostTool.tool_id)
+        )
+        return list(result.scalars().all())
+
     async def list_authorized_policies(
         self, platform_id: int, agent_id: int, names: set[str]
     ):

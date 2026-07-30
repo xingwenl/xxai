@@ -94,7 +94,7 @@ type VersionForm = z.infer<typeof versionSchema>
 export function AgentsPage() {
   const queryClient = useQueryClient()
   const [platformId, setPlatformId] = useState<number>()
-  const [editing, setEditing] = useState<Agent | null>(null)
+  const [editing, setEditing] = useState<Agent | null | undefined>()
   const [deleting, setDeleting] = useState<Agent | null>(null)
   const [versionsFor, setVersionsFor] = useState<Agent | null>(null)
   const [versionDialog, setVersionDialog] = useState(false)
@@ -127,7 +127,7 @@ export function AgentsPage() {
     },
     onSuccess: async () => {
       toast.success(editing ? '智能体已更新' : '智能体已创建')
-      setEditing(null)
+      setEditing(undefined)
       await invalidateAgents()
     },
   })
@@ -200,7 +200,7 @@ export function AgentsPage() {
             </Button>
             <Button
               size='sm'
-              onClick={() => setEditing({} as Agent)}
+              onClick={() => setEditing(null)}
               disabled={!activePlatformId}
             >
               <Plus className='me-2 size-4' />
@@ -317,9 +317,9 @@ export function AgentsPage() {
         </div>
       </Main>
       <AgentDialog
-        agent={editing && editing.id ? editing : null}
-        open={!!editing}
-        onOpenChange={(open) => !open && setEditing(null)}
+        agent={editing ?? null}
+        open={editing !== undefined}
+        onOpenChange={(open) => !open && setEditing(undefined)}
         isSaving={saveMutation.isPending}
         onSubmit={(values) => saveMutation.mutate(values)}
       />

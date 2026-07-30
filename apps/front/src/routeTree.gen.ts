@@ -44,7 +44,10 @@ import { Route as AuthenticatedSettingsAppearanceRouteImport } from './routes/_a
 import { Route as AuthenticatedSettingsAccountRouteImport } from './routes/_authenticated/settings/account'
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
 import { Route as AuthenticatedAiSkillsRouteImport } from './routes/_authenticated/ai/skills'
+import { Route as AuthenticatedAiPlatformsRouteImport } from './routes/_authenticated/ai/platforms'
 import { Route as AuthenticatedAiKnowledgeBasesRouteImport } from './routes/_authenticated/ai/knowledge-bases'
+import { Route as AuthenticatedAiHostToolsRouteImport } from './routes/_authenticated/ai/host-tools'
+import { Route as AuthenticatedAiEmbedClientsRouteImport } from './routes/_authenticated/ai/embed-clients'
 import { Route as AuthenticatedAiBotsRouteImport } from './routes/_authenticated/ai/bots'
 
 const ClerkRouteRoute = ClerkRouteRouteImport.update({
@@ -232,10 +235,28 @@ const AuthenticatedAiSkillsRoute = AuthenticatedAiSkillsRouteImport.update({
   path: '/ai/skills',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedAiPlatformsRoute =
+  AuthenticatedAiPlatformsRouteImport.update({
+    id: '/ai/platforms',
+    path: '/ai/platforms',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAiKnowledgeBasesRoute =
   AuthenticatedAiKnowledgeBasesRouteImport.update({
     id: '/ai/knowledge-bases',
     path: '/ai/knowledge-bases',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAiHostToolsRoute =
+  AuthenticatedAiHostToolsRouteImport.update({
+    id: '/ai/host-tools',
+    path: '/ai/host-tools',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAiEmbedClientsRoute =
+  AuthenticatedAiEmbedClientsRouteImport.update({
+    id: '/ai/embed-clients',
+    path: '/ai/embed-clients',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedAiBotsRoute = AuthenticatedAiBotsRouteImport.update({
@@ -259,7 +280,10 @@ export interface FileRoutesByFullPath {
   '/500': typeof errors500Route
   '/503': typeof errors503Route
   '/ai/bots': typeof AuthenticatedAiBotsRoute
+  '/ai/embed-clients': typeof AuthenticatedAiEmbedClientsRoute
+  '/ai/host-tools': typeof AuthenticatedAiHostToolsRoute
   '/ai/knowledge-bases': typeof AuthenticatedAiKnowledgeBasesRoute
+  '/ai/platforms': typeof AuthenticatedAiPlatformsRoute
   '/ai/skills': typeof AuthenticatedAiSkillsRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/settings/account': typeof AuthenticatedSettingsAccountRoute
@@ -294,7 +318,10 @@ export interface FileRoutesByTo {
   '/503': typeof errors503Route
   '/': typeof AuthenticatedIndexRoute
   '/ai/bots': typeof AuthenticatedAiBotsRoute
+  '/ai/embed-clients': typeof AuthenticatedAiEmbedClientsRoute
+  '/ai/host-tools': typeof AuthenticatedAiHostToolsRoute
   '/ai/knowledge-bases': typeof AuthenticatedAiKnowledgeBasesRoute
+  '/ai/platforms': typeof AuthenticatedAiPlatformsRoute
   '/ai/skills': typeof AuthenticatedAiSkillsRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/settings/account': typeof AuthenticatedSettingsAccountRoute
@@ -334,7 +361,10 @@ export interface FileRoutesById {
   '/(errors)/503': typeof errors503Route
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/ai/bots': typeof AuthenticatedAiBotsRoute
+  '/_authenticated/ai/embed-clients': typeof AuthenticatedAiEmbedClientsRoute
+  '/_authenticated/ai/host-tools': typeof AuthenticatedAiHostToolsRoute
   '/_authenticated/ai/knowledge-bases': typeof AuthenticatedAiKnowledgeBasesRoute
+  '/_authenticated/ai/platforms': typeof AuthenticatedAiPlatformsRoute
   '/_authenticated/ai/skills': typeof AuthenticatedAiSkillsRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/_authenticated/settings/account': typeof AuthenticatedSettingsAccountRoute
@@ -372,7 +402,10 @@ export interface FileRouteTypes {
     | '/500'
     | '/503'
     | '/ai/bots'
+    | '/ai/embed-clients'
+    | '/ai/host-tools'
     | '/ai/knowledge-bases'
+    | '/ai/platforms'
     | '/ai/skills'
     | '/errors/$error'
     | '/settings/account'
@@ -407,7 +440,10 @@ export interface FileRouteTypes {
     | '/503'
     | '/'
     | '/ai/bots'
+    | '/ai/embed-clients'
+    | '/ai/host-tools'
     | '/ai/knowledge-bases'
+    | '/ai/platforms'
     | '/ai/skills'
     | '/errors/$error'
     | '/settings/account'
@@ -446,7 +482,10 @@ export interface FileRouteTypes {
     | '/(errors)/503'
     | '/_authenticated/'
     | '/_authenticated/ai/bots'
+    | '/_authenticated/ai/embed-clients'
+    | '/_authenticated/ai/host-tools'
     | '/_authenticated/ai/knowledge-bases'
+    | '/_authenticated/ai/platforms'
     | '/_authenticated/ai/skills'
     | '/_authenticated/errors/$error'
     | '/_authenticated/settings/account'
@@ -730,11 +769,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAiSkillsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/ai/platforms': {
+      id: '/_authenticated/ai/platforms'
+      path: '/ai/platforms'
+      fullPath: '/ai/platforms'
+      preLoaderRoute: typeof AuthenticatedAiPlatformsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/ai/knowledge-bases': {
       id: '/_authenticated/ai/knowledge-bases'
       path: '/ai/knowledge-bases'
       fullPath: '/ai/knowledge-bases'
       preLoaderRoute: typeof AuthenticatedAiKnowledgeBasesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/ai/host-tools': {
+      id: '/_authenticated/ai/host-tools'
+      path: '/ai/host-tools'
+      fullPath: '/ai/host-tools'
+      preLoaderRoute: typeof AuthenticatedAiHostToolsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/ai/embed-clients': {
+      id: '/_authenticated/ai/embed-clients'
+      path: '/ai/embed-clients'
+      fullPath: '/ai/embed-clients'
+      preLoaderRoute: typeof AuthenticatedAiEmbedClientsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/ai/bots': {
@@ -774,7 +834,10 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedSettingsRouteRoute: typeof AuthenticatedSettingsRouteRouteWithChildren
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedAiBotsRoute: typeof AuthenticatedAiBotsRoute
+  AuthenticatedAiEmbedClientsRoute: typeof AuthenticatedAiEmbedClientsRoute
+  AuthenticatedAiHostToolsRoute: typeof AuthenticatedAiHostToolsRoute
   AuthenticatedAiKnowledgeBasesRoute: typeof AuthenticatedAiKnowledgeBasesRoute
+  AuthenticatedAiPlatformsRoute: typeof AuthenticatedAiPlatformsRoute
   AuthenticatedAiSkillsRoute: typeof AuthenticatedAiSkillsRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
   AuthenticatedSystemAiHtmlPagesRoute: typeof AuthenticatedSystemAiHtmlPagesRoute
@@ -792,7 +855,10 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedSettingsRouteRoute: AuthenticatedSettingsRouteRouteWithChildren,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
   AuthenticatedAiBotsRoute: AuthenticatedAiBotsRoute,
+  AuthenticatedAiEmbedClientsRoute: AuthenticatedAiEmbedClientsRoute,
+  AuthenticatedAiHostToolsRoute: AuthenticatedAiHostToolsRoute,
   AuthenticatedAiKnowledgeBasesRoute: AuthenticatedAiKnowledgeBasesRoute,
+  AuthenticatedAiPlatformsRoute: AuthenticatedAiPlatformsRoute,
   AuthenticatedAiSkillsRoute: AuthenticatedAiSkillsRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
   AuthenticatedSystemAiHtmlPagesRoute: AuthenticatedSystemAiHtmlPagesRoute,

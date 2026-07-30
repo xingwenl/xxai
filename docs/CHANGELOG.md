@@ -4,6 +4,7 @@
 - ✨ feat：完成 Agent SDK Phase 2C 生产增强 `🧑‍💻 lixingwen`
 - ✨ feat：接入后台管理前端和 AI 模块 `🧑‍💻 lixingwen`
 - ✨ feat：新增模型用量明细表 `🧑‍💻 lixingwen`
+- ✨ feat：完善 AI 管理后台配置 `🧑‍💻 lixingwen`
 
 ## - 2026-07-29
 - ✨ feat：完成 Phase 2B 宿主工具自动调用 `🧑‍💻 lixingwen`

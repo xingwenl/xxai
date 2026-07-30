@@ -36,6 +36,14 @@ class EmbedRepository:
         )
         return list(result.scalars().all())
 
+    async def list_client_agents(self, client_id: int):
+        result = await self.session.execute(
+            select(PlatformEmbedClientAgent)
+            .where(PlatformEmbedClientAgent.client_id == client_id)
+            .order_by(PlatformEmbedClientAgent.agent_id)
+        )
+        return list(result.scalars().all())
+
     async def update_client(self, client, values: dict):
         for key, value in values.items():
             setattr(client, key, value)

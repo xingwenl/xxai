@@ -40,3 +40,14 @@ class PlatformRepository(BaseRepository[Platform]):
         await self.session.commit()
         await self.session.refresh(platform)
         return platform
+
+    async def update_platform(self, platform: Platform, values: dict) -> Platform:
+        for key, value in values.items():
+            setattr(platform, key, value)
+        await self.session.commit()
+        await self.session.refresh(platform)
+        return platform
+
+    async def delete_platform(self, platform: Platform) -> None:
+        await self.session.delete(platform)
+        await self.session.commit()

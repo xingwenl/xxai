@@ -1,0 +1,52 @@
+{
+  "id": "2026-07-30-agent-platform-admin-console",
+  "title": "AI Agent SDK Phase 2D 管理后台",
+  "scope": "fullstack",
+  "phase": "acceptance",
+  "status": "active",
+  "riskLevel": "high",
+  "changeTypes": ["frontend", "backend", "api", "docs"],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "https://docs.stripe.com/keys",
+      "https://auth0.com/docs/get-started/applications/application-settings",
+      "https://developer.mozilla.org/en-US/docs/Glossary/Origin",
+      "https://launchdarkly.com/docs/home/account/projects",
+      "https://github.com/tanstack/query/blob/main/docs/framework/react/guides/invalidations-from-mutations.md",
+      "https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": ["新增绑定读取 API 契约", "修正宿主工具重复创建错误语义"],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-07-30",
+      "scope": "确认采用少页面、Agent 为中心的 Phase 2D 管理后台方向",
+      "note": "用户确认设计方向，但最小 API 契约补充仍需实现前确认。"
+    },
+    {
+      "by": "user",
+      "at": "2026-07-30",
+      "scope": "允许新增绑定读取 API，并将宿主工具重复创建改为稳定冲突错误",
+      "note": "用户确认可以进入实现。"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-07-30",
+  "updatedAt": "2026-07-30",
+  "relatedPaths": [
+    "apps/backend/app/modules/embed",
+    "apps/backend/app/modules/host_tool",
+    "apps/front/src/api",
+    "apps/front/src/features",
+    "apps/front/src/routes/_authenticated/ai",
+    "docs/design/agent-sdk-phase-2-requirements.md",
+    "docs/harness/requests/2026-07-30-agent-platform-admin-console"
+  ],
+  "notes": "已补平台管理 CRUD、停用和硬删除；后端与前端本次文件最小验证通过，前端全量构建仍受既有 react-hook-form 类型基线阻塞。"
+}

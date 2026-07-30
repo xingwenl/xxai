@@ -47,11 +47,21 @@ class PlatformEmbedClientRead(BaseModel):
     allowed_origins: list[str]
     token_ttl_seconds: int
     is_active: bool
+    max_tokens_per_minute: int | None = None
+    max_connections: int | None = None
 
 
 class PlatformEmbedClientCreated(BaseModel):
     client: PlatformEmbedClientRead
     client_secret: str
+
+
+class PlatformEmbedClientAgentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    client_id: int
+    agent_id: int
 
 
 class EmbedTokenRequest(BaseModel):

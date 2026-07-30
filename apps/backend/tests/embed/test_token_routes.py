@@ -11,6 +11,7 @@ def test_embed_client_management_routes_are_platform_scoped():
 
     paths = {route.path for route in router.routes}
     assert "/platforms/{platform_id}/embed-clients" in paths
+    assert "/platforms/{platform_id}/embed-clients/{client_id}/agents" in paths
     assert "/platforms/{platform_id}/embed-clients/{client_id}/rotate-secret" in paths
     assert (
         "/platforms/{platform_id}/embed-clients/{client_id}/agents/{agent_id}" in paths

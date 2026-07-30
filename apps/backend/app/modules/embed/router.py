@@ -14,6 +14,7 @@ from app.modules.embed.schemas import (
     ConversationMessageRead,
     PlatformEmbedClientCreate,
     PlatformEmbedClientCreated,
+    PlatformEmbedClientAgentRead,
     PlatformEmbedClientRead,
     PlatformEmbedClientUpdate,
 )
@@ -96,6 +97,24 @@ async def update_client_endpoint(
         payload=payload,
     )
     return success_response(data=client)
+
+
+@router.get(
+    "/platforms/{platform_id}/embed-clients/{client_id}/agents",
+    response_model=ApiResponse[list[PlatformEmbedClientAgentRead]],
+)
+async def list_client_agents_endpoint(
+    platform_id: int,
+    client_id: str,
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    await require_platform_admin(platform_id, current_user, session)
+    repo = EmbedRepository(session)
+    client = await repo.get_client(platform_id, client_id)
+    if client is None:
+        raise NotFoundException("embed client not found")
+    return success_response(data=await repo.list_client_agents(client.id))
 
 
 @router.post(

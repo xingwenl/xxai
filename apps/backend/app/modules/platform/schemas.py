@@ -8,6 +8,14 @@ class PlatformCreate(BaseModel):
     code: str = Field(min_length=2, max_length=80, pattern=r"^[a-z0-9][a-z0-9_-]*$")
 
 
+class PlatformUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    code: str | None = Field(
+        default=None, min_length=2, max_length=80, pattern=r"^[a-z0-9][a-z0-9_-]*$"
+    )
+    is_active: bool | None = None
+
+
 class PlatformRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

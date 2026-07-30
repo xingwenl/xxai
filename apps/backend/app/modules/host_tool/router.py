@@ -6,13 +6,15 @@ from app.core.security import require_current_active_user
 from app.modules.embed.repositories import EmbedRepository
 from app.modules.host_tool.repositories import HostToolRepository
 from app.modules.host_tool.schemas import (
+    AgentHostToolBindingRead,
+    EmbedClientHostToolBindingRead,
     HostToolAuditRead,
     HostToolPolicyCreate,
     HostToolPolicyRead,
     HostToolPolicyUpdate,
 )
 from app.modules.platform.repositories import PlatformRepository
-from app.shared.exceptions import NotFoundException
+from app.shared.exceptions import ConflictException, NotFoundException
 from app.shared.responses import ApiResponse, success_response
 
 router = APIRouter(tags=["host-tools"])
@@ -40,7 +42,7 @@ async def create_host_tool(
     await require_platform_admin(platform_id, current_user, session)
     repo = HostToolRepository(session)
     if await repo.get_policy_by_name(platform_id, payload.name):
-        raise ValueError("host tool already exists")
+        raise ConflictException("host tool already exists")
     return success_response(data=await repo.create_policy(platform_id, payload))
 
 
@@ -56,6 +58,45 @@ async def list_host_tools(
     await require_platform_admin(platform_id, current_user, session)
     return success_response(
         data=await HostToolRepository(session).list_policies(platform_id)
+    )
+
+
+@router.get(
+    "/platforms/{platform_id}/agents/{agent_id}/host-tools",
+    response_model=ApiResponse[list[AgentHostToolBindingRead]],
+)
+async def list_agent_host_tools(
+    platform_id: int,
+    agent_id: int,
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    await require_platform_admin(platform_id, current_user, session)
+    return success_response(
+        data=await HostToolRepository(session).list_agent_bindings(
+            platform_id, agent_id
+        )
+    )
+
+
+@router.get(
+    "/platforms/{platform_id}/embed-clients/{client_id}/host-tools",
+    response_model=ApiResponse[list[EmbedClientHostToolBindingRead]],
+)
+async def list_client_host_tools(
+    platform_id: int,
+    client_id: str,
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    await require_platform_admin(platform_id, current_user, session)
+    client = await EmbedRepository(session).get_client(platform_id, client_id)
+    if client is None:
+        raise NotFoundException("embed client not found")
+    return success_response(
+        data=await HostToolRepository(session).list_client_bindings(
+            platform_id, client.id
+        )
     )
 
 

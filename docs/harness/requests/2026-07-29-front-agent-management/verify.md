@@ -7,6 +7,9 @@
 
 ## 已执行验证
 
+- 2026-07-30 bugfix：`pnpm --dir apps/front exec eslint src/features/agents/index.tsx`：通过，退出码 0。
+- 2026-07-30 bugfix：`pnpm --dir apps/front exec prettier --check src/features/agents/index.tsx`：通过。
+- 2026-07-30 bugfix 静态核对：新建智能体按钮设置 `editing=null`，Dialog 打开条件改为 `editing !== undefined`，提交时 `editing ? updateAgent(...) : createAgent(...)` 会进入 `createAgent` 分支，不再请求 `/platforms/{id}/agents/undefined`。
 - `poetry run ruff check app/modules/agent app/modules/platform migrations/versions/20260729_0011_agent_management.py tests/agent tests/platform`：通过，退出码 0。
 - `poetry run pytest tests/agent tests/platform -q`：通过，9 passed。
 - `pnpm exec prettier --check src/api/platform.ts src/api/agent.ts src/features/agents/index.tsx src/routes/_authenticated/ai/bots.tsx`：通过。

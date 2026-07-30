@@ -70,6 +70,23 @@ class HostToolPolicyRead(BaseModel):
     is_enabled: bool
 
 
+class AgentHostToolBindingRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    agent_id: int
+    tool_id: int
+    is_enabled: bool
+
+
+class EmbedClientHostToolBindingRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    client_id: int
+    tool_id: int
+
+
 class HostToolRegistration(BaseModel):
     name: str
     description: str
