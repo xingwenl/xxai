@@ -24,6 +24,10 @@
 - 真实 Redis `token_issue` 配额检查：同一 Client/Agent 窗口第一次返回 `allowed`，第二次返回 `quota_exceeded`。
 - runtime usage 增量：usage 标准化和流式 completed usage 测试通过，定向 `13 passed`。
 - Agent 1 v2 的 `model_options` 已确认是 `{"stream_usage": true}`。
+- model usage 明细 RED：`poetry run pytest tests/gateway/test_chat_flow.py -q`，新增用例因 `stream_embed_chat()` 不支持 `client_id` 按预期失败。
+- model usage 明细 GREEN：`poetry run pytest tests/gateway/test_chat_flow.py tests/conversation/test_usage_records.py -q`，`4 passed`。
+- Docker PostgreSQL 迁移：`poetry run alembic current` 确认起点为 `20260729_0011`；`poetry run alembic upgrade head` 成功执行 `20260729_0011 -> 20260730_0012`；再次执行 `poetry run alembic current` 为 `20260730_0012 (head)`。
+- 真实 DeepSeek E2E：在当前代码临时后端 `127.0.0.1:8011` 上通过 `/api/agent-token` 和 `ai-agent.v1` WebSocket 发送一条短消息。事件序列为 `session_ready`、`message_started`、`message_delta`、`message_delta`、`message_completed`；completed usage 与 PostgreSQL `model_usage_records` 同为 `prompt_tokens=16`、`completion_tokens=21`、`total_tokens=37`，模型名为 `deepseek-v4-pro`。
 
 ## 待执行
 
@@ -36,7 +40,7 @@
 
 - `poetry run ruff check .`：通过。
 - `poetry check`：通过。
-- 后端最终 `poetry run pytest -q`：`152 passed, 1 skipped`。
+- 后端最终 `poetry run pytest -q`：`156 passed, 1 skipped`。
 - SDK `npm run test -- --run`：`13 passed`。
 - SDK `npm run type-check`：通过。
 - SDK `npm run build`：ESM、UMD、类型声明通过。
@@ -50,4 +54,6 @@
 - quota 在开发环境默认关闭，生产部署必须显式确认 `QUOTA_ENABLED=true`。
 - runtime 已读取 `usage_metadata`/`token_usage`，并在 completed 事件中返回 usage、按 `total_tokens` 扣减 model token quota。
 - Agent 1 v2 的真实 usage 已由用户在 Demo 中确认可见；token 签发路径已接入 `token_issue` quota。
+- 已新增独立 `model_usage_records` 明细表、ORM 模型、Repository 写入方法和运行时落库测试。
+- 已完成真实 DeepSeek usage 到 `model_usage_records` 的端到端验证；验证只记录事件类型、模型名与 token 数字，未记录密钥、token、用户消息或完整模型回复。
 - Playwright 断网、CDN 外部加载和反向代理矩阵未执行。

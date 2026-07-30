@@ -5,7 +5,7 @@
   "phase": "acceptance",
   "status": "done",
   "riskLevel": "high",
-  "changeTypes": ["runtime", "observability", "sdk", "release", "docs"],
+  "changeTypes": ["runtime", "observability", "sdk", "release", "docs", "database"],
   "research": {
     "required": true,
     "status": "completed",
@@ -21,10 +21,16 @@
       "at": "2026-07-29",
       "scope": "Phase 2C 生产核心：后端配额与限流、结构化可观测指标、SDK 协议兼容矩阵、ESM/UMD 发布治理；客户端体验治理和数据合规另拆 request",
       "note": "用户确认技术设计，允许进入 spec 和 plan。"
+    },
+    {
+      "by": "user",
+      "at": "2026-07-30",
+      "scope": "新增独立 model_usage_records 模型用量明细表，记录真实模型返回的 prompt_tokens、completion_tokens 和 total_tokens。",
+      "note": "用户明确要求按独立用量明细表方案推进。"
     }
   ],
   "owner": "ai",
   "createdAt": "2026-07-29",
-  "updatedAt": "2026-07-29",
+  "updatedAt": "2026-07-30",
   "relatedPaths": ["apps/backend", "apps/ai-sdk", "docs/design/agent-sdk-phase-2-requirements.md", "docs/harness/requests/2026-07-29-agent-sdk-production-hardening"]
 }

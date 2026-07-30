@@ -316,6 +316,7 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                         context,
                         model=build_chat_model(context.version),
                         platform_id=payload["platform_id"],
+                        client_id=str(payload["client_id"]),
                         end_user_id=int(payload["sub"]),
                         message=message["text"],
                         conversation_id=message.get("conversationId"),

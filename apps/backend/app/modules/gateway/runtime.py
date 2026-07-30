@@ -53,6 +53,7 @@ async def stream_embed_chat(
     model,
     platform_id: int,
     end_user_id: int,
+    client_id: str | None = None,
     message: str,
     conversation_id: int | None,
     request_id: str,
@@ -128,6 +129,21 @@ async def stream_embed_chat(
         citations=result.citations,
         knowledge_grounded=result.knowledge_grounded,
     )
+    if result.usage is not None:
+        await repo.record_model_usage(
+            platform_id=platform_id,
+            agent_id=context.agent.id,
+            agent_version_id=getattr(context.version, "id", None),
+            client_id=client_id,
+            platform_end_user_id=end_user_id,
+            conversation_id=conversation.id,
+            message_id=assistant.id,
+            request_id=request_id,
+            model_name=getattr(context.version, "model_name", None),
+            prompt_tokens=result.usage["prompt_tokens"],
+            completion_tokens=result.usage["completion_tokens"],
+            total_tokens=result.usage["total_tokens"],
+        )
     for citation in result.citations:
         yield {
             "type": "citation",

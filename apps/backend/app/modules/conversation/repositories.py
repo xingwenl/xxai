@@ -1,7 +1,11 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.conversation.models import Conversation, ConversationMessage
+from app.modules.conversation.models import (
+    Conversation,
+    ConversationMessage,
+    ModelUsageRecord,
+)
 
 
 class ConversationRepository:
@@ -96,3 +100,10 @@ class ConversationRepository:
         await self.session.commit()
         await self.session.refresh(message)
         return message
+
+    async def record_model_usage(self, **values):
+        record = ModelUsageRecord(**values)
+        self.session.add(record)
+        await self.session.commit()
+        await self.session.refresh(record)
+        return record

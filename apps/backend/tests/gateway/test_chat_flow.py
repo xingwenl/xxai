@@ -20,6 +20,7 @@ class FakeConversationRepository:
     def __init__(self):
         self.conversation = None
         self.messages = []
+        self.usage_records = []
         self.next_message_id = 1
 
     async def get_for_principal(self, conversation_id, platform_id, *, end_user_id):
@@ -37,11 +38,26 @@ class FakeConversationRepository:
         self.messages.append(values)
         return message
 
+    async def record_model_usage(self, **values):
+        self.usage_records.append(values)
+
 
 class FakeStreamingModel:
     async def astream(self, _messages):
         for content in ("你好", "，这里是回答"):
             yield SimpleNamespace(content=content)
+
+
+class FakeUsageStreamingModel:
+    async def astream(self, _messages):
+        yield SimpleNamespace(
+            content="你好",
+            usage_metadata={
+                "prompt_tokens": 12,
+                "completion_tokens": 5,
+                "total_tokens": 17,
+            },
+        )
 
 
 def test_embed_chat_emits_started_deltas_citation_and_completed():
@@ -71,6 +87,60 @@ def test_embed_chat_emits_started_deltas_citation_and_completed():
             "message_delta",
             "citation",
             "message_completed",
+        ]
+
+    asyncio.run(run())
+
+
+def test_embed_chat_records_model_usage_in_independent_detail_table():
+    async def run():
+        repo = FakeConversationRepository()
+        events = []
+        async for event in stream_embed_chat(
+            repo,
+            SimpleNamespace(
+                agent=SimpleNamespace(id=11),
+                version=SimpleNamespace(
+                    id=3,
+                    system_prompt="回答",
+                    model_name="deepseek-v4-pro",
+                ),
+                skill_instructions=[],
+                mcp_tools=[],
+            ),
+            model=FakeUsageStreamingModel(),
+            platform_id=7,
+            client_id="client_live",
+            end_user_id=22,
+            message="你好",
+            conversation_id=None,
+            request_id="req-usage",
+            citations=[],
+        ):
+            events.append(event)
+
+        completed = events[-1]
+        assert completed["type"] == "message_completed"
+        assert completed["result"].usage == {
+            "prompt_tokens": 12,
+            "completion_tokens": 5,
+            "total_tokens": 17,
+        }
+        assert repo.usage_records == [
+            {
+                "platform_id": 7,
+                "agent_id": 11,
+                "agent_version_id": 3,
+                "client_id": "client_live",
+                "platform_end_user_id": 22,
+                "conversation_id": 101,
+                "message_id": 2,
+                "request_id": "req-usage",
+                "model_name": "deepseek-v4-pro",
+                "prompt_tokens": 12,
+                "completion_tokens": 5,
+                "total_tokens": 17,
+            }
         ]
 
     asyncio.run(run())
