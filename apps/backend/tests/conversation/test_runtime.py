@@ -6,6 +6,7 @@ from langchain_core.messages import AIMessage
 from app.modules.mcp.schemas import ToolInvocationOutcome
 
 from app.modules.conversation.runtime import (
+    extract_token_usage,
     format_sse_event,
     load_runtime_context,
     run_graph,
@@ -217,6 +218,52 @@ class StreamingChatModel:
     async def astream(self, messages):
         for content in ("退款", "规则是 30 天。"):
             yield AIMessage(content=content)
+
+
+class UsageStreamingChatModel:
+    async def astream(self, messages):
+        yield AIMessage(content="答案", usage_metadata={
+            "input_tokens": 12,
+            "output_tokens": 4,
+            "total_tokens": 16,
+        })
+
+
+def test_extract_token_usage_normalizes_langchain_usage_metadata():
+    message = AIMessage(
+        content="答案",
+        usage_metadata={
+            "input_tokens": 12,
+            "output_tokens": 4,
+            "total_tokens": 16,
+        },
+    )
+
+    assert extract_token_usage(message) == {
+        "prompt_tokens": 12,
+        "completion_tokens": 4,
+        "total_tokens": 16,
+    }
+
+
+def test_graph_stream_includes_usage_on_completed_result():
+    async def collect():
+        async for item in stream_graph(
+            UsageStreamingChatModel(),
+            system_prompt="回答问题",
+            user_message="测试",
+        ):
+            if item["type"] == "completed":
+                return item["result"]
+        raise AssertionError("completed event not emitted")
+
+    result = asyncio.run(collect())
+
+    assert result.usage == {
+        "prompt_tokens": 12,
+        "completion_tokens": 4,
+        "total_tokens": 16,
+    }
 
 
 def test_graph_streams_model_deltas_and_returns_final_result():

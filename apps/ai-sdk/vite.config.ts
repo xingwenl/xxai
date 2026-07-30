@@ -11,6 +11,7 @@ export default defineConfig({
       insertTypesEntry: true,
       outDir: 'dist',
       include: ['src/**/*.ts', 'src/**/*.vue'],
+      exclude: ['src/**/*.test.ts', 'src/test/**'],
     }),
     replace({
       'process.env.NODE_ENV': JSON.stringify(

@@ -30,11 +30,15 @@ describe('AgentClient protocol events', () => {
     })
     transport.emit('message', {
       id: '5', type: 'message_completed', protocolVersion: 1, sequence: 5,
-      timestamp: new Date().toISOString(), requestId: 'r', payload: { content: 'Hi' }
+      timestamp: new Date().toISOString(), requestId: 'r', payload: {
+        content: 'Hi',
+        usage: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16 }
+      }
     })
     const lastMessage = messages[messages.length - 1]
     expect(lastMessage).toMatchObject({ role: 'assistant', content: { text: 'Hi' } })
     expect(lastMessage.metadata.citations).toEqual([{ title: 'FAQ', text: 'Answer' }])
+    expect(lastMessage.metadata.usage).toEqual({ prompt_tokens: 12, completion_tokens: 4, total_tokens: 16 })
   })
 
   it('exposes cancellation for the active request', () => {

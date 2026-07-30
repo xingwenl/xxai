@@ -167,7 +167,8 @@ export class AgentClient {
             requestId: this.currentRequestId,
             metadata: {
               citations: this.pendingCitations,
-              knowledgeGrounded: msg.payload.knowledgeGrounded
+              knowledgeGrounded: msg.payload.knowledgeGrounded,
+              ...(msg.payload.usage ? { usage: msg.payload.usage } : {})
             }
           }
           this.messageStore.addMessage(message)

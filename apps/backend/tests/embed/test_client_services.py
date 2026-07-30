@@ -7,6 +7,7 @@ from app.modules.embed.schemas import EmbedTokenRequest, PlatformEmbedClientCrea
 from app.modules.embed.services import create_embed_client, issue_embed_token
 from app.modules.embed.security import decode_embed_token
 from app.shared.exceptions import UnauthorizedException
+from app.shared.exceptions import TooManyRequestsException
 
 
 @dataclass
@@ -84,6 +85,25 @@ class FakeAgentRepository:
         )
 
 
+class FakeTokenQuota:
+    def __init__(self, allowed: bool):
+        self.allowed = allowed
+        self.calls = []
+
+    async def check(self, resource, dimensions):
+        self.calls.append((resource, dimensions))
+        return type(
+            "Decision",
+            (),
+            {
+                "allowed": self.allowed,
+                "code": "allowed" if self.allowed else "quota_exceeded",
+                "retryable": True,
+                "retry_after_seconds": 60,
+            },
+        )()
+
+
 def test_create_client_returns_secret_once_and_stores_only_hash():
     async def run() -> None:
         repo = FakeEmbedRepository()
@@ -156,5 +176,38 @@ def test_token_exchange_contains_scoped_claims_and_creates_external_user():
         assert repo.created_end_users[0]["external_user_id"] == "user_1"
         claims = decode_embed_token(token.access_token)
         assert claims["host_tools"] == ["calculate_total", "get_weather"]
+
+    asyncio.run(run())
+
+
+def test_token_exchange_rejects_before_creating_end_user_when_quota_exceeded():
+    async def run() -> None:
+        repo = FakeEmbedRepository()
+        created = await create_embed_client(
+            repo,
+            platform_id=7,
+            payload=PlatformEmbedClientCreate(
+                name="Acme Web", allowed_origins=["https://app.acme.test"]
+            ),
+        )
+        quota = FakeTokenQuota(allowed=False)
+
+        with pytest.raises(TooManyRequestsException, match="quota_exceeded"):
+            await issue_embed_token(
+                repo,
+                FakeAgentRepository(),
+                EmbedTokenRequest(
+                    client_id=created.client.client_id,
+                    client_secret=created.client_secret,
+                    agent_id=11,
+                    external_user_id="blocked-user",
+                    origin="https://app.acme.test",
+                ),
+                platform_id=7,
+                quota_service=quota,
+            )
+
+        assert repo.created_end_users == []
+        assert quota.calls[0][0] == "token_issue"
 
     asyncio.run(run())

@@ -16,13 +16,17 @@
     }
   },
   "files": [
-    "dist"
+    "dist/xxai-agent.es.js",
+    "dist/xxai-agent.umd.js",
+    "dist/index.d.ts",
+    "dist/style.css"
   ],
   "scripts": {
     "dev": "vite",
     "build": "cross-env NODE_ENV=production vite build",
     "type-check": "vue-tsc --noEmit",
     "test": "vitest",
+    "verify-package": "node scripts/verify-package.mjs",
     "preview": "vite preview",
     "demo": "cd demo && npx serve -l 5174"
   },

@@ -23,8 +23,27 @@ from app.modules.conversation.runtime import load_runtime_context
 from app.modules.conversation.services import retrieve_citations
 from app.modules.gateway.runtime import RequestRegistry, stream_embed_chat
 from app.modules.gateway.replay import ReplayStore
-from app.modules.gateway.auth import PROTOCOL_SUBPROTOCOL, authenticate_embed_token
+from app.modules.gateway.auth import (
+    CAPABILITIES,
+    MINIMUM_SDK_VERSION,
+    SERVER_VERSION,
+    PROTOCOL_SUBPROTOCOL,
+    authenticate_embed_token,
+    check_client_compatibility,
+)
 from app.modules.gateway.connection import validate_incoming_message
+from app.modules.observability.metrics import (
+    record_authentication,
+    record_connection,
+    record_error,
+    record_message,
+    record_quota_rejection,
+)
+from app.modules.quota.service import (
+    QuotaDimensions,
+    QuotaService,
+    RedisQuotaStore,
+)
 from app.modules.knowledge.repositories import KnowledgeRepository
 from app.modules.mcp.repositories import McpRepository
 from app.modules.skill.repositories import SkillRepository
@@ -63,6 +82,14 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
         if message.get("type") != "auth":
             await websocket.close(code=4401)
             return
+        auth_payload = message.get("payload", {})
+        compatibility = check_client_compatibility(
+            protocol_version=auth_payload.get("protocolVersion", 1),
+            sdk_version=auth_payload.get("sdkVersion", "0.1.0"),
+        )
+        if not compatibility.allowed:
+            await websocket.close(code=4406)
+            return
         token = message.get("payload", {}).get("token")
         if not isinstance(token, str):
             await websocket.close(code=4401)
@@ -70,10 +97,40 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
         payload = await authenticate_embed_token(
             token, agent_id=agent_id, origin=origin or ""
         )
-        auth_payload = message.get("payload", {})
+        record_authentication("success")
         # 客户端带上次的会话和 sequence 时，先从 Redis Stream 补发缺失事件。
         replay_redis = Redis.from_url(get_settings().celery_broker_url)
         replay_store = ReplayStore(replay_redis)
+        settings = get_settings()
+        quota_service = None
+        if settings.quota_enabled:
+            quota_service = QuotaService(
+                RedisQuotaStore(replay_redis),
+                limits={
+                    "connection": settings.quota_connection_limit,
+                    "message": settings.quota_message_limit,
+                    "model_tokens": settings.quota_model_tokens_limit,
+                },
+                window_seconds={
+                    "connection": settings.quota_window_seconds,
+                    "message": settings.quota_window_seconds,
+                    "model_tokens": settings.quota_window_seconds,
+                },
+            )
+            connection_decision = await quota_service.check(
+                "connection",
+                QuotaDimensions(
+                    platform_id=str(payload["platform_id"]),
+                    client_id=str(payload["client_id"]),
+                    agent_id=str(agent_id),
+                    end_user_id=str(payload["sub"]),
+                ),
+            )
+            if not connection_decision.allowed:
+                record_quota_rejection("connection", connection_decision.code)
+                await websocket.close(code=4429)
+                return
+        record_connection("accepted")
         replay_conversation_id = auth_payload.get("conversationId")
         replay_cursor = auth_payload.get("lastSequence")
         replay_result = (
@@ -120,6 +177,9 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                 "session_ready",
                 {
                     "subject": payload["sub"],
+                    "serverVersion": SERVER_VERSION,
+                    "minimumSdkVersion": MINIMUM_SDK_VERSION,
+                    "capabilities": sorted(CAPABILITIES),
                     "recovered": replay_result.recovered if replay_result else False,
                     "latestSequence": (
                         replay_result.latest_sequence if replay_result else None
@@ -301,6 +361,30 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                 if event is not None:
                     # 先把内部事件转换为协议 payload，再统一附加 sequence、会话和请求 ID。
                     event_type = event["type"]
+                    if event_type == "message_completed" and quota_service is not None:
+                        usage = getattr(event.get("result"), "usage", None) or {}
+                        total_tokens = usage.get("total_tokens")
+                        if isinstance(total_tokens, int) and total_tokens > 0:
+                            model_decision = await quota_service.check(
+                                "model_tokens",
+                                QuotaDimensions(
+                                    platform_id=str(payload["platform_id"]),
+                                    client_id=str(payload["client_id"]),
+                                    agent_id=str(agent_id),
+                                    end_user_id=str(payload["sub"]),
+                                ),
+                                amount=total_tokens,
+                            )
+                            if not model_decision.allowed:
+                                record_quota_rejection(
+                                    "model_tokens", model_decision.code
+                                )
+                                event_type = "error"
+                                event["payload"] = {
+                                    "code": model_decision.code,
+                                    "message": "model token quota exceeded",
+                                    "retryable": model_decision.retryable,
+                                }
                     event_payload = (
                         {"content": event["content"]}
                         if event_type == "message_delta"
@@ -323,6 +407,7 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                             "content": event["content"],
                             "citations": event["result"].citations,
                             "knowledgeGrounded": event["result"].knowledge_grounded,
+                            "usage": event["result"].usage,
                         }
                     conversation_id = getattr(event.get("conversation"), "id", None)
                     request_id = event.get("request_id")
@@ -362,6 +447,7 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                         active_task = None
                         active_request = None
                 elif message_type == "message_send":
+                    record_message("message_send")
                     # 同一连接串行处理聊天请求；重复 requestId 做幂等处理，
                     # 不同 requestId 在前一个完成前返回 request_in_progress。
                     if not isinstance(request_id, str):
@@ -402,6 +488,36 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                                 )
                             )
                             continue
+                        if quota_service is not None:
+                            decision = await quota_service.check(
+                                "message",
+                                QuotaDimensions(
+                                    platform_id=str(payload["platform_id"]),
+                                    client_id=str(payload["client_id"]),
+                                    agent_id=str(agent_id),
+                                    end_user_id=str(payload["sub"]),
+                                ),
+                            )
+                            if not decision.allowed:
+                                record_quota_rejection("message", decision.code)
+                                await websocket.send_text(
+                                    envelope(
+                                        "error",
+                                        {
+                                            "code": decision.code,
+                                            "message": "message quota unavailable"
+                                            if decision.code == "quota_unavailable"
+                                            else "message quota exceeded",
+                                            "retryable": decision.retryable,
+                                            "details": {
+                                                "retryAfterSeconds": str(
+                                                    decision.retry_after_seconds or 0
+                                                )
+                                            },
+                                        },
+                                    )
+                                )
+                                continue
                         active_request = request_id
                         active_task = asyncio.create_task(
                             produce(request_id, message_payload)
@@ -533,6 +649,8 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
     except WebSocketDisconnect:
         return
     except Exception:
+        record_authentication("failure")
+        record_error("websocket_failure")
         await websocket.close(code=4401)
     finally:
         # 无论认证、模型或客户端哪一层失败，都释放数据库和 Redis 连接。

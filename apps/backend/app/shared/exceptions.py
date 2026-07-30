@@ -46,6 +46,11 @@ class UnauthorizedException(AppException):
         )
 
 
+class TooManyRequestsException(AppException):
+    def __init__(self, message: str = "too many requests") -> None:
+        super().__init__(message, status_code=status.HTTP_429_TOO_MANY_REQUESTS)
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppException)
     async def handle_app_exception(

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Query
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -6,7 +7,7 @@ from app.core.database import get_db_session
 from app.modules.agent.repositories import AgentRepository
 from app.modules.embed.repositories import EmbedRepository
 from app.modules.embed.schemas import EmbedTokenRequest, EmbedTokenResponse
-from app.modules.embed.services import issue_embed_token
+from app.modules.embed.services import build_token_quota_service, issue_embed_token
 from app.shared.exceptions import BadRequestException, NotFoundException
 from app.shared.responses import ApiResponse, success_response
 
@@ -41,19 +42,29 @@ async def get_agent_token(
     if client is None:
         raise NotFoundException("configured embed client not found")
 
-    token = await issue_embed_token(
-        embed_repo,
-        AgentRepository(session),
-        EmbedTokenRequest(
-            client_id=settings.embed_client_id,
-            client_secret=settings.embed_client_secret,
-            agent_id=settings.embed_agent_id,
-            external_user_id=external_user_id,
-            display_name=display_name,
-            origin=(origin or settings.embed_origin),
-            host_tool_names=host_tool_names,
-        ),
-        platform_id=client.platform_id,
-    )
+    redis = Redis.from_url(settings.celery_broker_url) if settings.quota_enabled else None
+    try:
+        token = await issue_embed_token(
+            embed_repo,
+            AgentRepository(session),
+            EmbedTokenRequest(
+                client_id=settings.embed_client_id,
+                client_secret=settings.embed_client_secret,
+                agent_id=settings.embed_agent_id,
+                external_user_id=external_user_id,
+                display_name=display_name,
+                origin=(origin or settings.embed_origin),
+                host_tool_names=host_tool_names,
+            ),
+            platform_id=client.platform_id,
+            quota_service=(
+                build_token_quota_service(client, settings, redis)
+                if redis is not None
+                else None
+            ),
+        )
+    finally:
+        if redis is not None:
+            await redis.aclose()
     await session.commit()
     return success_response(data=token, message="agent token issued")

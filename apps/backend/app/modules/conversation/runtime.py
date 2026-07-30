@@ -23,11 +23,45 @@ class GraphResult:
     knowledge_grounded: bool
     pending_confirmation_id: int | None = None
     tool_events: list[dict[str, Any]] | None = None
+    usage: dict[str, int] | None = None
 
 
 class ChatState(TypedDict, total=False):
     messages: list[Any]
     content: str
+
+
+def extract_token_usage(message: Any) -> dict[str, int] | None:
+    """把 LangChain/OpenAI 的 usage 结构统一成网关配额字段。"""
+    usage = getattr(message, "usage_metadata", None) or {}
+    if not usage:
+        response_metadata = getattr(message, "response_metadata", None) or {}
+        usage = response_metadata.get("token_usage") or response_metadata.get(
+            "usage"
+        ) or {}
+    values = {
+        "prompt_tokens": usage.get("prompt_tokens", usage.get("input_tokens")),
+        "completion_tokens": usage.get(
+            "completion_tokens", usage.get("output_tokens")
+        ),
+        "total_tokens": usage.get("total_tokens"),
+    }
+    if any(not isinstance(value, int) or value < 0 for value in values.values()):
+        return None
+    return values
+
+
+def merge_token_usage(
+    current: dict[str, int] | None, incoming: dict[str, int] | None
+) -> dict[str, int] | None:
+    if incoming is None:
+        return current
+    if current is None:
+        return dict(incoming)
+    return {
+        key: current[key] + incoming[key]
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+    }
 
 
 def format_sse_event(event: dict[str, Any]) -> str:
@@ -71,12 +105,14 @@ async def stream_graph(
         yield {"type": "completed", "result": result}
         return
     content_parts = []
+    usage = None
     async for chunk in model.astream(
         [
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_message),
         ]
     ):
+        usage = merge_token_usage(usage, extract_token_usage(chunk))
         content = chunk.content
         if not isinstance(content, str):
             content = "".join(
@@ -92,6 +128,7 @@ async def stream_graph(
             content="".join(content_parts),
             citations=citations or [],
             knowledge_grounded=bool(citations),
+            usage=usage,
         ),
     }
 
@@ -145,6 +182,7 @@ async def run_graph(
     }
     result = await graph.compile().ainvoke(state)
     response = result["messages"][-1]
+    usage = extract_token_usage(response)
     tool_calls = getattr(response, "tool_calls", []) or []
     tool_events = []
     pending_confirmation_id = None
@@ -174,6 +212,7 @@ async def run_graph(
                     knowledge_grounded=bool(citation_items),
                     pending_confirmation_id=pending_confirmation_id,
                     tool_events=tool_events,
+                    usage=usage,
                 )
             state["messages"].append(response)
             state["messages"].append(
@@ -184,6 +223,7 @@ async def run_graph(
             )
         result = await graph.compile().ainvoke(state)
         response = result["messages"][-1]
+        usage = merge_token_usage(usage, extract_token_usage(response))
         tool_calls = getattr(response, "tool_calls", []) or []
     return GraphResult(
         content=result.get("content", ""),
@@ -191,6 +231,7 @@ async def run_graph(
         knowledge_grounded=bool(citation_items),
         pending_confirmation_id=pending_confirmation_id,
         tool_events=tool_events,
+        usage=usage,
     )
 
 

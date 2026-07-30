@@ -53,6 +53,14 @@ class Settings:
     agent_master_key: str
     celery_broker_url: str
     celery_result_backend: str
+    metrics_enabled: bool
+    quota_enabled: bool
+    quota_window_seconds: int
+    quota_token_issue_limit: int
+    quota_connection_limit: int
+    quota_message_limit: int
+    quota_model_tokens_limit: int
+    sdk_minimum_version: str
 
 
 def _build_database_url() -> str:
@@ -115,4 +123,14 @@ def get_settings() -> Settings:
         celery_result_backend=os.getenv(
             "CELERY_RESULT_BACKEND", "redis://127.0.0.1:6379/0"
         ),
+        metrics_enabled=_get_bool("METRICS_ENABLED", default=True),
+        quota_enabled=_get_bool("QUOTA_ENABLED", default=app_env == "production"),
+        quota_window_seconds=int(os.getenv("QUOTA_WINDOW_SECONDS", "60")),
+        quota_token_issue_limit=int(os.getenv("QUOTA_TOKEN_ISSUE_LIMIT", "60")),
+        quota_connection_limit=int(os.getenv("QUOTA_CONNECTION_LIMIT", "10")),
+        quota_message_limit=int(os.getenv("QUOTA_MESSAGE_LIMIT", "60")),
+        quota_model_tokens_limit=int(
+            os.getenv("QUOTA_MODEL_TOKENS_LIMIT", "100000")
+        ),
+        sdk_minimum_version=os.getenv("SDK_MINIMUM_VERSION", "0.1.0"),
     )

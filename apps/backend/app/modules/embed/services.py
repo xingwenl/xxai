@@ -9,9 +9,12 @@ from app.modules.embed.schemas import (
     PlatformEmbedClientUpdate,
 )
 from app.modules.embed.security import create_embed_token
+from app.modules.observability.metrics import record_quota_rejection
+from app.modules.quota.service import QuotaDimensions, QuotaService, RedisQuotaStore
 from app.shared.exceptions import (
     ConflictException,
     NotFoundException,
+    TooManyRequestsException,
     UnauthorizedException,
 )
 
@@ -35,7 +38,12 @@ async def create_embed_client(
 
 
 async def issue_embed_token(
-    embed_repo, agent_repo, request: EmbedTokenRequest, *, platform_id: int
+    embed_repo,
+    agent_repo,
+    request: EmbedTokenRequest,
+    *,
+    platform_id: int,
+    quota_service=None,
 ):
     client = await embed_repo.get_client(platform_id, request.client_id)
     if (
@@ -51,6 +59,18 @@ async def issue_embed_token(
     agent = await agent_repo.get_agent(request.agent_id, platform_id)
     if agent is None:
         raise NotFoundException("agent not found")
+    if quota_service is not None:
+        decision = await quota_service.check(
+            "token_issue",
+            QuotaDimensions(
+                platform_id=str(platform_id),
+                client_id=client.client_id,
+                agent_id=str(request.agent_id),
+            ),
+        )
+        if not decision.allowed:
+            record_quota_rejection("token_issue", decision.code)
+            raise TooManyRequestsException(decision.code)
     end_user = await embed_repo.get_end_user(platform_id, request.external_user_id)
     if end_user is None:
         end_user = await embed_repo.create_end_user(
@@ -73,6 +93,16 @@ async def issue_embed_token(
     )
     return EmbedTokenResponse(
         access_token=token, expires_in=client.token_ttl_seconds, jti=jti
+    )
+
+
+def build_token_quota_service(client, settings, redis):
+    """按 Client 配置建立 token 签发窗口；未配置时回退到全局默认值。"""
+    limit = client.max_tokens_per_minute or settings.quota_token_issue_limit
+    return QuotaService(
+        RedisQuotaStore(redis),
+        limits={"token_issue": limit},
+        window_seconds={"token_issue": settings.quota_window_seconds},
     )
 
 

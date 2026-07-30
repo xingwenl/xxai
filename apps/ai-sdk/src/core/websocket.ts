@@ -1,5 +1,5 @@
 import { EventEmitter } from './event-emitter'
-import { parseProtocolEvent } from './protocol'
+import { parseProtocolEvent, SDK_VERSION } from './protocol'
 import type { ConnectionState, OutgoingMessage, WebSocketMessage } from './types'
 import type { Transport } from './transport'
 
@@ -38,6 +38,7 @@ export class WebSocketTransport extends EventEmitter implements Transport {
   private _sessionReady = false
   private _conversationId: string | undefined
   private _registeredTools: OutgoingMessage | null = null
+  private _serverCapabilities: string[] = []
 
   constructor(options: {
     endpoint: string
@@ -63,6 +64,7 @@ export class WebSocketTransport extends EventEmitter implements Transport {
 
   get state(): ConnectionState { return this._state }
   get lastSequence(): number { return this._lastSequence }
+  get serverCapabilities(): string[] { return [...this._serverCapabilities] }
 
   private setState(state: ConnectionState): void {
     if (this._state !== state) {
@@ -113,6 +115,8 @@ export class WebSocketTransport extends EventEmitter implements Transport {
           token,
           platformId: this._platformId,
           agentId: this._agentId,
+          protocolVersion: 1,
+          sdkVersion: SDK_VERSION,
           conversationId: this._conversationId,
           lastSequence: this._lastSequence || undefined
         }
@@ -127,6 +131,12 @@ export class WebSocketTransport extends EventEmitter implements Transport {
       if (event.type === 'session_ready') {
         const sessionId = (event.payload as Record<string, unknown>).sessionId
         if (typeof sessionId === 'string') this._conversationId = sessionId
+        const capabilities = (event.payload as Record<string, unknown>).capabilities
+        if (Array.isArray(capabilities)) {
+          this._serverCapabilities = capabilities.filter(
+            (item): item is string => typeof item === 'string'
+          )
+        }
         if (event.sequence > this._lastSequence) this._lastSequence = event.sequence
         this._sessionReady = true
         this._reconnectAttempts = 0
@@ -140,6 +150,18 @@ export class WebSocketTransport extends EventEmitter implements Transport {
       } else {
         if (event.sequence <= this._lastSequence) return
         this._lastSequence = event.sequence
+      }
+      if (event.type === 'error') {
+        const payload = event.payload as Record<string, unknown>
+        const code = payload.code
+        if (code === 'unsupported_protocol_version' || code === 'unsupported_sdk_version') {
+          const compatibilityError = {
+            code: String(code),
+            retryable: payload.retryable === true
+          }
+          this.emit('compatibility_error', compatibilityError)
+          this.failConnect(new Error(String(code)))
+        }
       }
       this.emit('message', event as WebSocketMessage)
     } catch (error) { this.emit('error', error instanceof Error ? error : new Error('Invalid WebSocket message')) }
@@ -213,6 +235,6 @@ export class WebSocketTransport extends EventEmitter implements Transport {
     this.setState('disconnected')
   }
 
-  override on(event: 'message' | 'open' | 'close' | 'error' | 'state', handler: (...args: any[]) => void): void { super.on(event, handler) }
-  override off(event: 'message' | 'open' | 'close' | 'error' | 'state', handler: (...args: any[]) => void): void { super.off(event, handler) }
+  override on(event: 'message' | 'open' | 'close' | 'error' | 'state' | 'compatibility_error', handler: (...args: any[]) => void): void { super.on(event, handler) }
+  override off(event: 'message' | 'open' | 'close' | 'error' | 'state' | 'compatibility_error', handler: (...args: any[]) => void): void { super.off(event, handler) }
 }

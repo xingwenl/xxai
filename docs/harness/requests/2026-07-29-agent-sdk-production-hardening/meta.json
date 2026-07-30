@@ -1,0 +1,30 @@
+{
+  "id": "2026-07-29-agent-sdk-production-hardening",
+  "title": "AI Agent SDK Phase 2C 生产核心增强",
+  "scope": "fullstack",
+  "phase": "acceptance",
+  "status": "done",
+  "riskLevel": "high",
+  "changeTypes": ["runtime", "observability", "sdk", "release", "docs"],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": ["OpenTelemetry Metrics", "Prometheus instrumentation", "Redis atomic counters", "Envoy Global Rate Limit", "Semantic Versioning", "Node.js package exports"],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": ["新增多租户运行时配额与限流", "新增网关可观测性", "扩展 SDK 协议兼容和发布契约"],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-07-29",
+      "scope": "Phase 2C 生产核心：后端配额与限流、结构化可观测指标、SDK 协议兼容矩阵、ESM/UMD 发布治理；客户端体验治理和数据合规另拆 request",
+      "note": "用户确认技术设计，允许进入 spec 和 plan。"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-07-29",
+  "updatedAt": "2026-07-29",
+  "relatedPaths": ["apps/backend", "apps/ai-sdk", "docs/design/agent-sdk-phase-2-requirements.md", "docs/harness/requests/2026-07-29-agent-sdk-production-hardening"]
+}

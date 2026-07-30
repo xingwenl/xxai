@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, status
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.database import get_db_session
 from app.core.security import require_current_active_user
 from app.modules.agent.repositories import AgentRepository
@@ -18,6 +20,7 @@ from app.modules.embed.schemas import (
 from app.modules.embed.services import (
     bind_embed_client_agent,
     create_embed_client,
+    build_token_quota_service,
     issue_embed_token,
     get_embed_message_snapshot,
     rotate_embed_client_secret,
@@ -162,12 +165,23 @@ async def issue_token_endpoint(
     client = await embed_repo.get_client_by_id(payload.client_id)
     if client is None:
         raise NotFoundException("embed client not found")
-    token = await issue_embed_token(
-        embed_repo,
-        AgentRepository(session),
-        payload,
-        platform_id=client.platform_id,
-    )
+    settings = get_settings()
+    redis = Redis.from_url(settings.celery_broker_url) if settings.quota_enabled else None
+    try:
+        token = await issue_embed_token(
+            embed_repo,
+            AgentRepository(session),
+            payload,
+            platform_id=client.platform_id,
+            quota_service=(
+                build_token_quota_service(client, settings, redis)
+                if redis is not None
+                else None
+            ),
+        )
+    finally:
+        if redis is not None:
+            await redis.aclose()
     await session.commit()
     return success_response(data=token, message="embed token issued")
 

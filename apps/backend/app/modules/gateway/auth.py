@@ -4,6 +4,35 @@ from app.modules.embed.security import EmbedTokenRevocationStore, decode_embed_t
 from app.shared.exceptions import UnauthorizedException
 
 PROTOCOL_SUBPROTOCOL = "ai-agent.v1"
+SUPPORTED_PROTOCOL_VERSION = 1
+SERVER_VERSION = "0.1.0"
+MINIMUM_SDK_VERSION = "0.1.0"
+CAPABILITIES = frozenset({"replay", "host_tools", "cancellation"})
+
+
+class CompatibilityResult:
+    def __init__(self, allowed: bool, code: str = "compatible"):
+        self.allowed = allowed
+        self.code = code
+        self.retryable = False
+
+
+def _version_tuple(version: str) -> tuple[int, int, int]:
+    try:
+        parts = tuple(int(part) for part in version.split(".")[:3])
+    except (AttributeError, ValueError):
+        return (-1, -1, -1)
+    return (parts + (0, 0, 0))[:3]
+
+
+def check_client_compatibility(
+    *, protocol_version: int, sdk_version: str
+) -> CompatibilityResult:
+    if protocol_version != SUPPORTED_PROTOCOL_VERSION:
+        return CompatibilityResult(False, "unsupported_protocol_version")
+    if _version_tuple(sdk_version) < _version_tuple(MINIMUM_SDK_VERSION):
+        return CompatibilityResult(False, "unsupported_sdk_version")
+    return CompatibilityResult(True)
 
 
 def validate_handshake(

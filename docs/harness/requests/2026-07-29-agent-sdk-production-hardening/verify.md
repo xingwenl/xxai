@@ -1,0 +1,53 @@
+# 验证记录
+
+## 当前阶段
+
+已完成 research、spec、plan、implement 和 verify。
+
+## 已执行
+
+- 基线后端：`poetry run pytest -q`，`127 passed, 1 skipped`。
+- 基线 SDK：`npm run test -- --run`，`11 tests passed`；`npm run type-check` 通过。
+- 配额 RED：缺少 `app.modules.quota`，按预期失败；修正计数器允许/拒绝返回契约后，`tests/quota/test_service.py` 为 `4 passed`。
+- metrics/协议 RED：缺少模块/兼容函数，按预期失败；实现后对应测试为 `4 passed`。
+- 后端定向：`poetry run pytest tests/quota tests/observability tests/gateway -q`，`27 passed, 1 skipped`。
+- 后端全量：`poetry run pytest -q`，`136 passed, 1 skipped`。
+- usage 增量：`extract_token_usage`、流式 completed usage 和 SDK `metadata.usage` 测试通过。
+- SDK 兼容 RED：auth 缺少版本字段、兼容错误未结束连接；实现后 `compatibility.test.ts` 为 `2 passed`。
+- SDK 全量：`npm run test -- --run`，`13 tests passed`；`npm run type-check` 通过。
+- SDK 构建：`npm run build`，ESM、UMD 和类型声明构建通过。
+- 包入口：`npm run verify-package`，通过。
+- 包清单：`npm_config_cache=/tmp/ai-sdk-npm-cache npm pack --dry-run`，通过；首次默认 cache 失败原因为 root-owned npm cache，未修改用户 cache。
+- Docker PostgreSQL：`poetry run alembic current` 显示 `20260728_0010 (head)`。
+- Docker Redis：`PHASE2_REDIS_URL=redis://127.0.0.1:6379/0 poetry run pytest tests/gateway/test_replay_integration.py -q`，`1 passed`。
+- 真实 Redis Lua 配额检查：同一窗口第一次返回 `allowed`，第二次返回 `quota_exceeded`。
+- 真实 Redis `token_issue` 配额检查：同一 Client/Agent 窗口第一次返回 `allowed`，第二次返回 `quota_exceeded`。
+- runtime usage 增量：usage 标准化和流式 completed usage 测试通过，定向 `13 passed`。
+- Agent 1 v2 的 `model_options` 已确认是 `{"stream_usage": true}`。
+
+## 待执行
+
+- `poetry run ruff check .`
+- `poetry check`
+- `npm run build` 后再次执行 `npm run verify-package` 和临时 cache 的 `npm pack --dry-run`，构建成功，包仅包含 README、package.json、ESM、UMD、CSS 和类型入口共 6 个文件。
+- `git diff --check`，通过。
+
+## 最终结果
+
+- `poetry run ruff check .`：通过。
+- `poetry check`：通过。
+- 后端最终 `poetry run pytest -q`：`152 passed, 1 skipped`。
+- SDK `npm run test -- --run`：`13 passed`。
+- SDK `npm run type-check`：通过。
+- SDK `npm run build`：ESM、UMD、类型声明通过。
+- `npm run verify-package`：通过。
+- `npm_config_cache=/tmp/ai-sdk-npm-cache npm pack --dry-run`：通过，6 个发布文件。
+- `git diff --check`：通过。
+
+## 未覆盖项与例外
+
+- 真实 Redis/PostgreSQL 已完成基础联通和单实例验证，多实例压测尚未执行。
+- quota 在开发环境默认关闭，生产部署必须显式确认 `QUOTA_ENABLED=true`。
+- runtime 已读取 `usage_metadata`/`token_usage`，并在 completed 事件中返回 usage、按 `total_tokens` 扣减 model token quota。
+- Agent 1 v2 的真实 usage 已由用户在 Demo 中确认可见；token 签发路径已接入 `token_issue` quota。
+- Playwright 断网、CDN 外部加载和反向代理矩阵未执行。

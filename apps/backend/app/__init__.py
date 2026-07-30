@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import PlainTextResponse
 
 from app.core.config import get_settings
 from app.core.database import dispose_database
@@ -21,6 +22,7 @@ from app.modules.embed.router import router as embed_router
 from app.modules.embed.token_router import router as agent_token_router
 from app.modules.gateway.router import router as gateway_router
 from app.modules.host_tool.router import router as host_tool_router
+from app.modules.observability.metrics import metrics_content_type, metrics_payload
 from app.shared.exceptions import register_exception_handlers
 
 
@@ -62,4 +64,11 @@ def create_app() -> FastAPI:
     app.include_router(agent_token_router, prefix="/api")
     app.include_router(gateway_router, prefix=settings.api_v1_prefix)
     app.include_router(host_tool_router, prefix=settings.api_v1_prefix)
+
+    @app.get("/metrics", include_in_schema=False, response_class=PlainTextResponse)
+    async def metrics():
+        if not get_settings().metrics_enabled:
+            return PlainTextResponse("", status_code=404)
+        return PlainTextResponse(metrics_payload(), media_type=metrics_content_type())
+
     return app
