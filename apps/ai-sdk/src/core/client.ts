@@ -11,7 +11,6 @@ import { EventEmitter } from './event-emitter'
 import { MessageStore } from './message-store'
 import { ToolRegistry } from './tool-registry'
 import { WebSocketTransport } from './websocket'
-import { SSETransport } from './transport'
 import type { Transport } from './transport'
 
 let messageId = 0
@@ -61,16 +60,13 @@ export class AgentClient {
     this.toolRegistry = new ToolRegistry()
     this._callbacks = options.callbacks || {}
 
-    this.transport =
-      this.options.transport === 'sse'
-        ? new SSETransport()
-        : new WebSocketTransport({
-            endpoint: this.options.endpoint,
-            getToken: this.options.getToken,
-            platformId: this.options.platformId,
-            agentId: this.options.agentId,
-            reconnect: this.options.reconnect
-          })
+    this.transport = new WebSocketTransport({
+      endpoint: this.options.endpoint,
+      getToken: this.options.getToken,
+      platformId: this.options.platformId,
+      agentId: this.options.agentId,
+      reconnect: this.options.reconnect
+    })
 
     this.setupTransportListeners()
   }

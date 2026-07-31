@@ -2,7 +2,7 @@
 
 ## 验收结论
 
-Phase 2C 生产核心增强的连接/消息配额、token 签发配额、metrics endpoint、协议兼容、ESM/UMD 发布治理、模型 usage 采集、model token quota 扣减和 SDK `metadata.usage` 映射已完成实现和自动化验证。2026-07-30 增量新增独立 `model_usage_records` 用量明细表，已完成 PostgreSQL 迁移、自动化回归和真实 DeepSeek E2E 验证，request 可重新标记为 done。
+Phase 2C 生产核心增强的连接/消息配额、token 签发配额、metrics endpoint、协议兼容、ESM/UMD 发布治理、模型 usage 采集、model token quota 扣减和 SDK `metadata.usage` 映射已完成实现和自动化验证。2026-07-30 增量新增独立 `model_usage_records` 用量明细表，已完成 PostgreSQL 迁移、自动化回归和真实 DeepSeek E2E 验证。2026-07-31 修复 npm tarball 类型缺失、CommonJS 空导出、CSS 子路径和发布前构建问题，并完成真实消费者安装验证，request 可标记为 done。
 
 ## 变更范围
 
@@ -18,12 +18,15 @@ Phase 2C 生产核心增强的连接/消息配额、token 签发配额、metrics
 - npm 默认 cache 存在权限问题，使用临时 cache 完成了 pack 验证。
 - 多标签页、离线、可访问性、国际化/主题和数据合规不属于本 request。
 - 用量明细仅在模型供应商返回 usage 时写入；缺失 usage 时不伪造 token 数字或写入零值记录。
+- Node.js 不直接执行 CSS 文件，CSS 子路径仅验证包解析；浏览器或 bundler 加载由消费者负责。
 
 ## 验证证据
 
 - 后端全量 pytest：`152 passed, 1 skipped`。
 - 真实 Redis token_issue 配额：第一次允许、第二次超限。
 - SDK Vitest：`13 passed`。
+- SDK 发布契约测试：`3 passed`；SDK 全量测试：`16 passed`。
+- 真实 tarball 消费者：CommonJS、ESM 和 CSS 子路径解析均通过。
 - SDK type-check/build/package verification：全部通过。
 - Ruff、Poetry check 和 `git diff --check`：全部通过。
 - 增量定向：`poetry run pytest tests/gateway/test_chat_flow.py tests/conversation/test_usage_records.py -q`，`4 passed`。

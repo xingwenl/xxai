@@ -11,6 +11,8 @@
 - `apps/backend/migrations/versions/20260730_0012_model_usage_records.py`：新增模型用量明细表迁移。
 - `apps/ai-sdk/src/core/`：发送 SDK 版本、保存 server capabilities、暴露 `metadata.usage`。
 - `apps/ai-sdk/scripts/verify-package.mjs`：验证 ESM/UMD/types 入口和敏感内容。
+- `apps/ai-sdk/scripts/verify-package.test.mjs`：验证发布 tarball 文件清单、ESM/CommonJS 导出和 CSS 子路径契约。
+- `apps/ai-sdk/package.json`、`apps/ai-sdk/vite.config.ts`：修正发布入口、类型文件清单和发布前构建流程。
 - `docs/design/`、`docs/runbooks/`、`docs/harness/requests/2026-07-29-agent-sdk-production-hardening/`：补齐兼容矩阵、运行手册和 Harness 记录。
 
 ## 实施步骤
@@ -21,7 +23,8 @@
 4. 从 LangChain/OpenAI 响应中标准化 `prompt_tokens`、`completion_tokens`、`total_tokens`。
 5. 模型 completed result 带 usage 时，写入独立 `model_usage_records` 明细；缺失 usage 时不伪造、不落库。
 6. 调整 SDK 发布包入口，补充 package 验证脚本。
-7. 补齐中文兼容矩阵、运行手册、verify 和 acceptance。
+7. 以失败测试复现 tarball 类型缺失和 CommonJS 空导出，修正 UMD 扩展名、完整类型发布、CSS 子路径和 `prepublishOnly`。
+8. 补齐中文兼容矩阵、运行手册、verify 和 acceptance。
 
 ## 测试步骤
 
@@ -31,6 +34,7 @@
 - `npm run test -- --run`，预期 SDK 单测通过。
 - `npm run type-check`，预期通过。
 - `npm run build`、`npm run verify-package`、`npm_config_cache=/tmp/ai-sdk-npm-cache npm pack --dry-run`，预期发布包只包含公共产物。
+- `npm run test -- --run scripts/verify-package.test.mjs`，预期覆盖真实 tarball 的 ESM、CommonJS、类型和 CSS 入口。
 - 真实 Redis 验证 replay、message quota 和 token_issue quota 第一次允许、第二次超限。
 - `poetry run pytest tests/gateway/test_chat_flow.py tests/conversation/test_usage_records.py -q`，预期模型 usage 明细运行时和 Repository 写入测试通过。
 - `poetry run alembic upgrade head`，预期 PostgreSQL 升级到 `20260730_0012`。

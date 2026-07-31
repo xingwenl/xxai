@@ -5,36 +5,39 @@
   "description": "AI Agent JS SDK",
   "author": "",
   "license": "MIT",
-  "main": "./dist/xxai-agent.umd.js",
+  "main": "./dist/xxai-agent.umd.cjs",
   "module": "./dist/xxai-agent.es.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "import": "./dist/xxai-agent.es.js",
-      "require": "./dist/xxai-agent.umd.js",
-      "types": "./dist/index.d.ts"
-    }
+      "require": "./dist/xxai-agent.umd.cjs",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/xxai-agent.es.js"
+    },
+    "./style.css": "./dist/style.css"
   },
   "files": [
-    "dist/xxai-agent.es.js",
-    "dist/xxai-agent.umd.js",
-    "dist/index.d.ts",
-    "dist/style.css"
+    "dist",
+    "README.md",
+    "package.json"
   ],
+  "keywords": ["ai", "agent", "chat", "sdk", "vue", "websocket"],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "dev": "vite",
-    "build": "cross-env NODE_ENV=production vite build",
+    "build": "vite build",
     "type-check": "vue-tsc --noEmit",
     "test": "vitest",
     "verify-package": "node scripts/verify-package.mjs",
+    "prepublishOnly": "npm run build && npm run verify-package",
     "preview": "vite preview",
     "demo": "cd demo && npx serve -l 5174"
   },
-  "dependencies": {
-    "@rollup/plugin-replace": "^6.0.3",
-    "vue": "^3.3.0"
-  },
   "devDependencies": {
+    "@rollup/plugin-replace": "^6.0.3",
     "@vitejs/plugin-vue": "^5.0.0",
     "typescript": "5.4.2",
     "vite": "^5.0.0",

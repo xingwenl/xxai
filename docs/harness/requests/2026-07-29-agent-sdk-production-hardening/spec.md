@@ -45,10 +45,19 @@
 - `/metrics` 可返回连接数、认证结果、恢复结果、消息延迟、工具耗时、错误和配额拒绝样本，标签集合保持低基数。
 - SDK 发送版本声明，服务端返回版本/能力信息；不兼容主版本被稳定拒绝，同主版本未知可选字段不阻断处理。
 - SDK 构建产生 ESM、UMD 和类型入口，`package.json exports` 与 `npm pack --dry-run` 结果一致，UMD 可由最小 HTML script 加载。
+- SDK 发布 tarball 必须包含所有被公共类型入口引用的声明文件；Node.js 的 ESM 和 CommonJS 消费者都必须获得公共导出，CSS 必须通过稳定包子路径访问；发布命令必须先重建并执行包验证。
 - 模型返回 usage 时，后端写入独立 `model_usage_records` 明细，字段覆盖平台、Agent、AgentVersion、Embed Client、最终用户、conversation、assistant message、requestId、模型名和 `prompt_tokens/completion_tokens/total_tokens`。
 - 后端定向测试、全量 pytest、Ruff、Black 检查、Poetry check，以及 SDK type-check/test/build 全部通过；真实命令和结果写入 `verify.md`。
 
 ## 变更记录
+
+### 2026-07-31 修复：npm 发布包消费者契约
+
+- 变更原因：发布前审查发现 CommonJS 入口导出为空，类型声明依赖的子目录未进入 tarball，CSS 没有可访问的包子路径，且发布流程不会自动重建产物。
+- 变更内容：修正 UMD/CommonJS 文件扩展名和 `exports`，发布完整 `dist` 声明，增加 CSS 子路径和发布前构建验证，补充真实 tarball 消费者测试；移除未实现的 SSE 公开声明。
+- 影响章节：范围、风险、验收标准。
+- 是否触发人工确认：否；属于已确认的 SDK ESM/UMD/类型/npm 发布治理闭环内的 bug 修复，不改变后端协议和权限行为。
+- 关联计划更新：已同步更新 `plan.md`。
 
 ### 初始版本
 

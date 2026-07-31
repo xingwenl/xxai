@@ -31,6 +31,6 @@
   ],
   "owner": "ai",
   "createdAt": "2026-07-29",
-  "updatedAt": "2026-07-30",
+  "updatedAt": "2026-07-31",
   "relatedPaths": ["apps/backend", "apps/ai-sdk", "docs/design/agent-sdk-phase-2-requirements.md", "docs/harness/requests/2026-07-29-agent-sdk-production-hardening"]
 }

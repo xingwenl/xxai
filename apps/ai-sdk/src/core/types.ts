@@ -123,7 +123,7 @@ export interface AgentClientOptions {
   systemPrompt?: string
   messages?: Message[]
   callbacks?: AgentCallbacks
-  transport?: 'websocket' | 'sse'
+  transport?: 'websocket'
   reconnect?: {
     maxRetries?: number
     delayMs?: number

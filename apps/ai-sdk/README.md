@@ -8,6 +8,12 @@ AI Agent JavaScript SDK，支持聊天和工具调用。
 npm install xxai-agent
 ```
 
+如果使用悬浮聊天 UI，请同时引入样式：
+
+```typescript
+import 'xxai-agent/style.css'
+```
+
 ## 本地开发
 
 ```bash
@@ -66,7 +72,7 @@ const agent = createAgentClient({
 | systemPrompt | string | 否 | 系统提示词 |
 | messages | Message[] | 否 | 初始消息列表 |
 | callbacks | AgentCallbacks | 否 | 回调函数 |
-| transport | 'websocket' \| 'sse' | 否 | 传输方式，默认 'websocket' |
+| transport | 'websocket' | 否 | 传输方式，默认 'websocket' |
 
 **返回：** `AgentClient`
 

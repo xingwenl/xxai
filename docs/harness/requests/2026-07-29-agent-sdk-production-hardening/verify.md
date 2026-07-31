@@ -2,7 +2,7 @@
 
 ## 当前阶段
 
-已完成 research、spec、plan、implement 和 verify。
+已完成 research、spec、plan、implement 和 verify；2026-07-31 完成 npm 发布契约修复增量。
 
 ## 已执行
 
@@ -45,7 +45,12 @@
 - SDK `npm run type-check`：通过。
 - SDK `npm run build`：ESM、UMD、类型声明通过。
 - `npm run verify-package`：通过。
-- `npm_config_cache=/tmp/ai-sdk-npm-cache npm pack --dry-run`：通过，6 个发布文件。
+- `npm_config_cache=/tmp/ai-sdk-npm-cache npm pack --dry-run`：通过，39 个发布文件。
+- 发布契约 RED：`npm run test -- --run scripts/verify-package.test.mjs`，旧实现按预期 3 项失败，暴露 tarball 类型缺失、CommonJS 空导出和缺少 `prepublishOnly`。
+- 发布契约 GREEN：`npm run test -- --run scripts/verify-package.test.mjs`，`3 passed`。
+- SDK 最终回归：`npm run test -- --run`，`16 passed`；`npm run type-check`，通过；`npm run verify-package`，通过。
+- npm 包清单：`npm_config_cache=/tmp/ai-sdk-npm-cache npm pack --dry-run --json`，`39` 个文件，包含 `dist/core`、`dist/ui` 全部声明文件和 `dist/style.css`。
+- 临时消费者安装：从真实 `xxai-agent-0.1.0.tgz` 安装后，CommonJS 导出、ESM 导出和 `import.meta.resolve('xxai-agent/style.css')` 均通过。
 - `git diff --check`：通过。
 
 ## 未覆盖项与例外
@@ -57,3 +62,4 @@
 - 已新增独立 `model_usage_records` 明细表、ORM 模型、Repository 写入方法和运行时落库测试。
 - 已完成真实 DeepSeek usage 到 `model_usage_records` 的端到端验证；验证只记录事件类型、模型名与 token 数字，未记录密钥、token、用户消息或完整模型回复。
 - Playwright 断网、CDN 外部加载和反向代理矩阵未执行。
+- Node.js 不直接执行 CSS 文件；CSS 子路径已通过消费者包解析验证，实际样式加载需由 bundler 或浏览器处理。

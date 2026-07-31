@@ -14,6 +14,7 @@ export default defineConfig({
       exclude: ['src/**/*.test.ts', 'src/test/**'],
     }),
     replace({
+      preventAssignment: true,
       'process.env.NODE_ENV': JSON.stringify(
         process.env.NODE_ENV || 'production',
       ),
@@ -29,7 +30,8 @@ export default defineConfig({
     lib: {
       entry: resolve(__dirname, 'src/index.ts'),
       name: 'XXAIAgent',
-      fileName: (format) => `xxai-agent.${format}.js`,
+      fileName: (format) =>
+        format === 'umd' ? 'xxai-agent.umd.cjs' : 'xxai-agent.es.js',
     },
     rollupOptions: {
       // 不把 Vue external 化，直接打包进 SDK
