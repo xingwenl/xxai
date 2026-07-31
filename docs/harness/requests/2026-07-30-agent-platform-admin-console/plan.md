@@ -82,6 +82,26 @@
 14. 更新 `acceptance.md`，逐项对照 `spec.md` 验收标准。
 15. 更新 `meta.json.phase` 到 `acceptance`，若全部验收通过则 `status` 设为 `done`，否则保留 `active` 并记录剩余风险。
 
+### 增量：模型用量统计
+
+16. 后端先写模型用量明细与汇总的失败测试：
+    - 平台管理员可分页读取当前平台明细。
+    - 非平台管理员不能读取其他平台明细。
+    - 按 Agent、Client、日期聚合结果正确。
+    - 日期范围按自然日左闭右开计算。
+    - 空数据返回零值和空数组。
+17. 新增 `apps/backend/app/modules/model_usage/`：
+    - `schemas.py` 定义筛选、分页、明细和汇总响应。
+    - `repositories.py` 负责平台范围过滤、关联 Agent/Embed Client 名称和 SQL 聚合。
+    - `router.py` 暴露明细与汇总 GET 接口，复用当前用户和平台管理员校验。
+18. 前端先写 API 类型和查询函数，再实现 `/ai/model-usage`：
+    - 平台、Agent、Client、日期范围筛选。
+    - 4 个汇总卡片。
+    - Agent / Client / 日期三个汇总 tab。
+    - 可分页明细表和空/加载状态。
+19. 在侧边栏和路由树增加用量入口；不引入独立图表库。
+20. 运行后端和前端定向验证，更新 `verify.md`、`acceptance.md` 和 `meta.json`。
+
 ## 测试步骤
 
 - 后端：
@@ -94,6 +114,13 @@
 - 文档核对：
   - `find docs/harness/requests/2026-07-30-agent-platform-admin-console -maxdepth 1 -type f | sort`
   - 核对 request 文件齐全，且阶段记录与 `meta.json` 一致。
+- 模型用量后端：
+  - `poetry run pytest tests/model_usage tests/platform -q`
+  - `poetry run ruff check app/modules/model_usage tests/model_usage`
+- 模型用量前端：
+  - `pnpm --dir apps/front lint`
+  - `pnpm --dir apps/front format:check`
+  - `pnpm --dir apps/front build`
 
 ## 回滚说明
 

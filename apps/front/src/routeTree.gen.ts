@@ -45,6 +45,7 @@ import { Route as AuthenticatedSettingsAccountRouteImport } from './routes/_auth
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
 import { Route as AuthenticatedAiSkillsRouteImport } from './routes/_authenticated/ai/skills'
 import { Route as AuthenticatedAiPlatformsRouteImport } from './routes/_authenticated/ai/platforms'
+import { Route as AuthenticatedAiModelUsageRouteImport } from './routes/_authenticated/ai/model-usage'
 import { Route as AuthenticatedAiKnowledgeBasesRouteImport } from './routes/_authenticated/ai/knowledge-bases'
 import { Route as AuthenticatedAiHostToolsRouteImport } from './routes/_authenticated/ai/host-tools'
 import { Route as AuthenticatedAiEmbedClientsRouteImport } from './routes/_authenticated/ai/embed-clients'
@@ -241,6 +242,12 @@ const AuthenticatedAiPlatformsRoute =
     path: '/ai/platforms',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAiModelUsageRoute =
+  AuthenticatedAiModelUsageRouteImport.update({
+    id: '/ai/model-usage',
+    path: '/ai/model-usage',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAiKnowledgeBasesRoute =
   AuthenticatedAiKnowledgeBasesRouteImport.update({
     id: '/ai/knowledge-bases',
@@ -283,6 +290,7 @@ export interface FileRoutesByFullPath {
   '/ai/embed-clients': typeof AuthenticatedAiEmbedClientsRoute
   '/ai/host-tools': typeof AuthenticatedAiHostToolsRoute
   '/ai/knowledge-bases': typeof AuthenticatedAiKnowledgeBasesRoute
+  '/ai/model-usage': typeof AuthenticatedAiModelUsageRoute
   '/ai/platforms': typeof AuthenticatedAiPlatformsRoute
   '/ai/skills': typeof AuthenticatedAiSkillsRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
@@ -321,6 +329,7 @@ export interface FileRoutesByTo {
   '/ai/embed-clients': typeof AuthenticatedAiEmbedClientsRoute
   '/ai/host-tools': typeof AuthenticatedAiHostToolsRoute
   '/ai/knowledge-bases': typeof AuthenticatedAiKnowledgeBasesRoute
+  '/ai/model-usage': typeof AuthenticatedAiModelUsageRoute
   '/ai/platforms': typeof AuthenticatedAiPlatformsRoute
   '/ai/skills': typeof AuthenticatedAiSkillsRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
@@ -364,6 +373,7 @@ export interface FileRoutesById {
   '/_authenticated/ai/embed-clients': typeof AuthenticatedAiEmbedClientsRoute
   '/_authenticated/ai/host-tools': typeof AuthenticatedAiHostToolsRoute
   '/_authenticated/ai/knowledge-bases': typeof AuthenticatedAiKnowledgeBasesRoute
+  '/_authenticated/ai/model-usage': typeof AuthenticatedAiModelUsageRoute
   '/_authenticated/ai/platforms': typeof AuthenticatedAiPlatformsRoute
   '/_authenticated/ai/skills': typeof AuthenticatedAiSkillsRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
@@ -405,6 +415,7 @@ export interface FileRouteTypes {
     | '/ai/embed-clients'
     | '/ai/host-tools'
     | '/ai/knowledge-bases'
+    | '/ai/model-usage'
     | '/ai/platforms'
     | '/ai/skills'
     | '/errors/$error'
@@ -443,6 +454,7 @@ export interface FileRouteTypes {
     | '/ai/embed-clients'
     | '/ai/host-tools'
     | '/ai/knowledge-bases'
+    | '/ai/model-usage'
     | '/ai/platforms'
     | '/ai/skills'
     | '/errors/$error'
@@ -485,6 +497,7 @@ export interface FileRouteTypes {
     | '/_authenticated/ai/embed-clients'
     | '/_authenticated/ai/host-tools'
     | '/_authenticated/ai/knowledge-bases'
+    | '/_authenticated/ai/model-usage'
     | '/_authenticated/ai/platforms'
     | '/_authenticated/ai/skills'
     | '/_authenticated/errors/$error'
@@ -776,6 +789,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAiPlatformsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/ai/model-usage': {
+      id: '/_authenticated/ai/model-usage'
+      path: '/ai/model-usage'
+      fullPath: '/ai/model-usage'
+      preLoaderRoute: typeof AuthenticatedAiModelUsageRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/ai/knowledge-bases': {
       id: '/_authenticated/ai/knowledge-bases'
       path: '/ai/knowledge-bases'
@@ -837,6 +857,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAiEmbedClientsRoute: typeof AuthenticatedAiEmbedClientsRoute
   AuthenticatedAiHostToolsRoute: typeof AuthenticatedAiHostToolsRoute
   AuthenticatedAiKnowledgeBasesRoute: typeof AuthenticatedAiKnowledgeBasesRoute
+  AuthenticatedAiModelUsageRoute: typeof AuthenticatedAiModelUsageRoute
   AuthenticatedAiPlatformsRoute: typeof AuthenticatedAiPlatformsRoute
   AuthenticatedAiSkillsRoute: typeof AuthenticatedAiSkillsRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
@@ -858,6 +879,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAiEmbedClientsRoute: AuthenticatedAiEmbedClientsRoute,
   AuthenticatedAiHostToolsRoute: AuthenticatedAiHostToolsRoute,
   AuthenticatedAiKnowledgeBasesRoute: AuthenticatedAiKnowledgeBasesRoute,
+  AuthenticatedAiModelUsageRoute: AuthenticatedAiModelUsageRoute,
   AuthenticatedAiPlatformsRoute: AuthenticatedAiPlatformsRoute,
   AuthenticatedAiSkillsRoute: AuthenticatedAiSkillsRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,

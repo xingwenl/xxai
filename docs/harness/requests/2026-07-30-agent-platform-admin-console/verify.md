@@ -54,3 +54,30 @@
 
 - 前端全量 lint、format:check、build 仍被既有基线阻塞，本 request 未扩大修复范围。
 - 未执行真实浏览器联调和真实数据库联调。
+
+## 模型用量统计增量验证（2026-07-30）
+
+### 执行命令
+
+- 在 `apps/backend` 下执行：`poetry run pytest tests/model_usage -q`
+- 在 `apps/backend` 下执行：`poetry run pytest -q`
+- 在 `apps/backend` 下执行：`poetry run ruff check app/modules/model_usage app/__init__.py tests/model_usage`
+- 在 `apps/backend` 下执行：`poetry run ruff check .`
+- 在 `apps/backend` 下执行：`poetry check`
+- 在 `apps/backend` 下执行：`poetry run alembic current`
+- 在 `apps/front` 下执行模型用量、路由和侧边栏文件级 ESLint、Prettier 与 TypeScript 检查。
+
+### 实际结果
+
+- 模型用量定向测试通过：`3 passed`。
+- 后端全量测试通过：`162 passed, 1 skipped`，仅有依赖侧弃用警告。
+- 后端模型用量模块和全量 Ruff 均通过；`poetry check` 通过。
+- PostgreSQL 真实连接可用，迁移版本为：`20260730_0012 (head)`。
+- 模型用量页面、API、路由和侧边栏文件级 ESLint 通过；相关文件 Prettier 检查通过。
+- TypeScript 输出中不再包含模型用量、路由树或侧边栏相关错误。
+- 前端全量 `lint`、`format:check`、`build` 仍受既有 `authenticated-layout`、`sign-out-dialog`、`lib/auth` 以及 `agents` / `knowledge` 的 react-hook-form 类型问题阻塞；本次未扩大修复范围。
+
+### 当前未覆盖
+
+- 尚未使用真实登录态通过浏览器打开 `/ai/model-usage` 完成页面点击验收。
+- 尚未使用真实登录态调用两个模型用量 API，核对页面汇总与数据库抽样记录。

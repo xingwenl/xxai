@@ -5,7 +5,7 @@
   "phase": "acceptance",
   "status": "active",
   "riskLevel": "high",
-  "changeTypes": ["frontend", "backend", "api", "docs"],
+  "changeTypes": ["frontend", "backend", "api", "analytics", "docs"],
   "research": {
     "required": true,
     "status": "completed",
@@ -34,6 +34,12 @@
       "at": "2026-07-30",
       "scope": "允许新增绑定读取 API，并将宿主工具重复创建改为稳定冲突错误",
       "note": "用户确认可以进入实现。"
+    },
+    {
+      "by": "user",
+      "at": "2026-07-30",
+      "scope": "新增模型用量单页：明细 + 汇总卡片 + 按 Agent / Client / 日期统计",
+      "note": "用户确认采用方案 A，并要求顺手加入按 Agent、Client、日期的汇总统计。"
     }
   ],
   "owner": "ai",
@@ -45,8 +51,12 @@
     "apps/front/src/api",
     "apps/front/src/features",
     "apps/front/src/routes/_authenticated/ai",
+    "apps/backend/app/modules/model_usage",
+    "apps/front/src/features/model-usage",
+    "apps/front/src/routes/_authenticated/ai/model-usage.tsx",
+    "docs/superpowers/specs/2026-07-30-model-usage-admin-dashboard-design.md",
     "docs/design/agent-sdk-phase-2-requirements.md",
     "docs/harness/requests/2026-07-30-agent-platform-admin-console"
   ],
-  "notes": "已补平台管理 CRUD、停用和硬删除；后端与前端本次文件最小验证通过，前端全量构建仍受既有 react-hook-form 类型基线阻塞。"
+  "notes": "已补平台管理 CRUD、停用和硬删除，以及模型用量单页明细/汇总统计；后端全量与模型用量定向验证通过，前端本次文件最小验证通过，等待登录态浏览器和真实数据抽查；前端全量构建仍受既有 react-hook-form 类型基线阻塞。"
 }
