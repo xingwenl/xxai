@@ -2,6 +2,9 @@
 
 AI Agent JavaScript SDK，支持聊天和工具调用。
 
+完整接入流程见 [AI Agent SDK 接入手册](../../docs/runbooks/agent-sdk-usage.md)。
+SDK 与后端的模块边界、对话流程和后续修改规则见 [AI Agent SDK 流程与变更指南](../../docs/design/agent-sdk-flow.md)。
+
 ## 安装
 
 ```bash
