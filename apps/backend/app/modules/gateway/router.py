@@ -570,13 +570,36 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                             not isinstance(item, dict)
                             or item.get("name") not in by_name
                         ):
+                            if isinstance(item, dict):
+                                logger.warning(
+                                    "Host tool registration skipped: name=%s policy_found=%s",
+                                    item.get("name"),
+                                    item.get("name") in by_name,
+                                )
                             continue
                         try:
                             validate_registration(by_name[item["name"]], item)
-                        except ValueError:
+                        except ValueError as exc:
+                            policy = by_name[item["name"]]
+                            logger.warning(
+                                "Host tool registration rejected: name=%s reason=%s policy_schema=%s registration_schema=%s",
+                                item["name"],
+                                str(exc),
+                                policy.schema_fingerprint,
+                                canonical_fingerprint(
+                                    item.get("inputSchema")
+                                    or item.get("input_schema")
+                                    or {}
+                                ),
+                            )
                             continue
                         registered_host_tools.add(item["name"])
                         registered_host_policies[item["name"]] = by_name[item["name"]]
+                        logger.info(
+                            "Host tool registration accepted: name=%s schema=%s",
+                            item["name"],
+                            by_name[item["name"]].schema_fingerprint,
+                        )
                     logger.info(
                         "Host tools active for connection: %s",
                         sorted(registered_host_tools),

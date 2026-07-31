@@ -101,7 +101,10 @@ async def stream_embed_chat(
     async for item in stream_graph(
         model,
         system_prompt=build_system_prompt(
-            context.version, context.skill_instructions, citations
+            context.version,
+            context.skill_instructions,
+            citations,
+            host_tools=host_tools,
         ),
         user_message=message,
         citations=citations,

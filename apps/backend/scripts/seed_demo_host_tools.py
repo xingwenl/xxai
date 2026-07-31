@@ -46,6 +46,23 @@ DEMO_TOOLS = (
             "required": ["orderId"],
         },
     },
+    {
+        "name": "navigate_to_page",
+        "description": "打开后台已有页面",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "page_name": {
+                    "type": "string",
+                    "description": "页面名称，例如“智能体管理”或“模型用量”",
+                }
+            },
+            "required": ["page_name"],
+            "additionalProperties": False,
+        },
+        "side_effect": "navigation",
+        "confirmation_policy": "always",
+    },
 )
 
 
@@ -73,10 +90,12 @@ async def seed() -> None:
             if policy is None:
                 policy = HostToolPolicy(
                     platform_id=client.platform_id,
-                    side_effect="none",
-                    confirmation_policy="auto",
+                    side_effect=definition.get("side_effect", "none"),
+                    confirmation_policy=definition.get("confirmation_policy", "auto"),
                     is_enabled=True,
-                    **definition,
+                    name=definition["name"],
+                    description=definition["description"],
+                    input_schema=definition["input_schema"],
                     schema_fingerprint=canonical_fingerprint(
                         definition["input_schema"]
                     ),
@@ -89,8 +108,10 @@ async def seed() -> None:
                 policy.schema_fingerprint = canonical_fingerprint(
                     definition["input_schema"]
                 )
-                policy.side_effect = "none"
-                policy.confirmation_policy = "auto"
+                policy.side_effect = definition.get("side_effect", "none")
+                policy.confirmation_policy = definition.get(
+                    "confirmation_policy", "auto"
+                )
                 policy.is_enabled = True
 
             agent_binding = await session.scalar(

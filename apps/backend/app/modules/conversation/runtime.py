@@ -6,8 +6,11 @@ from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
+from app.core.logging import get_logger
 from app.modules.agent.services import build_chat_model
 from app.modules.conversation.schemas import RuntimeContext
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -80,6 +83,10 @@ async def stream_graph(
     tools: list[Any] | None = None,
     invoke_tool_fn=None,
 ):
+    logger.info(
+        "stream_graph tools=%s",
+        [getattr(tool, "name", type(tool).__name__) for tool in (tools or [])],
+    )
     if tools:
         result = await run_graph(
             model,
@@ -262,7 +269,12 @@ async def load_runtime_context(
     )
 
 
-def build_system_prompt(version, skill_instructions: list[str], citations: list[dict]):
+def build_system_prompt(
+    version,
+    skill_instructions: list[str],
+    citations: list[dict],
+    host_tools: list[Any] | None = None,
+):
     sections = [version.system_prompt]
     if skill_instructions:
         sections.append("\n\n".join(skill_instructions))
@@ -273,6 +285,18 @@ def build_system_prompt(version, skill_instructions: list[str], citations: list[
         sections.append(
             "Use the following knowledge base excerpts when relevant. "
             "Do not invent citations:\n" + knowledge
+        )
+    if host_tools:
+        tools = "\n".join(
+            f"- {tool.name}: {tool.description or '无描述'}"
+            for tool in host_tools
+        )
+        sections.append(
+            "当前页面已注册且授权的宿主工具如下：\n"
+            f"{tools}\n"
+            "用户询问可用工具时，只能根据以上实际列表回答。"
+            "用户要求打开后台页面时，必须调用 navigate_to_page，"
+            "不能只描述应该怎么做，也不能编造未列出的工具。"
         )
     return "\n\n".join(section for section in sections if section)
 

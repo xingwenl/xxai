@@ -8,6 +8,7 @@ from app.modules.mcp.schemas import ToolInvocationOutcome
 from app.modules.conversation.runtime import (
     extract_token_usage,
     format_sse_event,
+    build_system_prompt,
     load_runtime_context,
     run_graph,
     stream_graph,
@@ -48,6 +49,25 @@ class FakeSkillRepository:
 class FakeMcpRepository:
     async def list_enabled_tools_for_agent(self, agent_id, platform_id):
         return [SimpleNamespace(server_id=9, name="lookup", side_effect="none")]
+
+
+def test_system_prompt_explains_available_host_tools():
+    prompt = build_system_prompt(
+        SimpleNamespace(system_prompt="base prompt"),
+        [],
+        [],
+        host_tools=[
+            SimpleNamespace(
+                name="navigate_to_page",
+                description="打开后台已有页面",
+                input_schema={"type": "object"},
+            )
+        ],
+    )
+
+    assert "navigate_to_page" in prompt
+    assert "打开后台已有页面" in prompt
+    assert "用户询问可用工具时" in prompt
 
 
 def test_runtime_context_only_loads_published_bound_capabilities():

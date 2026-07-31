@@ -20,5 +20,5 @@
     "apps/ai-sdk",
     "docs/harness/requests/2026-07-31-front-agent-navigation"
   ],
-  "notes": "实现已完成；定向验证通过。全量 front build 仍受既有 agents/knowledge 表单类型错误影响，真实 WebSocket 联调需要部署配置和宿主工具绑定。"
+  "notes": "已修复导航工具未配置和模型工具提示缺失问题；当前数据库已完成 navigate_to_page seed。全量 front build 仍受既有 agents/knowledge 表单类型错误影响，真实浏览器联调仍需验证。"
 }
