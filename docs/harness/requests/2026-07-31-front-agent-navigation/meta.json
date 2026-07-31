@@ -1,0 +1,24 @@
+{
+  "id": "2026-07-31-front-agent-navigation",
+  "title": "前端 Agent 内部页面导航",
+  "scope": "apps/front 与 apps/backend 的 Embed token 接入",
+  "phase": "plan",
+  "status": "active",
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": ["新增受保护 token 代理 API", "新增登录态到 Embed token 的鉴权行为"],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-07-31",
+      "scope": "仅允许通过 Agent 打开后台已有内部页面，不允许外部 URL"
+    }
+  ],
+  "relatedPaths": [
+    "apps/front",
+    "apps/backend/app/modules/embed",
+    "apps/ai-sdk",
+    "docs/harness/requests/2026-07-31-front-agent-navigation"
+  ],
+  "notes": "基于已发布 xxai-agent@0.1.0 与现有宿主工具三重白名单能力接入。"
+}

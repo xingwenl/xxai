@@ -1,0 +1,52 @@
+# 前端 Agent 页面导航设计说明
+
+## 目标
+
+在 `apps/front` 接入已发布的 `xxai-agent@0.1.0`，用户登录后台后可以通过浮动助手说“打开智能体管理”“打开模型用量”等指令，导航到后台已有页面。
+
+## 范围
+
+- 新增受当前登录用户保护的短期 Agent token 代理接口。
+- 在认证布局全局挂载 SDK floating UI。
+- 注册单一宿主工具 `navigate_to_page`，只允许跳转内部路由白名单。
+- 使用 TanStack Router 执行导航，不允许外部 URL、任意路径或脚本执行。
+- 增加路由白名单的纯函数测试或等价静态验证，并完成前后端定向构建/测试。
+
+## 非目标
+
+- 不支持外部 URL。
+- 不新增页面管理、数据库表、模型或新的权限角色。
+- 不改动现有公开 Demo `/api/agent-token` 的行为。
+- 不在浏览器保存或提交 `client_secret`。
+
+## 方案
+
+前端通过现有登录 JWT 请求 `/api/v1/embed/agent-token`。后端依赖 `require_current_active_user`，将当前用户 ID 和名称作为 Embed end user 身份，复用 `issue_embed_token` 完成 Client、Agent、Origin 和 host tool 白名单校验。前端用返回的短期 token 连接 SDK WebSocket。
+
+`navigate_to_page` 的输入为 `{ route: string }`。前端维护中文页面名称到 TanStack Router 内部路径的映射，并只允许映射结果执行。工具执行成功返回目标路径；未知页面返回错误，SDK 将错误回传给 Agent，页面保持不变。
+
+## 授权与审批
+
+- 架构边界：沿用现有 Embed token、Agent gateway 和 React 路由边界，不新增服务。
+- 数据模型：无变化。
+- API 契约：新增 `/api/v1/embed/agent-token`。
+- 鉴权行为：新增当前后台登录态到 Embed token 代理的保护。
+- 人工确认：已于 2026-07-31 确认方案，授权范围为仅内部后台页面导航，不支持外部 URL。
+
+## 验收标准
+
+- 未登录用户不能调用新的 token 代理接口。
+- 登录用户在配置完整且绑定有效时，能初始化 SDK floating UI 并连接 WebSocket。
+- 说出白名单页面名称时，Agent 能请求 `navigate_to_page`，前端通过 TanStack Router 打开目标页面。
+- 未知页面、外部 URL 和非白名单路径不会触发导航。
+- SDK bridge 卸载后不残留浮动 UI、WebSocket、定时器或事件监听。
+- 后端定向测试和前端 `build`、`lint` 通过；失败项和环境限制记录在 `verify.md`。
+
+## 变更记录
+
+### 2026-07-31 初始版本
+
+- 变更原因：接入已发布 `xxai-agent`，增加后台内部页面自然语言导航。
+- 变更内容：新增受保护 token 代理、全局 SDK bridge、内部路由白名单宿主工具。
+- 影响章节：全部。
+- 是否触发人工确认：是，用户已确认仅允许打开后台已有页面。
