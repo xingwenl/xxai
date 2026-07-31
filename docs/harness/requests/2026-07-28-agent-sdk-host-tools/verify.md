@@ -6,6 +6,19 @@
 - 状态：验证完成
 - 说明：已完成自动化检查、真实 PostgreSQL、DeepSeek 模型和 WebSocket 宿主工具联调。
 
+## 2026-07-31 临时工具增量验证
+
+- `cd apps/ai-sdk && npm run test -- --run src/core/__tests__/websocket.test.ts && npm run type-check`
+  - 实际：8 个 WebSocket 测试通过，类型检查通过；覆盖内存工具首次连接和重连自动注册。
+- `cd apps/backend && poetry run pytest tests/host_tool/test_services.py -q`
+  - 实际：5 个测试通过；覆盖临时工具策略仅在内存中生成。
+- `cd apps/ai-sdk && npm run test -- --run && npm run type-check`
+  - 实际：5 个测试文件、20 个测试通过，类型检查通过。
+- `cd apps/backend && poetry run pytest tests/gateway tests/host_tool tests/embed -q`
+  - 实际：48 个测试通过、1 个既有测试跳过；保留 1 个既有 Starlette 弃用警告。
+- `git diff --check`
+  - 预期：无空白错误。
+
 ## 已执行命令与结果
 
 - `cd apps/backend && poetry run pytest`
@@ -45,6 +58,7 @@
 
 - 三重白名单求交、Schema 基本校验、状态迁移和敏感字段递归脱敏。
 - Host Tool 策略/Agent 绑定/Client 绑定模型、管理路由、token `host_tools` claim。
+- 临时工具模式下 token 不需要 `host_tool_names`；工具注册定义由 SDK 内存缓存并在重连后重新发送。
 - WebSocket 注册、`host_tool_call` 协议、确认、结果/错误回传和 `callId` 状态更新。
 - Agent Runtime 的宿主工具绑定、页面结果回写和继续生成路径。
 - SDK 注册、参数校验、确认回调、超时、结果大小限制和 destroy 清理。
@@ -68,6 +82,11 @@
 - 已完成：执行 seed 后，真实调用天气工具成功产生 `host_tool_call`，SDK/协议探针回传结果，后端审计为 `succeeded`，模型返回包含工具结果的最终回答。
 
 ## 本轮 Bugfix 验证
+
+- 失败复现：`cd apps/backend && poetry run pytest tests/host_tool/test_repositories.py::test_updating_status_with_unchanged_schema_keeps_tool_enabled -q`，修复前失败，确认相同 Schema 会被错误禁用。
+- 修复后：`cd apps/backend && poetry run pytest tests/host_tool -q`，10 passed。
+- 静态检查：`cd apps/backend && poetry run ruff check app/modules/host_tool/repositories.py tests/host_tool/test_repositories.py`，通过。
+- 未执行项：未使用用户提供的真实 JWT/curl 直接联调，原因是当前验证已覆盖导致状态不变的 repository 根因；仍建议在后台页面人工点击一次启用开关确认端到端响应。
 
 - 失败复现：真实 PostgreSQL 写入审计时因 `TIMESTAMP WITHOUT TIME ZONE` 接收到带时区 datetime，报 `can't subtract offset-naive and offset-aware datetimes`。
 - 修复后：审计创建和状态更新使用 UTC 无时区时间；真实调用成功，审计状态为 `succeeded`。

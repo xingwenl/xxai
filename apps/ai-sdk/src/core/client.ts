@@ -296,8 +296,13 @@ export class AgentClient {
   registerTool(tool: ToolDefinition): void {
     this.toolRegistry.registerTool(tool)
     if (this.transport instanceof WebSocketTransport) {
-      const { execute: _execute, outputSchema: _outputSchema, timeoutMs: _timeoutMs, sideEffect: _sideEffect, ...definition } = tool
-      this.transport.registerHostTools({ type: 'host_tools_register', payload: { tools: [definition] } })
+      const { execute: _execute, outputSchema: _outputSchema, timeoutMs: _timeoutMs, ...definition } = tool
+      this.transport.registerHostTools({
+        type: 'host_tools_register',
+        payload: {
+          tools: [definition]
+        }
+      })
     }
   }
 
@@ -307,7 +312,9 @@ export class AgentClient {
       this.transport.registerHostTools({
         type: 'host_tools_register',
         payload: {
-          tools: tools.map(({ execute: _execute, outputSchema: _outputSchema, timeoutMs: _timeoutMs, sideEffect: _sideEffect, ...tool }) => tool)
+          tools: tools.map(({ execute: _execute, outputSchema: _outputSchema, timeoutMs: _timeoutMs, sideEffect, ...baseDefinition }) => (
+            { ...baseDefinition, ...(sideEffect ? { sideEffect } : {}) }
+          )),
         }
       })
     }

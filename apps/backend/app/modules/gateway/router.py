@@ -50,6 +50,7 @@ from app.modules.skill.repositories import SkillRepository
 from app.modules.host_tool.repositories import HostToolRepository
 from app.modules.host_tool.services import (
     allowed_host_tool_names,
+    build_temporary_host_tool_policy,
     canonical_fingerprint,
     redact_sensitive,
     utc_naive_now,
@@ -541,6 +542,23 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                         )
                         continue
                     token_names = set(payload.get("host_tools", []))
+                    if payload.get("temporary_tools") is True:
+                        for item in registrations:
+                            try:
+                                policy = build_temporary_host_tool_policy(item)
+                            except ValueError as exc:
+                                logger.warning(
+                                    "Temporary host tool registration rejected: reason=%s",
+                                    str(exc),
+                                )
+                                continue
+                            registered_host_tools.add(policy.name)
+                            registered_host_policies[policy.name] = policy
+                        logger.warning(
+                            "Temporary host tools enabled for connection: %s",
+                            sorted(registered_host_tools),
+                        )
+                        continue
                     agent_names = await host_tool_repo.list_agent_tool_names(
                         int(payload["platform_id"]), agent_id
                     )

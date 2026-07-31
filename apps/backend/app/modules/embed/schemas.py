@@ -22,6 +22,7 @@ class PlatformEmbedClientCreate(BaseModel):
     token_ttl_seconds: int = Field(default=600, ge=300, le=900)
     max_tokens_per_minute: int | None = Field(default=None, ge=1)
     max_connections: int | None = Field(default=None, ge=1)
+    allow_temporary_tools: bool = False
 
     _normalize_origins = field_validator("allowed_origins")(normalize_origins)
 
@@ -33,6 +34,7 @@ class PlatformEmbedClientUpdate(BaseModel):
     is_active: bool | None = None
     max_tokens_per_minute: int | None = Field(default=None, ge=1)
     max_connections: int | None = Field(default=None, ge=1)
+    allow_temporary_tools: bool | None = None
 
     _normalize_origins = field_validator("allowed_origins")(normalize_origins)
 
@@ -49,6 +51,7 @@ class PlatformEmbedClientRead(BaseModel):
     is_active: bool
     max_tokens_per_minute: int | None = None
     max_connections: int | None = None
+    allow_temporary_tools: bool
 
 
 class PlatformEmbedClientCreated(BaseModel):

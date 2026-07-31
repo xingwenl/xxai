@@ -10,6 +10,7 @@ export type EmbedClient = {
   is_active: boolean
   max_tokens_per_minute?: number | null
   max_connections?: number | null
+  allow_temporary_tools: boolean
 }
 
 export type EmbedClientInput = {
@@ -18,6 +19,7 @@ export type EmbedClientInput = {
   token_ttl_seconds: number
   max_tokens_per_minute?: number | null
   max_connections?: number | null
+  allow_temporary_tools?: boolean
 }
 
 export type EmbedClientUpdateInput = Partial<EmbedClientInput> & {

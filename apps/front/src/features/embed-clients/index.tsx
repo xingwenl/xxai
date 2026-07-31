@@ -64,6 +64,7 @@ type ClientForm = {
   token_ttl_seconds: number
   max_tokens_per_minute: string
   max_connections: string
+  allow_temporary_tools: boolean
   is_active: boolean
 }
 
@@ -73,6 +74,7 @@ const defaultForm: ClientForm = {
   token_ttl_seconds: 600,
   max_tokens_per_minute: '',
   max_connections: '',
+  allow_temporary_tools: false,
   is_active: true,
 }
 
@@ -138,6 +140,7 @@ export function EmbedClientsPage() {
         token_ttl_seconds: client.token_ttl_seconds,
         max_tokens_per_minute: client.max_tokens_per_minute,
         max_connections: client.max_connections,
+        allow_temporary_tools: client.allow_temporary_tools,
         is_active,
       }),
     onSuccess: async () => {
@@ -264,6 +267,9 @@ export function EmbedClientsPage() {
                           token {client.max_tokens_per_minute ?? '默认'}/min ·
                           连接 {client.max_connections ?? '默认'}
                         </div>
+                        <div className='text-xs text-muted-foreground'>
+                          临时工具 {client.allow_temporary_tools ? '允许' : '关闭'}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className='flex items-center gap-2'>
@@ -374,6 +380,7 @@ function ClientDialog({
           token_ttl_seconds: client.token_ttl_seconds,
           max_tokens_per_minute: client.max_tokens_per_minute?.toString() ?? '',
           max_connections: client.max_connections?.toString() ?? '',
+          allow_temporary_tools: client.allow_temporary_tools,
           is_active: client.is_active,
         }
       : defaultForm
@@ -450,6 +457,20 @@ function ClientDialog({
                 }
               />
             </Field>
+          </div>
+          <div className='flex items-center justify-between rounded-md border p-3'>
+            <div>
+              <Label>允许临时页面工具</Label>
+              <p className='text-xs text-muted-foreground'>
+                允许 SDK 注册仅存在于当前连接内存的工具，不需要维护工具白名单。
+              </p>
+            </div>
+            <Switch
+              checked={form.allow_temporary_tools}
+              onCheckedChange={(allow_temporary_tools) =>
+                update({ allow_temporary_tools })
+              }
+            />
           </div>
           {client && (
             <div className='flex items-center justify-between rounded-md border p-3'>
@@ -709,6 +730,7 @@ function toClientInput(form: ClientForm): EmbedClientInput {
     token_ttl_seconds: Number(form.token_ttl_seconds),
     max_tokens_per_minute: optionalNumber(form.max_tokens_per_minute),
     max_connections: optionalNumber(form.max_connections),
+    allow_temporary_tools: form.allow_temporary_tools,
   }
 }
 

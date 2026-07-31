@@ -47,6 +47,13 @@ class PlatformEmbedClient(BaseModel, TimeModel):
     )
     max_tokens_per_minute: Mapped[int | None] = mapped_column(Integer, nullable=True)
     max_connections: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    allow_temporary_tools: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        comment="是否允许当前 Embed Client 注册仅存在于连接内存的临时工具",
+    )
 
     platform: Mapped["Platform"] = relationship(
         "Platform", back_populates="embed_clients"

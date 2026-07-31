@@ -31,6 +31,7 @@
 - ✅ `git diff --check` 通过。
 - ✅ 测试证明 SDK 每次认证向 provider 传递连接上下文、空 token 不发送 auth、重连重新获取 token。
 - ✅ 文档明确 `getToken` 返回短期 Embed Access Token，`external_user_id` 来自接入方服务端业务身份。
+- ✅ 新增 `docs/runbooks/agent-sdk-usage.md`，覆盖生产接入、本地 Demo、消息事件和宿主工具使用方法。
 
 - ✅ 项目目录结构已创建完成
 - ✅ 所有源代码文件已实现

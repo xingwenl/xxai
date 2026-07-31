@@ -40,6 +40,7 @@ def create_embed_token(
     origin: str,
     expires_in: int,
     host_tools: list[str] | None = None,
+    temporary_tools: bool = False,
 ) -> tuple[str, str]:
     settings = get_settings()
     jti = str(uuid4())
@@ -53,6 +54,7 @@ def create_embed_token(
         "client_id": client_id,
         "origin": origin,
         "host_tools": sorted(set(host_tools or [])),
+        "temporary_tools": temporary_tools,
         "protocol_version": 1,
         "jti": jti,
         "iat": now,

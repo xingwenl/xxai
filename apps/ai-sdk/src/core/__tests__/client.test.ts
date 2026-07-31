@@ -55,4 +55,31 @@ describe('AgentClient protocol events', () => {
     client.cancelMessage()
     expect(sent).toEqual([{ type: 'message_cancel', requestId: 'req-1', payload: {} }])
   })
+
+  it('registers tools without requiring a client-side temporary mode', () => {
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws',
+      platformId: 'p',
+      agentId: 'a',
+      getToken: async () => 'token',
+    })
+    const transport = (client as any).transport
+    const registrations: any[] = []
+    transport.registerHostTools = (message: any) => registrations.push(message)
+
+    client.registerTools([
+      {
+        name: 'read_page',
+        description: 'Read page',
+        inputSchema: { type: 'object' },
+        execute: async () => ({ ok: true })
+      }
+    ])
+
+    expect(registrations[0]).toMatchObject({
+      type: 'host_tools_register',
+      payload: { tools: [{ name: 'read_page' }] }
+    })
+    expect(registrations[0].payload.temporary).toBeUndefined()
+  })
 })
