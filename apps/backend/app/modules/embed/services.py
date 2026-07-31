@@ -96,6 +96,7 @@ async def issue_embed_token(
         origin=request.origin.rstrip("/"),
         expires_in=client.token_ttl_seconds,
         host_tools=sorted(set(request.host_tool_names) & client_tool_names),
+        temporary_tools=client.allow_temporary_tools,
     )
     return EmbedTokenResponse(
         access_token=token, expires_in=client.token_ttl_seconds, jti=jti
@@ -127,7 +128,9 @@ async def issue_configured_agent_token(
     if client is None:
         raise NotFoundException("configured embed client not found")
 
-    redis = Redis.from_url(settings.celery_broker_url) if settings.quota_enabled else None
+    redis = (
+        Redis.from_url(settings.celery_broker_url) if settings.quota_enabled else None
+    )
     try:
         return await issue_embed_token(
             embed_repo,

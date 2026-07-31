@@ -183,6 +183,36 @@ agent.registerTool({
 })
 ```
 
+### 临时内存工具
+
+如果 Embed Client 已在后台开启“允许临时页面工具”，工具只服务于当前页面和当前连接时，不需要在 SDK 中增加额外配置：
+
+```typescript
+const agent = createAgentClient({
+  endpoint: 'wss://api.example.com/api/v1/ws/agents/11',
+  platformId: 'platform_1',
+  agentId: '11',
+  getToken: async () => {
+    const response = await fetch('/api/agent-session', { credentials: 'include' })
+    return (await response.json()).token
+  }
+})
+
+agent.registerTools([
+  {
+    name: 'read_current_page',
+    description: '读取当前页面标题',
+    inputSchema: { type: 'object' },
+    sideEffect: 'none',
+    async execute() {
+      return { title: document.title }
+    }
+  }
+])
+```
+
+临时能力由 Embed Client 后台配置控制。开启后，工具定义只保存在当前 SDK 实例内存，首次连接和每次重连都会自动注册；`execute()` 始终在浏览器执行，后端只负责转发调用。SDK 不需要知道或传递这个开关。
+
 ## License
 
 MIT

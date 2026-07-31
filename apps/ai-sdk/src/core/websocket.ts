@@ -38,7 +38,7 @@ export class WebSocketTransport extends EventEmitter implements Transport {
   private _lastSequence = 0
   private _sessionReady = false
   private _conversationId: string | undefined
-  private _registeredTools: OutgoingMessage | null = null
+  private _registeredTools = new Map<string, OutgoingMessage>()
   private _serverCapabilities: string[] = []
 
   constructor(options: {
@@ -156,6 +156,12 @@ export class WebSocketTransport extends EventEmitter implements Transport {
         this._connectReject = null
         const queued = this._queue
         this._queue = []
+        const queuedRegistrations = new Set(
+          queued.filter((message) => message.type === 'host_tools_register')
+        )
+        for (const registration of this._registeredTools.values()) {
+          if (!queuedRegistrations.has(registration)) this.send(registration)
+        }
         queued.forEach((message) => this.send(message))
       } else {
         if (event.sequence <= this._lastSequence) return
@@ -178,7 +184,14 @@ export class WebSocketTransport extends EventEmitter implements Transport {
   }
 
   registerHostTools(tools: OutgoingMessage): void {
-    this._registeredTools = tools
+    const definitions = tools.payload.tools
+    if (Array.isArray(definitions)) {
+      for (const definition of definitions) {
+        if (definition && typeof definition === 'object' && 'name' in definition && typeof definition.name === 'string') {
+          this._registeredTools.set(definition.name, tools)
+        }
+      }
+    }
     this.send(tools)
   }
 
@@ -236,7 +249,6 @@ export class WebSocketTransport extends EventEmitter implements Transport {
     this._explicitDisconnect = true
     if (this._reconnectTimer) { this._clearTimeout(this._reconnectTimer); this._reconnectTimer = null }
     this._queue = []
-    this._registeredTools = null
     this._ws?.close(1000)
     this._ws = null
     this._sessionReady = false

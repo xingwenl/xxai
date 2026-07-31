@@ -2,6 +2,12 @@
 
 ## 当前结论
 
+2026-07-31 临时工具增量已完成：默认三重白名单逻辑保持不变；Embed Client 后台开启临时工具能力后，SDK 工具仅在当前连接内存中注册，重连自动恢复，token 不再需要维护 `host_tool_names`。
+
+增量验证：SDK 20 个测试通过；Gateway、Host Tool、Embed 后端测试 48 个通过、1 个跳过；Ruff、Black、类型检查和 diff 检查通过。
+
+2026-07-31 轻量 Bugfix 已完成：后台提交完整策略对象时，未变化的 `input_schema` 不再覆盖 `is_enabled`，对应回归测试和静态检查通过。
+
 Phase 2B 核心宿主工具自动调用链已达到验收条件，request 可标记 done。真实 PostgreSQL、DeepSeek 模型和 WebSocket 协议联调均已完成。
 
 ## 已达到

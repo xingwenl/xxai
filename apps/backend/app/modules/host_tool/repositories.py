@@ -53,7 +53,11 @@ class HostToolRepository:
         return policy
 
     async def update_policy(self, policy, values: dict):
-        schema_changed = "input_schema" in values
+        # 管理端编辑表单会提交完整策略，只有 Schema 内容确实变化时才需要失效启用状态。
+        schema_changed = (
+            "input_schema" in values
+            and values["input_schema"] != policy.input_schema
+        )
         for key, value in values.items():
             setattr(policy, key, value)
         if schema_changed:

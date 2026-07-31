@@ -7,6 +7,7 @@
 - ✨ feat：接入 Agent 内部页面导航 `🧑‍💻 lixingwen`
 - 🐛 fix：修复宿主工具 Schema 注册 `🧑‍💻 lixingwen`
 - 📝 docs：固化 SDK 对话流程与变更规范 `🧑‍💻 lixingwen`
+- ✨ feat：完善宿主工具与平台接入 `🧑‍💻 lixingwen`
 
 ## - 2026-07-30
 - ✨ feat：完成 Agent SDK Phase 2C 生产增强 `🧑‍💻 lixingwen`

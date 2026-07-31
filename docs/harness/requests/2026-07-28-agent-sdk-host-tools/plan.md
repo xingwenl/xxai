@@ -8,6 +8,14 @@
 
 **Tech Stack:** FastAPI、Pydantic、SQLAlchemy、Alembic、`jsonschema`、原生 WebSocket、TypeScript、Vitest、现有 Redis replay abstraction。
 
+## 2026-07-31 增量实施计划
+
+1. 在 SDK WebSocket 测试中先验证普通 `registerTools()` 首次连接和重连自动发送内存工具。
+2. 在 Embed Client 模型、管理 API 和管理页面增加 `allow_temporary_tools`；SDK 类型和注册路径不增加临时模式配置。
+3. 在 WebSocket transport 中按工具名缓存注册消息，连接恢复后补发所有内存工具；显式断开不清理实例内存注册，便于再次连接恢复。
+4. 在后端增加连接级临时策略构造器；仅当签名 token claim `temporary_tools: true` 时使用，校验工具名称、描述、Object Schema 和副作用等级，不写入数据库。
+5. 执行 SDK focused/full tests、类型检查、后端宿主工具测试、Ruff/Black 和 diff 检查，更新 verify/acceptance。
+
 ---
 
 ## 文件结构
@@ -20,6 +28,12 @@
 - 后端新增 `tests/host_tool/` 与 `tests/gateway/test_host_tools.py`；SDK 扩展现有 protocol、websocket、client 测试。
 
 ## 实施步骤
+
+### 本次轻量 Bugfix
+
+- 修改 `apps/backend/app/modules/host_tool/repositories.py`：比较更新前后的 `input_schema` 结构，仅在内容变化时撤销启用状态。
+- 新增 `apps/backend/tests/host_tool/test_repositories.py`：覆盖完整策略提交但 Schema 未变化时仍能启用工具。
+- 验证 `cd apps/backend && poetry run pytest tests/host_tool -q` 与对应 Ruff 检查。
 
 ### Task 1: 定义宿主工具领域模型和 Schema
 

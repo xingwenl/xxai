@@ -69,6 +69,52 @@ describe('WebSocketTransport', () => {
     await connecting
   })
 
+  it('re-registers in-memory tools after reconnecting', async () => {
+    vi.useFakeTimers()
+    const sockets: FakeWebSocket[] = []
+    const transport = new WebSocketTransport({
+      endpoint: 'wss://agent.test/ws',
+      getToken: vi.fn().mockResolvedValue('token'),
+      platformId: 'p',
+      agentId: 'a',
+      websocketFactory: (url, protocols) => {
+        const socket = new FakeWebSocket(url, protocols)
+        sockets.push(socket)
+        return socket
+      },
+      reconnect: { maxRetries: 1, delayMs: 10 }
+    })
+    transport.registerHostTools({
+      type: 'host_tools_register',
+      payload: {
+        tools: [{ name: 'read_page', description: 'Read page', inputSchema: { type: 'object' } }]
+      }
+    })
+
+    const connecting = transport.connect()
+    sockets[0].open()
+    await Promise.resolve()
+    sockets[0].receive(event(1, 'session_ready'))
+    await connecting
+    expect(sockets[0].sent).toHaveLength(2)
+    expect(JSON.parse(sockets[0].sent[1])).toMatchObject({
+      type: 'host_tools_register',
+      payload: { tools: [{ name: 'read_page' }] }
+    })
+
+    sockets[0].close(1006)
+    await vi.advanceTimersByTimeAsync(10)
+    sockets[1].open()
+    await Promise.resolve()
+    sockets[1].receive(event(2, 'session_ready'))
+    expect(sockets[1].sent).toHaveLength(2)
+    expect(JSON.parse(sockets[1].sent[1])).toMatchObject({
+      type: 'host_tools_register',
+      payload: { tools: [{ name: 'read_page' }] }
+    })
+    vi.useRealTimers()
+  })
+
   it('rejects an empty token without sending an auth frame', async () => {
     const socket = new FakeWebSocket('wss://agent.test/ws')
     const transport = new WebSocketTransport({

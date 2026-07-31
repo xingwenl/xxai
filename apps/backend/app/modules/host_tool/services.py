@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Iterable
 
 from jsonschema import ValidationError, validate
@@ -32,6 +34,41 @@ def allowed_host_tool_names(
     registered_names: Iterable[str],
 ) -> set[str]:
     return set(token_names) & set(agent_names) & set(registered_names)
+
+
+def build_temporary_host_tool_policy(registration: dict):
+    """Build a connection-scoped policy without persisting or consulting allowlists."""
+    name = registration.get("name")
+    description = registration.get("description")
+    input_schema = registration.get("inputSchema") or registration.get("input_schema")
+    side_effect = (
+        registration.get("sideEffect") or registration.get("side_effect") or "none"
+    )
+    if not isinstance(name, str) or not re.fullmatch(
+        r"[A-Za-z][A-Za-z0-9_.-]{0,127}", name
+    ):
+        raise ValueError("temporary host tool name is invalid")
+    if (
+        not isinstance(description, str)
+        or not description.strip()
+        or len(description) > 1000
+    ):
+        raise ValueError("temporary host tool description is invalid")
+    if not isinstance(input_schema, dict) or input_schema.get("type") != "object":
+        raise ValueError("temporary host tool schema must be an object")
+    if len(json.dumps(input_schema, separators=(",", ":"))) > 64 * 1024:
+        raise ValueError("temporary host tool schema is too large")
+    if side_effect not in {"none", "navigation", "write", "financial", "external"}:
+        raise ValueError("temporary host tool side effect is invalid")
+    return SimpleNamespace(
+        name=name,
+        description=description,
+        input_schema=input_schema,
+        output_schema=None,
+        schema_fingerprint=canonical_fingerprint(input_schema),
+        side_effect=side_effect,
+        confirmation_policy="auto",
+    )
 
 
 def transition_status(

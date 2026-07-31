@@ -22,6 +22,7 @@ class FakeClient:
     is_active: bool = True
     max_tokens_per_minute: int | None = None
     max_connections: int | None = None
+    allow_temporary_tools: bool = False
 
 
 @dataclass
@@ -164,10 +165,10 @@ def test_token_exchange_contains_scoped_claims_and_creates_external_user():
                 client_secret=created.client_secret,
                 agent_id=11,
                 external_user_id="user_1",
-                    display_name="Alice",
-                    origin="https://app.acme.test",
-                    host_tool_names=["get_weather", "calculate_total"],
-                ),
+                display_name="Alice",
+                origin="https://app.acme.test",
+                host_tool_names=["get_weather", "calculate_total"],
+            ),
             platform_id=7,
         )
 
@@ -176,6 +177,35 @@ def test_token_exchange_contains_scoped_claims_and_creates_external_user():
         assert repo.created_end_users[0]["external_user_id"] == "user_1"
         claims = decode_embed_token(token.access_token)
         assert claims["host_tools"] == ["calculate_total", "get_weather"]
+
+    asyncio.run(run())
+
+
+def test_token_exchange_includes_client_temporary_tool_capability():
+    async def run() -> None:
+        repo = FakeEmbedRepository()
+        created = await create_embed_client(
+            repo,
+            platform_id=7,
+            payload=PlatformEmbedClientCreate(
+                name="Acme Web", allowed_origins=["https://app.acme.test"]
+            ),
+        )
+        repo.client.allow_temporary_tools = True
+        token = await issue_embed_token(
+            repo,
+            FakeAgentRepository(),
+            EmbedTokenRequest(
+                client_id=created.client.client_id,
+                client_secret=created.client_secret,
+                agent_id=11,
+                external_user_id="user_1",
+                origin="https://app.acme.test",
+            ),
+            platform_id=7,
+        )
+
+        assert decode_embed_token(token.access_token)["temporary_tools"] is True
 
     asyncio.run(run())
 
