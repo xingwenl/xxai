@@ -1,6 +1,6 @@
 import { EventEmitter } from './event-emitter'
 import { parseProtocolEvent, SDK_VERSION } from './protocol'
-import type { ConnectionState, OutgoingMessage, WebSocketMessage } from './types'
+import type { ConnectionState, OutgoingMessage, TokenProviderContext, WebSocketMessage } from './types'
 import type { Transport } from './transport'
 
 interface SocketLike {
@@ -22,9 +22,10 @@ export class WebSocketTransport extends EventEmitter implements Transport {
   private readonly _maxRetries: number
   private readonly _reconnectDelay: number
   private readonly _endpoint: string
-  private readonly _getToken: () => Promise<string>
+  private readonly _getToken: (context: TokenProviderContext) => Promise<string>
   private readonly _platformId: string
   private readonly _agentId: string
+  private readonly _user: TokenProviderContext['user']
   private readonly _websocketFactory: SocketFactory
   private readonly _setTimeout: typeof setTimeout
   private readonly _clearTimeout: typeof clearTimeout
@@ -42,9 +43,10 @@ export class WebSocketTransport extends EventEmitter implements Transport {
 
   constructor(options: {
     endpoint: string
-    getToken: () => Promise<string>
+    getToken: (context: TokenProviderContext) => Promise<string>
     platformId: string
     agentId: string
+    user?: TokenProviderContext['user']
     reconnect?: { maxRetries?: number; delayMs?: number }
     websocketFactory?: SocketFactory
     setTimeout?: typeof setTimeout
@@ -55,6 +57,7 @@ export class WebSocketTransport extends EventEmitter implements Transport {
     this._getToken = options.getToken
     this._platformId = options.platformId
     this._agentId = options.agentId
+    this._user = options.user
     this._maxRetries = options.reconnect?.maxRetries ?? 5
     this._reconnectDelay = options.reconnect?.delayMs ?? 3000
     this._websocketFactory = options.websocketFactory ?? ((url, protocols) => new WebSocket(url, protocols))
@@ -106,7 +109,14 @@ export class WebSocketTransport extends EventEmitter implements Transport {
 
   private async authenticate(): Promise<void> {
     try {
-      const token = await this._getToken()
+      const token = await this._getToken({
+        platformId: this._platformId,
+        agentId: this._agentId,
+        user: this._user
+      })
+      if (typeof token !== 'string' || !token.trim()) {
+        throw new Error('token provider returned an empty token')
+      }
       if (!this._ws || this._ws.readyState !== OPEN) return
       this._ws.send(JSON.stringify({
         id: this.generateId(), type: 'auth', protocolVersion: 1,

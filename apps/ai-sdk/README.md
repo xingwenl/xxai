@@ -42,8 +42,11 @@ const agent = createAgentClient({
   endpoint: 'wss://api.example.com',
   platformId: 'your-platform-id',
   agentId: 'your-agent-id',
-  getToken: async () => {
-    const res = await fetch('/api/agent-token')
+  user: { id: 'user-123', displayName: 'Alice' },
+  getToken: async ({ user }) => {
+    // 该接口是接入方自己的后端接口，不是模型服务商的 API Key 接口。
+    // 接入方后端应从当前登录态取得 external_user_id，不要信任 user.id。
+    const res = await fetch('/api/agent-session', { credentials: 'include' })
     return (await res.json()).token
   },
   ui: {
@@ -53,6 +56,32 @@ const agent = createAgentClient({
   }
 })
 ```
+
+### Token 与终端用户身份
+
+`getToken` 返回的是由 AI Base 后端签发的短期 Embed Access Token，默认有效期为 10 分钟。它不是模型 API Key，也不是 Embed Client 的 `client_secret`。`client_secret` 只能保存在接入方服务端，不能打包进网页或 SDK 配置。
+
+`external_user_id` 是接入方业务系统中的终端用户唯一标识，来源应是接入方服务端已经验证的登录态或匿名会话。SDK 不生成该值，也不会把它放进 WebSocket 地址或 `auth` 消息。生产 token 代理应由服务端根据登录态取得该值，再调用 AI Base 的 `POST /api/v1/embed/tokens`：
+
+```text
+浏览器 -> 接入方 /api/agent-session
+接入方服务端从登录态取得 external_user_id
+接入方服务端 -- client_id + client_secret + external_user_id --> AI Base /api/v1/embed/tokens
+AI Base -> 接入方 -> 浏览器：短期 access_token
+SDK 使用 access_token 建立 WebSocket
+```
+
+SDK 每次连接和重连都会调用 `getToken(context)`。`context` 只提供当前平台、Agent 和页面用户上下文，不代表 SDK 已完成用户认证；接入方后端不应把浏览器传来的 `user.id` 当作可信身份：
+
+```typescript
+type TokenProviderContext = {
+  platformId: string
+  agentId: string
+  user?: { id: string; displayName?: string }
+}
+```
+
+本地 Demo 可以使用 `/api/agent-token?external_user_id=demo-user`，但该接口允许浏览器直接指定用户标识，只适合开发联调，不能直接作为生产身份认证。
 
 ## API
 
@@ -67,7 +96,8 @@ const agent = createAgentClient({
 | endpoint | string | 是 | WebSocket 端点 |
 | platformId | string | 是 | 平台 ID |
 | agentId | string | 是 | Agent ID |
-| getToken | () => Promise<string> | 是 | 获取令牌的函数 |
+| getToken | (context: TokenProviderContext) => Promise<string> | 是 | 获取短期 Embed Access Token 的函数；每次连接/重连调用 |
+| user | `{ id: string; displayName?: string }` | 否 | 传给 token provider 的业务用户上下文，不由 SDK 自动认证 |
 | ui | UIOptions | 否 | UI 配置 |
 | systemPrompt | string | 否 | 系统提示词 |
 | messages | Message[] | 否 | 初始消息列表 |

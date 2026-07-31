@@ -110,11 +110,20 @@ export interface HostToolConfirmation {
   summary?: Record<string, unknown>
 }
 
+export interface TokenProviderContext {
+  platformId: string
+  agentId: string
+  user?: {
+    id: string
+    displayName?: string
+  }
+}
+
 export interface AgentClientOptions {
   endpoint: string
   platformId: string
   agentId: string
-  getToken: () => Promise<string>
+  getToken: (context: TokenProviderContext) => Promise<string>
   user?: {
     id: string
     displayName?: string

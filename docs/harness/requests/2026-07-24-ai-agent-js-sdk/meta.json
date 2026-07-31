@@ -24,10 +24,10 @@
   "approvalRecords": [],
   "owner": "ai",
   "createdAt": "2026-07-24",
-  "updatedAt": "2026-07-24",
+  "updatedAt": "2026-07-31",
   "relatedPaths": [
     "apps/ai-sdk",
     ".worktrees/configurable-agent-platform/docs/design/agent-js-sdk-integration-brief.md"
   ],
-  "notes": "创建 AI Agent JS SDK，支持 headless 模式和 floating 聊天窗口"
+  "notes": "创建 AI Agent JS SDK，支持 headless 模式和 floating 聊天窗口；2026-07-31 增量明确 Embed Token 与 external_user_id 身份边界"
 }

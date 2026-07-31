@@ -1,5 +1,32 @@
 # 实施计划
 
+## 2026-07-31 增量实施计划
+
+### 变更文件
+
+- 修改：`apps/ai-sdk/src/core/types.ts`，定义 `TokenProviderContext` 并更新 `getToken` 类型。
+- 修改：`apps/ai-sdk/src/core/client.ts`，把用户和平台上下文传递给传输层。
+- 修改：`apps/ai-sdk/src/core/websocket.ts`，每次认证调用 token provider，校验空 token，并保持既有 auth 帧结构。
+- 修改：`apps/ai-sdk/src/core/__tests__/websocket.test.ts`，覆盖上下文、空 token 和重连重新取 token。
+- 修改：`apps/ai-sdk/README.md`、`docs/runbooks/agent-sdk-local-integration.md`，解释 Embed Token、`external_user_id` 来源和生产/本地边界。
+- 修改：本 request 的 `research.md`、`spec.md`、`verify.md`、`acceptance.md`、`meta.json`。
+
+### 实施步骤
+
+1. 先在 WebSocket 测试中写出 provider 接收上下文、空 token 拒绝和重连重新取 token 的失败断言，并运行单测确认失败原因是缺少新行为。
+2. 增加 `TokenProviderContext` 类型，让 `AgentClient` 将 `platformId`、`agentId` 和可选 `user` 传递到 `WebSocketTransport`。
+3. 更新 `WebSocketTransport.authenticate`，每次调用 `getToken(context)`；对非空字符串执行现有 auth 发送，对空白 token 抛出稳定错误且不发送 auth 帧。
+4. 更新 README 与联调手册，给出生产 token 代理伪代码，明确服务端从登录态取得 `external_user_id`；保留 Demo 代理但标记为本地用途。
+5. 运行 SDK 单测、类型检查、构建和后端 Embed 回归测试，并把真实命令和结果写入 `verify.md`。
+
+### 回滚方式
+
+撤回本次增量时恢复 SDK 的 `getToken: () => Promise<string>` 类型及对应文档/测试；不涉及数据库迁移和后端运行时代码，因此不需要数据回滚。
+
+### 人工确认
+
+本次涉及 SDK token provider API 和鉴权接入语义，已在进入实现前获得人工确认；不新增数据模型、不修改 JWT claims、不修改 WebSocket 协议字段。
+
 ## 变更文件
 
 - 列出将新增、修改的文档或代码文件

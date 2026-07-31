@@ -81,3 +81,54 @@
 - 资料时效性：agentpage 是 4 个月前发布的，比较新
 - 与本项目上下文的差异：agentpage 是浏览器原生 Agent，我们是连接后端的 SDK
 - 尚未验证的假设：Vue 组件打包成 SDK 的最佳实践需要进一步验证
+
+## 2026-07-31 增量调研：token 与终端用户身份
+
+### 调研问题
+
+- SDK 的 `getToken` 应获取什么凭据，凭据由哪一层签发？
+- `external_user_id` 应由 SDK 生成、浏览器提交，还是由接入方服务端确定？
+- 在不破坏现有 WebSocket 协议的前提下，如何让 SDK 使用方式不再产生身份误解？
+
+### 参考来源
+
+#### 来源 3：OAuth 2.0 Token Exchange
+
+- 类型：IETF 标准 RFC 8693
+- 链接：https://www.rfc-editor.org/rfc/rfc8693
+- 版本或发布日期：RFC 8693，2020-09
+- 调研日期：2026-07-31
+- 核心做法：由受信任的服务端将已有身份或授权上下文交换为面向目标服务、范围更窄、生命周期更短的访问令牌。
+- 对本项目的启发：`client_secret` 只能留在接入方服务端；浏览器通过接入方后端拿到短期 Embed Access Token，不能把长期 Client 凭据放进 SDK。
+
+#### 来源 4：OAuth 2.0 Security Best Current Practice
+
+- 类型：IETF 标准 RFC 9700
+- 链接：https://www.rfc-editor.org/rfc/rfc9700
+- 版本或发布日期：RFC 9700，2025-01
+- 调研日期：2026-07-31
+- 核心做法：限制访问令牌生命周期和作用域，避免在不可信客户端暴露长期凭据，并通过服务端校验授权上下文。
+- 对本项目的启发：Embed Token 继续使用 5 至 15 分钟的短 TTL；终端用户标识必须来自接入方已验证的业务会话，而不是信任浏览器任意传入的字符串。
+
+#### 来源 5：现有项目 Embed Token 设计与联调规范
+
+- 类型：本仓库设计与运行手册
+- 链接：`docs/design/agent-sdk-phase-2-requirements.md`、`docs/runbooks/agent-sdk-local-integration.md`
+- 版本或发布日期：2026-07-26 / 2026-07-31
+- 调研日期：2026-07-31
+- 核心做法：`(platform_id, external_user_id)` 映射为平台终端用户；`POST /api/v1/embed/tokens` 由接入方服务端调用，浏览器只接收 `access_token`；`GET /api/agent-token` 仅用于本地 Demo。
+- 对本项目的启发：不应让 SDK 直接承担终端用户身份认证；SDK 只负责把 token provider 返回的短期令牌用于 WebSocket `auth`。
+
+### 方案比较
+
+| 方案 | 做法 | 收益 | 限制 | 结论 |
+|---|---|---|---|---|
+| A | SDK 自动生成 `external_user_id` 并换 token | 接入代码少 | 无法证明用户身份，跨刷新/设备不稳定，易造成越权 | 不采用 |
+| B | 浏览器把 `external_user_id` 直接传给公共 token 接口 | Demo 简单 | 用户可篡改身份；长期 secret 虽留在服务端，身份仍未绑定登录态 | 仅保留为本地 Demo |
+| C | 接入方后端从登录态取得 `external_user_id`，调用 token exchange；SDK 仅调用 `getToken(context)` | 身份边界清晰，兼容短期 token 和 WebSocket 协议 | 接入方需要提供一个自己的 token 代理接口 | 采用 |
+
+### 最终决策
+
+采用方案 C。SDK 的 `getToken` 接收可选上下文，便于接入方 token 代理知道当前平台、Agent 和业务用户，但 SDK 不把 `external_user_id` 拼进网关连接或自行生成身份。`external_user_id` 的真实来源、校验和持久化由接入方后端负责；Embed 后端继续将其映射为 `PlatformEndUser`，并把内部 ID 放入 token 的 `sub`。
+
+本次不修改 token JWT claims、WebSocket `auth` 事件或数据库模型，仅修正 SDK 接口文档、调用约定和边界测试。

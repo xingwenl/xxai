@@ -1,6 +1,6 @@
 import { AgentClient } from './core'
 import { createChatUI, registerCustomComponent } from './ui'
-import type { AgentClientOptions, AgentCallbacks, Message, ToolDefinition, UIOptions } from './core'
+import type { AgentClientOptions, AgentCallbacks, Message, TokenProviderContext, ToolDefinition, UIOptions } from './core'
 
 export function createAgentClient(options: AgentClientOptions) {
   const agent = new AgentClient(options)
@@ -20,6 +20,7 @@ export type {
   AgentClientOptions,
   AgentCallbacks,
   Message,
+  TokenProviderContext,
   ToolDefinition,
   UIOptions
 }

@@ -65,6 +65,7 @@ export class AgentClient {
       getToken: this.options.getToken,
       platformId: this.options.platformId,
       agentId: this.options.agentId,
+      user: this.options.user,
       reconnect: this.options.reconnect
     })
 

@@ -86,6 +86,42 @@
 
 ## 变更记录
 
+### 2026-07-31 第 1 次变更
+
+- 变更原因：明确 SDK token 获取逻辑和 `external_user_id` 身份来源，避免生产接入将长期 secret 或未校验用户 ID 放入浏览器。
+- 变更内容：`getToken` 接收 token provider context；补充短期 Embed Token、终端用户身份和 Demo/生产边界文档；增加 token provider 与重连行为测试。
+- 影响章节：范围、风险、停点判断、验收标准。
+- 是否触发人工确认：是，涉及鉴权和 API 契约；已于 2026-07-31 获得确认。
+- 关联计划更新：同步更新本 request 的 `plan.md`。
+
+## 增量设计：生产接入身份边界
+
+### 目标
+
+- 让 SDK 使用者明确 `getToken` 获取的是短期 Embed Access Token，而不是模型密钥或 `client_secret`。
+- 让 `external_user_id` 的来源落在接入方服务端的登录态或匿名会话，而不是由 SDK 生成或由网关信任浏览器任意提交。
+- 保持既有 WebSocket `auth` 消息、JWT claims 和数据库模型兼容。
+
+### 方案
+
+`AgentClientOptions.getToken` 改为接收 `TokenProviderContext`。SDK 在每次建立连接或重连认证时传入 `platformId`、`agentId` 和可选 `user`；token provider 决定如何调用接入方自己的后端接口。SDK 只把 provider 返回的短期 token 放到既有 `auth.payload.token`，不自行生成或补写 `external_user_id`。
+
+生产推荐链路为：用户访问接入方页面 -> 页面调用接入方后端 token 代理 -> 代理从登录态取得 `external_user_id` 并用服务端 `client_secret` 请求 `POST /api/v1/embed/tokens` -> 页面得到短期 `access_token` -> SDK 通过 WebSocket `auth` 使用该 token。现有 `/api/agent-token?external_user_id=...` 仅作为本地 Demo 代理，文档明确其不可直接作为生产身份认证。
+
+### 风险与停点
+
+- 本次涉及 SDK token provider API 和鉴权接入约定，但不改变后端 token claims 或 WebSocket 协议；人工确认已完成。
+- 接入方若仍让浏览器自行指定 Demo 接口的 `external_user_id`，仍可能冒用同平台其他终端用户；文档和测试只能明确边界，不能替接入方补齐其业务登录认证。
+- token provider 返回空字符串时 SDK 必须拒绝认证并触发错误，避免发送无效 auth 帧。
+
+### 增量验收标准
+
+- `getToken` 类型和 README 示例明确说明返回短期 Embed Access Token。
+- SDK 每次认证都向 provider 传递稳定上下文；重连会重新获取 token，不缓存过期 token。
+- SDK 不生成、不拼接、不通过 WebSocket 发送 `external_user_id`。
+- 空 token 被 SDK 拒绝，既有 token 发送和重连测试继续通过。
+- 本地 Demo 和生产接入示例分别标注适用范围。
+
 ### 初始版本
 
 - 时间：2026-07-24

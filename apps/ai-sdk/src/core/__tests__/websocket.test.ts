@@ -44,6 +44,48 @@ describe('WebSocketTransport', () => {
     expect(transport.state).toBe('connected')
   })
 
+  it('passes the token provider connection context', async () => {
+    const socket = new FakeWebSocket('wss://agent.test/ws')
+    const getToken = vi.fn().mockResolvedValue('context-token')
+    const transport = new WebSocketTransport({
+      endpoint: socket.url,
+      getToken,
+      platformId: 'platform-1',
+      agentId: 'agent-7',
+      user: { id: 'user-9', displayName: 'Alice' },
+      websocketFactory: () => socket
+    })
+
+    const connecting = transport.connect()
+    socket.open()
+    await Promise.resolve()
+
+    expect(getToken).toHaveBeenCalledWith({
+      platformId: 'platform-1',
+      agentId: 'agent-7',
+      user: { id: 'user-9', displayName: 'Alice' }
+    })
+    socket.receive(event(1, 'session_ready'))
+    await connecting
+  })
+
+  it('rejects an empty token without sending an auth frame', async () => {
+    const socket = new FakeWebSocket('wss://agent.test/ws')
+    const transport = new WebSocketTransport({
+      endpoint: socket.url,
+      getToken: vi.fn().mockResolvedValue('  '),
+      platformId: 'p',
+      agentId: 'a',
+      websocketFactory: () => socket
+    })
+
+    const connecting = transport.connect()
+    socket.open()
+
+    await expect(connecting).rejects.toThrow('token provider returned an empty token')
+    expect(socket.sent).toEqual([])
+  })
+
   it('queues messages until session_ready and does not reconnect after explicit disconnect', async () => {
     const socket = new FakeWebSocket('wss://agent.test/ws')
     const transport = new WebSocketTransport({
@@ -70,9 +112,10 @@ describe('WebSocketTransport', () => {
   it('reconnects with exponential backoff after an unexpected close', async () => {
     vi.useFakeTimers()
     const sockets: FakeWebSocket[] = []
+    const getToken = vi.fn().mockResolvedValue('token')
     const transport = new WebSocketTransport({
       endpoint: 'wss://agent.test/ws',
-      getToken: vi.fn().mockResolvedValue('token'),
+      getToken,
       platformId: 'p',
       agentId: 'a',
       websocketFactory: (url, protocols) => {
@@ -91,6 +134,9 @@ describe('WebSocketTransport', () => {
     expect(transport.state).toBe('reconnecting')
     await vi.advanceTimersByTimeAsync(100)
     expect(sockets).toHaveLength(2)
+    sockets[1].open()
+    await Promise.resolve()
+    expect(getToken).toHaveBeenCalledTimes(2)
     vi.useRealTimers()
   })
 

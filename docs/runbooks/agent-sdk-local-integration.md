@@ -43,6 +43,8 @@ GET /api/agent-token?external_user_id=demo-user
 
 该接口从后端环境变量读取 secret，适合本地 Demo。生产环境必须把 `external_user_id` 绑定到业务登录态，不能允许客户端任意指定用户 ID。
 
+SDK 的 `getToken` 获取的是短期 Embed Access Token。生产接入时，页面应调用接入方自己的 token 代理接口，由代理从登录态取得 `external_user_id`，再使用仅保存在服务端的 `client_secret` 调用 `POST /api/v1/embed/tokens`。SDK 不生成 `external_user_id`，也不把它发送给 WebSocket 网关；重连时 SDK 会重新调用 token provider 获取新 token。
+
 ## SDK Demo
 
 ```bash
