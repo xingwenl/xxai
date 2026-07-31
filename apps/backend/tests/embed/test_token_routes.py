@@ -23,3 +23,24 @@ def test_demo_agent_token_route_is_registered_outside_embed_exchange():
 
     paths = set(create_app().openapi()["paths"])
     assert "/api/agent-token" in paths
+
+
+def test_authenticated_agent_token_route_is_registered_under_api_v1():
+    from app import create_app
+
+    paths = set(create_app().openapi()["paths"])
+    assert "/api/v1/embed/agent-token" in paths
+
+
+def test_authenticated_agent_token_requires_current_active_user():
+    from app.modules.embed.router import router
+
+    route = next(
+        item for item in router.routes if item.path == "/embed/agent-token"
+    )
+    dependency_names = {
+        dependency.call.__name__
+        for dependency in route.dependant.dependencies
+        if dependency.call is not None
+    }
+    assert "require_current_active_user" in dependency_names

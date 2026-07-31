@@ -4,6 +4,7 @@
 - ✨ feat：新增模型用量统计后台 `🧑‍💻 lixingwen`
 - 🐛 fix：完善 npm 发布包契约 `🧑‍💻 lixingwen`
 - ✨ feat：优化短期令牌与用户身份接入 `🧑‍💻 lixingwen`
+- ✨ feat：接入 Agent 内部页面导航 `🧑‍💻 lixingwen`
 
 ## - 2026-07-30
 - ✨ feat：完成 Agent SDK Phase 2C 生产增强 `🧑‍💻 lixingwen`

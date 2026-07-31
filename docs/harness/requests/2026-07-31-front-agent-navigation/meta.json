@@ -2,7 +2,7 @@
   "id": "2026-07-31-front-agent-navigation",
   "title": "前端 Agent 内部页面导航",
   "scope": "apps/front 与 apps/backend 的 Embed token 接入",
-  "phase": "plan",
+  "phase": "acceptance",
   "status": "active",
   "approvalRequired": true,
   "approvalGranted": true,
@@ -20,5 +20,5 @@
     "apps/ai-sdk",
     "docs/harness/requests/2026-07-31-front-agent-navigation"
   ],
-  "notes": "基于已发布 xxai-agent@0.1.0 与现有宿主工具三重白名单能力接入。"
+  "notes": "实现已完成；定向验证通过。全量 front build 仍受既有 agents/knowledge 表单类型错误影响，真实 WebSocket 联调需要部署配置和宿主工具绑定。"
 }

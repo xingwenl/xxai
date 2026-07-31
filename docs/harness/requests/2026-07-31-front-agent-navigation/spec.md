@@ -25,6 +25,8 @@
 
 `navigate_to_page` 的输入为 `{ route: string }`。前端维护中文页面名称到 TanStack Router 内部路径的映射，并只允许映射结果执行。工具执行成功返回目标路径；未知页面返回错误，SDK 将错误回传给 Agent，页面保持不变。
 
+由于后端将 `navigation` 标记为有副作用工具，bridge 收到 `confirmation_required` 时使用浏览器原生确认框征求当前用户同意；拒绝时回传拒绝状态，不执行导航。
+
 ## 授权与审批
 
 - 架构边界：沿用现有 Embed token、Agent gateway 和 React 路由边界，不新增服务。

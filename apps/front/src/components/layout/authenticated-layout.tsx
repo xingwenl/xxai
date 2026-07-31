@@ -1,4 +1,7 @@
-import { Navigate, Outlet, useLocation } from '@tanstack/react-router'
+import { useEffect } from 'react'
+import { Navigate, Outlet } from '@tanstack/react-router'
+import { getCurrentUser } from '@/api/user'
+import { useAuthStore } from '@/stores/auth-store'
 import { getCookie } from '@/lib/cookies'
 import { cn } from '@/lib/utils'
 import { LayoutProvider } from '@/context/layout-provider'
@@ -6,9 +9,7 @@ import { SearchProvider } from '@/context/search-provider'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/layout/app-sidebar'
 import { SkipToMain } from '@/components/skip-to-main'
-import { useEffect } from 'react'
-import { useAuthStore } from '@/stores/auth-store'
-import { getCurrentUser } from '@/api/user'
+import { AgentNavigationBridge } from '@/features/agent-navigation/agent-navigation-bridge'
 
 type AuthenticatedLayoutProps = {
   children?: React.ReactNode
@@ -32,12 +33,7 @@ export function AuthenticatedLayout({ children }: AuthenticatedLayoutProps) {
   }, [auth])
 
   if (!auth.accessToken) {
-    return (
-      <Navigate
-        to='/sign-in'
-        replace
-      />
-    )
+    return <Navigate to='/sign-in' replace />
   }
 
   return (
@@ -62,6 +58,7 @@ export function AuthenticatedLayout({ children }: AuthenticatedLayoutProps) {
           >
             {children ?? <Outlet />}
           </SidebarInset>
+          <AgentNavigationBridge />
         </SidebarProvider>
       </LayoutProvider>
     </SearchProvider>

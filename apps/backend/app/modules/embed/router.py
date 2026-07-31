@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +23,7 @@ from app.modules.embed.services import (
     create_embed_client,
     build_token_quota_service,
     issue_embed_token,
+    issue_configured_agent_token,
     get_embed_message_snapshot,
     rotate_embed_client_secret,
     unbind_embed_client_agent,
@@ -173,6 +174,28 @@ async def unbind_agent_endpoint(
         client_id=client_id,
         agent_id=agent_id,
     )
+
+
+@router.get(
+    "/embed/agent-token",
+    response_model=ApiResponse[EmbedTokenResponse],
+)
+async def get_authenticated_agent_token_endpoint(
+    display_name: str | None = Query(default=None, max_length=120),
+    origin: str | None = Query(default=None, max_length=500),
+    host_tool_names: list[str] = Query(default=[]),
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    token = await issue_configured_agent_token(
+        session,
+        external_user_id=str(current_user.id),
+        display_name=display_name or current_user.name,
+        origin=origin,
+        host_tool_names=host_tool_names,
+    )
+    await session.commit()
+    return success_response(data=token, message="agent token issued")
 
 
 @router.post("/embed/tokens", response_model=ApiResponse[EmbedTokenResponse])
