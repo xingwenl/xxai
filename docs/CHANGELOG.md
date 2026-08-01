@@ -1,5 +1,8 @@
 # Changelog
 
+## - 2026-08-01
+- ✨ feat：增加本地工具演示并修复策略状态更新 `🧑‍💻 lixingwen`
+
 ## - 2026-07-31
 - ✨ feat：新增模型用量统计后台 `🧑‍💻 lixingwen`
 - 🐛 fix：完善 npm 发布包契约 `🧑‍💻 lixingwen`
