@@ -1,5 +1,8 @@
 # Changelog
 
+## - 2026-08-01
+- ✨ feat：增加本地工具演示并修复策略状态更新 `🧑‍💻 lixingwen`
+
 ## - 2026-07-31
 - ✨ feat：新增模型用量统计后台 `🧑‍💻 lixingwen`
 - 🐛 fix：完善 npm 发布包契约 `🧑‍💻 lixingwen`
@@ -8,6 +11,7 @@
 - 🐛 fix：修复宿主工具 Schema 注册 `🧑‍💻 lixingwen`
 - 📝 docs：固化 SDK 对话流程与变更规范 `🧑‍💻 lixingwen`
 - ✨ feat：完善宿主工具与平台接入 `🧑‍💻 lixingwen`
+- ✨ feat：支持 Embed Client 临时页面工具 `🧑‍💻 lixingwen`
 
 ## - 2026-07-30
 - ✨ feat：完成 Agent SDK Phase 2C 生产增强 `🧑‍💻 lixingwen`
