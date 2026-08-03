@@ -30,7 +30,11 @@ from app.shared.exceptions import register_exception_handlers
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
-    setup_logging(settings.log_level)
+    setup_logging(
+        settings.log_level,
+        log_file_path=settings.log_file_path,
+        log_file_backup_count=settings.log_file_backup_count,
+    )
     logger = get_logger(__name__)
     logger.info("Starting %s in %s mode", settings.app_name, settings.app_env)
     yield

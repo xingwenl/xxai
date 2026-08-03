@@ -1,0 +1,47 @@
+{
+  "id": "2026-08-03-backend-file-logging",
+  "title": "后端本地文件日志模块",
+  "scope": "backend",
+  "phase": "acceptance",
+  "status": "done",
+  "riskLevel": "low",
+  "changeTypes": [
+    "docs",
+    "backend",
+    "tests",
+    "config"
+  ],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "https://docs.python.org/3.12/library/logging.handlers.html#rotatingfilehandler",
+      "https://docs.python.org/3.12/library/logging.config.html#logging.config.dictConfig",
+      "https://www.uvicorn.org/settings/#logging",
+      "https://docs.djangoproject.com/en/4.2/howto/logging/"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": false,
+  "approvalGranted": false,
+  "approvalReasons": [],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-08-03",
+      "scope": "采用标准库 RotatingFileHandler 增强本地文件日志",
+      "note": "用户回复“好的”，确认按推荐方案继续。"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-08-03",
+  "updatedAt": "2026-08-03",
+  "relatedPaths": [
+    "apps/backend/app/core/logging.py",
+    "apps/backend/app/core/config.py",
+    "apps/backend/app/__init__.py",
+    "apps/backend/tests/system/test_logging.py",
+    ".gitignore"
+  ],
+  "notes": "本次只增强本地日志落盘与滚动配置，不涉及 API、数据模型或权限变更。"
+}

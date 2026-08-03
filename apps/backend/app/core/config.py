@@ -30,6 +30,8 @@ class Settings:
     app_debug: bool
     api_v1_prefix: str
     log_level: str
+    log_file_path: str
+    log_file_backup_count: int
     database_url: str
     database_echo: bool
     docs_url: str | None
@@ -90,6 +92,8 @@ def get_settings() -> Settings:
         app_debug=_get_bool("APP_DEBUG", default=False),
         api_v1_prefix=os.getenv("API_V1_PREFIX", "/api/v1"),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
+        log_file_path=os.getenv("LOG_FILE_PATH", str(BASE_DIR / "logs" / "app.log")),
+        log_file_backup_count=int(os.getenv("LOG_FILE_BACKUP_COUNT", "5")),
         database_url=_build_database_url(),
         database_echo=_get_bool("DATABASE_ECHO", default=False),
         docs_url="/docs" if docs_enabled else None,
@@ -129,8 +133,6 @@ def get_settings() -> Settings:
         quota_token_issue_limit=int(os.getenv("QUOTA_TOKEN_ISSUE_LIMIT", "60")),
         quota_connection_limit=int(os.getenv("QUOTA_CONNECTION_LIMIT", "10")),
         quota_message_limit=int(os.getenv("QUOTA_MESSAGE_LIMIT", "60")),
-        quota_model_tokens_limit=int(
-            os.getenv("QUOTA_MODEL_TOKENS_LIMIT", "100000")
-        ),
+        quota_model_tokens_limit=int(os.getenv("QUOTA_MODEL_TOKENS_LIMIT", "100000")),
         sdk_minimum_version=os.getenv("SDK_MINIMUM_VERSION", "0.1.0"),
     )

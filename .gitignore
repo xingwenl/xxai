@@ -29,6 +29,7 @@ venv/
 
 # Logs
 *.log
+apps/backend/logs/
 
 # Build artifacts
 dist/
