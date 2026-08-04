@@ -1,0 +1,59 @@
+{
+  "id": "2026-08-04-skill-script-runner",
+  "title": "Skill 脚本执行器",
+  "scope": "backend+frontend+deployment",
+  "phase": "acceptance",
+  "status": "done",
+  "riskLevel": "high",
+  "changeTypes": [
+    "architecture",
+    "api",
+    "frontend",
+    "backend",
+    "data-model",
+    "permissions",
+    "deployment",
+    "docs"
+  ],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "https://docs.docker.com/engine/security/",
+      "https://docs.docker.com/engine/containers/resource_constraints/",
+      "https://docs.python.org/3/library/subprocess.html",
+      "https://cheatsheetseries.owasp.org/cheatsheets/OS_Command_Injection_Defense_Cheat_Sheet.html",
+      "apps/backend/app/modules/host_tool",
+      "apps/backend/app/modules/mcp"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": [
+    "新增专用脚本 runner 架构边界",
+    "新增 storage_key 和执行审计数据模型",
+    "新增执行审计 API 与内部 runner 协议",
+    "脚本权限升级为真实执行授权"
+  ],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-08-04",
+      "scope": "确认按 skill-runner 方案实现：新增专用受限 runner、执行审计、storage_key 和真实脚本权限语义。"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-08-04",
+  "updatedAt": "2026-08-04",
+  "relatedPaths": [
+    "apps/backend/app/modules/skill_runner",
+    "apps/backend/app/modules/skill",
+    "apps/backend/app/modules/conversation",
+    "apps/backend/runner",
+    "apps/backend/Dockerfile.runner",
+    "apps/front/src/features/skills/index.tsx",
+    "docker-compose.yml"
+  ],
+  "notes": "skill-runner、执行审计、运行时工具、前端审计与部署隔离已实现并完成验收；前端全量构建仍受范围外 Agent 页面既有类型错误阻塞。"
+}

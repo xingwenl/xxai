@@ -53,6 +53,10 @@ class Settings:
     agent_max_upload_bytes: int
     agent_fetch_timeout_seconds: int
     agent_master_key: str
+    skill_runner_url: str
+    skill_runner_shared_secret: str
+    skill_runner_timeout_seconds: int
+    skill_runner_max_output_bytes: int
     celery_broker_url: str
     celery_result_backend: str
     metrics_enabled: bool
@@ -122,6 +126,23 @@ def get_settings() -> Settings:
         agent_fetch_timeout_seconds=int(os.getenv("AGENT_FETCH_TIMEOUT_SECONDS", "15")),
         agent_master_key=os.getenv(
             "AGENT_MASTER_KEY", "dev-agent-master-key-change-me"
+        ),
+        # 本地 Python API 运行在宿主机时使用开发 runner 端口；Compose API
+        # 会通过环境变量显式覆盖为内部 DNS 地址，生产环境也必须显式配置。
+        skill_runner_url=os.getenv(
+            "SKILL_RUNNER_URL",
+            "http://127.0.0.1:8090"
+            if app_env == "development"
+            else "http://skill-runner:8090",
+        ),
+        skill_runner_shared_secret=os.getenv(
+            "SKILL_RUNNER_SHARED_SECRET", "dev-skill-runner-secret-change-me"
+        ),
+        skill_runner_timeout_seconds=int(
+            os.getenv("SKILL_RUNNER_TIMEOUT_SECONDS", "30")
+        ),
+        skill_runner_max_output_bytes=int(
+            os.getenv("SKILL_RUNNER_MAX_OUTPUT_BYTES", str(64 * 1024))
         ),
         celery_broker_url=os.getenv("CELERY_BROKER_URL", "redis://127.0.0.1:6379/0"),
         celery_result_backend=os.getenv(

@@ -4,6 +4,7 @@
 - ✨ feat：补知识库绑定智能体入口并增强聊天过程日志 `🧑‍💻 lixingwen`
 - 🐛 fix：修复 worker 日志不落到宿主挂载目录 `🧑‍💻 lixingwen`
 - ✨ feat：支持全栈容器化与知识库向量配置 `🧑‍💻 lixingwen`
+- ✨ feat：支持 Zip 技能包和隔离脚本执行 `🧑‍💻 lixingwen`
 
 ## - 2026-08-03
 - ✨ feat：新增后端日期文件日志 `🧑‍💻 lixingwen`

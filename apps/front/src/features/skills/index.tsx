@@ -1,9 +1,21 @@
-import { useState, type ReactNode } from 'react'
+import { useState, type ChangeEvent, type ReactNode } from 'react'
 import { z } from 'zod'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bot, Code2, Edit, Plus, RefreshCw, Server, Trash2 } from 'lucide-react'
+import {
+  Bot,
+  Code2,
+  Edit,
+  Eye,
+  PackageOpen,
+  Plus,
+  RefreshCw,
+  Server,
+  ShieldCheck,
+  Trash2,
+  Upload,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { listAgents, type Agent } from '@/api/agent'
 import { listPlatforms } from '@/api/platform'
@@ -11,12 +23,18 @@ import {
   bindSkill,
   createSkill,
   deleteSkill,
+  getSkillPackage,
+  importSkillPackage,
+  listSkillScriptExecutions,
   listAgentSkills,
+  listSkillPackages,
   listSkills,
   unbindSkill,
+  updateSkillPackage,
   updateSkill,
   type Skill,
   type SkillInput,
+  type SkillPackage,
 } from '@/api/skills'
 import {
   AlertDialog,
@@ -84,6 +102,7 @@ export function SkillsPage() {
   const [editing, setEditing] = useState<Skill | null | undefined>()
   const [deleting, setDeleting] = useState<Skill | null>(null)
   const [bindingSkill, setBindingSkill] = useState<Skill | null>(null)
+  const [detailPackageId, setDetailPackageId] = useState<number>()
   const platformsQuery = useQuery({
     queryKey: ['platforms'],
     queryFn: listPlatforms,
@@ -94,8 +113,27 @@ export function SkillsPage() {
     queryFn: () => listSkills(activePlatformId!),
     enabled: activePlatformId != null,
   })
+  const packagesQuery = useQuery({
+    queryKey: ['skill-packages', activePlatformId],
+    queryFn: () => listSkillPackages(activePlatformId!),
+    enabled: activePlatformId != null,
+  })
+  const packageDetailQuery = useQuery({
+    queryKey: ['skill-package', activePlatformId, detailPackageId],
+    queryFn: () => getSkillPackage(activePlatformId!, detailPackageId!),
+    enabled: activePlatformId != null && detailPackageId != null,
+  })
+  const executionsQuery = useQuery({
+    queryKey: ['skill-script-executions', activePlatformId],
+    queryFn: () => listSkillScriptExecutions(activePlatformId!),
+    enabled: activePlatformId != null,
+  })
   const invalidateSkills = () =>
     queryClient.invalidateQueries({ queryKey: ['skills', activePlatformId] })
+  const invalidatePackages = () =>
+    queryClient.invalidateQueries({
+      queryKey: ['skill-packages', activePlatformId],
+    })
   const saveMutation = useMutation({
     mutationFn: (values: SkillForm) => {
       if (!activePlatformId) throw new Error('请选择平台')
@@ -142,6 +180,39 @@ export function SkillsPage() {
       await invalidateSkills()
     },
   })
+  const importMutation = useMutation({
+    mutationFn: (file: File) => {
+      if (!activePlatformId) throw new Error('请选择平台')
+      return importSkillPackage(activePlatformId, file)
+    },
+    onSuccess: async (result) => {
+      toast.success(`技能包已导入：${result.package.name}`)
+      await invalidateSkills()
+      await invalidatePackages()
+    },
+  })
+  const packageMutation = useMutation({
+    mutationFn: ({
+      skillPackage,
+      allow_script_execution,
+    }: {
+      skillPackage: SkillPackage
+      allow_script_execution: boolean
+    }) =>
+      updateSkillPackage(activePlatformId!, skillPackage.id, {
+        allow_script_execution,
+      }),
+    onSuccess: async () => {
+      toast.success('脚本权限已更新')
+      await invalidatePackages()
+    },
+  })
+  const handlePackageUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    importMutation.mutate(file)
+  }
   const selectedPlatform = platformsQuery.data?.find(
     (item) => item.id === activePlatformId
   )
@@ -187,6 +258,24 @@ export function SkillsPage() {
             >
               <RefreshCw className='size-4' />
               刷新
+            </Button>
+            <Button
+              variant='outline'
+              size='sm'
+              asChild
+              disabled={!activePlatformId || importMutation.isPending}
+            >
+              <label>
+                <Upload className='size-4' />
+                {importMutation.isPending ? '导入中...' : '导入 Zip'}
+                <Input
+                  type='file'
+                  accept='.zip,application/zip'
+                  className='hidden'
+                  onChange={handlePackageUpload}
+                  disabled={!activePlatformId || importMutation.isPending}
+                />
+              </label>
             </Button>
             <Button
               size='sm'
@@ -303,8 +392,168 @@ export function SkillsPage() {
             </TableBody>
           </Table>
         </div>
+        <div className='overflow-hidden rounded-md border'>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>脚本</TableHead>
+                <TableHead>状态</TableHead>
+                <TableHead>退出码</TableHead>
+                <TableHead>耗时</TableHead>
+                <TableHead>错误</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {executionsQuery.isLoading
+                ? Array.from({ length: 2 }).map((_, i) => (
+                    <TableRow key={i}>
+                      <TableCell colSpan={5}>
+                        <Skeleton className='h-8 w-full' />
+                      </TableCell>
+                    </TableRow>
+                  ))
+                : (executionsQuery.data?.items ?? []).map((execution) => (
+                    <TableRow key={execution.id}>
+                      <TableCell className='font-mono text-xs'>
+                        {execution.script_path}
+                        <div className='text-muted-foreground'>
+                          #{execution.id}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={
+                            execution.status === 'succeeded'
+                              ? 'default'
+                              : 'secondary'
+                          }
+                        >
+                          {execution.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{execution.exit_code ?? '-'}</TableCell>
+                      <TableCell>
+                        {execution.duration_ms != null
+                          ? `${execution.duration_ms} ms`
+                          : '-'}
+                      </TableCell>
+                      <TableCell className='max-w-72 truncate text-sm text-muted-foreground'>
+                        {execution.error || execution.stderr || '-'}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+              {!executionsQuery.isLoading &&
+                !executionsQuery.data?.items.length && (
+                  <TableRow>
+                    <TableCell
+                      colSpan={5}
+                      className='h-20 text-center text-muted-foreground'
+                    >
+                      暂无脚本执行记录
+                    </TableCell>
+                  </TableRow>
+                )}
+            </TableBody>
+          </Table>
+        </div>
         <div className='text-sm text-muted-foreground'>
           共 {skillsQuery.data?.total ?? 0} 个技能
+        </div>
+        <div className='overflow-hidden rounded-md border'>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>技能包</TableHead>
+                <TableHead>文件</TableHead>
+                <TableHead>警告</TableHead>
+                <TableHead>脚本权限</TableHead>
+                <TableHead className='w-16 text-end'>操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {packagesQuery.isLoading
+                ? Array.from({ length: 3 }).map((_, i) => (
+                    <TableRow key={i}>
+                      <TableCell colSpan={5}>
+                        <Skeleton className='h-8 w-full' />
+                      </TableCell>
+                    </TableRow>
+                  ))
+                : (packagesQuery.data?.items ?? []).map((skillPackage) => (
+                    <TableRow key={skillPackage.id}>
+                      <TableCell>
+                        <div className='flex items-center gap-3'>
+                          <div className='flex size-9 items-center justify-center rounded-md bg-muted'>
+                            <PackageOpen className='size-4 text-muted-foreground' />
+                          </div>
+                          <div>
+                            <div className='font-medium'>
+                              {skillPackage.name}
+                            </div>
+                            <div className='text-xs text-muted-foreground'>
+                              {skillPackage.slug} · {skillPackage.package_type}
+                            </div>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className='text-end'>
+                        <Button
+                          size='icon'
+                          variant='ghost'
+                          title='查看技能包内容'
+                          onClick={() => setDetailPackageId(skillPackage.id)}
+                        >
+                          <Eye className='size-4' />
+                          <span className='sr-only'>查看技能包内容</span>
+                        </Button>
+                      </TableCell>
+                      <TableCell className='max-w-56 truncate text-sm text-muted-foreground'>
+                        {skillPackage.source_filename}
+                      </TableCell>
+                      <TableCell className='max-w-72 truncate text-sm text-muted-foreground'>
+                        {skillPackage.warnings?.join('；') || '-'}
+                      </TableCell>
+                      <TableCell>
+                        <div className='flex items-center gap-2'>
+                          <Switch
+                            checked={skillPackage.allow_script_execution}
+                            disabled={packageMutation.isPending}
+                            onCheckedChange={(allow_script_execution) =>
+                              packageMutation.mutate({
+                                skillPackage,
+                                allow_script_execution,
+                              })
+                            }
+                          />
+                          <Badge
+                            variant={
+                              skillPackage.allow_script_execution
+                                ? 'default'
+                                : 'secondary'
+                            }
+                          >
+                            <ShieldCheck className='me-1 size-3' />
+                            {skillPackage.allow_script_execution
+                              ? '允许'
+                              : '禁止'}
+                          </Badge>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+              {!packagesQuery.isLoading &&
+                !packagesQuery.data?.items.length && (
+                  <TableRow>
+                    <TableCell
+                      colSpan={5}
+                      className='h-20 text-center text-muted-foreground'
+                    >
+                      暂无技能包
+                    </TableCell>
+                  </TableRow>
+                )}
+            </TableBody>
+          </Table>
         </div>
       </Main>
       <SkillDialog
@@ -315,6 +564,92 @@ export function SkillsPage() {
         isSaving={saveMutation.isPending}
         onSubmit={(values) => saveMutation.mutate(values)}
       />
+      <Dialog
+        open={detailPackageId != null}
+        onOpenChange={(open) => !open && setDetailPackageId(undefined)}
+      >
+        <DialogContent className='max-h-[85vh] max-w-3xl overflow-y-auto'>
+          <DialogHeader>
+            <DialogTitle>
+              {packageDetailQuery.data?.name ?? '技能包详情'}
+            </DialogTitle>
+            <DialogDescription>
+              {packageDetailQuery.data?.source_filename ?? '正在加载技能包内容'}
+            </DialogDescription>
+          </DialogHeader>
+          {packageDetailQuery.isLoading ? (
+            <div className='space-y-3 py-2'>
+              <Skeleton className='h-20 w-full' />
+              <Skeleton className='h-40 w-full' />
+            </div>
+          ) : (
+            <div className='space-y-6'>
+              <section>
+                <h3 className='mb-2 text-sm font-semibold'>包含的技能</h3>
+                <div className='overflow-hidden rounded-md border'>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>名称</TableHead>
+                        <TableHead>入口文件</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(packageDetailQuery.data?.skills ?? []).map((skill) => (
+                        <TableRow key={skill.id}>
+                          <TableCell>
+                            <div className='font-medium'>{skill.name}</div>
+                            <div className='text-xs text-muted-foreground'>
+                              {skill.slug}
+                            </div>
+                          </TableCell>
+                          <TableCell className='font-mono text-xs'>
+                            {skill.package_skill_path ?? 'SKILL.md'}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </section>
+              <section>
+                <div className='mb-2 flex items-center justify-between gap-3'>
+                  <h3 className='text-sm font-semibold'>包文件</h3>
+                  <span className='text-xs text-muted-foreground'>
+                    {packageDetailQuery.data?.files?.length ?? 0} 个文件
+                  </span>
+                </div>
+                <div className='max-h-72 overflow-auto rounded-md border'>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>路径</TableHead>
+                        <TableHead className='w-24'>类型</TableHead>
+                        <TableHead className='w-24 text-end'>大小</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(packageDetailQuery.data?.files ?? []).map((file) => (
+                        <TableRow key={file.id}>
+                          <TableCell className='font-mono text-xs'>
+                            {file.relative_path}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant='outline'>{file.role}</Badge>
+                          </TableCell>
+                          <TableCell className='text-end text-xs text-muted-foreground'>
+                            {formatBytes(file.size_bytes)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </section>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       {activePlatformId && bindingSkill && (
         <BindingDialog
           platformId={activePlatformId}
@@ -347,6 +682,12 @@ export function SkillsPage() {
       </AlertDialog>
     </>
   )
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function SkillDialog({

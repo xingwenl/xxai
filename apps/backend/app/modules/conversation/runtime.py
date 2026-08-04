@@ -8,6 +8,8 @@ from typing_extensions import TypedDict
 
 from app.core.logging import get_logger
 from app.modules.agent.services import build_chat_model
+from app.modules.skill.services import build_runtime_skill_instruction
+from app.modules.skill_runner.tools import build_skill_script_tools
 from app.modules.conversation.schemas import RuntimeContext
 
 logger = get_logger(__name__)
@@ -287,19 +289,22 @@ async def load_runtime_context(
     )
     knowledge_bases = await knowledge_repo.list_enabled_for_agent(agent_id, platform_id)
     mcp_tools = await mcp_repo.list_enabled_tools_for_agent(agent_id, platform_id)
+    skill_script_tools = build_skill_script_tools(bindings)
     logger.info(
-        "Loaded runtime context agent_id=%s platform_id=%s knowledge_bases=%s skill_count=%s mcp_tool_count=%s",
+        "Loaded runtime context agent_id=%s platform_id=%s knowledge_bases=%s skill_count=%s script_tool_count=%s mcp_tool_count=%s",
         agent_id,
         platform_id,
         [getattr(base, "id", None) for base in knowledge_bases],
         len(bindings),
+        len(skill_script_tools),
         len(mcp_tools),
     )
     return RuntimeContext(
         agent=agent,
         version=agent.default_version,
         knowledge_bases=knowledge_bases,
-        skill_instructions=[item.skill.instruction_template for item in bindings],
+        skill_instructions=[build_runtime_skill_instruction(item.skill) for item in bindings],
+        skill_script_tools=skill_script_tools,
         mcp_tools=mcp_tools,
     )
 

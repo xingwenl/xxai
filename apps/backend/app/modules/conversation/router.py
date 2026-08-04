@@ -21,6 +21,8 @@ from app.modules.mcp.repositories import McpRepository
 from app.modules.mcp.runtime import RepositoryMcpExecutor
 from app.modules.mcp.services import invoke_tool
 from app.modules.skill.repositories import SkillRepository
+from app.modules.skill_runner.client import SkillRunnerClient
+from app.modules.skill_runner.services import execute_skill_script
 from app.shared.exceptions import NotFoundException
 from app.shared.responses import success_response
 
@@ -37,10 +39,11 @@ async def _prepare(
     agent = await agent_repo.get_published_agent_for_user(agent_id, current_user.id)
     if agent is None:
         raise NotFoundException("published agent not found")
+    skill_repo = SkillRepository(session)
     context = await load_runtime_context(
         agent_repo,
         KnowledgeRepository(session),
-        SkillRepository(session),
+        skill_repo,
         McpRepository(session),
         agent_id=agent_id,
         platform_id=agent.platform_id,
@@ -52,13 +55,24 @@ async def _prepare(
     mcp_repo = McpRepository(session)
 
     async def invoke(**kwargs):
+        tool = kwargs.get("tool")
+        if getattr(tool, "kind", None) == "skill_script":
+            return await execute_skill_script(
+                skill_repo,
+                SkillRunnerClient(),
+                tool=tool,
+                call=kwargs["call"],
+                platform_id=agent.platform_id,
+                agent_id=agent_id,
+                user_id=current_user.id,
+            )
         return await invoke_tool(
             mcp_repo,
             RepositoryMcpExecutor(mcp_repo),
             platform_id=agent.platform_id,
             agent_id=agent_id,
             user_id=current_user.id,
-            **kwargs,
+            **{key: value for key, value in kwargs.items() if key not in {"tool", "call"}},
         )
 
     return agent, context, citations, invoke
@@ -132,7 +146,7 @@ async def chat_endpoint(
                     }
                 )
 
-            if context.mcp_tools:
+            if context.mcp_tools or context.skill_script_tools:
                 conversation, assistant, result = await execute_chat(
                     ConversationRepository(session),
                     context,

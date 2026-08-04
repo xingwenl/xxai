@@ -95,7 +95,7 @@ async def execute_chat(
         ),
         user_message=message,
         citations=citations,
-        tools=context.mcp_tools,
+        tools=[*context.mcp_tools, *context.skill_script_tools],
         invoke_tool_fn=invoke_tool_fn,
     )
     assistant = await repo.create_message(

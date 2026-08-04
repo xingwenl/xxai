@@ -1,0 +1,52 @@
+{
+  "id": "2026-08-04-skill-zip-import",
+  "title": "Skill Zip 导入",
+  "scope": "backend+frontend",
+  "phase": "acceptance",
+  "status": "completed",
+  "riskLevel": "high",
+  "changeTypes": [
+    "api",
+    "frontend",
+    "backend",
+    "data-model",
+    "permissions",
+    "docs"
+  ],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "https://learn.chatgpt.com/codex/build-skills",
+      "https://developers.openai.com/codex/plugins/build",
+      "https://docs.python.org/3/library/zipfile.html"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": [
+    "架构边界变化",
+    "数据模型变化",
+    "API 契约变化",
+    "鉴权或权限行为变化"
+  ],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-08-04",
+      "scope": "确认按 B 方案实现：保留技能包资产，新增包内脚本执行权限控制。"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-08-04",
+  "updatedAt": "2026-08-04",
+  "relatedPaths": [
+    "apps/backend/app/modules/skill",
+    "apps/backend/tests/skill",
+    "apps/front/src/api/skills.ts",
+    "apps/front/src/features/skills/index.tsx",
+    "apps/backend/migrations/versions"
+  ],
+  "notes": "B 方案的 Zip 导入、包资产持久化、详情查看和脚本授权开关已完成；实际脚本进程执行需后续隔离执行器。"
+}

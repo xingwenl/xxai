@@ -1,0 +1,12 @@
+services:
+  skill-runner:
+    # 仅供本机 Python API 调试使用；生产 Compose 不发布 runner 端口。
+    ports:
+      - "127.0.0.1:${SKILL_RUNNER_PORT:-8090}:8090"
+    networks:
+      - skill-runner-network
+      - runner-dev-network
+
+networks:
+  # 只连接 runner，不连接 API、数据库或 Redis；开发模式仍需自行承担网络风险。
+  runner-dev-network:

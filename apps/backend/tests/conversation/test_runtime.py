@@ -38,11 +38,15 @@ class FakeSkillRepository:
         return [
             SimpleNamespace(
                 sort_order=2,
-                skill=SimpleNamespace(instruction_template="second"),
+                skill=SimpleNamespace(
+                    instruction_template="second", package=None
+                ),
             ),
             SimpleNamespace(
                 sort_order=1,
-                skill=SimpleNamespace(instruction_template="first"),
+                skill=SimpleNamespace(
+                    instruction_template="first", package=None
+                ),
             ),
         ]
 
@@ -50,6 +54,30 @@ class FakeSkillRepository:
 class FakeMcpRepository:
     async def list_enabled_tools_for_agent(self, agent_id, platform_id):
         return [SimpleNamespace(server_id=9, name="lookup", side_effect="none")]
+
+
+class ScriptSkillRepository:
+    def __init__(self, *, allowed: bool):
+        self.allowed = allowed
+
+    async def list_enabled_for_agent(self, agent_id, platform_id):
+        package = SimpleNamespace(
+            id=17,
+            name="Report Skill",
+            is_active=True,
+            allow_script_execution=self.allowed,
+            storage_path="/app/storage/skill-packages/2/report",
+            files=[
+                SimpleNamespace(relative_path="scripts/report.py", role="script")
+            ],
+        )
+        skill = SimpleNamespace(
+            id=23,
+            package=package,
+            instruction_template="生成报告",
+            package_skill_path="SKILL.md",
+        )
+        return [SimpleNamespace(sort_order=1, skill=skill)]
 
 
 def test_system_prompt_explains_available_host_tools():
@@ -86,6 +114,37 @@ def test_runtime_context_only_loads_published_bound_capabilities():
     assert context.agent.id == 11
     assert [item.id for item in context.knowledge_bases] == [3]
     assert context.skill_instructions == ["first", "second"]
+    assert context.mcp_tools[0].name == "lookup"
+
+
+def test_runtime_context_does_not_expose_scripts_without_permission():
+    context = asyncio.run(
+        load_runtime_context(
+            FakeAgentRepository(),
+            FakeKnowledgeRepository(),
+            ScriptSkillRepository(allowed=False),
+            FakeMcpRepository(),
+            agent_id=11,
+            platform_id=2,
+        )
+    )
+
+    assert context.skill_script_tools == []
+
+
+def test_runtime_context_exposes_scripts_alongside_mcp_tools():
+    context = asyncio.run(
+        load_runtime_context(
+            FakeAgentRepository(),
+            FakeKnowledgeRepository(),
+            ScriptSkillRepository(allowed=True),
+            FakeMcpRepository(),
+            agent_id=11,
+            platform_id=2,
+        )
+    )
+
+    assert context.skill_script_tools[0].name == "run_skill_script_17"
     assert context.mcp_tools[0].name == "lookup"
 
 
@@ -206,6 +265,57 @@ def test_read_only_tool_result_is_returned_to_model():
     assert result.content == "最终答案"
     assert invocations == [
         {"server_id": 9, "tool_name": "lookup", "arguments": {"query": "退款"}}
+    ]
+
+
+def test_skill_script_tool_is_routed_with_mcp_tools():
+    script_tool = SimpleNamespace(
+        name="run_skill_script_17",
+        description="执行脚本",
+        input_schema={"type": "object"},
+        kind="skill_script",
+    )
+    mcp_tool = SimpleNamespace(
+        name="lookup",
+        description="查询",
+        input_schema={"type": "object"},
+        server_id=9,
+    )
+    invocations = []
+
+    class MixedToolCallingModel(ToolCallingModel):
+        def bind_tools(self, tools):
+            assert [item["function"]["name"] for item in tools] == [
+                "lookup",
+                "run_skill_script_17",
+            ]
+            return self
+
+    async def invoke_tool_fn(**kwargs):
+        invocations.append(kwargs)
+        return ToolInvocationOutcome(status="completed", audit_id=1, result="完成")
+
+    result = asyncio.run(
+        run_graph(
+            MixedToolCallingModel("脚本结果", tool_name="run_skill_script_17"),
+            system_prompt="回答问题",
+            user_message="生成报告",
+            tools=[mcp_tool, script_tool],
+            invoke_tool_fn=invoke_tool_fn,
+        )
+    )
+
+    assert result.content == "脚本结果"
+    assert invocations == [
+        {
+            "tool": script_tool,
+            "call": {
+                "name": "run_skill_script_17",
+                "args": {"query": "退款"},
+                "id": "call-1",
+                "type": "tool_call",
+            },
+        }
     ]
 
 

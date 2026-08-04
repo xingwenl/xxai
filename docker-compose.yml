@@ -72,6 +72,10 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       AGENT_FILE_STORAGE_PATH: /app/storage
+      SKILL_RUNNER_URL: http://skill-runner:8090
+      SKILL_RUNNER_SHARED_SECRET: ${SKILL_RUNNER_SHARED_SECRET:-dev-skill-runner-secret-change-me}
+      SKILL_RUNNER_TIMEOUT_SECONDS: ${SKILL_RUNNER_TIMEOUT_SECONDS:-30}
+      SKILL_RUNNER_MAX_OUTPUT_BYTES: ${SKILL_RUNNER_MAX_OUTPUT_BYTES:-65536}
       LOG_FILE_PATH: /app/logs/app.log
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
@@ -90,6 +94,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - default
+      - skill-runner-network
 
   worker:
     build:
@@ -105,6 +112,40 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+  skill-runner:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile.runner
+    environment:
+      SKILL_STORAGE_ROOT: /app/storage
+      SKILL_RUNNER_SHARED_SECRET: ${SKILL_RUNNER_SHARED_SECRET:-dev-skill-runner-secret-change-me}
+    volumes:
+      - ./apps/backend/storage:/app/storage:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    user: "10001:10001"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 0.50
+    networks:
+      - skill-runner-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=2)",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   front:
     build:
@@ -125,3 +166,7 @@ volumes:
     name: ${POSTGRES_VOLUME_NAME:-backend_postgres_data}
   redis_data:
   ollama_data:
+
+networks:
+  skill-runner-network:
+    internal: true

@@ -1,15 +1,22 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, File, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db_session
 from app.core.security import require_current_active_user
 from app.modules.platform.repositories import PlatformRepository
+from app.modules.skill.importers import MAX_ZIP_BYTES
 from app.modules.skill.repositories import SkillRepository
 from app.modules.skill.schemas import (
     AgentSkillBind,
     AgentSkillRead,
     SkillCreate,
     SkillListData,
+    SkillPackageDetail,
+    SkillPackageImportResult,
+    SkillPackageListData,
+    SkillPackageRead,
+    SkillPackageUpdate,
+    SkillScriptExecutionListData,
     SkillRead,
     SkillUpdate,
 )
@@ -17,7 +24,9 @@ from app.modules.skill.services import (
     bind_skill,
     create_skill,
     delete_skill,
+    import_skill_package,
     unbind_skill,
+    update_skill_package,
     update_skill,
 )
 from app.shared.exceptions import NotFoundException
@@ -64,6 +73,104 @@ async def list_skills_endpoint(
     page = await SkillRepository(session).list_skills(platform_id, params)
     return success_response(
         data=SkillListData.model_validate(page.model_dump()), message="skills listed"
+    )
+
+
+@router.post(
+    "/skills/import",
+    response_model=ApiResponse[SkillPackageImportResult],
+    status_code=status.HTTP_201_CREATED,
+)
+async def import_skill_package_endpoint(
+    platform_id: int,
+    file: UploadFile = File(...),
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    await _require_admin(platform_id, current_user.id, session)
+    content = await file.read(MAX_ZIP_BYTES + 1)
+    package = await import_skill_package(
+        SkillRepository(session),
+        platform_id,
+        filename=file.filename or "skill-package.zip",
+        content=content,
+    )
+    detail = SkillPackageDetail.model_validate(package)
+    return success_response(
+        data=SkillPackageImportResult(package=detail, warnings=package.warnings),
+        message="skill package imported",
+    )
+
+
+@router.get("/skill-packages", response_model=ApiResponse[SkillPackageListData])
+async def list_skill_packages_endpoint(
+    platform_id: int,
+    params: PaginationParams = Depends(pagination_dependency),
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    await _require_admin(platform_id, current_user.id, session)
+    page = await SkillRepository(session).list_packages(platform_id, params)
+    return success_response(
+        data=SkillPackageListData.model_validate(page.model_dump()),
+        message="skill packages listed",
+    )
+
+
+@router.get(
+    "/skill-packages/{package_id}", response_model=ApiResponse[SkillPackageDetail]
+)
+async def get_skill_package_endpoint(
+    platform_id: int,
+    package_id: int,
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    await _require_admin(platform_id, current_user.id, session)
+    package = await SkillRepository(session).get_package(package_id, platform_id)
+    if package is None:
+        raise NotFoundException("skill package not found")
+    return success_response(
+        data=SkillPackageDetail.model_validate(package),
+        message="skill package loaded",
+    )
+
+
+@router.patch(
+    "/skill-packages/{package_id}", response_model=ApiResponse[SkillPackageRead]
+)
+async def update_skill_package_endpoint(
+    platform_id: int,
+    package_id: int,
+    payload: SkillPackageUpdate,
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    await _require_admin(platform_id, current_user.id, session)
+    package = await update_skill_package(
+        SkillRepository(session), platform_id, package_id, payload
+    )
+    return success_response(
+        data=SkillPackageRead.model_validate(package),
+        message="skill package updated",
+    )
+
+
+@router.get(
+    "/skill-script-executions",
+    response_model=ApiResponse[SkillScriptExecutionListData],
+)
+async def list_skill_script_executions_endpoint(
+    platform_id: int,
+    params: PaginationParams = Depends(pagination_dependency),
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    await _require_admin(platform_id, current_user.id, session)
+    page = await SkillRepository(session).list_script_executions(platform_id, params)
+    return success_response(
+        data=SkillScriptExecutionListData.model_validate(page.model_dump()),
+        message="skill script executions listed",
     )
 
 
