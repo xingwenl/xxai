@@ -96,7 +96,8 @@ const urlSchema = z.object({
   url: z.string().url('请输入有效 URL'),
   title: z.string().max(255).optional(),
 })
-type BaseForm = z.infer<typeof baseSchema>
+type BaseFormInput = z.input<typeof baseSchema>
+type BaseForm = z.output<typeof baseSchema>
 type UrlForm = z.infer<typeof urlSchema>
 
 export function KnowledgeBasesPage() {
@@ -568,7 +569,7 @@ function KnowledgeBaseDialog({
   isSaving: boolean
   onSubmit: (values: BaseForm) => void
 }) {
-  const form = useForm<BaseForm>({
+  const form = useForm<BaseFormInput, unknown, BaseForm>({
     resolver: zodResolver(baseSchema),
     values: {
       name: base?.name ?? '',

@@ -1,19 +1,20 @@
 import asyncio
 import socket
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
+from app.core.logging import get_logger
 from llama_index.core import SimpleDirectoryReader
-from llama_index.embeddings.openai import OpenAIEmbedding
+from llama_index.embeddings.openai import OpenAIEmbedding, OpenAIEmbeddingModelType
 
 from app.core.config import get_settings
 from app.modules.agent.services import decrypt_secret
 from app.modules.knowledge.services import _is_forbidden_ip, validate_fetch_url
 from app.shared.exceptions import BadRequestException
 
-
+logger = get_logger(__name__)
 async def validate_fetch_target(url: str) -> str:
     validate_fetch_url(url)
     host = httpx.URL(url).host
@@ -51,17 +52,62 @@ async def fetch_web_text(url: str, *, max_bytes: int, timeout_seconds: int) -> s
     raise BadRequestException("too many redirects")
 
 
+def resolve_storage_path(path: str, storage_root: str | Path | None = None) -> Path:
+    candidate = Path(path)
+    if candidate.exists():
+        return candidate
+
+    root = Path(storage_root or get_settings().agent_file_storage_path)
+    if not candidate.is_absolute():
+        return root / candidate
+
+    parts = candidate.parts
+    if "storage" in parts:
+        # 本地 API 与容器 Worker 混跑时，数据库里可能保留主机绝对路径；
+        # Worker 需按当前环境的存储根目录重定位到同一份挂载文件。
+        storage_index = len(parts) - 1 - list(reversed(parts)).index("storage")
+        relative_path = Path(*parts[storage_index + 1 :])
+        return root / relative_path
+
+    return candidate
+
+
 def load_file_text(path: str) -> str:
-    documents = SimpleDirectoryReader(input_files=[Path(path)]).load_data()
+    documents = SimpleDirectoryReader(
+        input_files=[resolve_storage_path(path)]
+    ).load_data()
     return "\n\n".join(document.text for document in documents if document.text)
+
+
+def _is_local_embedding_endpoint(base_url: str | None) -> bool:
+    if not base_url:
+        return False
+    hostname = urlparse(base_url).hostname
+    return hostname in {"localhost", "127.0.0.1", "::1", "ollama"}
+
+
+def _uses_custom_embedding_model_name(model: str) -> bool:
+    return model not in {item.value for item in OpenAIEmbeddingModelType}
 
 
 def build_embedding_model(base) -> OpenAIEmbedding:
     api_key = (
         decrypt_secret(base.embedding_api_key_encrypted)
         if base.embedding_api_key_encrypted
-        else None
+        else "ollama" if _is_local_embedding_endpoint(base.embedding_base_url) else None
     )
+    logger.info("Using default embedding model: %s %s", base.embedding_model, base.embedding_base_url, api_key)
+    logger.info("Using default api_key: %s", api_key)
+
+    if _uses_custom_embedding_model_name(base.embedding_model):
+        # LlamaIndex 会校验 model 参数是否属于 OpenAI 枚举；model_name
+        # 允许将第三方 OpenAI-compatible 服务的实际模型名原样放入请求体。
+        return OpenAIEmbedding(
+            model="text-embedding-3-small",
+            model_name=base.embedding_model,
+            api_base=base.embedding_base_url,
+            api_key=api_key,
+        )
     return OpenAIEmbedding(
         model=base.embedding_model,
         api_base=base.embedding_base_url,

@@ -28,8 +28,8 @@ export type KnowledgeBaseInput = {
   name: string
   slug: string
   embedding_model: string
-  embedding_base_url?: string
-  embedding_api_key?: string
+  embedding_base_url?: string | null
+  embedding_api_key?: string | null
   embedding_dimension: number
   chunk_size: number
   chunk_overlap: number
@@ -71,7 +71,10 @@ export async function createKnowledgeBase(
 ) {
   const { data } = await http.post<KnowledgeBase>(
     `/platforms/${platformId}/knowledge-bases`,
-    input
+    normalizeKnowledgeBaseInput(input),
+    {
+      clearEmptyData: true,
+    }
   )
   return data
 }
@@ -83,9 +86,24 @@ export async function updateKnowledgeBase(
 ) {
   const { data } = await http.patch<KnowledgeBase>(
     `/platforms/${platformId}/knowledge-bases/${baseId}`,
-    input
+    normalizeKnowledgeBaseInput(input)
   )
   return data
+}
+
+export function normalizeKnowledgeBaseInput<
+  T extends Partial<KnowledgeBaseInput>,
+>(input: T): T {
+  return {
+    ...input,
+    embedding_base_url: normalizeOptionalString(input.embedding_base_url),
+    embedding_api_key: normalizeOptionalString(input.embedding_api_key),
+  }
+}
+
+function normalizeOptionalString(value: string | null | undefined) {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : undefined
 }
 
 export async function deleteKnowledgeBase(platformId: number, baseId: number) {

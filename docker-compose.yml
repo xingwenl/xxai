@@ -1,0 +1,127 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER:-root}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-Dd123456}
+      POSTGRES_DB: ${DB_NAME:-ai_db}
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-root} -d ${DB_NAME:-ai_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  ollama:
+    profiles: ["local-embedding"]
+    image: ollama/ollama:latest
+    ports:
+      - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  ollama-init:
+    profiles: ["local-embedding"]
+    image: ollama/ollama:latest
+    entrypoint: ["/bin/sh", "-c"]
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+    command: ["ollama pull \"$${OLLAMA_EMBEDDING_MODEL}\""]
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  api:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    command: >
+      sh -c "alembic upgrade head &&
+      uvicorn main:app --host 0.0.0.0 --port 8000"
+    environment: &backend-environment
+      APP_ENV: ${APP_ENV:-development}
+      APP_VERSION: ${APP_VERSION:-0.0.1}
+      DB_USER: ${DB_USER:-root}
+      DB_PASSWORD: ${DB_PASSWORD:-Dd123456}
+      DB_NAME: ${DB_NAME:-ai_db}
+      DB_HOST: db
+      DB_PORT: 5432
+      DATABASE_URL: postgresql+asyncpg://${DB_USER:-root}:${DB_PASSWORD:-Dd123456}@db:5432/${DB_NAME:-ai_db}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      AGENT_FILE_STORAGE_PATH: /app/storage
+      LOG_FILE_PATH: /app/logs/app.log
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      EMBED_CLIENT_ID: ${EMBED_CLIENT_ID:-}
+      EMBED_CLIENT_SECRET: ${EMBED_CLIENT_SECRET:-}
+      EMBED_AGENT_ID: ${EMBED_AGENT_ID:-0}
+      EMBED_ORIGIN: ${EMBED_ORIGIN:-http://localhost:5173}
+      QUOTA_ENABLED: ${QUOTA_ENABLED:-false}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./apps/backend/logs:/app/logs
+      - ./apps/backend/storage:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    command: celery -A app.modules.knowledge.tasks:celery_app worker --loglevel=INFO
+    environment: *backend-environment
+    volumes:
+      - ./apps/backend/logs:/app/logs
+      - ./apps/backend/storage:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  front:
+    build:
+      context: ./apps/front
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: /api/v1
+    ports:
+      - "${FRONT_PORT:-5173}:80"
+    depends_on:
+      api:
+        condition: service_started
+
+volumes:
+  postgres_data:
+    # 复用旧 apps/backend Compose 创建的数据卷，避免切换根目录 Compose 后看到空库。
+    external: true
+    name: ${POSTGRES_VOLUME_NAME:-backend_postgres_data}
+  redis_data:
+  ollama_data:

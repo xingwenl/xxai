@@ -1,0 +1,43 @@
+{
+  "id": "2026-08-03-containerized-local-runtime",
+  "title": "本地全栈容器化运行",
+  "scope": "fullstack-infrastructure",
+  "phase": "acceptance",
+  "status": "active",
+  "riskLevel": "high",
+  "changeTypes": ["infrastructure", "runtime", "docs"],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "https://docs.docker.com/compose/how-tos/startup-order/",
+      "https://docs.celeryq.dev/en/stable/getting-started/first-steps-with-celery.html",
+      "https://docs.docker.com/guides/python/containerize/",
+      "https://docs.docker.com/guides/nodejs/containerize/"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": ["运行架构边界变化"],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-08-03",
+      "scope": "将前端、API、Celery Worker、Redis 和 PostgreSQL 全部放入 Compose",
+      "note": "用户明确要求继续实施"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-08-03",
+  "updatedAt": "2026-08-04",
+  "relatedPaths": [
+    "docker-compose.yml",
+    "apps/backend/Dockerfile",
+    "apps/backend/app/modules/knowledge/runtime.py",
+    "apps/backend/tests/knowledge/test_knowledge_services.py",
+    "apps/front/Dockerfile",
+    "apps/front/nginx.conf"
+  ],
+  "notes": "已修复第三方 embedding 模型名直接传入 LlamaIndex model 参数导致的 OpenAIEmbeddingModelType 错误；知识库测试和 Ruff 检查通过。原有真实镜像构建和模型拉取仍因 Docker Hub 网络超时未完成。"
+}

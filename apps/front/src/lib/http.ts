@@ -15,6 +15,21 @@ type ApiEnvelope<T> = {
   message: string
 }
 
+
+function clearEmptyDataInterceptor(config: any) {
+  if (config.clearEmptyData && config.data) {
+  
+    const data = typeof config.data === 'object' ? config.data : JSON.parse(config.data)
+    console.log('data', data)
+    // const cleanedData = Object.fromEntries(
+    //   Object.entries(data).filter(
+    //     ([_, value]) => value !== null && value !== undefined && value !== ''
+    //   )
+    // )
+    // config.data = JSON.stringify(cleanedData)
+  }
+}
+
 http.interceptors.request.use((config) => {
   const token =
     typeof localStorage !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null
@@ -23,6 +38,8 @@ http.interceptors.request.use((config) => {
     headers.set('Authorization', `Bearer ${token}`)
     config.headers = headers
   }
+  clearEmptyDataInterceptor(config)
+  console.log('config.clearEmptyData', config)
   return config
 })
 

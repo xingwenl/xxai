@@ -1,5 +1,6 @@
 import asyncio
 
+from app.core.logging import get_logger
 from celery import Celery
 
 from app.core.config import get_settings
@@ -13,7 +14,7 @@ celery_app = Celery(
     "ai-base", broker=settings.celery_broker_url, backend=settings.celery_result_backend
 )
 
-
+logger = get_logger(__name__)
 async def ingest_document(document_id: int) -> None:
     async with get_session_factory()() as session:
         repo = KnowledgeRepository(session)
@@ -21,6 +22,8 @@ async def ingest_document(document_id: int) -> None:
         task = await repo.get_task_for_document(document_id)
         if document is None or task is None:
             return
+
+        logger.info('开始处理: %s, task_id: %s', document.title, task.id)
         base = await repo.get_base(document.knowledge_base_id)
         if base is None:
             return

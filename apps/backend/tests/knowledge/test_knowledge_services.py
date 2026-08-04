@@ -4,7 +4,7 @@ import socket
 from pathlib import Path
 
 from app.modules.knowledge.schemas import KnowledgeBaseUpdate
-from app.modules.knowledge.runtime import validate_fetch_target
+from app.modules.knowledge.runtime import resolve_storage_path, validate_fetch_target
 from app.modules.knowledge.services import (
     build_citations,
     next_index_version,
@@ -36,6 +36,19 @@ class FakeRetryRepository:
         self.retried = True
         document.status = "pending"
         return document
+
+
+class FakeBase:
+    def __init__(
+        self,
+        *,
+        embedding_base_url: str | None,
+        embedding_model: str = "text-embedding-3-small",
+        embedding_api_key_encrypted=None,
+    ):
+        self.embedding_model = embedding_model
+        self.embedding_base_url = embedding_base_url
+        self.embedding_api_key_encrypted = embedding_api_key_encrypted
 
 
 def test_split_text_uses_configured_chunk_size() -> None:
@@ -81,6 +94,72 @@ def test_store_file_uses_generated_name_and_preserves_allowed_extension(
 def test_store_file_rejects_unsupported_extension(tmp_path: Path) -> None:
     with pytest.raises(BadRequestException, match="unsupported file type"):
         store_file(tmp_path, "script.py", b"print('unsafe')")
+
+
+def test_build_embedding_model_uses_dummy_key_for_local_base_url() -> None:
+    from app.modules.knowledge.runtime import build_embedding_model
+
+    model = build_embedding_model(
+        FakeBase(
+            embedding_base_url="http://ollama:11434/v1",
+            embedding_model="embeddinggemma",
+        )
+    )
+
+    assert model.api_key == "ollama"
+    assert model.model_name == "embeddinggemma"
+    assert model._text_engine == "embeddinggemma"
+
+
+def test_build_embedding_model_keeps_missing_key_for_remote_base_url() -> None:
+    from app.modules.knowledge.runtime import build_embedding_model
+
+    model = build_embedding_model(FakeBase(embedding_base_url="https://api.openai.com/v1"))
+
+    assert not model.api_key
+
+
+def test_build_embedding_model_supports_dashscope_model_names() -> None:
+    from app.modules.knowledge.runtime import build_embedding_model
+
+    model = build_embedding_model(
+        FakeBase(
+            embedding_base_url="https://embedding-proxy.example.com/v1",
+            embedding_model="text-embedding-v3",
+        )
+    )
+
+    assert model.model_name == "text-embedding-v3"
+    assert model._text_engine == "text-embedding-v3"
+
+
+def test_build_embedding_model_keeps_openai_model_enum_behavior() -> None:
+    from app.modules.knowledge.runtime import build_embedding_model
+
+    model = build_embedding_model(
+        FakeBase(
+            embedding_base_url="https://embedding-proxy.example.com/v1",
+            embedding_model="text-embedding-3-small",
+        )
+    )
+
+    assert model.model_name == "text-embedding-3-small"
+    assert model._text_engine == "text-embedding-3-small"
+
+
+def test_resolve_storage_path_rebases_host_storage_path_for_worker() -> None:
+    resolved = resolve_storage_path(
+        "/Users/dev/project/apps/backend/storage/3/manual.md",
+        storage_root="/app/storage",
+    )
+
+    assert resolved == Path("/app/storage/3/manual.md")
+
+
+def test_resolve_storage_path_uses_configured_root_for_relative_path() -> None:
+    resolved = resolve_storage_path("3/manual.md", storage_root="/app/storage")
+
+    assert resolved == Path("/app/storage/3/manual.md")
 
 
 def test_embedding_change_creates_new_index_version() -> None:
