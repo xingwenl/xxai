@@ -2,6 +2,10 @@
 
 ## 已完成检查
 
+- `cd apps/backend && poetry run pytest tests/system/test_logging.py -q`：通过，`3 passed`；覆盖后端统一日志配置和 Celery Worker 日志信号配置，确认日期日志文件会落到宿主机绑定目录。
+- `cd apps/backend && poetry run ruff check app/modules/knowledge/tasks.py tests/system/test_logging.py`：通过。
+- 代码核对：Celery Worker 通过 `setup_logging` 信号复用 `app.core.logging.setup_logging`，避免只在 API 生命周期内初始化日志导致 worker 不落盘。
+
 - `docker compose config`：通过；根目录 Compose 成功渲染 `db`、`redis`、`ollama`、`ollama-init`、`api`、`worker`、`front` 七个服务。
 - `docker compose config --quiet`：通过。
 - `docker compose config | rg -n "LOG_FILE_PATH|apps/backend/logs|/app/logs|apps/backend/storage|/app/storage"`：通过；API 和 Worker 均设置 `LOG_FILE_PATH=/app/logs/app.log`，并绑定宿主 `apps/backend/logs` 到 `/app/logs`。

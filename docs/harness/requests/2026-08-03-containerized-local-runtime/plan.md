@@ -10,6 +10,11 @@
 
 ## 2026-08-04 Bugfix 增量计划
 
+- 修改 `apps/backend/app/modules/knowledge/tasks.py`，为 Celery Worker 连接 `setup_logging` 信号并复用统一文件日志配置，确保 `/app/logs` 绑定目录能收到任务日志。
+- 修改 `apps/backend/tests/system/test_logging.py`，补充 Worker 日志配置会创建宿主机日期日志文件的回归测试。
+- 执行后端日志相关测试和 Ruff 检查，确认 API 与 Worker 的日志落盘逻辑一致。
+- 更新 `verify.md`、`acceptance.md` 和 `meta.json`，记录真实验证结果。
+
 - 修改 `apps/backend/app/modules/knowledge/runtime.py`，基于 `OpenAIEmbeddingModelType` 判断模型是否为 LlamaIndex 原生模型；第三方模型名统一通过 `model_name` 传递。
 - 修改 `apps/backend/tests/knowledge/test_knowledge_services.py`，覆盖代理 Base URL 下的 `text-embedding-v3`，并保留原生 OpenAI 模型回归。
 - 执行知识库服务测试和 Ruff 检查，确认不改变已有本地 Ollama 与 OpenAI 模型行为。

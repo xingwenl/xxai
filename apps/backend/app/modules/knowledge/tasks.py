@@ -1,9 +1,11 @@
 import asyncio
 
-from app.core.logging import get_logger
 from celery import Celery
+from celery.signals import setup_logging as celery_setup_logging
 
 from app.core.config import get_settings
+from app.core.logging import get_logger, setup_logging
+
 from app.core.database import get_session_factory
 from app.modules.knowledge.repositories import KnowledgeRepository
 from app.modules.knowledge.runtime import build_embedding_model, load_document_content
@@ -15,6 +17,19 @@ celery_app = Celery(
 )
 
 logger = get_logger(__name__)
+
+
+@celery_setup_logging.connect
+def configure_worker_logging(*args, **kwargs) -> None:
+    """让 Celery Worker 复用后端统一日志配置并落到宿主机日志目录。"""
+    worker_settings = get_settings()
+    setup_logging(
+        worker_settings.log_level,
+        log_file_path=worker_settings.log_file_path,
+        log_file_backup_count=worker_settings.log_file_backup_count,
+    )
+
+
 async def ingest_document(document_id: int) -> None:
     async with get_session_factory()() as session:
         repo = KnowledgeRepository(session)

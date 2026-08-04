@@ -35,7 +35,9 @@
     "docker-compose.yml",
     "apps/backend/Dockerfile",
     "apps/backend/app/modules/knowledge/runtime.py",
+    "apps/backend/app/modules/knowledge/tasks.py",
     "apps/backend/tests/knowledge/test_knowledge_services.py",
+    "apps/backend/tests/system/test_logging.py",
     "apps/front/Dockerfile",
     "apps/front/nginx.conf"
   ],

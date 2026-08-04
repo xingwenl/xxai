@@ -48,6 +48,14 @@
 
 ## 变更记录
 
+### 2026-08-04 第 11 次变更（fix）
+
+- 变更原因：启动 `worker` 后，任务日志仍只出现在容器标准输出，没有落到宿主机 `apps/backend/logs` 目录。
+- 变更内容：为 Celery Worker 增加 `setup_logging` 信号处理，复用后端统一日志配置，确保 Worker 进程也写入 `/app/logs/app-YYYY-MM-DD.log`。
+- 影响章节：运行约束、验收标准、风险。
+- 是否触发人工确认：否，属于既有日志落盘路径的局部 bug 修复，不修改架构边界、数据模型、API 契约或权限语义。
+- 关联计划更新：已同步更新 `plan.md`。
+
 ### 2026-08-04 第 10 次变更（fix）
 
 - 变更原因：使用阿里云百炼模型名 `text-embedding-v3` 时，部分配置会将第三方模型名直接传给 LlamaIndex 的 `model` 参数，触发 `OpenAIEmbeddingModelType` 枚举校验错误。

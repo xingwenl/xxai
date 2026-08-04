@@ -5,6 +5,7 @@
 - 配置层验收通过：根目录 Compose、前后端镜像文件、Nginx 代理和共享存储卷已完成。
 - Embedding 配置层验收通过：百炼远程 Embedding 不再依赖 Ollama；本地 Ollama 仍可通过 `local-embedding` profile 按需启用。
 - 代码层验收通过：前端 Vite 产物构建和 Celery 任务注册检查通过。
+- 日志落盘 bugfix 验收通过：Celery Worker 已通过 `setup_logging` 信号复用后端统一文件日志配置，任务日志会写入宿主 `apps/backend/logs`。
 - 百炼模型名 Bugfix 验收通过：`text-embedding-v3` 等非 LlamaIndex OpenAI 枚举模型通过 `model_name` 传递，不再在 `OpenAIEmbedding` 构造阶段报错。
 - 路径修复验收通过：Worker 可将历史主机绝对 `storage_path` 重定位到当前容器存储根目录，Compose 使用宿主 `apps/backend/storage` 绑定目录共享上传文件。
 - 运行层验收暂未完成：Docker Hub 拉取基础镜像超时，尚未完成真实容器启动和知识库文档消费。
@@ -16,6 +17,7 @@
 - [x] 混合运行场景下，Worker 能解析主机绝对路径并访问绑定存储目录中的上传文件。
 - [x] 前端通过 Nginx 代理 API，并支持单页路由回退。
 - [x] `knowledge.ingest_document` 任务注册成功。
+- [x] Celery Worker 任务日志写入宿主 `apps/backend/logs`。
 - [x] Ollama 服务配置、模型持久化卷和本地端点凭证兼容逻辑已完成。
 - [x] 阿里云百炼 `text-embedding-v3` 不再因 `OpenAIEmbeddingModelType` 枚举校验失败。
 - [x] Compose 自动拉取默认 embedding 模型，API/Worker 等待模型初始化完成。
