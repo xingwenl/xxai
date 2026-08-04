@@ -4,6 +4,13 @@
 
 已完成 research、spec、plan、implement 和 verify；2026-07-31 完成 npm 发布契约修复增量。
 
+## 2026-08-04 增量验证
+
+- `apps/backend/.venv/bin/pytest apps/backend/tests/conversation/test_runtime.py apps/backend/tests/knowledge/test_knowledge_services.py -q`，`33 passed`。
+- `apps/backend/.venv/bin/pytest apps/backend/tests/gateway/test_chat_flow.py -q`，`3 passed`。
+- `apps/backend/.venv/bin/ruff check apps/backend/app/modules/conversation/runtime.py apps/backend/app/modules/conversation/services.py apps/backend/app/modules/gateway/runtime.py apps/backend/app/modules/knowledge/runtime.py apps/backend/tests/conversation/test_runtime.py apps/backend/tests/knowledge/test_knowledge_services.py`，通过。
+- 覆盖点：runtime context 日志、chat graph 日志、embed chat 日志、knowledge embedding 配置日志，以及 embedding API Key 不再出现在日志中的回归。
+
 ## 已执行
 
 - 基线后端：`poetry run pytest -q`，`127 passed, 1 skipped`。

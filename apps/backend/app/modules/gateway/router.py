@@ -222,6 +222,7 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                         message["text"],
                     )
 
+
                     async def invoke_host_tool(*, tool, call):
                         """把模型 tool_call 转换为页面可执行的宿主工具调用。
 

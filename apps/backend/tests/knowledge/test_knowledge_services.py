@@ -1,8 +1,11 @@
-import pytest
 import asyncio
+import logging
 import socket
 from pathlib import Path
 
+import pytest
+
+from app.modules.agent.services import encrypt_secret
 from app.modules.knowledge.schemas import KnowledgeBaseUpdate
 from app.modules.knowledge.runtime import resolve_storage_path, validate_fetch_target
 from app.modules.knowledge.services import (
@@ -117,6 +120,22 @@ def test_build_embedding_model_keeps_missing_key_for_remote_base_url() -> None:
     model = build_embedding_model(FakeBase(embedding_base_url="https://api.openai.com/v1"))
 
     assert not model.api_key
+
+
+def test_build_embedding_model_logs_redacted_secret(caplog) -> None:
+    from app.modules.knowledge.runtime import build_embedding_model
+
+    caplog.set_level(logging.INFO)
+    build_embedding_model(
+        FakeBase(
+            embedding_base_url="https://embedding-proxy.example.com/v1",
+            embedding_model="text-embedding-3-small",
+            embedding_api_key_encrypted=encrypt_secret("sk-secret"),
+        )
+    )
+
+    assert "sk-secret" not in caplog.text
+    assert "has_api_key=True" in caplog.text
 
 
 def test_build_embedding_model_supports_dashscope_model_names() -> None:

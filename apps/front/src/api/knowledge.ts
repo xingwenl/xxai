@@ -48,6 +48,11 @@ export type KnowledgeDocument = {
   updated_at: string
 }
 
+export type AgentKnowledgeBaseBinding = {
+  agent_id: number
+  knowledge_base_id: number
+}
+
 export async function listKnowledgeBases(
   platformId: number,
   params: { page?: number; pageSize?: number } = {}
@@ -68,13 +73,10 @@ export async function listKnowledgeBases(
 export async function createKnowledgeBase(
   platformId: number,
   input: KnowledgeBaseInput
-) {
+): Promise<KnowledgeBase> {
   const { data } = await http.post<KnowledgeBase>(
     `/platforms/${platformId}/knowledge-bases`,
-    normalizeKnowledgeBaseInput(input),
-    {
-      clearEmptyData: true,
-    }
+    normalizeKnowledgeBaseInput(input)
   )
   return data
 }
@@ -83,7 +85,7 @@ export async function updateKnowledgeBase(
   platformId: number,
   baseId: number,
   input: Partial<KnowledgeBaseInput>
-) {
+): Promise<KnowledgeBase> {
   const { data } = await http.patch<KnowledgeBase>(
     `/platforms/${platformId}/knowledge-bases/${baseId}`,
     normalizeKnowledgeBaseInput(input)
@@ -164,6 +166,22 @@ export async function retryKnowledgeDocument(
 ) {
   const { data } = await http.post<KnowledgeDocument>(
     `/platforms/${platformId}/knowledge-bases/${baseId}/documents/${documentId}/retry`
+  )
+  return data
+}
+
+export async function bindKnowledgeBaseAgent(
+  platformId: number,
+  baseId: number,
+  agentId: number,
+  sortOrder = 0
+): Promise<AgentKnowledgeBaseBinding> {
+  const { data } = await http.put<AgentKnowledgeBaseBinding>(
+    `/platforms/${platformId}/knowledge-bases/${baseId}/agents/${agentId}`,
+    {
+      knowledge_base_id: baseId,
+      sort_order: sortOrder,
+    }
   )
   return data
 }

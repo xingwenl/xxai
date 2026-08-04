@@ -3,9 +3,12 @@
 import asyncio
 from collections.abc import AsyncIterator
 
+from app.core.logging import get_logger
 from app.modules.conversation.repositories import ConversationRepository
 from app.modules.conversation.runtime import build_system_prompt, stream_graph
 from app.shared.exceptions import NotFoundException
+
+logger = get_logger(__name__)
 
 
 class RequestRegistry:
@@ -68,6 +71,17 @@ async def stream_embed_chat(
     ``host_tools`` 与 ``invoke_host_tool_fn`` 由 WebSocket 连接层注入，
     因此这个运行时不会绕过当前连接的 token 和页面注册权限。
     """
+    logger.info(
+        "Embed chat started request_id=%s platform_id=%s end_user_id=%s client_id=%s conversation_id=%s message_chars=%s citation_count=%s host_tool_count=%s",
+        request_id,
+        platform_id,
+        end_user_id,
+        client_id,
+        conversation_id,
+        len(message),
+        len(citations),
+        len(host_tools or []),
+    )
     conversation = None
     if conversation_id is not None:
         conversation = await repo.get_for_principal(
@@ -147,6 +161,15 @@ async def stream_embed_chat(
             completion_tokens=result.usage["completion_tokens"],
             total_tokens=result.usage["total_tokens"],
         )
+    logger.info(
+        "Embed chat completed request_id=%s conversation_id=%s assistant_id=%s knowledge_grounded=%s citation_count=%s usage=%s",
+        request_id,
+        conversation.id,
+        assistant.id,
+        result.knowledge_grounded,
+        len(result.citations),
+        result.usage,
+    )
     for citation in result.citations:
         yield {
             "type": "citation",

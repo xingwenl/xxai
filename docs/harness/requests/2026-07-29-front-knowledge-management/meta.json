@@ -29,11 +29,12 @@
   ],
   "owner": "ai",
   "createdAt": "2026-07-29",
-  "updatedAt": "2026-07-29",
+  "updatedAt": "2026-08-04",
   "relatedPaths": [
     "apps/backend/app/modules/knowledge",
     "apps/front/src/api/knowledge.ts",
+    "apps/front/src/features/knowledge/index.tsx",
     "apps/front/src/routes/_authenticated/ai/knowledge-bases.tsx"
   ],
-  "notes": "用户已确认新增 API 和硬删除语义，进入 implement。"
+  "notes": "用户已确认新增 API 和硬删除语义；2026-08-04 增量补齐知识库绑定智能体的前端入口，复用既有绑定接口。"
 }

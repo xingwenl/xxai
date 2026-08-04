@@ -7,6 +7,7 @@ import {
   Database,
   Edit,
   ExternalLink,
+  Link2,
   Plus,
   RefreshCw,
   RotateCw,
@@ -15,7 +16,9 @@ import {
   Upload,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { listAgents, type Agent } from '@/api/agent'
 import {
+  bindKnowledgeBaseAgent,
   createKnowledgeBase,
   createUrlDocument,
   deleteKnowledgeBase,
@@ -106,6 +109,7 @@ export function KnowledgeBasesPage() {
   const [platformId, setPlatformId] = useState<number>()
   const [selectedBase, setSelectedBase] = useState<KnowledgeBase | null>(null)
   const [editing, setEditing] = useState<KnowledgeBase | null | undefined>()
+  const [binding, setBinding] = useState<KnowledgeBase | null>(null)
   const [deleting, setDeleting] = useState<KnowledgeBase | null>(null)
   const [deletingDocument, setDeletingDocument] =
     useState<KnowledgeDocument | null>(null)
@@ -200,6 +204,15 @@ export function KnowledgeBasesPage() {
     onSuccess: async () => {
       toast.success('文档已重新排队')
       await invalidateDocuments()
+    },
+  })
+  const bindAgentMutation = useMutation({
+    mutationFn: ({ base, agentId }: { base: KnowledgeBase; agentId: number }) =>
+      bindKnowledgeBaseAgent(activePlatformId!, base.id, agentId),
+    onSuccess: async () => {
+      toast.success('知识库已绑定到智能体')
+      setBinding(null)
+      await invalidateBases()
     },
   })
   const selectedPlatform = platformsQuery.data?.find(
@@ -327,6 +340,17 @@ export function KnowledgeBasesPage() {
                             >
                               <Edit className='size-4' />
                               <span className='sr-only'>编辑</span>
+                            </Button>
+                            <Button
+                              size='icon'
+                              variant='ghost'
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                setBinding(base)
+                              }}
+                            >
+                              <Link2 className='size-4' />
+                              <span className='sr-only'>绑定智能体</span>
                             </Button>
                             <Button
                               size='icon'
@@ -504,6 +528,18 @@ export function KnowledgeBasesPage() {
         isSaving={urlMutation.isPending}
         onSubmit={(values) => urlMutation.mutate(values)}
       />
+      {activePlatformId && (
+        <KnowledgeAgentBindingDialog
+          platformId={activePlatformId}
+          base={binding}
+          open={!!binding}
+          onOpenChange={(open) => !open && setBinding(null)}
+          isSaving={bindAgentMutation.isPending}
+          onSubmit={(agentId) =>
+            binding && bindAgentMutation.mutate({ base: binding, agentId })
+          }
+        />
+      )}
       <AlertDialog
         open={!!deleting}
         onOpenChange={(open) => !open && setDeleting(null)}
@@ -708,6 +744,81 @@ function UrlDocumentDialog({
         <DialogFooter>
           <Button type='submit' form='url-document-form' disabled={isSaving}>
             {isSaving ? '提交中...' : '加入处理队列'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function KnowledgeAgentBindingDialog({
+  platformId,
+  base,
+  open,
+  onOpenChange,
+  isSaving,
+  onSubmit,
+}: {
+  platformId: number
+  base: KnowledgeBase | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  isSaving: boolean
+  onSubmit: (agentId: number) => void
+}) {
+  const [agentId, setAgentId] = useState<number>()
+  const agentsQuery = useQuery({
+    queryKey: ['agents', platformId],
+    queryFn: () => listAgents(platformId),
+    enabled: open,
+  })
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{base?.name ?? '知识库'} · 绑定智能体</DialogTitle>
+          <DialogDescription>
+            绑定后，该智能体聊天时会检索并注入此知识库的匹配片段。
+          </DialogDescription>
+        </DialogHeader>
+        <div className='grid gap-3'>
+          <Label htmlFor='knowledge-agent'>智能体</Label>
+          <Select
+            value={agentId?.toString()}
+            onValueChange={(value) => setAgentId(Number(value))}
+            disabled={agentsQuery.isLoading}
+          >
+            <SelectTrigger id='knowledge-agent'>
+              <SelectValue
+                placeholder={
+                  agentsQuery.isLoading ? '读取智能体中...' : '选择智能体'
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {(agentsQuery.data?.items ?? []).map((agent: Agent) => (
+                <SelectItem key={agent.id} value={agent.id.toString()}>
+                  {agent.name} ({agent.slug})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {!agentsQuery.isLoading && !agentsQuery.data?.items.length && (
+            <p className='text-sm text-muted-foreground'>
+              当前平台暂无可绑定的智能体。
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant='outline' onClick={() => onOpenChange(false)}>
+            取消
+          </Button>
+          <Button
+            onClick={() => agentId && onSubmit(agentId)}
+            disabled={!agentId || isSaving}
+          >
+            {isSaving ? '绑定中...' : '绑定'}
           </Button>
         </DialogFooter>
       </DialogContent>

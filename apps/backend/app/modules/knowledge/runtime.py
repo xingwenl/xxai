@@ -96,8 +96,12 @@ def build_embedding_model(base) -> OpenAIEmbedding:
         if base.embedding_api_key_encrypted
         else "ollama" if _is_local_embedding_endpoint(base.embedding_base_url) else None
     )
-    logger.info("Using default embedding model: %s %s", base.embedding_model, base.embedding_base_url, api_key)
-    logger.info("Using default api_key: %s", api_key)
+    logger.info(
+        "Using embedding model config model=%s base_url=%s has_api_key=%s",
+        base.embedding_model,
+        base.embedding_base_url,
+        bool(api_key),
+    )
 
     if _uses_custom_embedding_model_name(base.embedding_model):
         # LlamaIndex 会校验 model 参数是否属于 OpenAI 枚举；model_name

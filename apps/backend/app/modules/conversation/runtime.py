@@ -111,6 +111,12 @@ async def stream_graph(
             yield {"type": "message_delta", "content": result.content}
         yield {"type": "completed", "result": result}
         return
+    logger.info(
+        "Streaming chat graph message_chars=%s citations=%s has_tools=%s",
+        len(user_message),
+        len(citations or []),
+        bool(tools),
+    )
     content_parts = []
     usage = None
     async for chunk in model.astream(
@@ -129,6 +135,12 @@ async def stream_graph(
         if content:
             content_parts.append(content)
             yield {"type": "message_delta", "content": content}
+    logger.info(
+        "Streaming chat graph completed content_chars=%s knowledge_grounded=%s usage=%s",
+        len("".join(content_parts)),
+        bool(citations),
+        usage,
+    )
     yield {
         "type": "completed",
         "result": GraphResult(
@@ -150,6 +162,12 @@ async def run_graph(
     invoke_tool_fn=None,
 ) -> GraphResult:
     citation_items = citations or []
+    logger.info(
+        "Running chat graph message_chars=%s citations=%s tools=%s",
+        len(user_message),
+        len(citation_items),
+        [getattr(tool, "name", type(tool).__name__) for tool in (tools or [])],
+    )
 
     bound_model = model
     if tools and hasattr(model, "bind_tools"):
@@ -232,7 +250,7 @@ async def run_graph(
         response = result["messages"][-1]
         usage = merge_token_usage(usage, extract_token_usage(response))
         tool_calls = getattr(response, "tool_calls", []) or []
-    return GraphResult(
+    graph_result = GraphResult(
         content=result.get("content", ""),
         citations=citation_items,
         knowledge_grounded=bool(citation_items),
@@ -240,6 +258,15 @@ async def run_graph(
         tool_events=tool_events,
         usage=usage,
     )
+    logger.info(
+        "Chat graph completed content_chars=%s citations=%s knowledge_grounded=%s usage=%s pending_confirmation_id=%s",
+        len(graph_result.content),
+        len(graph_result.citations),
+        graph_result.knowledge_grounded,
+        graph_result.usage,
+        graph_result.pending_confirmation_id,
+    )
+    return graph_result
 
 
 async def load_runtime_context(
@@ -258,14 +285,22 @@ async def load_runtime_context(
         await skill_repo.list_enabled_for_agent(agent_id, platform_id),
         key=lambda item: item.sort_order,
     )
+    knowledge_bases = await knowledge_repo.list_enabled_for_agent(agent_id, platform_id)
+    mcp_tools = await mcp_repo.list_enabled_tools_for_agent(agent_id, platform_id)
+    logger.info(
+        "Loaded runtime context agent_id=%s platform_id=%s knowledge_bases=%s skill_count=%s mcp_tool_count=%s",
+        agent_id,
+        platform_id,
+        [getattr(base, "id", None) for base in knowledge_bases],
+        len(bindings),
+        len(mcp_tools),
+    )
     return RuntimeContext(
         agent=agent,
         version=agent.default_version,
-        knowledge_bases=await knowledge_repo.list_enabled_for_agent(
-            agent_id, platform_id
-        ),
+        knowledge_bases=knowledge_bases,
         skill_instructions=[item.skill.instruction_template for item in bindings],
-        mcp_tools=await mcp_repo.list_enabled_tools_for_agent(agent_id, platform_id),
+        mcp_tools=mcp_tools,
     )
 
 
@@ -298,7 +333,16 @@ def build_system_prompt(
             "用户要求打开后台页面时，必须调用 navigate_to_page，"
             "不能只描述应该怎么做，也不能编造未列出的工具。"
         )
-    return "\n\n".join(section for section in sections if section)
+    prompt = "\n\n".join(section for section in sections if section)
+    logger.info(
+        "Built system prompt sections=%s skill_count=%s citation_count=%s host_tool_count=%s prompt_chars=%s",
+        len(sections),
+        len(skill_instructions),
+        len(citations),
+        len(host_tools or []),
+        len(prompt),
+    )
+    return prompt
 
 
 def build_model(version):

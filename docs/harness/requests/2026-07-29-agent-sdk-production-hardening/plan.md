@@ -7,6 +7,7 @@
 - `apps/backend/app/modules/gateway/`：接入协议兼容、连接/消息/model token 配额和 completed usage 返回。
 - `apps/backend/app/modules/embed/`：接入 token 签发配额，超限前不创建最终用户。
 - `apps/backend/app/modules/conversation/runtime.py`：读取并标准化模型 usage。
+- `apps/backend/app/modules/conversation/runtime.py`、`services.py`、`apps/backend/app/modules/gateway/runtime.py`、`apps/backend/app/modules/knowledge/runtime.py`：补充分阶段聊天日志并移除 embedding API Key 明文输出。
 - `apps/backend/app/modules/conversation/models.py`、`repositories.py`：新增 `model_usage_records` 独立用量明细表和写入方法。
 - `apps/backend/migrations/versions/20260730_0012_model_usage_records.py`：新增模型用量明细表迁移。
 - `apps/ai-sdk/src/core/`：发送 SDK 版本、保存 server capabilities、暴露 `metadata.usage`。
@@ -37,6 +38,7 @@
 - `npm run test -- --run scripts/verify-package.test.mjs`，预期覆盖真实 tarball 的 ESM、CommonJS、类型和 CSS 入口。
 - 真实 Redis 验证 replay、message quota 和 token_issue quota 第一次允许、第二次超限。
 - `poetry run pytest tests/gateway/test_chat_flow.py tests/conversation/test_usage_records.py -q`，预期模型 usage 明细运行时和 Repository 写入测试通过。
+- `apps/backend/.venv/bin/pytest apps/backend/tests/conversation/test_runtime.py apps/backend/tests/knowledge/test_knowledge_services.py -q`，预期聊天阶段日志与 embedding 密钥脱敏回归通过。
 - `poetry run alembic upgrade head`，预期 PostgreSQL 升级到 `20260730_0012`。
 
 ## 回滚说明
@@ -46,3 +48,12 @@
 ## 人工确认点
 
 用户已确认 Phase 2C 生产核心范围，并于 2026-07-30 确认采用独立 `model_usage_records` 用量明细表。若后续新增计费事实表、余额扣减或后台配额管理 API，需要另行创建 request 并重新确认。
+
+## 变更记录
+
+### 2026-08-04 增量：聊天过程日志与密钥脱敏
+
+- 变更原因：用户需要更详细的聊天过程日志来判断知识库内容是否进入检索与 prompt，同时要避免 embedding API Key 明文进入日志。
+- 变更内容：补充 conversation/gateway/knowledge 运行时日志，并新增日志与脱敏回归测试。
+- 影响章节：变更文件、实施步骤、测试步骤。
+- 是否触发人工确认：否。

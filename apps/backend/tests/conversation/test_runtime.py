@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -86,6 +87,26 @@ def test_runtime_context_only_loads_published_bound_capabilities():
     assert [item.id for item in context.knowledge_bases] == [3]
     assert context.skill_instructions == ["first", "second"]
     assert context.mcp_tools[0].name == "lookup"
+
+
+def test_runtime_context_logs_loaded_knowledge_and_tool_counts(caplog):
+    caplog.set_level(logging.INFO)
+
+    asyncio.run(
+        load_runtime_context(
+            FakeAgentRepository(),
+            FakeKnowledgeRepository(),
+            FakeSkillRepository(),
+            FakeMcpRepository(),
+            agent_id=11,
+            platform_id=2,
+        )
+    )
+
+    assert "Loaded runtime context" in caplog.text
+    assert "knowledge_bases=[3]" in caplog.text
+    assert "skill_count=2" in caplog.text
+    assert "mcp_tool_count=1" in caplog.text
 
 
 def test_runtime_context_rejects_agent_without_published_version():
