@@ -1,26 +1,28 @@
 <template>
   <div class="xxai-chat-messages" ref="messagesRef">
-    <ChatBubble
+    <ChatMessage
       v-for="msg in messages"
       :key="msg.id"
       :message="msg"
-      ref="bubbleRefs"
       @button-click="handleButtonClick"
     />
-    <div v-if="pendingMessage" class="xxai-message assistant xxai-pending-message">
-      <div class="xxai-message-content">{{ pendingMessage.text || '...' }}</div>
-    </div>
+    <ChatMessage
+      v-if="pendingMessage"
+      :message="pendingAsMessage"
+      pending
+      @button-click="handleButtonClick"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, type ComponentPublicInstance } from 'vue'
-import ChatBubble from './ChatBubble.vue'
-import type { Message } from '../../core'
+import { computed, ref, watch, nextTick } from 'vue'
+import ChatMessage from './ChatMessage.vue'
+import type { Message, AgentLoopRun } from '../../core'
 
 interface Props {
   messages: Message[]
-  pendingMessage?: { id: string; text: string } | null
+  pendingMessage?: { id: string; text: string; loop?: import('../../core').AgentLoopRun } | null
 }
 
 const props = defineProps<Props>()
@@ -30,7 +32,20 @@ const emit = defineEmits<{
 }>()
 
 const messagesRef = ref<HTMLElement | null>(null)
-const bubbleRefs = ref<(ComponentPublicInstance | null)[]>([])
+const pendingAsMessage = computed<Message>(() => ({
+  id: props.pendingMessage?.id || 'pending',
+  role: 'assistant',
+  type: 'text',
+  content: { type: 'text', text: props.pendingMessage?.text || '' },
+  contentBlocks: [{
+    id: props.pendingMessage?.id || 'pending',
+    type: 'markdown',
+    text: props.pendingMessage?.text || '',
+    status: 'streaming'
+  }],
+  loop: props.pendingMessage?.loop as AgentLoopRun | undefined,
+  timestamp: new Date()
+}))
 
 function scrollToBottom() {
   nextTick(() => {
@@ -51,11 +66,6 @@ watch(
   () => props.pendingMessage,
   (newPending) => {
     if (newPending) {
-      const index = props.messages.findIndex((m) => m.id === newPending.id)
-      if (index !== -1 && bubbleRefs.value[index]) {
-        const bubble = bubbleRefs.value[index] as any
-        bubble?.updatePendingText?.(newPending.text)
-      }
       scrollToBottom()
     }
   }

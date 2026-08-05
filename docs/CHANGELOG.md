@@ -1,5 +1,8 @@
 # Changelog
 
+## - 2026-08-05
+- ✨ feat：增加可观测消息和玻璃态聊天 UI `🧑‍💻 lixingwen`
+
 ## - 2026-08-04
 - ✨ feat：补知识库绑定智能体入口并增强聊天过程日志 `🧑‍💻 lixingwen`
 - 🐛 fix：修复 worker 日志不落到宿主挂载目录 `🧑‍💻 lixingwen`

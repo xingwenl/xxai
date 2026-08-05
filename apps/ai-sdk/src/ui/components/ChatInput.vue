@@ -8,8 +8,10 @@
         @keydown.enter="handleSend"
         :disabled="isSending"
       />
-      <button v-if="!isSending" @click="handleSend" :disabled="!inputText.trim()">发送</button>
-      <button v-else class="xxai-stop-button" type="button" @click="$emit('stop')">停止</button>
+      <button v-if="!isSending" class="xxai-send-button" aria-label="发送消息" @click="handleSend" :disabled="!inputText.trim()">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4.5 20 12 4 19.5 7 12 4 4.5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7 12h9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+      <button v-else class="xxai-stop-button" type="button" aria-label="停止生成" @click="$emit('stop')"><span></span></button>
     </div>
   </div>
 </template>

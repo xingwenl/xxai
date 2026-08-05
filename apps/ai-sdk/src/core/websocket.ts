@@ -137,6 +137,7 @@ export class WebSocketTransport extends EventEmitter implements Transport {
   private handleMessage(raw: string): void {
     try {
       const event = parseProtocolEvent(JSON.parse(raw))
+      if (event.type === 'unknown') return
       if (event.conversationId) this._conversationId = event.conversationId
       if (event.type === 'session_ready') {
         const sessionId = (event.payload as Record<string, unknown>).sessionId

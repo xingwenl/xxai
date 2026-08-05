@@ -2,6 +2,8 @@ import type {
   AgentCallbacks,
   AgentClientOptions,
   ConnectionState,
+  AgentLoopRun,
+  AgentLoopStep,
   Message,
   OutgoingMessage,
   ToolDefinition,
@@ -29,12 +31,13 @@ export class AgentClient {
   private conversationId: string | undefined
   private currentRequestId: string | undefined
   private activeRequestId: string | undefined
-  private pendingAssistantMessage: { id: string; text: string } | null = null
+  private pendingAssistantMessage: { id: string; text: string; loop?: AgentLoopRun } | null = null
   private pendingCitations: unknown[] = []
   private uiMounted = false
   private uiContainer: HTMLElement | null = null
   private pendingConfirmations = new Set<string>()
   private pendingHostCalls = new Map<string, { name: string; arguments: unknown }>()
+  private pendingLoop: AgentLoopRun | null = null
 
   constructor(options: AgentClientOptions) {
     this.options = {
@@ -114,9 +117,54 @@ export class AgentClient {
         this.activeRequestId = msg.requestId
         this.pendingAssistantMessage = {
           id: generateId(),
-          text: ''
+          text: '',
+          loop: this.pendingLoop || undefined
         }
         this.pendingCitations = []
+        this.updatePendingMessage()
+        break
+      case 'agent_loop_started':
+        this.pendingLoop = {
+          id: String(msg.payload.loopRunId || msg.payload.id || msg.requestId || generateId()),
+          requestId: String(msg.requestId || ''),
+          status: 'running',
+          summary: typeof msg.payload.summary === 'string' ? msg.payload.summary : undefined,
+          steps: []
+        }
+        if (this.pendingAssistantMessage) this.pendingAssistantMessage.loop = this.pendingLoop
+        this.eventEmitter.emit('agent_loop', this.pendingLoop)
+        this.updatePendingMessage()
+        break
+      case 'agent_step_started':
+      case 'agent_step_completed': {
+        if (!this.pendingLoop) {
+          this.pendingLoop = {
+            id: String(msg.payload.loopRunId || msg.payload.id || msg.requestId || generateId()),
+            requestId: String(msg.requestId || ''),
+            status: 'running',
+            steps: []
+          }
+        }
+        const step = this.mergeLoopStep(msg)
+        const index = this.pendingLoop.steps.findIndex((item) => item.id === step.id)
+        if (index === -1) this.pendingLoop.steps.push(step)
+        else this.pendingLoop.steps[index] = { ...this.pendingLoop.steps[index], ...step }
+        this.eventEmitter.emit('agent_loop', { ...this.pendingLoop, steps: [...this.pendingLoop.steps] })
+        this.pendingAssistantMessage && (this.pendingAssistantMessage.loop = this.pendingLoop)
+        this.updatePendingMessage()
+        break
+      }
+      case 'agent_loop_completed':
+        if (this.pendingLoop) {
+          this.pendingLoop = {
+            ...this.pendingLoop,
+            status: (msg.payload.status as AgentLoopRun['status']) || 'completed',
+            summary: typeof msg.payload.summary === 'string' ? msg.payload.summary : this.pendingLoop.summary
+          }
+          this.eventEmitter.emit('agent_loop', this.pendingLoop)
+          this.pendingAssistantMessage && (this.pendingAssistantMessage.loop = this.pendingLoop)
+          this.updatePendingMessage()
+        }
         break
       case 'message_delta':
         if (this.pendingAssistantMessage) {
@@ -151,6 +199,10 @@ export class AgentClient {
       case 'message_completed':
         if (this.pendingAssistantMessage) {
           const finalText = (msg.payload.content as string) || this.pendingAssistantMessage.text
+          const completedLoop = msg.payload.loop as AgentLoopRun | undefined
+          const loop = completedLoop && this.pendingLoop
+            ? { ...this.pendingLoop, ...completedLoop, steps: completedLoop.steps?.length ? completedLoop.steps : this.pendingLoop.steps }
+            : completedLoop || this.pendingLoop || undefined
           message = {
             id: this.pendingAssistantMessage.id,
             role: 'assistant',
@@ -159,6 +211,10 @@ export class AgentClient {
               type: 'text',
               text: finalText
             },
+            contentBlocks: Array.isArray(msg.payload.contentBlocks)
+              ? msg.payload.contentBlocks as Message['contentBlocks']
+              : [{ id: `${this.pendingAssistantMessage.id}_text`, type: 'markdown', text: finalText, status: 'completed' }],
+            loop,
             timestamp: new Date(),
             conversationId: this.conversationId,
             requestId: this.currentRequestId,
@@ -172,6 +228,7 @@ export class AgentClient {
           this.pendingAssistantMessage = null
           this.activeRequestId = undefined
           this.pendingCitations = []
+          this.pendingLoop = null
         }
         break
       case 'error':
@@ -193,8 +250,27 @@ export class AgentClient {
       // 这里可以触发 UI 更新
       this.eventEmitter.emit('message_updating', {
         id: this.pendingAssistantMessage.id,
-        text: this.pendingAssistantMessage.text
+        text: this.pendingAssistantMessage.text,
+        loop: this.pendingAssistantMessage.loop
       })
+    }
+  }
+
+  private mergeLoopStep(msg: WebSocketMessage): AgentLoopStep {
+    const payload = msg.payload
+    return {
+      id: String(payload.stepId || payload.id || generateId()),
+      sequence: Number(payload.sequence || msg.sequence || 0),
+      stepType: String(payload.stepType || 'thinking'),
+      title: String(payload.title || '处理中'),
+      status: (payload.status as AgentLoopStep['status']) || 'running',
+      outputSummary: typeof payload.outputSummary === 'string' ? payload.outputSummary : undefined,
+      toolName: typeof payload.toolName === 'string' ? payload.toolName : undefined,
+      skillName: typeof payload.skillName === 'string' ? payload.skillName : undefined,
+      skillVersion: typeof payload.skillVersion === 'string' ? payload.skillVersion : undefined,
+      citationRefs: Array.isArray(payload.citationRefs) ? payload.citationRefs : undefined,
+      error: payload.error && typeof payload.error === 'object' ? payload.error as Record<string, unknown> : undefined,
+      durationMs: typeof payload.durationMs === 'number' ? payload.durationMs : undefined
     }
   }
 

@@ -13,6 +13,11 @@ export type ProtocolEventType =
   | 'confirmation_required'
   | 'error'
   | 'pong'
+  | 'agent_loop_started'
+  | 'agent_step_started'
+  | 'agent_step_completed'
+  | 'agent_loop_completed'
+  | 'unknown'
 
 export interface ErrorPayload {
   code: string
@@ -77,15 +82,17 @@ export function parseProtocolEvent(input: unknown): ProtocolEvent {
     'host_tool_call',
     'confirmation_required',
     'error',
-    'pong'
+    'pong',
+    'agent_loop_started',
+    'agent_step_started',
+    'agent_step_completed',
+    'agent_loop_completed'
   ]
-  if (!eventTypes.includes(input.type as ProtocolEventType)) {
-    throw new Error(`Unknown protocol event: ${input.type}`)
-  }
+  const knownType = eventTypes.includes(input.type as ProtocolEventType)
 
   return {
     id: input.id,
-    type: input.type as ProtocolEventType,
+    type: knownType ? input.type as ProtocolEventType : 'unknown',
     protocolVersion: PROTOCOL_VERSION,
     ...(typeof input.conversationId === 'string'
       ? { conversationId: input.conversationId }

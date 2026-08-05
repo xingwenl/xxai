@@ -12,6 +12,8 @@ class SkillScriptTool:
     package_id: int
     skill_id: int
     kind: str = "skill_script"
+    skill_name: str | None = None
+    skill_version: str | None = None
 
 
 def build_skill_script_tools(bindings) -> list[SkillScriptTool]:
@@ -59,6 +61,8 @@ def build_skill_script_tools(bindings) -> list[SkillScriptTool]:
                 },
                 package_id=package.id,
                 skill_id=skill.id,
+                skill_name=getattr(skill, "name", None) or getattr(skill, "slug", None),
+                skill_version=(getattr(package, "manifest", {}) or {}).get("version") if isinstance(getattr(package, "manifest", {}), dict) else None,
             )
         )
     return tools

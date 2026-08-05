@@ -63,4 +63,17 @@ describe('protocol v1', () => {
     expect(event.type).toBe('host_tool_call')
     expect(event.payload).toMatchObject({ callId: 'call_123456' })
   })
+
+  it('normalizes unknown event types so old SDKs can ignore them', () => {
+    const event = parseProtocolEvent({
+      id: 'evt_future',
+      type: 'future_agent_event',
+      protocolVersion: 1,
+      sequence: 5,
+      timestamp: new Date().toISOString(),
+      payload: {}
+    })
+
+    expect(event.type).toBe('unknown')
+  })
 })

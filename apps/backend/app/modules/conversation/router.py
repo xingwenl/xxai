@@ -11,6 +11,7 @@ from app.modules.agent.services import build_chat_model
 from app.modules.conversation.repositories import ConversationRepository
 from app.modules.conversation.schemas import ChatRequest, ChatResponse
 from app.modules.conversation.services import (
+    build_loop_payload,
     execute_chat,
     retrieve_citations,
     stream_chat,
@@ -111,6 +112,13 @@ async def chat_endpoint(
         conversation, assistant, result = await _execute(
             agent_id, payload, current_user, session
         )
+        loop = (
+            await build_loop_payload(
+                ConversationRepository(session), result.loop_id, conversation.id
+            )
+            if result.loop_id
+            else None
+        )
         data = ChatResponse(
             conversation_id=conversation.id,
             message_id=assistant.id,
@@ -118,6 +126,8 @@ async def chat_endpoint(
             citations=result.citations,
             knowledge_grounded=result.knowledge_grounded,
             pending_confirmation_id=result.pending_confirmation_id,
+            content_blocks=assistant.content_blocks,
+            loop=loop,
         )
         return success_response(data=data)
 
@@ -215,6 +225,14 @@ async def chat_endpoint(
                             None,
                         )
                         continue
+                    if item["type"].startswith("agent_"):
+                        yield emit(
+                            item["type"],
+                            item.get("payload", {}),
+                            item["conversation"].id,
+                            getattr(item.get("assistant"), "id", None),
+                        )
+                        continue
                     assistant = item["assistant"]
                     result = item["result"]
                     for citation in result.citations:
@@ -223,8 +241,10 @@ async def chat_endpoint(
                         "message_completed",
                         {
                             "content": result.content,
+                            "contentBlocks": assistant.content_blocks,
                             "citations": result.citations,
                             "knowledge_grounded": result.knowledge_grounded,
+                            "loop": {"id": str(result.loop_id), "requestId": f"conversation-{conversation.id}", "status": "completed", "summary": "已完成回答", "steps": []} if result.loop_id else None,
                         },
                         conversation.id,
                         assistant.id,

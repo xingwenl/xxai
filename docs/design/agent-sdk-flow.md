@@ -262,7 +262,25 @@ poetry run pytest tests/embed tests/gateway tests/conversation -q
 git diff --check
 ```
 
-## 8. 当前明确未完成项
+## 8. AgentLoop 与消息内容块
+
+一次 `message_send` 对应一个 `AgentLoopRun`，最终助手消息通过 `assistant_message_id` 关联该运行。消息本身保存兼容的纯文本 `content` 和可恢复的 `content_blocks`；图片、文件内容块保存稳定的资源 ID，读取时再按权限生成临时访问地址。
+
+AgentLoop 步骤只保存面向用户的安全摘要和必要审计字段，常见步骤包括知识库检索、技能指令、技能工具、宿主工具、MCP 工具、模型生成、handoff 和 guardrail。原始 chain-of-thought、完整 system prompt、密钥、Token 和未脱敏敏感参数不落库。
+
+实时协议保留既有消息和工具事件，并增加 `agent_loop_started`、`agent_step_started`、`agent_step_completed`、`agent_loop_completed`。第一版不发送逐步骤摘要增量事件；旧 SDK 遇到未知事件时忽略该事件，继续消费兼容的消息事件。聊天前端展示安全摘要，后台详细审计页面和接口作为后续扩展。
+
+```mermaid
+flowchart LR
+    Send[message_send] --> Run[AgentLoopRun]
+    Run --> Step[AgentLoopStep]
+    Step --> Event[SSE/WebSocket 状态事件]
+    Run --> Msg[assistant message]
+    Msg --> Blocks[content_blocks]
+    Blocks --> Asset[asset_id -> 按权限生成临时 URL]
+```
+
+## 9. 当前明确未完成项
 
 - SDK `systemPrompt` 尚未进入后端 Prompt 组合链路。
 - SDK `unregisterTool()` 和 `clearCustomTools()` 尚未完整同步当前 WebSocket 注册集合。

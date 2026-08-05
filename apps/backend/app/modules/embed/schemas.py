@@ -91,8 +91,11 @@ class ConversationMessageRead(BaseModel):
     conversation_id: int
     role: str
     content: str
+    status: str = "completed"
+    content_blocks: list[dict] = Field(default_factory=list)
     citations: list[dict]
     knowledge_grounded: bool
     tool_call_id: str | None
     created_at: datetime
     updated_at: datetime
+    loop: dict | None = None

@@ -14,6 +14,8 @@
 - `apps/ai-sdk/src/core/client.ts`：聚合 loop 事件、内容块和最终消息状态。
 - `apps/ai-sdk/src/core/message-store.ts`：支持更新消息内容块和 loop 投影。
 - `apps/ai-sdk/src/ui/components/*`：新增内容块渲染器和 AgentLoop 折叠过程面板。
+- `apps/ai-sdk/src/ui/components/ChatMessage.vue`：替换旧 `ChatBubble`，承载用户消息、助手消息、内容块和 AgentLoop。
+- `apps/ai-sdk/src/ui/components/MarkdownContent.vue`、`ImageContent.vue`、`FileContent.vue`、`TableContent.vue`、`ActionsContent.vue`、`CustomContent.vue`、`TypingIndicator.vue`：拆分独立内容渲染和输入中状态组件。
 - `apps/ai-sdk/design/chat-glass.html`：根据真实组件状态更新设计稿或保留为样例。
 - 数据库迁移文件：新增表和字段，保证旧消息可读。
 - 测试文件：补充后端 schema/repository/runtime 测试、SDK protocol/client 测试和 UI 渲染测试。
@@ -46,6 +48,8 @@
    - 模型最终生成输出 `model_generation` step。
    - 完成后写入 assistant message 的 `content_blocks` 和 loop summary。
    - 第一版只在步骤开始、完成、失败或等待确认时发送状态事件，不发送逐摘要增量事件。
+   - `run_graph` 通过异步回调报告工具开始和完成，`stream_graph` 使用事件队列在模型任务运行期间即时向上游产出，禁止等待最终回答后统一回填。
+   - 标准后台 SSE 的 MCP/技能工具分支必须复用同一套实时事件桥接，不能在路由层等待 `execute_chat` 完成后再一次性补发步骤。
 
 5. SDK 协议和状态
    - 扩展 `ProtocolEventType`。
@@ -56,7 +60,8 @@
    - 协议解析遇到未知事件时忽略该事件并继续处理同一请求，避免旧 SDK 因新增 AgentLoop 事件中断消息流。
 
 6. 前端聊天 UI
-   - 建立 `ContentBlockRenderer`。
+   - 建立 `MessageContent` 分发器及独立内容块组件。
+   - 废弃旧 `ChatBubble` 普通气泡结构，使用 `ChatMessage` 作为消息边界。
    - 建立 `AgentLoopPanel`。
    - Markdown、图片、文件、自定义组件 fallback 作为第一版必达。
    - 图表、表格、动作按钮按 schema 支持最小展示。
@@ -66,6 +71,8 @@
    - 后端测试覆盖模型迁移、schema 校验、loop step 写入和事件输出。
    - SDK 测试覆盖未知事件兼容、新事件解析、loop 聚合、message content blocks。
    - UI 测试覆盖内容块渲染和 loop 面板状态。
+   - 标准会话非流式接口复用已落库的 Loop run/step，避免最终响应丢失步骤明细。
+   - 增加标准后台 SSE 工具实时性回归测试和 Vue UI 内容块/Loop 面板测试。
    - 更新 `verify.md` 记录真实命令和结果。
 
 8. 验收和归档

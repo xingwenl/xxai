@@ -215,4 +215,48 @@ async def get_embed_message_snapshot(repo, *, conversation_id: int, claims: dict
     )
     if messages is None:
         raise NotFoundException("conversation not found")
-    return messages
+    # 兼容轻量仓储替身和旧读取实现；真实仓储会返回完整内容块与 Loop 投影。
+    if not hasattr(repo, "list_loops"):
+        return messages
+    loops = await repo.list_loops(conversation_id)
+    loop_payloads = {}
+    for loop in loops:
+        steps = await repo.list_loop_steps(loop.id)
+        loop_payloads[loop.assistant_message_id] = {
+            "id": str(loop.id),
+            "requestId": loop.request_id,
+            "status": loop.status,
+            "summary": loop.summary,
+            "steps": [
+                {
+                    "id": str(step.id),
+                    "sequence": step.sequence,
+                    "stepType": step.step_type,
+                    "title": step.title,
+                    "status": step.status,
+                    "outputSummary": step.output_summary,
+                    "toolName": step.tool_name,
+                    "skillName": step.skill_name,
+                    "citationRefs": step.citation_refs,
+                    "error": step.error,
+                }
+                for step in steps
+            ],
+        }
+    return [
+        {
+            "id": message.id,
+            "conversation_id": message.conversation_id,
+            "role": message.role,
+            "content": message.content,
+            "status": message.status,
+            "content_blocks": message.content_blocks,
+            "citations": message.citations,
+            "knowledge_grounded": message.knowledge_grounded,
+            "tool_call_id": message.tool_call_id,
+            "created_at": message.created_at,
+            "updated_at": message.updated_at,
+            "loop": loop_payloads.get(message.id),
+        }
+        for message in messages
+    ]

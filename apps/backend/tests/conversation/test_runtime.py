@@ -14,6 +14,76 @@ from app.modules.conversation.runtime import (
     run_graph,
     stream_graph,
 )
+from app.modules.conversation.schemas import sanitize_content_blocks
+from app.modules.conversation.services import build_loop_payload
+
+
+def test_content_blocks_keep_supported_custom_blocks_and_reject_unsafe_values():
+    blocks = sanitize_content_blocks([
+        {"id": "card", "type": "custom", "componentName": "OrderCard", "props": {"orderId": 3}, "fallback": "订单详情"},
+        {"id": "bad", "type": "image", "assetId": "../../secret"},
+        {"id": "too-long", "type": "markdown", "text": "x" * 120_001},
+    ])
+
+    assert blocks[0]["type"] == "custom"
+    assert blocks[0]["component_name"] == "OrderCard"
+    assert blocks[1]["type"] == "error"
+    assert blocks[2]["type"] == "markdown"
+    assert len(blocks[2]["text"]) == 100_000
+
+
+def test_build_loop_payload_includes_persisted_steps():
+    class FakeLoopRepository:
+        async def get_loop(self, loop_id, conversation_id):
+            assert (loop_id, conversation_id) == (7, 11)
+            return SimpleNamespace(
+                id=7,
+                request_id="conversation-11",
+                status="completed",
+                summary="已完成回答",
+            )
+
+        async def list_loop_steps(self, loop_id):
+            assert loop_id == 7
+            return [
+                SimpleNamespace(
+                    id=9,
+                    sequence=1,
+                    step_type="model_generation",
+                    title="生成回答",
+                    status="succeeded",
+                    output_summary="生成 4 字符",
+                    tool_name=None,
+                    skill_name=None,
+                    skill_version=None,
+                    citation_refs=[],
+                    error=None,
+                )
+            ]
+
+    payload = asyncio.run(build_loop_payload(FakeLoopRepository(), 7, 11))
+
+    assert payload == {
+        "id": "7",
+        "requestId": "conversation-11",
+        "status": "completed",
+        "summary": "已完成回答",
+        "steps": [
+            {
+                "id": "9",
+                "sequence": 1,
+                "stepType": "model_generation",
+                "title": "生成回答",
+                "status": "succeeded",
+                "outputSummary": "生成 4 字符",
+                "toolName": None,
+                "skillName": None,
+                "skillVersion": None,
+                "citationRefs": [],
+                "error": None,
+            }
+        ],
+    }
 
 
 class FakeAgentRepository:
@@ -266,6 +336,48 @@ def test_read_only_tool_result_is_returned_to_model():
     assert invocations == [
         {"server_id": 9, "tool_name": "lookup", "arguments": {"query": "退款"}}
     ]
+    assert result.tool_events[0]["tool_type"] == "mcp_tool"
+    assert result.tool_events[0]["tool_call_id"] == "call-1"
+
+
+def test_stream_graph_emits_tool_started_before_tool_finishes():
+    async def run():
+        tool = SimpleNamespace(
+            name="lookup",
+            description="查询",
+            input_schema={"type": "object"},
+            server_id=9,
+        )
+        release_tool = asyncio.Event()
+        tool_invoked = asyncio.Event()
+
+        async def invoke_tool_fn(**_kwargs):
+            tool_invoked.set()
+            await release_tool.wait()
+            return ToolInvocationOutcome(status="completed", audit_id=1, result="结果")
+
+        events = stream_graph(
+            ToolCallingModel("最终答案"),
+            system_prompt="回答问题",
+            user_message="查询天气",
+            tools=[tool],
+            invoke_tool_fn=invoke_tool_fn,
+        )
+        first_event = await anext(events)
+        assert first_event["type"] == "tool_started"
+        assert first_event["tool"] == "lookup"
+        await asyncio.sleep(0)
+        assert not tool_invoked.is_set()
+
+        release_tool.set()
+        remaining = [event async for event in events]
+        assert [event["type"] for event in remaining] == [
+            "tool_completed",
+            "message_delta",
+            "completed",
+        ]
+
+    asyncio.run(run())
 
 
 def test_skill_script_tool_is_routed_with_mcp_tools():
@@ -317,6 +429,7 @@ def test_skill_script_tool_is_routed_with_mcp_tools():
             },
         }
     ]
+    assert result.tool_events[0]["tool_type"] == "skill_tool"
 
 
 def test_side_effect_tool_stops_with_confirmation():

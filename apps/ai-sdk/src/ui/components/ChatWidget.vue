@@ -1,17 +1,28 @@
 <template>
   <div class="xxai-reset">
     <FloatingButton v-if="!isOpen" :position="position" @click="open" />
-    <div v-if="isOpen" class="xxai-chat-window" :class="{ left: position === 'left', dark: theme === 'dark' }">
+    <div v-if="isOpen" class="xxai-chat-window" :class="{ left: position === 'left', dark: theme === 'dark' }" :style="colorStyle">
       <div class="xxai-chat-header">
-        <span class="xxai-chat-title">{{ title }}</span>
-        <button class="xxai-chat-close" @click="close">
+        <button class="xxai-header-icon-btn" type="button" aria-label="返回" @click="close">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M18 6L6 18M6 6l12 12" />
+            <path d="m15 18-6-6 6-6" />
           </svg>
         </button>
-      </div>
-      <div class="xxai-status" :class="connectionState">
-        {{ statusText }}
+        <div class="xxai-header-center">
+          <div class="xxai-agent-avatar" aria-hidden="true">✦</div>
+          <div class="xxai-header-info">
+            <div class="xxai-header-name">{{ title }}</div>
+            <div class="xxai-header-status">
+              <span class="xxai-status-dot"></span>
+              <span>{{ statusText }}</span>
+            </div>
+          </div>
+        </div>
+        <button class="xxai-header-icon-btn" type="button" aria-label="关闭" @click="close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        </button>
       </div>
       <ChatMessageList
         :messages="messages"
@@ -28,13 +39,14 @@ import { ref, computed, onMounted, onUnmounted, type Component } from 'vue'
 import FloatingButton from './FloatingButton.vue'
 import ChatMessageList from './ChatMessageList.vue'
 import ChatInput from './ChatInput.vue'
-import type { AgentClient, ConnectionState, UIOptions, Message } from '../../core'
+import type { AgentClient, ConnectionState, UIOptions, Message, UIColors } from '../../core'
 
 interface Props {
   agent: AgentClient
   position?: UIOptions['position']
   theme?: UIOptions['theme']
   title?: string
+  colors?: UIColors
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -46,11 +58,20 @@ const props = withDefaults(defineProps<Props>(), {
 const isOpen = ref(false)
 const isSending = ref(false)
 const messages = ref<Message[]>([])
-const pendingMessage = ref<{ id: string; text: string } | null>(null)
+const pendingMessage = ref<{ id: string; text: string; loop?: import('../../core').AgentLoopRun } | null>(null)
+const pendingLoop = ref<import('../../core').AgentLoopRun | null>(null)
 const connectionState = ref<ConnectionState>('disconnected')
 const customComponents = ref<Record<string, Component>>({})
 
 const agent = props.agent
+const colorStyle = computed(() => ({
+  '--xxai-primary': props.colors?.primary || '#0EA5E9',
+  '--xxai-primary-foreground': props.colors?.primaryForeground || '#FFFFFF',
+  '--xxai-user-message-background': props.colors?.userMessageBackground || props.colors?.primary || '#0EA5E9',
+  '--xxai-user-message-foreground': props.colors?.userMessageForeground || '#FFFFFF',
+  '--xxai-send-background': props.colors?.sendButtonBackground || props.colors?.primary || '#0EA5E9',
+  '--xxai-send-foreground': props.colors?.sendButtonForeground || props.colors?.primaryForeground || '#FFFFFF'
+}))
 
 const statusText = computed(() => {
   const stateMap: Record<ConnectionState, string> = {
@@ -81,6 +102,7 @@ function handleStop() {
   agent.cancelMessage()
   isSending.value = false
   pendingMessage.value = null
+  pendingLoop.value = null
 }
 
 function handleButtonClick(value: string) {
@@ -90,12 +112,34 @@ function handleButtonClick(value: string) {
 function handleMessage(_msg: Message) {
   messages.value = agent.getMessages()
   pendingMessage.value = null
+  pendingLoop.value = null
   isSending.value = false
 }
 
-function handleMessageUpdating(data: { id: string; text: string }) {
-  pendingMessage.value = data
+function handleMessageUpdating(data: { id: string; text: string; loop?: import('../../core').AgentLoopRun }) {
+  pendingMessage.value = {
+    ...data,
+    loop: data.loop || pendingLoop.value || pendingMessage.value?.loop
+  }
   isSending.value = true
+}
+
+function handleAgentLoop(loop: import('../../core').AgentLoopRun) {
+  pendingLoop.value = { ...loop, steps: [...loop.steps] }
+  if (!pendingMessage.value && loop.status === 'running') {
+    pendingMessage.value = {
+      id: `loop-${loop.id}`,
+      text: '',
+      loop: pendingLoop.value
+    }
+  }
+  if (pendingMessage.value) {
+    pendingMessage.value = {
+      ...pendingMessage.value,
+      loop: pendingLoop.value
+    }
+  }
+  isSending.value = loop.status === 'running'
 }
 
 function handleConnectionStateChange(state: ConnectionState) {
@@ -108,6 +152,7 @@ onMounted(() => {
 
   agent.on('message', handleMessage)
   agent.on('message_updating', handleMessageUpdating)
+  agent.on('agent_loop', handleAgentLoop)
   agent.on('connection_state', handleConnectionStateChange)
   agent.on('ui_open', open)
   agent.on('ui_close', close)
@@ -121,6 +166,7 @@ onMounted(() => {
 onUnmounted(() => {
   agent.off('message', handleMessage)
   agent.off('message_updating', handleMessageUpdating)
+  agent.off('agent_loop', handleAgentLoop)
   agent.off('connection_state', handleConnectionStateChange)
   agent.disconnect()
 })

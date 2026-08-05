@@ -16,12 +16,22 @@ class FakeMessage:
         self.content = content
 
 
+class FakeLoop:
+    def __init__(self, identifier=1):
+        self.id = identifier
+        self.status = "running"
+        self.summary = "正在处理请求"
+        self.assistant_message_id = None
+
+
 class FakeConversationRepository:
     def __init__(self):
         self.conversation = None
         self.messages = []
         self.usage_records = []
         self.next_message_id = 1
+        self.loop = None
+        self.next_step_id = 1
 
     async def get_for_principal(self, conversation_id, platform_id, *, end_user_id):
         if self.conversation and self.conversation.id == conversation_id:
@@ -40,6 +50,21 @@ class FakeConversationRepository:
 
     async def record_model_usage(self, **values):
         self.usage_records.append(values)
+
+    async def create_loop(self, _conversation_id, **values):
+        self.loop = FakeLoop()
+        for key, value in values.items():
+            setattr(self.loop, key, value)
+        return self.loop
+
+    async def create_loop_step(self, _loop_run_id, **values):
+        step = SimpleNamespace(id=self.next_step_id, **values)
+        self.next_step_id += 1
+        return step
+
+    async def save_loop(self, loop):
+        self.loop = loop
+        return loop
 
 
 class FakeStreamingModel:
@@ -81,11 +106,18 @@ def test_embed_chat_emits_started_deltas_citation_and_completed():
         ):
             events.append(event["type"])
 
-        assert events == [
+        assert events[:4] == [
             "message_started",
+            "agent_loop_started",
+            "agent_step_completed",
+            "agent_step_started",
+        ]
+        assert events[4:] == [
             "message_delta",
             "message_delta",
             "citation",
+            "agent_step_completed",
+            "agent_loop_completed",
             "message_completed",
         ]
 
@@ -142,6 +174,39 @@ def test_embed_chat_records_model_usage_in_independent_detail_table():
                 "total_tokens": 17,
             }
         ]
+
+    asyncio.run(run())
+
+
+def test_embed_chat_emits_loaded_skill_steps_before_generation():
+    async def run():
+        events = []
+        async for event in stream_embed_chat(
+            FakeConversationRepository(),
+            SimpleNamespace(
+                agent=SimpleNamespace(id=11),
+                version=SimpleNamespace(system_prompt="回答"),
+                skill_instructions=["生成报告"],
+                skill_usages=[{"name": "报告技能", "version": "1.2.0", "has_script_tool": True}],
+                mcp_tools=[],
+            ),
+            model=FakeStreamingModel(),
+            platform_id=7,
+            end_user_id=22,
+            message="生成报告",
+            conversation_id=None,
+            request_id="req-skill",
+            citations=[],
+        ):
+            if event["type"].startswith("agent_step"):
+                events.append(event)
+
+        skill_event = next(event for event in events if event["payload"]["stepType"] == "skill_instruction")
+        generation_event = next(event for event in events if event["payload"]["stepType"] == "model_generation")
+        assert skill_event["payload"]["skillName"] == "报告技能"
+        assert skill_event["payload"]["skillVersion"] == "1.2.0"
+        assert skill_event["payload"]["sequence"] == 2
+        assert generation_event["payload"]["sequence"] == 3
 
     asyncio.run(run())
 

@@ -2,8 +2,8 @@
 
 ## 当前结论
 
-- 当前仅完成 research、spec、plan 文档，不进入代码实现验收。
-- 状态：等待人工确认后进入实现。
+- 已完成 research、spec、plan 和 implement；verify 已完成可执行的本地代码验证。
+- 状态：代码验收通过，request 仍为 `active/verify`，待真实浏览器联调和数据库版本复核后再完成 acceptance。
 
 ## 已满足项
 
@@ -11,15 +11,39 @@
 - 已记录业界调研来源、方案比较和最终决策。
 - 已定义多内容块消息、AgentLoop run/step、协议事件和隐私边界。
 - 已列出实施文件、步骤、测试命令和回滚说明。
+- 已实现消息内容块、AgentLoop Run/Step 模型、Embed WebSocket 生命周期事件、SDK 聚合和前端折叠面板。
+- 已实现 Markdown、图片/文件资源引用结构和 custom fallback 的前端降级渲染。
+- 已修复工具调用未进入 AgentLoop 的问题；天气类工具会作为 `host_tool` 或 `mcp_tool` 步骤展示。
+- 已修复 Embed 网关长耗时工具静默问题：工具开始和完成状态会在实际执行期间实时推送，前端不再等待最终回答后才显示。
+- 已补充技能可观测性：技能指令加载、技能名称、技能版本和技能脚本工具均进入 AgentLoop 步骤及实时事件。
+- 已补充多内容块安全边界：Markdown、图片/文件资源引用、表格/图表/操作、自定义组件均有统一类型入口，非法块安全降级。
+- 已按 `apps/ai-sdk/design/chat-glass.html` 调整聊天窗口和 AgentLoop 面板视觉样式。
+- 已修复前端实时刷新缺口：AgentLoop 事件会绑定到 pending assistant 消息，步骤开始、完成和 Loop 完成均可在回答生成期间刷新界面。
+- 已重新校正聊天页面比例，避免大字号、长引用和输入栏互相挤压；过程卡片与设计稿保持四种语义颜色和折叠层级。
+- 已将消息内容改为组件化渲染，Markdown 使用 `markdown-it + dompurify`，自定义组件支持注册后渲染，未注册组件显示安全 fallback。
+- 已支持 SDK UI 品牌色配置，可自定义用户消息和发送按钮的背景色、文字色。
+- 已修复标准会话非流式接口丢失 Loop 步骤的问题，最终响应会返回已落库的安全步骤摘要。
+- 已废弃旧 `ChatBubble` 结构，按设计稿重写为 `ChatMessage`、独立内容组件和 `TypingIndicator` 组件树。
+- 已直接采用 `chat-glass.html` 的尺寸与视觉 token：Header 60px、聊天区 `18px 16px`、正文 15px、过程卡片 14px/12px radius/10px gap、输入控件 42px。
 
 ## 未满足项
 
-- 尚未修改数据库模型和迁移。
-- 尚未实现后端 AgentLoop 事件。
-- 尚未实现 SDK 类型、状态聚合和 UI 渲染。
-- 尚未执行后端、SDK、前端验证命令。
+- 数据库迁移已由用户执行 `poetry run alembic upgrade head`；本环境无法再次连接数据库核验 current 状态。
+- 尚未进行真实浏览器 WebSocket 联调，由用户负责。
+- 标准后台 SSE 的 MCP/技能工具分支仍为批处理执行，尚未完成工具步骤实时推送。
+- 尚未补充基于 Vue Test Utils 的独立组件挂载测试；已补 Markdown 解析安全测试，并通过类型检查和生产构建。
 
 ## 剩余风险
 
-- 需要人工确认数据模型和协议事件后才能进入实现。
+- 内容块中的图片和文件需要后续资源服务提供临时 URL 解析。
+- 当前 AgentLoop 详情仍是公开安全摘要，后台审计页面按约定延期。
+- 普通 SSE 已补齐；剩余主要是浏览器联调和资源 URL 解析接入。
 - 自定义组件 props 的安全边界、文件 URL 授权和历史消息兼容细节需在实现阶段细化。
+- 当前未实现资源服务将 `asset_id` 解析为临时 URL；前端联调图片/文件时需使用已授权的 URL 或后续接入资源服务。
+- npm 依赖树仍有安全审计告警，需单独安排依赖升级任务处理。
+
+## 下一步
+
+- 在可连接已迁移数据库的运行环境执行 `poetry run alembic current`，确认版本为 `20260805_0017`。
+- 启动后端和 SDK demo，使用真实 token 完成 WebSocket AgentLoop 事件、历史消息恢复和 Markdown/图片/文件/custom fallback 的浏览器联调。
+- 保存联调结果后，再执行 `/accept 2026-08-05-agent-loop-observability`。

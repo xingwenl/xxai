@@ -56,6 +56,41 @@ describe('AgentClient protocol events', () => {
     expect(sent).toEqual([{ type: 'message_cancel', requestId: 'req-1', payload: {} }])
   })
 
+  it('keeps streamed AgentLoop steps when completion only carries a summary', () => {
+    const client = new AgentClient({ endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token' })
+    const transport = (client as any).transport
+    transport.emit('message', { id: '1', type: 'agent_loop_started', protocolVersion: 1, sequence: 1, timestamp: new Date().toISOString(), requestId: 'r', payload: { loopRunId: 'loop-1', summary: '处理中' } })
+    transport.emit('message', { id: '2', type: 'agent_step_completed', protocolVersion: 1, sequence: 2, timestamp: new Date().toISOString(), requestId: 'r', payload: { loopRunId: 'loop-1', stepId: 'step-1', sequence: 1, stepType: 'knowledge_retrieval', title: '检索知识库', status: 'succeeded' } })
+    transport.emit('message', { id: '3', type: 'message_started', protocolVersion: 1, sequence: 3, timestamp: new Date().toISOString(), requestId: 'r', payload: {} })
+    transport.emit('message', { id: '4', type: 'message_completed', protocolVersion: 1, sequence: 4, timestamp: new Date().toISOString(), requestId: 'r', payload: { content: '完成', loop: { id: 'loop-1', requestId: 'r', status: 'completed', summary: '已完成回答', steps: [] } } })
+    expect((client as any).messageStore.getMessages()[0].loop.steps).toHaveLength(1)
+  })
+
+  it('publishes live loop steps with the pending assistant update', () => {
+    const updates: any[] = []
+    const client = new AgentClient({ endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token' })
+    client.on('message_updating', (update) => updates.push(update))
+    const transport = (client as any).transport
+    transport.emit('message', { id: '1', type: 'message_started', protocolVersion: 1, sequence: 1, timestamp: new Date().toISOString(), requestId: 'r', payload: {} })
+    transport.emit('message', { id: '2', type: 'agent_loop_started', protocolVersion: 1, sequence: 2, timestamp: new Date().toISOString(), requestId: 'r', payload: { loopRunId: 'loop-1', summary: '正在处理请求' } })
+    transport.emit('message', { id: '3', type: 'agent_step_started', protocolVersion: 1, sequence: 3, timestamp: new Date().toISOString(), requestId: 'r', payload: { loopRunId: 'loop-1', stepId: 'step-1', sequence: 1, stepType: 'host_tool', title: '调用工具：天气', status: 'running', toolName: 'weather' } })
+
+    expect(updates[updates.length - 1]).toMatchObject({ text: '', loop: { id: 'loop-1', status: 'running', steps: [{ status: 'running', toolName: 'weather' }] } })
+  })
+
+  it('keeps loop state visible when loop events arrive before message_started', () => {
+    const updates: any[] = []
+    const client = new AgentClient({ endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token' })
+    client.on('message_updating', (update) => updates.push(update))
+    const transport = (client as any).transport
+
+    transport.emit('message', { id: '1', type: 'agent_loop_started', protocolVersion: 1, sequence: 1, timestamp: new Date().toISOString(), requestId: 'r', payload: { loopRunId: 'loop-1', summary: '正在处理请求' } })
+    transport.emit('message', { id: '2', type: 'message_started', protocolVersion: 1, sequence: 2, timestamp: new Date().toISOString(), requestId: 'r', payload: {} })
+    transport.emit('message', { id: '3', type: 'agent_step_started', protocolVersion: 1, sequence: 3, timestamp: new Date().toISOString(), requestId: 'r', payload: { loopRunId: 'loop-1', stepId: 'step-1', sequence: 1, stepType: 'model_generation', title: '生成回答', status: 'running' } })
+
+    expect(updates[updates.length - 1]).toMatchObject({ loop: { id: 'loop-1', steps: [{ stepType: 'model_generation', status: 'running' }] } })
+  })
+
   it('registers tools without requiring a client-side temporary mode', () => {
     const client = new AgentClient({
       endpoint: 'wss://agent.test/ws',

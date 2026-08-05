@@ -16,6 +16,63 @@ export type MessageType =
   | 'error'
   | 'custom'
 
+export type ContentBlockStatus = 'pending' | 'streaming' | 'completed' | 'failed'
+
+export interface MessageContentBlock {
+  id: string
+  type: 'text' | 'markdown' | 'image' | 'file' | 'table' | 'chart' | 'actions' | 'custom' | 'error' | string
+  status?: ContentBlockStatus
+  text?: string
+  assetId?: string
+  alt?: string
+  fileName?: string
+  mimeType?: string
+  size?: number
+  componentName?: string
+  props?: Record<string, unknown>
+  fallback?: string
+  metadata?: Record<string, unknown>
+}
+
+export type AgentLoopStepType =
+  | 'thinking'
+  | 'knowledge_retrieval'
+  | 'skill_instruction'
+  | 'skill_tool'
+  | 'host_tool'
+  | 'mcp_tool'
+  | 'model_generation'
+  | 'handoff'
+  | 'guardrail'
+
+export type AgentLoopStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 'waiting_confirmation'
+export type AgentLoopStepStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'waiting_confirmation'
+
+export interface AgentLoopStep {
+  id: string
+  sequence: number
+  stepType: AgentLoopStepType | string
+  title: string
+  status: AgentLoopStepStatus
+  outputSummary?: string
+  toolName?: string
+  skillName?: string
+  skillVersion?: string
+  citationRefs?: unknown[]
+  error?: Record<string, unknown>
+  startedAt?: string
+  completedAt?: string
+  durationMs?: number
+}
+
+export interface AgentLoopRun {
+  id: string
+  requestId: string
+  status: AgentLoopStatus
+  summary?: string
+  steps: AgentLoopStep[]
+}
+
 export interface TextContent {
   type: 'text'
   text: string
@@ -56,6 +113,8 @@ export interface Message {
   role: MessageRole
   type: MessageType
   content: MessageContent
+  contentBlocks?: MessageContentBlock[]
+  loop?: AgentLoopRun
   timestamp: Date
   conversationId?: string
   requestId?: string
@@ -84,6 +143,16 @@ export interface UIOptions {
   locale?: string
   theme?: 'light' | 'dark' | 'auto'
   container?: HTMLElement
+  colors?: UIColors
+}
+
+export interface UIColors {
+  primary?: string
+  primaryForeground?: string
+  userMessageBackground?: string
+  userMessageForeground?: string
+  sendButtonBackground?: string
+  sendButtonForeground?: string
 }
 
 export interface AgentCallbacks {

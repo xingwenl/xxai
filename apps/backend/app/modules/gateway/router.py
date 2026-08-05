@@ -423,12 +423,27 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                             "sideEffect": event["side_effect"],
                             "requiresConfirmation": event["requires_confirmation"],
                         }
+                    if event_type in {
+                        "agent_loop_started",
+                        "agent_step_started",
+                        "agent_step_completed",
+                        "agent_loop_completed",
+                    }:
+                        event_payload = event.get("payload", {})
                     if event_type == "message_completed":
                         event_payload = {
                             "content": event["content"],
+                            "contentBlocks": event.get("content_blocks", []),
                             "citations": event["result"].citations,
                             "knowledgeGrounded": event["result"].knowledge_grounded,
                             "usage": event["result"].usage,
+                            "loop": {
+                                "id": str(event.get("loop_run_id")),
+                                "requestId": event.get("request_id"),
+                                "status": "completed",
+                                "summary": "已完成回答",
+                                "steps": [],
+                            } if event.get("loop_run_id") else None,
                         }
                     conversation_id = getattr(event.get("conversation"), "id", None)
                     request_id = event.get("request_id")

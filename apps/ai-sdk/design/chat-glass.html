@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent 聊天（毛玻璃版）</title>
+    <style id="theme-vars">
+/* ===== Agent Chat Mobile — Glassmorphism Premium Design Tokens ===== */
+
+:root {
+  /* --- Brand Primary (sky/cyan) --- */
+  --agent-primary: #0EA5E9;
+  --agent-primary-foreground: #FFFFFF;
+  --agent-primary-tint: #E0F2FE;
+  --agent-primary-tint-2: #BAE6FD;
+
+  /* --- Ambient Background (soft gradient) --- */
+  --agent-background: #F0F4F8;
+  --agent-background-gradient: linear-gradient(145deg, #F0F9FF 0%, #F5F3FF 40%, #F0FDF4 100%);
+  --agent-foreground: #0F172A;
+
+  /* --- Glass Surfaces --- */
+  --agent-card: rgba(255, 255, 255, 0.78);
+  --agent-card-foreground: #0F172A;
+  --agent-popover: rgba(255, 255, 255, 0.9);
+  --agent-popover-foreground: #0F172A;
+  --agent-muted: rgba(241, 245, 249, 0.72);
+  --agent-muted-foreground: #64748B;
+  --agent-border: rgba(255, 255, 255, 0.65);
+  --agent-border-strong: rgba(226, 232, 240, 0.8);
+  --agent-input: rgba(255, 255, 255, 0.65);
+  --agent-ring: #0EA5E9;
+
+  /* --- Glass Effect Tokens --- */
+  --agent-glass-blur: blur(18px) saturate(160%);
+  --agent-glass-border: 1px solid rgba(255, 255, 255, 0.55);
+  --agent-shadow-soft: 0 4px 20px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.03);
+  --agent-shadow-medium: 0 8px 32px rgba(15, 23, 42, 0.08), 0 2px 8px rgba(15, 23, 42, 0.04);
+  --agent-shadow-glow: 0 0 0 1px rgba(255, 255, 255, 0.5) inset;
+
+  /* --- Radius Scale (larger, softer) --- */
+  --agent-radius-sm: 6px;
+  --agent-radius-md: 12px;
+  --agent-radius-lg: 22px;
+  --agent-radius-xl: 28px;
+
+  /* --- Message Type: Thinking (violet) --- */
+  --agent-thinking-bg: rgba(245, 243, 255, 0.72);
+  --agent-thinking-border: rgba(221, 214, 254, 0.7);
+  --agent-thinking-accent: #8B5CF6;
+  --agent-thinking-text: #6D28D9;
+
+  /* --- Message Type: Tool Call (blue) --- */
+  --agent-tool-bg: rgba(239, 246, 255, 0.72);
+  --agent-tool-border: rgba(191, 219, 254, 0.7);
+  --agent-tool-accent: #3B82F6;
+  --agent-tool-text: #1D4ED8;
+
+  /* --- Message Type: Skill Call (emerald) --- */
+  --agent-skill-bg: rgba(236, 253, 245, 0.72);
+  --agent-skill-border: rgba(167, 243, 208, 0.7);
+  --agent-skill-accent: #10B981;
+  --agent-skill-text: #047857;
+
+  /* --- Message Type: Knowledge Base (amber) --- */
+  --agent-knowledge-bg: rgba(254, 252, 232, 0.72);
+  --agent-knowledge-border: rgba(253, 230, 138, 0.7);
+  --agent-knowledge-accent: #F59E0B;
+  --agent-knowledge-text: #B45309;
+
+  /* --- State Colors --- */
+  --agent-state-success: #10B981;
+  --agent-state-warning: #F59E0B;
+  --agent-state-error: #EF4444;
+  --agent-state-info: #0EA5E9;
+
+  /* --- Typography --- */
+  --agent-font-sans: "Inter", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --agent-font-mono: "JetBrains Mono", "SF Mono", "Cascadia Code", monospace;
+}
+
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.1/dist/index.global.js"></script>
+    <script src="https://unpkg.com/lucide@1.8.0/dist/umd/lucide.min.js"></script>
+    <style type="text/tailwindcss">
+  @theme inline {
+    --color-background: var(--agent-background);
+    --color-foreground: var(--agent-foreground);
+    --color-card: var(--agent-card);
+    --color-card-foreground: var(--agent-card-foreground);
+    --color-popover: var(--agent-popover);
+    --color-popover-foreground: var(--agent-popover-foreground);
+    --color-primary: var(--agent-primary);
+    --color-primary-foreground: var(--agent-primary-foreground);
+    --color-muted: var(--agent-muted);
+    --color-muted-foreground: var(--agent-muted-foreground);
+    --color-border: var(--agent-border-strong);
+    --color-input: var(--agent-input);
+    --color-ring: var(--agent-ring);
+    --radius-sm: var(--agent-radius-sm);
+    --radius-md: var(--agent-radius-md);
+    --radius-lg: var(--agent-radius-lg);
+  }
+  @layer base {
+    body { background: var(--agent-background); color: var(--agent-foreground); }
+    td, th { @apply break-words; word-break: break-all; word-break: auto-phrase; }
+    th { @apply whitespace-nowrap; }
+  }
+    </style>
+    <style id="semantic-token-fallback">
+      .bg-background { background-color: var(--agent-background); }
+      .text-background { color: var(--agent-background); }
+      .border-background { border-color: var(--agent-background); }
+      .ring-background { --tw-ring-color: var(--agent-background); }
+      .bg-foreground { background-color: var(--agent-foreground); }
+      .text-foreground { color: var(--agent-foreground); }
+      .border-foreground { border-color: var(--agent-foreground); }
+      .ring-foreground { --tw-ring-color: var(--agent-foreground); }
+      .bg-card { background-color: var(--agent-card); }
+      .text-card { color: var(--agent-card); }
+      .border-card { border-color: var(--agent-card); }
+      .ring-card { --tw-ring-color: var(--agent-card); }
+      .bg-card-foreground { background-color: var(--agent-card-foreground); }
+      .text-card-foreground { color: var(--agent-card-foreground); }
+      .border-card-foreground { border-color: var(--agent-card-foreground); }
+      .ring-card-foreground { --tw-ring-color: var(--agent-card-foreground); }
+      .bg-popover { background-color: var(--agent-popover); }
+      .text-popover { color: var(--agent-popover); }
+      .border-popover { border-color: var(--agent-popover); }
+      .ring-popover { --tw-ring-color: var(--agent-popover); }
+      .bg-popover-foreground { background-color: var(--agent-popover-foreground); }
+      .text-popover-foreground { color: var(--agent-popover-foreground); }
+      .border-popover-foreground { border-color: var(--agent-popover-foreground); }
+      .ring-popover-foreground { --tw-ring-color: var(--agent-popover-foreground); }
+      .bg-primary { background-color: var(--agent-primary); }
+      .text-primary { color: var(--agent-primary); }
+      .border-primary { border-color: var(--agent-primary); }
+      .ring-primary { --tw-ring-color: var(--agent-primary); }
+      .bg-primary-foreground { background-color: var(--agent-primary-foreground); }
+      .text-primary-foreground { color: var(--agent-primary-foreground); }
+      .border-primary-foreground { border-color: var(--agent-primary-foreground); }
+      .ring-primary-foreground { --tw-ring-color: var(--agent-primary-foreground); }
+      .bg-muted { background-color: var(--agent-muted); }
+      .text-muted { color: var(--agent-muted); }
+      .border-muted { border-color: var(--agent-muted); }
+      .ring-muted { --tw-ring-color: var(--agent-muted); }
+      .bg-muted-foreground { background-color: var(--agent-muted-foreground); }
+      .text-muted-foreground { color: var(--agent-muted-foreground); }
+      .border-muted-foreground { border-color: var(--agent-muted-foreground); }
+      .ring-muted-foreground { --tw-ring-color: var(--agent-muted-foreground); }
+      .bg-border { background-color: var(--agent-border-strong); }
+      .text-border { color: var(--agent-border-strong); }
+      .border-border { border-color: var(--agent-border-strong); }
+      .ring-border { --tw-ring-color: var(--agent-border-strong); }
+      .bg-input { background-color: var(--agent-input); }
+      .text-input { color: var(--agent-input); }
+      .border-input { border-color: var(--agent-input); }
+      .ring-input { --tw-ring-color: var(--agent-input); }
+      .bg-ring { background-color: var(--agent-ring); }
+      .text-ring { color: var(--agent-ring); }
+      .border-ring { border-color: var(--agent-ring); }
+      .ring-ring { --tw-ring-color: var(--agent-ring); }
+    </style>
+    <style>
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      [data-icon] {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        -webkit-mask-size: contain;
+        mask-size: contain;
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
+        -webkit-mask-position: center;
+        mask-position: center;
+        background-color: currentColor;
+      }
+    </style>
+</head>
+<body class="min-h-screen font-sans antialiased">
+    <style id="critical-layout">
+      .chat-root {
+        max-width: 430px;
+        margin: 0 auto;
+        min-height: 100vh;
+        background: var(--agent-background-gradient);
+        display: flex;
+        flex-direction: column;
+        font-family: var(--agent-font-sans);
+        position: relative;
+        overflow-x: hidden;
+      }
+      .chat-header {
+        height: 60px;
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        background: var(--agent-card);
+        border-bottom: var(--agent-glass-border);
+        backdrop-filter: var(--agent-glass-blur);
+        -webkit-backdrop-filter: var(--agent-glass-blur);
+        box-shadow: var(--agent-shadow-soft);
+        display: flex;
+        align-items: center;
+        padding: 0 12px;
+        gap: 6px;
+      }
+      .header-icon-btn {
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.45);
+        border: var(--agent-glass-border);
+        cursor: pointer;
+        color: var(--agent-foreground);
+        flex-shrink: 0;
+        transition: transform 0.15s ease, background 0.15s ease;
+      }
+      .header-icon-btn:hover {
+        background: rgba(255,255,255,0.75);
+        transform: translateY(-1px);
+      }
+      .header-icon-btn svg { width: 22px; height: 22px; }
+      .header-center {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+      .header-info {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .header-name {
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--agent-foreground);
+        line-height: 1.2;
+      }
+      .header-status {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 12px;
+        color: var(--agent-muted-foreground);
+        line-height: 1.2;
+      }
+      .status-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--agent-state-success);
+        display: inline-block;
+        flex-shrink: 0;
+        box-shadow: 0 0 6px var(--agent-state-success);
+      }
+      .agent-avatar {
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        object-fit: cover;
+        flex-shrink: 0;
+        border: 2px solid rgba(255,255,255,0.7);
+        box-shadow: var(--agent-shadow-soft);
+      }
+      .chat-area {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        padding: 18px 16px;
+        gap: 16px;
+        padding-bottom: 110px;
+      }
+      .msg-group {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .type-card {
+        border-radius: var(--agent-radius-md);
+        padding: 14px;
+        border: var(--agent-glass-border);
+        border-left-width: 3px;
+        backdrop-filter: var(--agent-glass-blur);
+        -webkit-backdrop-filter: var(--agent-glass-blur);
+        box-shadow: var(--agent-shadow-soft);
+      }
+      .type-card-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      .type-card-header svg {
+        width: 18px;
+        height: 18px;
+        flex-shrink: 0;
+      }
+      .type-card-label {
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .bubble-user {
+        background: linear-gradient(135deg, #38BDF8 0%, #0EA5E9 100%);
+        color: var(--agent-primary-foreground);
+        border-radius: var(--agent-radius-lg);
+        border-bottom-right-radius: 6px;
+        padding: 12px 16px;
+        max-width: 82%;
+        align-self: flex-end;
+        font-size: 15px;
+        line-height: 1.55;
+        word-break: break-word;
+        box-shadow: 0 6px 18px rgba(14, 165, 233, 0.28), 0 2px 4px rgba(14, 165, 233, 0.15);
+      }
+      .bubble-agent {
+        background: var(--agent-card);
+        color: var(--agent-foreground);
+        border: var(--agent-glass-border);
+        border-radius: var(--agent-radius-md);
+        border-bottom-left-radius: 6px;
+        padding: 12px 16px;
+        font-size: 15px;
+        line-height: 1.65;
+        word-break: break-word;
+        display: inline-block;
+        backdrop-filter: var(--agent-glass-blur);
+        -webkit-backdrop-filter: var(--agent-glass-blur);
+        box-shadow: var(--agent-shadow-soft);
+      }
+      .agent-row {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+      }
+      .agent-content {
+        flex: 1;
+        min-width: 0;
+      }
+      .timestamp {
+        font-size: 11px;
+        color: var(--agent-muted-foreground);
+        font-weight: 500;
+        letter-spacing: 0.02em;
+      }
+      .code-badge {
+        display: inline-block;
+        background: rgba(255,255,255,0.55);
+        color: var(--agent-tool-text);
+        font-family: var(--agent-font-mono);
+        font-size: 12px;
+        padding: 3px 10px;
+        border-radius: 6px;
+        border: 1px solid rgba(255,255,255,0.4);
+        font-weight: 500;
+      }
+      .skill-badge {
+        display: inline-block;
+        background: rgba(255,255,255,0.55);
+        color: var(--agent-skill-text);
+        font-size: 12px;
+        padding: 3px 10px;
+        border-radius: 6px;
+        border: 1px solid rgba(255,255,255,0.4);
+        font-weight: 500;
+      }
+      .typing-dots {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+        padding: 2px 0;
+      }
+      .typing-dots span {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--agent-muted-foreground);
+        animation: typing-bounce 1.4s infinite ease-in-out both;
+      }
+      .typing-dots span:nth-child(1) { animation-delay: 0s; }
+      .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+      .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+      @keyframes typing-bounce {
+        0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+        30% { transform: translateY(-6px); opacity: 1; }
+      }
+      .skill-dots {
+        display: inline-flex;
+        gap: 3px;
+        align-items: center;
+        margin-left: 4px;
+      }
+      .skill-dots span {
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: var(--agent-skill-accent);
+        animation: skill-pulse 1.2s infinite ease-in-out both;
+      }
+      .skill-dots span:nth-child(2) { animation-delay: 0.15s; }
+      .skill-dots span:nth-child(3) { animation-delay: 0.3s; }
+      @keyframes skill-pulse {
+        0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); }
+        30% { opacity: 1; transform: scale(1.1); }
+      }
+      .chat-input-bar {
+        position: sticky;
+        bottom: 0;
+        z-index: 20;
+        background: var(--agent-card);
+        border-top: var(--agent-glass-border);
+        backdrop-filter: var(--agent-glass-blur);
+        -webkit-backdrop-filter: var(--agent-glass-blur);
+        box-shadow: 0 -4px 24px rgba(15, 23, 42, 0.06);
+        padding: 10px 14px;
+        padding-bottom: max(10px, env(safe-area-inset-bottom));
+      }
+      .file-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(255,255,255,0.55);
+        color: var(--agent-foreground);
+        font-size: 12px;
+        padding: 5px 10px;
+        border-radius: 8px;
+        height: 30px;
+        margin-bottom: 8px;
+        border: var(--agent-glass-border);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+      }
+      .file-chip svg { width: 14px; height: 14px; flex-shrink: 0; }
+      .file-chip button {
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        color: var(--agent-muted-foreground);
+      }
+      .file-chip button svg { width: 14px; height: 14px; }
+      .input-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .input-icon-btn {
+        width: 42px;
+        height: 42px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255,255,255,0.5);
+        border: var(--agent-glass-border);
+        border-radius: 50%;
+        cursor: pointer;
+        color: var(--agent-muted-foreground);
+        flex-shrink: 0;
+        transition: background 0.15s ease, transform 0.15s ease;
+      }
+      .input-icon-btn:hover {
+        background: rgba(255,255,255,0.8);
+        transform: scale(1.05);
+      }
+      .input-icon-btn svg { width: 22px; height: 22px; }
+      .input-field {
+        flex: 1;
+        height: 42px;
+        background: var(--agent-input);
+        border: var(--agent-glass-border);
+        border-radius: 21px;
+        padding: 0 18px;
+        font-size: 14px;
+        color: var(--agent-foreground);
+        outline: none;
+        font-family: var(--agent-font-sans);
+        min-width: 0;
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        box-shadow: var(--agent-shadow-glow);
+        transition: box-shadow 0.2s ease, background 0.2s ease;
+      }
+      .input-field:focus {
+        background: rgba(255,255,255,0.85);
+        box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2), var(--agent-shadow-glow);
+      }
+      .input-field::placeholder { color: var(--agent-muted-foreground); }
+      .send-btn {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #38BDF8 0%, #0EA5E9 100%);
+        border: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        box-shadow: 0 4px 14px rgba(14, 165, 233, 0.35);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+      }
+      .send-btn:hover {
+        transform: scale(1.05);
+        box-shadow: 0 6px 18px rgba(14, 165, 233, 0.45);
+      }
+      .send-btn svg { width: 18px; height: 18px; color: var(--agent-primary-foreground); }
+      .ref-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 8px 10px;
+        background: rgba(255,255,255,0.5);
+        border-radius: 8px;
+        margin-top: 6px;
+        border: 1px solid rgba(255,255,255,0.35);
+      }
+      .ref-item svg { width: 16px; height: 16px; flex-shrink: 0; margin-top: 1px; }
+      .ref-item-title {
+        font-size: 13px;
+        color: var(--agent-knowledge-text);
+        line-height: 1.3;
+        font-weight: 500;
+      }
+      .ref-item-source {
+        font-size: 12px;
+        color: var(--agent-muted-foreground);
+        line-height: 1.3;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .typing-dots span,
+        .skill-dots span,
+        .header-icon-btn,
+        .input-icon-btn,
+        .send-btn {
+          animation: none !important;
+          transition: none !important;
+        }
+      }
+
+      /* ===== Process Summary Bar (collapsed state) ===== */
+      .process-summary-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 14px;
+        background: var(--agent-card);
+        border: var(--agent-glass-border);
+        border-radius: var(--agent-radius-md);
+        cursor: pointer;
+        user-select: none;
+        margin-top: 4px;
+        transition: background 0.2s ease, box-shadow 0.2s ease;
+        backdrop-filter: var(--agent-glass-blur);
+        -webkit-backdrop-filter: var(--agent-glass-blur);
+        box-shadow: var(--agent-shadow-soft);
+      }
+      .process-summary-bar:hover {
+        background: rgba(255,255,255,0.9);
+        box-shadow: var(--agent-shadow-medium);
+      }
+      .process-summary-left {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+      }
+      .process-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        display: inline-block;
+        box-shadow: 0 0 6px currentColor;
+      }
+      .process-summary-text {
+        font-size: 12px;
+        color: var(--agent-muted-foreground);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-weight: 500;
+      }
+      .process-chevron {
+        width: 16px;
+        height: 16px;
+        color: var(--agent-muted-foreground);
+        flex-shrink: 0;
+        transition: transform 0.25s ease;
+      }
+      .process-summary-bar.expanded .process-chevron {
+        transform: rotate(180deg);
+      }
+
+      /* ===== Collapsible Detail Panel (hidden by default) ===== */
+      .process-detail-panel {
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.35s ease, margin-top 0.35s ease, opacity 0.25s ease;
+        margin-top: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        opacity: 0;
+      }
+      .process-summary-bar.expanded + .process-detail-panel {
+        max-height: 900px;
+        margin-top: 10px;
+        opacity: 1;
+      }
+
+      /* ===== Fallback for browsers without backdrop-filter ===== */
+      @supports not (backdrop-filter: blur(1px)) {
+        .chat-header,
+        .chat-input-bar,
+        .bubble-agent,
+        .type-card,
+        .process-summary-bar,
+        .file-chip,
+        .input-field {
+          background: rgba(255, 255, 255, 0.95);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .process-chevron,
+        .process-detail-panel,
+        .process-summary-bar {
+          transition: none !important;
+        }
+      }
+    </style>
+    <main>
+      <div class="chat-root">
+        <!-- Header -->
+        <header id="section-header" class="chat-header">
+          <button class="header-icon-btn" aria-label="返回">
+            <i data-lucide="chevron-left"></i>
+          </button>
+          <div class="header-center">
+            <img src="../assets/agent-avatar.jpg" class="agent-avatar" alt="Trae Assistant">
+            <div class="header-info">
+              <div class="header-name">Trae Assistant</div>
+              <div class="header-status">
+                <span class="status-dot"></span>
+                <span>在线</span>
+              </div>
+            </div>
+          </div>
+          <button class="header-icon-btn" aria-label="更多">
+            <i data-lucide="more-vertical"></i>
+          </button>
+        </header>
+
+        <!-- Chat Conversation Area -->
+        <section id="section-chat" class="chat-area">
+
+          <!-- Message Group 1: User asks -->
+          <div class="msg-group">
+            <div class="bubble-user">帮我分析一下本周的任务完成情况，并从知识库中找一些相关的项目管理最佳实践</div>
+            <div class="timestamp" style="align-self: flex-end;">14:32</div>
+          </div>
+
+          <!-- Message Group 2: Agent's response + collapsed process info attached under AI message -->
+          <div class="msg-group">
+
+            <!-- e) Agent text response -->
+            <div class="agent-row">
+              <img src="../assets/agent-avatar.jpg" class="agent-avatar" alt="Trae Assistant">
+              <div class="agent-content">
+                <div class="bubble-agent" style="max-width: 280px;">根据分析，本周任务完成率为 <strong>85%</strong>，较上周提升 <strong>12%</strong>。以下是详细数据：</div>
+              </div>
+            </div>
+
+            <!-- Collapsed process summary bar attached under AI message -->
+            <div class="agent-row">
+              <img src="../assets/agent-avatar.jpg" class="agent-avatar" alt="" aria-hidden="true" style="visibility: hidden;">
+              <div class="agent-content">
+                <div class="process-summary-bar" onclick="this.classList.toggle('expanded')">
+                  <div class="process-summary-left">
+                    <span class="process-dot" style="background: var(--agent-thinking-accent);"></span>
+                    <span class="process-dot" style="background: var(--agent-tool-accent);"></span>
+                    <span class="process-dot" style="background: var(--agent-skill-accent);"></span>
+                    <span class="process-dot" style="background: var(--agent-knowledge-accent);"></span>
+                    <span class="process-summary-text">已思考 · 调用工具 · 调用技能 · 引用知识库</span>
+                  </div>
+                  <i data-lucide="chevron-down" class="process-chevron"></i>
+                </div>
+
+                <!-- Collapsible detail panel (hidden by default) -->
+                <div class="process-detail-panel">
+                  <!-- a) Thinking process card -->
+                  <div class="type-card" style="background: var(--agent-thinking-bg); border-color: var(--agent-thinking-border); border-left-color: var(--agent-thinking-accent);">
+                    <div class="type-card-header">
+                      <i data-lucide="brain" style="color: var(--agent-thinking-accent);"></i>
+                      <span class="type-card-label" style="color: var(--agent-thinking-text);">思考中</span>
+                      <span style="margin-left: auto; font-size: 12px; color: var(--agent-thinking-text); opacity: 0.7;">3步</span>
+                    </div>
+                    <p style="color: var(--agent-thinking-text); font-size: 13px; line-height: 1.5; margin: 0;">用户需要本周任务完成情况分析，同时需要项目管理最佳实践。我需要先查询任务数据，再搜索知识库...</p>
+                  </div>
+
+                  <!-- b) Tool call card -->
+                  <div class="type-card" style="background: var(--agent-tool-bg); border-color: var(--agent-tool-border); border-left-color: var(--agent-tool-accent);">
+                    <div class="type-card-header">
+                      <i data-lucide="database" style="color: var(--agent-tool-accent);"></i>
+                      <span class="type-card-label" style="color: var(--agent-tool-text);">调用工具</span>
+                      <i data-lucide="check-circle" style="margin-left: auto; color: var(--agent-state-success); width: 16px; height: 16px;"></i>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                      <span class="code-badge">任务数据查询 API</span>
+                      <span style="font-size: 12px; color: var(--agent-muted-foreground);">查询成功 · 返回 42 条记录</span>
+                    </div>
+                  </div>
+
+                  <!-- c) Skill call card -->
+                  <div class="type-card" style="background: var(--agent-skill-bg); border-color: var(--agent-skill-border); border-left-color: var(--agent-skill-accent);">
+                    <div class="type-card-header">
+                      <i data-lucide="sparkles" style="color: var(--agent-skill-accent);"></i>
+                      <span class="type-card-label" style="color: var(--agent-skill-text);">调用技能</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                      <span class="skill-badge">数据分析与可视化</span>
+                      <span style="font-size: 12px; color: var(--agent-skill-text); display: inline-flex; align-items: center;">正在生成图表
+                        <span class="skill-dots">
+                          <span></span><span></span><span></span>
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+
+                  <!-- d) Knowledge base card -->
+                  <div class="type-card" style="background: var(--agent-knowledge-bg); border-color: var(--agent-knowledge-border); border-left-color: var(--agent-knowledge-accent);">
+                    <div class="type-card-header">
+                      <i data-lucide="book-open" style="color: var(--agent-knowledge-accent);"></i>
+                      <span class="type-card-label" style="color: var(--agent-knowledge-text);">知识库引用</span>
+                    </div>
+                    <div class="ref-item">
+                      <i data-lucide="file-text" style="color: var(--agent-knowledge-accent);"></i>
+                      <div style="min-width: 0;">
+                        <div class="ref-item-title">高效项目管理指南.pdf</div>
+                        <div class="ref-item-source">第3章 · 敏捷迭代管理</div>
+                      </div>
+                    </div>
+                    <div class="ref-item">
+                      <i data-lucide="file-text" style="color: var(--agent-knowledge-accent);"></i>
+                      <div style="min-width: 0;">
+                        <div class="ref-item-title">团队协作最佳实践.md</div>
+                        <div class="ref-item-source">§2.2 · 任务拆分原则</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- f) Agent image output -->
+            <div class="agent-row">
+              <img src="../assets/agent-avatar.jpg" class="agent-avatar" alt="Trae Assistant">
+              <div class="agent-content">
+                <div style="max-width: 280px;">
+                  <img src="../assets/chart-output.jpg" alt="本周任务完成率数据图表" style="width: 100%; display: block; border-radius: var(--agent-radius-md); border: var(--agent-glass-border); box-shadow: var(--agent-shadow-medium);">
+                  <div style="display: flex; align-items: center; gap: 6px; margin-top: 8px;">
+                    <i data-lucide="bar-chart-3" style="width: 12px; height: 12px; color: var(--agent-muted-foreground);"></i>
+                    <span style="font-size: 12px; color: var(--agent-muted-foreground);">本周任务完成趋势</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- g) Agent markdown response -->
+            <div class="agent-row">
+              <img src="../assets/agent-avatar.jpg" class="agent-avatar" alt="Trae Assistant">
+              <div class="agent-content">
+                <div class="bubble-agent" style="max-width: 280px;">
+                  <div style="font-size: 14px; font-weight: 600; margin-bottom: 6px; color: var(--agent-foreground);">关键发现</div>
+                  <ul style="list-style: disc; padding-left: 18px; margin: 0;">
+                    <li style="font-size: 14px; line-height: 1.6; margin-bottom: 2px;">周一至周三完成率最高，均超过 90%</li>
+                    <li style="font-size: 14px; line-height: 1.6; margin-bottom: 2px;">周五完成率最低 (68%)，建议关注</li>
+                    <li style="font-size: 14px; line-height: 1.6;">知识库推荐：采用敏捷迭代管理可提升 15-20% 完成率</li>
+                  </ul>
+                  <div style="margin-top: 8px;">
+                    <code style="background: var(--agent-muted); font-family: var(--agent-font-mono); font-size: 13px; padding: 3px 8px; border-radius: 6px; color: var(--agent-foreground); border: 1px solid rgba(255,255,255,0.4);">recommend: sprint_review(weekly)</code>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- h) Agent file output -->
+            <div class="agent-row">
+              <img src="../assets/agent-avatar.jpg" class="agent-avatar" alt="Trae Assistant">
+              <div class="agent-content">
+                <div style="max-width: 280px; background: var(--agent-card); border: var(--agent-glass-border); border-radius: var(--agent-radius-md); padding: 14px; display: flex; align-items: center; gap: 12px; backdrop-filter: var(--agent-glass-blur); -webkit-backdrop-filter: var(--agent-glass-blur); box-shadow: var(--agent-shadow-soft);">
+                  <i data-lucide="file-text" style="width: 42px; height: 42px; color: var(--agent-primary); flex-shrink: 0;"></i>
+                  <div style="flex: 1; min-width: 0;">
+                    <div style="font-size: 14px; font-weight: 600; color: var(--agent-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">本周任务分析报告.pdf</div>
+                    <div style="font-size: 12px; color: var(--agent-muted-foreground);">2.4 MB · PDF文档</div>
+                  </div>
+                  <button style="flex-shrink: 0; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: linear-gradient(135deg, #E0F2FE 0%, #BAE6FD 100%); border: var(--agent-glass-border); cursor: pointer; box-shadow: var(--agent-shadow-soft);" aria-label="下载">
+                    <i data-lucide="download" style="width: 20px; height: 20px; color: var(--agent-primary);"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Message Group 3: User follow-up -->
+          <div class="msg-group">
+            <div class="bubble-user">收到，帮我按这个报告制定下周的计划</div>
+            <div class="timestamp" style="align-self: flex-end;">14:35</div>
+          </div>
+
+          <!-- Message Group 4: Agent typing indicator -->
+          <div class="agent-row">
+            <img src="../assets/agent-avatar.jpg" class="agent-avatar" alt="Trae Assistant">
+            <div class="agent-content">
+              <div class="bubble-agent">
+                <div class="typing-dots">
+                  <span></span><span></span><span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </section>
+
+        <!-- Input Bar -->
+        <footer id="section-input" class="chat-input-bar">
+          <!-- Attached file chip -->
+          <div>
+            <span class="file-chip">
+              <i data-lucide="file-text"></i>
+              <span>项目需求.docx</span>
+              <button aria-label="移除附件">
+                <i data-lucide="x"></i>
+              </button>
+            </span>
+          </div>
+          <!-- Input row -->
+          <div class="input-row">
+            <button class="input-icon-btn" aria-label="上传文件">
+              <i data-lucide="paperclip"></i>
+            </button>
+            <input type="text" class="input-field" placeholder="输入消息...">
+            <button class="send-btn" aria-label="发送">
+              <i data-lucide="send"></i>
+            </button>
+          </div>
+        </footer>
+      </div>
+    </main>
+    <script>lucide.createIcons();</script>
+</body>
+</html>

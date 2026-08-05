@@ -2,6 +2,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.conversation.models import (
+    AgentLoopRun,
+    AgentLoopStep,
     Conversation,
     ConversationMessage,
     ModelUsageRecord,
@@ -100,6 +102,47 @@ class ConversationRepository:
         await self.session.commit()
         await self.session.refresh(message)
         return message
+
+    async def create_loop(self, conversation_id: int, **values):
+        loop = AgentLoopRun(conversation_id=conversation_id, **values)
+        self.session.add(loop)
+        await self.session.flush()
+        return loop
+
+    async def create_loop_step(self, loop_run_id: int, **values):
+        step = AgentLoopStep(loop_run_id=loop_run_id, **values)
+        self.session.add(step)
+        await self.session.flush()
+        return step
+
+    async def save_loop(self, loop: AgentLoopRun):
+        await self.session.commit()
+        await self.session.refresh(loop)
+        return loop
+
+    async def list_loop_steps(self, loop_run_id: int):
+        result = await self.session.execute(
+            select(AgentLoopStep)
+            .where(AgentLoopStep.loop_run_id == loop_run_id)
+            .order_by(AgentLoopStep.sequence, AgentLoopStep.id)
+        )
+        return list(result.scalars().all())
+
+    async def list_loops(self, conversation_id: int):
+        result = await self.session.execute(
+            select(AgentLoopRun)
+            .where(AgentLoopRun.conversation_id == conversation_id)
+            .order_by(AgentLoopRun.id)
+        )
+        return list(result.scalars().all())
+
+    async def get_loop(self, loop_id: int, conversation_id: int):
+        return await self.session.scalar(
+            select(AgentLoopRun).where(
+                AgentLoopRun.id == loop_id,
+                AgentLoopRun.conversation_id == conversation_id,
+            )
+        )
 
     async def record_model_usage(self, **values):
         record = ModelUsageRecord(**values)

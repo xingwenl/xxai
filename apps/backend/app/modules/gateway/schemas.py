@@ -87,6 +87,10 @@ ProtocolEventType = Literal[
     "confirmation_required",
     "error",
     "pong",
+    "agent_loop_started",
+    "agent_step_started",
+    "agent_step_completed",
+    "agent_loop_completed",
 ]
 
 
