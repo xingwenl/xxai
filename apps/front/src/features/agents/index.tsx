@@ -3,7 +3,15 @@ import { z } from 'zod'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Edit, Plus, RefreshCw, Server, Trash2, Boxes } from 'lucide-react'
+import {
+  Edit,
+  History,
+  Plus,
+  RefreshCw,
+  Server,
+  Trash2,
+  Boxes,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import {
   createAgent,
@@ -66,6 +74,11 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { ConfigDrawer } from '@/components/config-drawer'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
@@ -96,7 +109,7 @@ export function AgentsPage() {
   const [platformId, setPlatformId] = useState<number>()
   const [editing, setEditing] = useState<Agent | null | undefined>()
   const [deleting, setDeleting] = useState<Agent | null>(null)
-  const [versionsFor, setVersionsFor] = useState<Agent | null>(null)
+  const [versionsForId, setVersionsForId] = useState<number | null>(null)
   const [versionDialog, setVersionDialog] = useState(false)
   const platformsQuery = useQuery({
     queryKey: ['platforms'],
@@ -108,6 +121,10 @@ export function AgentsPage() {
     queryFn: () => listAgents(activePlatformId!),
     enabled: activePlatformId != null,
   })
+  // versionsFor 只存 id，实际 agent 对象从 query 缓存中查找最新值，
+  // 这样发布/回滚后 invalidate agents 列表时，对话框内的 agent.default_version_id 会同步更新。
+  const versionsFor =
+    agentsQuery.data?.items.find((item) => item.id === versionsForId) ?? null
   const invalidateAgents = () =>
     queryClient.invalidateQueries({ queryKey: ['agents', activePlatformId] })
   const saveMutation = useMutation({
@@ -273,31 +290,46 @@ export function AgentsPage() {
                     </TableCell>
                     <TableCell className='text-end'>
                       <div className='flex justify-end gap-1'>
-                        <Button
-                          size='icon'
-                          variant='ghost'
-                          onClick={() => setVersionsFor(agent)}
-                        >
-                          <span className='sr-only'>版本</span>
-                          <RefreshCw className='size-4' />
-                        </Button>
-                        <Button
-                          size='icon'
-                          variant='ghost'
-                          onClick={() => setEditing(agent)}
-                        >
-                          <Edit className='size-4' />
-                          <span className='sr-only'>编辑</span>
-                        </Button>
-                        <Button
-                          size='icon'
-                          variant='ghost'
-                          className='text-destructive hover:text-destructive'
-                          onClick={() => setDeleting(agent)}
-                        >
-                          <Trash2 className='size-4' />
-                          <span className='sr-only'>删除</span>
-                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size='icon'
+                              variant='ghost'
+                              onClick={() => setVersionsForId(agent.id)}
+                            >
+                              <History className='size-4' />
+                              <span className='sr-only'>版本管理</span>
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>版本管理</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size='icon'
+                              variant='ghost'
+                              onClick={() => setEditing(agent)}
+                            >
+                              <Edit className='size-4' />
+                              <span className='sr-only'>编辑</span>
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>编辑</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size='icon'
+                              variant='ghost'
+                              className='text-destructive hover:text-destructive'
+                              onClick={() => setDeleting(agent)}
+                            >
+                              <Trash2 className='size-4' />
+                              <span className='sr-only'>删除</span>
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>删除</TooltipContent>
+                        </Tooltip>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -328,7 +360,7 @@ export function AgentsPage() {
           platformId={activePlatformId}
           agent={versionsFor}
           open
-          onOpenChange={(open) => !open && setVersionsFor(null)}
+          onOpenChange={(open) => !open && setVersionsForId(null)}
           onCreate={() => setVersionDialog(true)}
         />
       )}
@@ -501,14 +533,22 @@ function VersionsDialog({
     queryFn: () => listAgentVersions(platformId, agent.id),
     enabled: open,
   })
+  const invalidateAfterVersionChange = async () => {
+    // 同时刷新版本列表和智能体列表：发布/回滚会更新 agent.default_version_id，
+    // 不刷新 agents 列表会导致"当前版本"标注和默认版本信息停留在旧值。
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: ['agent-versions', platformId, agent.id],
+      }),
+      queryClient.invalidateQueries({ queryKey: ['agents', platformId] }),
+    ])
+  }
   const publishMutation = useMutation({
     mutationFn: (versionId: number) =>
       publishAgentVersion(platformId, agent.id, versionId),
     onSuccess: async () => {
       toast.success('版本已发布')
-      await queryClient.invalidateQueries({
-        queryKey: ['agent-versions', platformId, agent.id],
-      })
+      await invalidateAfterVersionChange()
     },
   })
   const rollbackMutation = useMutation({
@@ -516,18 +556,23 @@ function VersionsDialog({
       rollbackAgentVersion(platformId, agent.id, versionId),
     onSuccess: async () => {
       toast.success('版本已回滚')
-      await queryClient.invalidateQueries({
-        queryKey: ['agent-versions', platformId, agent.id],
-      })
+      await invalidateAfterVersionChange()
     },
   })
+  const currentVersionId = agent.default_version_id
+  const currentVersion = versionsQuery.data?.find(
+    (version) => version.id === currentVersionId
+  )
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className='max-w-3xl'>
         <DialogHeader>
           <DialogTitle>{agent.name} · 版本管理</DialogTitle>
           <DialogDescription>
-            API Key 仅在创建版本时提交，后端不会返回明文。
+            {currentVersion
+              ? `当前使用版本：v${currentVersion.version} · ${currentVersion.model_name}`
+              : '当前未发布任何版本'}
+            。API Key 仅在创建版本时提交，后端不会返回明文。
           </DialogDescription>
         </DialogHeader>
         <div className='flex justify-end'>
@@ -542,6 +587,7 @@ function VersionsDialog({
               <TableRow>
                 <TableHead>版本</TableHead>
                 <TableHead>模型</TableHead>
+                <TableHead>模型地址</TableHead>
                 <TableHead>温度</TableHead>
                 <TableHead>API Key</TableHead>
                 <TableHead>发布时间</TableHead>
@@ -551,51 +597,72 @@ function VersionsDialog({
             <TableBody>
               {versionsQuery.isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={6}>
+                  <TableCell colSpan={7}>
                     <Skeleton className='h-8 w-full' />
                   </TableCell>
                 </TableRow>
               ) : versionsQuery.data?.length ? (
-                versionsQuery.data.map((version) => (
-                  <TableRow key={version.id}>
-                    <TableCell>v{version.version}</TableCell>
-                    <TableCell>{version.model_name}</TableCell>
-                    <TableCell>{version.temperature}</TableCell>
-                    <TableCell>
-                      {version.has_api_key ? '已配置' : '未配置'}
-                    </TableCell>
-                    <TableCell>
-                      {version.published_at
-                        ? new Date(version.published_at).toLocaleString()
-                        : '未发布'}
-                    </TableCell>
-                    <TableCell>
-                      <div className='flex gap-1'>
-                        {!version.published_at && (
-                          <Button
-                            size='sm'
-                            variant='outline'
-                            onClick={() => publishMutation.mutate(version.id)}
-                          >
-                            发布
-                          </Button>
-                        )}
-                        {version.published_at && (
-                          <Button
-                            size='sm'
-                            variant='outline'
-                            onClick={() => rollbackMutation.mutate(version.id)}
-                          >
-                            回滚
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
+                versionsQuery.data.map((version) => {
+                  const isCurrent = version.id === currentVersionId
+                  return (
+                    <TableRow
+                      key={version.id}
+                      className={isCurrent ? 'bg-muted/40' : undefined}
+                    >
+                      <TableCell>
+                        <div className='flex items-center gap-2'>
+                          <span>v{version.version}</span>
+                          {isCurrent && <Badge>当前版本</Badge>}
+                        </div>
+                      </TableCell>
+                      <TableCell>{version.model_name}</TableCell>
+                      <TableCell className='max-w-[260px] truncate text-xs text-muted-foreground'>
+                        {version.model_base_url || '默认'}
+                      </TableCell>
+                      <TableCell>{version.temperature}</TableCell>
+                      <TableCell>
+                        {version.has_api_key ? '已配置' : '未配置'}
+                      </TableCell>
+                      <TableCell>
+                        {version.published_at
+                          ? new Date(version.published_at).toLocaleString()
+                          : '未发布'}
+                      </TableCell>
+                      <TableCell>
+                        <div className='flex gap-1'>
+                          {!version.published_at && (
+                            <Button
+                              size='sm'
+                              variant='outline'
+                              onClick={() => publishMutation.mutate(version.id)}
+                            >
+                              发布
+                            </Button>
+                          )}
+                          {version.published_at && !isCurrent && (
+                            <Button
+                              size='sm'
+                              variant='outline'
+                              onClick={() =>
+                                rollbackMutation.mutate(version.id)
+                              }
+                            >
+                              回滚到此版本
+                            </Button>
+                          )}
+                          {isCurrent && (
+                            <span className='text-xs text-muted-foreground'>
+                              使用中
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })
               ) : (
                 <TableRow>
-                  <TableCell colSpan={6} className='h-20 text-center'>
+                  <TableCell colSpan={7} className='h-20 text-center'>
                     暂无版本
                   </TableCell>
                 </TableRow>
