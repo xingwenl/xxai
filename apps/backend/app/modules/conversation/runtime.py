@@ -16,7 +16,6 @@
     load_runtime_context() → build_system_prompt() → stream_graph()/run_graph() → GraphResult
 """
 
-import asyncio
 from dataclasses import dataclass
 import json
 from typing import Any
@@ -120,14 +119,12 @@ def extract_token_usage(message: Any) -> dict[str, int] | None:
     usage = getattr(message, "usage_metadata", None) or {}
     if not usage:
         response_metadata = getattr(message, "response_metadata", None) or {}
-        usage = response_metadata.get("token_usage") or response_metadata.get(
-            "usage"
-        ) or {}
+        usage = (
+            response_metadata.get("token_usage") or response_metadata.get("usage") or {}
+        )
     values = {
         "prompt_tokens": usage.get("prompt_tokens", usage.get("input_tokens")),
-        "completion_tokens": usage.get(
-            "completion_tokens", usage.get("output_tokens")
-        ),
+        "completion_tokens": usage.get("completion_tokens", usage.get("output_tokens")),
         "total_tokens": usage.get("total_tokens"),
     }
     if any(not isinstance(value, int) or value < 0 for value in values.values()):
@@ -219,50 +216,153 @@ async def stream_graph(
         [getattr(tool, "name", type(tool).__name__) for tool in (tools or [])],
     )
 
-    # 场景1：工具循环仍由 run_graph 负责，但中间状态通过队列实时向上游发送。
+    # 场景1：工具场景逐轮消费模型原生流，工具结果回填后继续下一轮生成。
     if tools:
-        event_queue: asyncio.Queue[tuple[dict, asyncio.Future | None]] = asyncio.Queue()
+        bound_model = (
+            model.bind_tools(
+                [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": tool.name,
+                            "description": tool.description or "",
+                            "parameters": tool.input_schema or {"type": "object"},
+                        },
+                    }
+                    for tool in tools
+                ]
+            )
+            if hasattr(model, "bind_tools")
+            else model
+        )
 
-        async def on_runtime_event(event: dict) -> None:
-            # 事件落库完成前不继续执行工具，避免工具仓储和 AgentLoop 仓储
-            # 同时使用同一个 AsyncSession，触发 asyncpg "operation in progress"。
-            acknowledged = asyncio.get_running_loop().create_future()
-            await event_queue.put((event, acknowledged))
-            await acknowledged
+        # 少数模型适配器只实现非流式调用，保留兼容降级路径。
+        if not hasattr(bound_model, "astream"):
+            result = await run_graph(
+                model,
+                system_prompt=system_prompt,
+                user_message=user_message,
+                citations=citations,
+                tools=tools,
+                invoke_tool_fn=invoke_tool_fn,
+            )
+            if result.content:
+                yield {"type": "message_delta", "content": result.content}
+            yield {"type": "completed", "result": result}
+            return
 
-        async def execute_with_events():
-            try:
-                return await run_graph(
-                    model,
-                    system_prompt=system_prompt,
-                    user_message=user_message,
-                    citations=citations,
-                    tools=tools,
-                    invoke_tool_fn=invoke_tool_fn,
-                    on_event=on_runtime_event,
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_message),
+        ]
+        content_parts: list[str] = []
+        tool_events: list[dict[str, Any]] = []
+        usage = None
+
+        while True:
+            response = None
+            async for chunk in bound_model.astream(messages):
+                usage = merge_token_usage(usage, extract_token_usage(chunk))
+                response = chunk if response is None else response + chunk
+
+                content = chunk.content
+                if not isinstance(content, str):
+                    content = "".join(
+                        item.get("text", "") if isinstance(item, dict) else str(item)
+                        for item in content
+                    )
+                if content:
+                    content_parts.append(content)
+                    yield {"type": "message_delta", "content": content}
+
+            if response is None:
+                break
+
+            tool_calls = getattr(response, "tool_calls", []) or []
+            if not tool_calls:
+                break
+            if invoke_tool_fn is None:
+                logger.warning(
+                    "Model requested tools but no tool invoker is configured"
                 )
-            finally:
-                await event_queue.put(({"type": "runtime_completed"}, None))
+                break
 
-        task = asyncio.create_task(execute_with_events())
-        try:
-            while True:
-                event, acknowledged = await event_queue.get()
-                if event["type"] == "runtime_completed":
-                    break
-                try:
-                    yield event
-                finally:
-                    if acknowledged is not None and not acknowledged.done():
-                        acknowledged.set_result(None)
-            result = await task
-        finally:
-            if not task.done():
-                task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
-        if result.content:
-            yield {"type": "message_delta", "content": result.content}
-        yield {"type": "completed", "result": result}
+            messages.append(response)
+            executed_tool = False
+            for call in tool_calls:
+                tool = next((item for item in tools if item.name == call["name"]), None)
+                if tool is None:
+                    logger.warning("Model requested unknown tool name=%s", call["name"])
+                    continue
+
+                executed_tool = True
+                tool_event = {
+                    "tool": tool.name,
+                    "tool_type": (
+                        "mcp_tool"
+                        if hasattr(tool, "server_id")
+                        else (
+                            "skill_tool"
+                            if getattr(tool, "kind", None) == "skill_script"
+                            else "host_tool"
+                        )
+                    ),
+                    "tool_call_id": call.get("id", tool.name),
+                    "input_summary": f"收到 {len(call.get('args', {}))} 个参数",
+                    "skill_name": getattr(tool, "skill_name", None),
+                    "skill_version": getattr(tool, "skill_version", None),
+                }
+
+                # 上游消费并完成 Loop step 落库后才会恢复生成器并执行工具，
+                # 从而串行化同一个 AsyncSession 上的数据库操作。
+                yield {"type": "tool_started", **tool_event}
+                if hasattr(tool, "server_id"):
+                    outcome = await invoke_tool_fn(
+                        server_id=tool.server_id,
+                        tool_name=tool.name,
+                        arguments=call.get("args", {}),
+                    )
+                else:
+                    outcome = await invoke_tool_fn(tool=tool, call=call)
+
+                completed_tool_event = {**tool_event, "outcome": outcome}
+                tool_events.append(completed_tool_event)
+                yield {"type": "tool_completed", **completed_tool_event}
+
+                if outcome.status == "confirmation_required":
+                    yield {
+                        "type": "completed",
+                        "result": GraphResult(
+                            content="".join(content_parts),
+                            citations=citations or [],
+                            knowledge_grounded=bool(citations),
+                            pending_confirmation_id=outcome.confirmation_id,
+                            tool_events=tool_events,
+                            usage=usage,
+                        ),
+                    }
+                    return
+
+                messages.append(
+                    ToolMessage(
+                        content=str(outcome.result)[:20_000],
+                        tool_call_id=call.get("id", tool.name),
+                    )
+                )
+
+            if not executed_tool:
+                break
+
+        yield {
+            "type": "completed",
+            "result": GraphResult(
+                content="".join(content_parts),
+                citations=citations or [],
+                knowledge_grounded=bool(citations),
+                tool_events=tool_events,
+                usage=usage,
+            ),
+        }
         return
 
     # 场景2：模型不支持流式（无 astream 方法），降级为非流式调用
@@ -394,7 +494,13 @@ async def run_graph(
 
     # 步骤2：定义图中的 answer 节点，执行模型推理
     async def answer_node(state: ChatState):
-        response = await bound_model.ainvoke(state["messages"])
+        try:
+            response = await bound_model.ainvoke(state["messages"])
+        except Exception as e:
+            print(f"解析失败: {e}")
+            # raise e
+            return {"content": f"解析失败: {e}", "messages": [e]}
+
         content = response.content
         # 兼容多模态内容格式：将列表形式的内容块拼接为纯文本
         if not isinstance(content, str):
@@ -444,9 +550,11 @@ async def run_graph(
                 "tool_type": (
                     "mcp_tool"
                     if hasattr(tool, "server_id")
-                    else "skill_tool"
-                    if getattr(tool, "kind", None) == "skill_script"
-                    else "host_tool"
+                    else (
+                        "skill_tool"
+                        if getattr(tool, "kind", None) == "skill_script"
+                        else "host_tool"
+                    )
                 ),
                 "tool_call_id": call.get("id", tool.name),
                 "input_summary": f"收到 {len(call.get('args', {}))} 个参数",
@@ -488,7 +596,9 @@ async def run_graph(
             state["messages"].append(response)
             state["messages"].append(
                 ToolMessage(
-                    content=str(outcome.result)[:20_000],  # 限制工具结果长度，防止超出 Token 限制
+                    content=str(outcome.result)[
+                        :20_000
+                    ],  # 限制工具结果长度，防止超出 Token 限制
                     tool_call_id=call.get("id", tool.name),
                 )
             )
@@ -583,10 +693,17 @@ async def load_runtime_context(
         manifest = getattr(package, "manifest", None) or {}
         skill_usages.append(
             {
-                "name": getattr(skill, "name", None) or getattr(skill, "slug", None) or f"Skill {getattr(skill, 'id', '')}",
+                "name": getattr(skill, "name", None)
+                or getattr(skill, "slug", None)
+                or f"Skill {getattr(skill, 'id', '')}",
                 "slug": getattr(skill, "slug", None),
-                "version": manifest.get("version") if isinstance(manifest, dict) else None,
-                "has_script_tool": any(tool.skill_id == getattr(skill, "id", None) for tool in skill_script_tools),
+                "version": (
+                    manifest.get("version") if isinstance(manifest, dict) else None
+                ),
+                "has_script_tool": any(
+                    tool.skill_id == getattr(skill, "id", None)
+                    for tool in skill_script_tools
+                ),
             }
         )
 
@@ -605,7 +722,9 @@ async def load_runtime_context(
         agent=agent,
         version=agent.default_version,
         knowledge_bases=knowledge_bases,
-        skill_instructions=[build_runtime_skill_instruction(item.skill) for item in bindings],
+        skill_instructions=[
+            build_runtime_skill_instruction(item.skill) for item in bindings
+        ],
         skill_usages=skill_usages,
         skill_script_tools=skill_script_tools,
         mcp_tools=mcp_tools,
@@ -655,8 +774,7 @@ def build_system_prompt(
     # 追加宿主工具说明段落，提供前端可用工具列表
     if host_tools:
         tools = "\n".join(
-            f"- {tool.name}: {tool.description or '无描述'}"
-            for tool in host_tools
+            f"- {tool.name}: {tool.description or '无描述'}" for tool in host_tools
         )
         sections.append(
             "当前页面已注册且授权的宿主工具如下：\n"

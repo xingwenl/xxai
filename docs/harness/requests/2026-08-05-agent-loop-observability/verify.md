@@ -19,6 +19,11 @@ cd apps/ai-sdk && npm run test -- --run && npm run type-check && npm run build
 python -m compileall -q apps/backend/app apps/backend/migrations/versions/20260805_0017_agent_loop_observability.py
 git diff --check
 cd apps/backend && poetry run alembic current
+cd apps/backend && poetry run pytest tests/conversation tests/gateway -q
+cd apps/backend && poetry run ruff check app/modules/conversation/runtime.py app/modules/conversation/services.py app/modules/conversation/router.py tests/conversation/test_runtime.py
+cd apps/backend && poetry run black --check app/modules/conversation/runtime.py tests/conversation/test_runtime.py
+cd apps/ai-sdk && npm run test -- --run && npm run type-check && npm run build
+git diff --check
 ```
 
 ## 结果
@@ -46,6 +51,12 @@ cd apps/backend && poetry run alembic current
 - 已补标准会话非流式响应回归测试：`loop.steps` 从已落库步骤读取，不再固定为空数组。
 - 已按 `apps/ai-sdk/design/chat-glass.html` 重写 SDK 聊天 UI 组件树，旧 `ChatBubble` 已移除。
 - 已补 Markdown 渲染测试：确认 `markdown-it` 语法输出和 `dompurify` HTML 过滤均生效。
+- 工具场景已改为模型原生 `astream()`：流式累计工具调用参数，工具完成后继续逐块发送最终正文，不再等待完整回答后一次性发送。
+- 标准后台 SSE 与 Embed WebSocket 现在复用相同的流式工具循环；标准 SSE 继续发送兼容的 `tool_call`、`tool_result` / `confirmation_required` 事件，并实时发送 AgentLoop 事件。
+- 新增取消边界测试：工具开始事件发出后关闭生成器，不会执行尚未开始的工具。
+- 后端增量验证通过：`47 passed, 1 skipped`；Ruff 与 Black 定向检查通过。唯一警告是 Starlette TestClient 关于未来 `httpx2` 的弃用提示。
+- SDK 增量验证通过：`27 passed`，类型检查和生产构建通过。
+- SDK 流式滚动增加 48px 底部阈值：用户停留在底部附近时继续跟随，主动向上阅读后不再被每个 delta 强制拉回；边界纯函数测试通过。
 
 ## 未执行项
 
@@ -54,10 +65,9 @@ cd apps/backend && poetry run alembic current
 - 历史消息接口已接入 `content_blocks` 和 Loop 摘要/步骤返回；尚未提供后台独立审计接口。
 - 尚未进行浏览器端真实 WebSocket 联调和多内容块视觉回归，由用户负责联调。
 - 尚未补充独立 Vue UI 测试；当前以 SDK 核心测试、类型检查和生产构建作为前端自动验证。
-- 标准后台 SSE 在启用 MCP/技能工具时仍复用非流式 `execute_chat` 执行，工具步骤尚未做到与 Embed 网关一致的执行期间实时推送。
 
 ## 阻塞或例外
 
 - 本需求涉及数据模型变化和 API 契约变化，人工确认已于 2026-08-05 获得。
 - 当前未进入 acceptance 完成态：真实数据库版本复核和浏览器端联调仍缺少可执行证据。
-- 另有两项实现收尾：标准后台 SSE 工具分支实时化、Vue UI 组件测试补齐。
+- Vue UI 仍未引入组件挂载测试依赖；本次滚动判断已通过纯函数单测、类型检查和生产构建验证。

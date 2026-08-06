@@ -1,5 +1,5 @@
 <template>
-  <div class="xxai-chat-messages" ref="messagesRef">
+  <div class="xxai-chat-messages" ref="messagesRef" @scroll.passive="handleScroll">
     <ChatMessage
       v-for="msg in messages"
       :key="msg.id"
@@ -19,6 +19,7 @@
 import { computed, ref, watch, nextTick } from 'vue'
 import ChatMessage from './ChatMessage.vue'
 import type { Message, AgentLoopRun } from '../../core'
+import { isNearScrollBottom } from '../chat-scroll'
 
 interface Props {
   messages: Message[]
@@ -32,6 +33,7 @@ const emit = defineEmits<{
 }>()
 
 const messagesRef = ref<HTMLElement | null>(null)
+const followsStream = ref(true)
 const pendingAsMessage = computed<Message>(() => ({
   id: props.pendingMessage?.id || 'pending',
   role: 'assistant',
@@ -48,11 +50,18 @@ const pendingAsMessage = computed<Message>(() => ({
 }))
 
 function scrollToBottom() {
+  if (!followsStream.value) return
   nextTick(() => {
     if (messagesRef.value) {
       messagesRef.value.scrollTop = messagesRef.value.scrollHeight
     }
   })
+}
+
+function handleScroll() {
+  if (messagesRef.value) {
+    followsStream.value = isNearScrollBottom(messagesRef.value)
+  }
 }
 
 watch(

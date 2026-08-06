@@ -156,99 +156,53 @@ async def chat_endpoint(
                     }
                 )
 
-            if context.mcp_tools or context.skill_script_tools:
-                conversation, assistant, result = await execute_chat(
-                    ConversationRepository(session),
-                    context,
-                    platform_id=agent.platform_id,
-                    user_id=current_user.id,
-                    message=payload.message,
-                    conversation_id=payload.conversation_id,
-                    model=build_chat_model(context.version),
-                    citations=[citation.model_dump() for citation in citations],
-                    invoke_tool_fn=invoke,
-                )
-                for citation in result.citations:
-                    yield emit("citation", citation, conversation.id, assistant.id)
-                for tool_event in result.tool_events or []:
-                    yield emit(
-                        "tool_call",
-                        {"tool": tool_event["tool"]},
-                        conversation.id,
-                        assistant.id,
-                    )
-                    outcome = tool_event["outcome"]
-                    yield emit(
-                        (
-                            "confirmation_required"
-                            if outcome.status == "confirmation_required"
-                            else "tool_result"
-                        ),
-                        outcome.model_dump(),
-                        conversation.id,
-                        assistant.id,
-                    )
-                if result.content:
+            async for item in stream_chat(
+                ConversationRepository(session),
+                context,
+                platform_id=agent.platform_id,
+                user_id=current_user.id,
+                message=payload.message,
+                conversation_id=payload.conversation_id,
+                model=build_chat_model(context.version),
+                citations=[citation.model_dump() for citation in citations],
+                invoke_tool_fn=invoke,
+            ):
+                conversation = item["conversation"]
+                if item["type"] == "message_delta":
                     yield emit(
                         "message_delta",
-                        {"content": result.content},
+                        {"content": item["content"]},
                         conversation.id,
-                        assistant.id,
+                        None,
                     )
+                    continue
+                if item["type"].startswith("agent_"):
+                    yield emit(
+                        item["type"],
+                        item.get("payload", {}),
+                        item["conversation"].id,
+                        getattr(item.get("assistant"), "id", None),
+                    )
+                    continue
+                if item["type"] in {"tool_call", "tool_result", "confirmation_required"}:
+                    yield emit(item["type"], item["payload"], conversation.id, None)
+                    continue
+                assistant = item["assistant"]
+                result = item["result"]
+                for citation in result.citations:
+                    yield emit("citation", citation, conversation.id, assistant.id)
                 yield emit(
                     "message_completed",
                     {
                         "content": result.content,
+                        "contentBlocks": assistant.content_blocks,
                         "citations": result.citations,
                         "knowledge_grounded": result.knowledge_grounded,
+                        "loop": {"id": str(result.loop_id), "requestId": f"conversation-{conversation.id}", "status": "completed", "summary": "已完成回答", "steps": []} if result.loop_id else None,
                     },
                     conversation.id,
                     assistant.id,
                 )
-            else:
-                async for item in stream_chat(
-                    ConversationRepository(session),
-                    context,
-                    platform_id=agent.platform_id,
-                    user_id=current_user.id,
-                    message=payload.message,
-                    conversation_id=payload.conversation_id,
-                    model=build_chat_model(context.version),
-                    citations=[citation.model_dump() for citation in citations],
-                ):
-                    conversation = item["conversation"]
-                    if item["type"] == "message_delta":
-                        yield emit(
-                            "message_delta",
-                            {"content": item["content"]},
-                            conversation.id,
-                            None,
-                        )
-                        continue
-                    if item["type"].startswith("agent_"):
-                        yield emit(
-                            item["type"],
-                            item.get("payload", {}),
-                            item["conversation"].id,
-                            getattr(item.get("assistant"), "id", None),
-                        )
-                        continue
-                    assistant = item["assistant"]
-                    result = item["result"]
-                    for citation in result.citations:
-                        yield emit("citation", citation, conversation.id, assistant.id)
-                    yield emit(
-                        "message_completed",
-                        {
-                            "content": result.content,
-                            "contentBlocks": assistant.content_blocks,
-                            "citations": result.citations,
-                            "knowledge_grounded": result.knowledge_grounded,
-                            "loop": {"id": str(result.loop_id), "requestId": f"conversation-{conversation.id}", "status": "completed", "summary": "已完成回答", "steps": []} if result.loop_id else None,
-                        },
-                        conversation.id,
-                        assistant.id,
-                    )
         except Exception:
             yield format_sse_event(
                 {

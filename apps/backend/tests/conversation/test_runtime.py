@@ -3,7 +3,7 @@ import logging
 from types import SimpleNamespace
 
 import pytest
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, AIMessageChunk
 from app.modules.mcp.schemas import ToolInvocationOutcome
 
 from app.modules.conversation.runtime import (
@@ -19,11 +19,19 @@ from app.modules.conversation.services import build_loop_payload
 
 
 def test_content_blocks_keep_supported_custom_blocks_and_reject_unsafe_values():
-    blocks = sanitize_content_blocks([
-        {"id": "card", "type": "custom", "componentName": "OrderCard", "props": {"orderId": 3}, "fallback": "订单详情"},
-        {"id": "bad", "type": "image", "assetId": "../../secret"},
-        {"id": "too-long", "type": "markdown", "text": "x" * 120_001},
-    ])
+    blocks = sanitize_content_blocks(
+        [
+            {
+                "id": "card",
+                "type": "custom",
+                "componentName": "OrderCard",
+                "props": {"orderId": 3},
+                "fallback": "订单详情",
+            },
+            {"id": "bad", "type": "image", "assetId": "../../secret"},
+            {"id": "too-long", "type": "markdown", "text": "x" * 120_001},
+        ]
+    )
 
     assert blocks[0]["type"] == "custom"
     assert blocks[0]["component_name"] == "OrderCard"
@@ -108,15 +116,11 @@ class FakeSkillRepository:
         return [
             SimpleNamespace(
                 sort_order=2,
-                skill=SimpleNamespace(
-                    instruction_template="second", package=None
-                ),
+                skill=SimpleNamespace(instruction_template="second", package=None),
             ),
             SimpleNamespace(
                 sort_order=1,
-                skill=SimpleNamespace(
-                    instruction_template="first", package=None
-                ),
+                skill=SimpleNamespace(instruction_template="first", package=None),
             ),
         ]
 
@@ -137,9 +141,7 @@ class ScriptSkillRepository:
             is_active=True,
             allow_script_execution=self.allowed,
             storage_path="/app/storage/skill-packages/2/report",
-            files=[
-                SimpleNamespace(relative_path="scripts/report.py", role="script")
-            ],
+            files=[SimpleNamespace(relative_path="scripts/report.py", role="script")],
         )
         skill = SimpleNamespace(
             id=23,
@@ -309,6 +311,49 @@ class ToolCallingModel:
         return AIMessage(content=self.second_response)
 
 
+class StreamingToolCallingModel:
+    def __init__(self):
+        self.calls = 0
+
+    def bind_tools(self, tools):
+        assert tools[0]["function"]["name"] == "lookup"
+        return self
+
+    async def astream(self, messages):
+        self.calls += 1
+        if self.calls == 1:
+            yield AIMessageChunk(
+                content="",
+                tool_call_chunks=[
+                    {
+                        "name": "lookup",
+                        "args": '{"query":"退',
+                        "id": "call-1",
+                        "index": 0,
+                    }
+                ],
+            )
+            yield AIMessageChunk(
+                content="",
+                tool_call_chunks=[
+                    {"name": None, "args": '款"}', "id": None, "index": 0}
+                ],
+            )
+            return
+
+        assert messages[-1].content == "结果"
+        yield AIMessageChunk(content="最终")
+        await asyncio.sleep(0)
+        yield AIMessageChunk(
+            content="答案",
+            usage_metadata={
+                "input_tokens": 8,
+                "output_tokens": 2,
+                "total_tokens": 10,
+            },
+        )
+
+
 def test_read_only_tool_result_is_returned_to_model():
     tool = SimpleNamespace(
         name="lookup",
@@ -357,7 +402,7 @@ def test_stream_graph_emits_tool_started_before_tool_finishes():
             return ToolInvocationOutcome(status="completed", audit_id=1, result="结果")
 
         events = stream_graph(
-            ToolCallingModel("最终答案"),
+            StreamingToolCallingModel(),
             system_prompt="回答问题",
             user_message="查询天气",
             tools=[tool],
@@ -374,8 +419,45 @@ def test_stream_graph_emits_tool_started_before_tool_finishes():
         assert [event["type"] for event in remaining] == [
             "tool_completed",
             "message_delta",
+            "message_delta",
             "completed",
         ]
+        assert [event["content"] for event in remaining[1:3]] == ["最终", "答案"]
+        assert remaining[-1]["result"].content == "最终答案"
+        assert remaining[-1]["result"].usage == {
+            "prompt_tokens": 8,
+            "completion_tokens": 2,
+            "total_tokens": 10,
+        }
+
+    asyncio.run(run())
+
+
+def test_closing_stream_after_tool_started_does_not_invoke_tool():
+    async def run():
+        tool = SimpleNamespace(
+            name="lookup",
+            description="查询",
+            input_schema={"type": "object"},
+            server_id=9,
+        )
+        tool_invoked = False
+
+        async def invoke_tool_fn(**_kwargs):
+            nonlocal tool_invoked
+            tool_invoked = True
+            return ToolInvocationOutcome(status="completed", audit_id=1, result="结果")
+
+        events = stream_graph(
+            StreamingToolCallingModel(),
+            system_prompt="回答问题",
+            user_message="查询天气",
+            tools=[tool],
+            invoke_tool_fn=invoke_tool_fn,
+        )
+        assert (await anext(events))["type"] == "tool_started"
+        await events.aclose()
+        assert tool_invoked is False
 
     asyncio.run(run())
 
@@ -486,11 +568,14 @@ class StreamingChatModel:
 
 class UsageStreamingChatModel:
     async def astream(self, messages):
-        yield AIMessage(content="答案", usage_metadata={
-            "input_tokens": 12,
-            "output_tokens": 4,
-            "total_tokens": 16,
-        })
+        yield AIMessage(
+            content="答案",
+            usage_metadata={
+                "input_tokens": 12,
+                "output_tokens": 4,
+                "total_tokens": 16,
+            },
+        )
 
 
 def test_extract_token_usage_normalizes_langchain_usage_metadata():

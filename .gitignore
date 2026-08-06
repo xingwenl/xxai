@@ -30,7 +30,9 @@ venv/
 # Logs
 *.log
 apps/backend/logs/
+apps/backend/storage/
 
+/tmp
 # Build artifacts
 dist/
 build/
@@ -38,6 +40,6 @@ build/
 
 # Persistent development worktrees
 .worktrees/
-
+.superpowers
 node_modules/
 backend-admin/

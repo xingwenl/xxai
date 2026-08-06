@@ -116,3 +116,33 @@ git diff --check
 - 进入实现前必须确认：是否接受新增 WebSocket/SSE 事件 `agent_loop_started`、`agent_step_started`、`agent_step_completed`、`agent_loop_completed`，且第一版不发送 `agent_step_delta`。
 - 进入实现前必须确认：是否接受第一版不落库原始 chain-of-thought，只保存可展示过程摘要。
 - 进入实现前必须确认：是否接受第一版以 `markdown`、`image`、`file`、`custom fallback` 为必达内容块，图表/表格/动作按钮做基础 schema 和最小渲染。
+
+## 2026-08-05 增量计划：工具场景原生流式输出
+
+### 变更范围
+
+- `apps/backend/app/modules/conversation/runtime.py`：把有工具场景从 `ainvoke()` 批处理改为 `astream()` 原生流式工具循环，累计正文、工具调用片段和 Token 用量。
+- `apps/backend/tests/conversation/test_runtime.py`：覆盖工具调用前后事件顺序、最终回答多 delta、delta 拼接、用量和用户确认中断。
+- `apps/ai-sdk/src/ui/components/ChatMessageList.vue`：仅在用户停留于消息底部附近时跟随流式内容，避免用户上滚阅读时被强制拉回。
+- SDK UI 测试：若现有测试工具支持组件挂载，则补充自动滚动判断；否则以类型检查、构建和纯函数单元测试作为最小证据，并在 `verify.md` 记录限制。
+
+### 实施步骤
+
+1. 先增加失败测试，证明当前有工具场景只产生一个最终 `message_delta`。
+2. 提取增量内容标准化逻辑，兼容字符串和多模态文本块。
+3. 对绑定工具后的模型逐轮调用 `astream()`，累计 `AIMessageChunk`，从完整累计消息读取工具调用。
+4. 工具开始事件先从异步生成器让出给上游；上游完成 Loop step 落库并请求下一事件后才执行工具，以此保证共享 `AsyncSession` 串行访问。
+5. 工具结果追加到消息历史后进入下一轮模型流；没有工具调用时结束循环并输出 `completed`。
+6. 确认取消传播到当前异步生成器，且取消后不会启动后续工具。
+7. 调整 SDK 自动滚动条件，不改变消息协议和公共 API。
+8. 执行后端定向测试、SDK 测试、类型检查、构建和 `git diff --check`，更新 `verify.md` 与 `acceptance.md`。
+
+### 回滚说明
+
+- 后端可单独回滚到原有“无工具原生流、有工具批处理”的 `stream_graph()` 分支，不涉及数据库回滚。
+- SDK 自动滚动调整可独立回滚，不影响消息状态或协议兼容。
+
+### 审批判断
+
+- 不新增或修改 API 字段、数据库结构、鉴权、权限和服务边界。
+- 用户已于 2026-08-05 确认采用“AgentLoop 实时状态 + 最终回答原生流式输出”方案，可以进入实现。

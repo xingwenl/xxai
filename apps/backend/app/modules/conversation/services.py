@@ -8,6 +8,7 @@ from app.modules.conversation.runtime import (
 from app.modules.knowledge.runtime import build_embedding_model
 from app.modules.knowledge.services import build_citations, validate_embedding_dimension
 from app.modules.conversation.schemas import sanitize_content_blocks
+from app.shared.exceptions import NotFoundException
 
 
 def _content_blocks(content: str) -> list[dict]:
@@ -94,7 +95,6 @@ async def _start_loop(repo, conversation, user_message, request_id: str, citatio
         ))
     await repo.save_loop(loop)
     return loop, retrieval, skill_steps
-from app.shared.exceptions import NotFoundException
 
 logger = get_logger(__name__)
 
@@ -197,7 +197,7 @@ async def execute_chat(
     tool_start = 2 + len(skill_steps)
     for offset, tool_event in enumerate(result.tool_events or [], start=tool_start):
         await repo.create_loop_step(loop.id, **_tool_step_values(tool_event, offset))
-    generation_step = await repo.create_loop_step(
+    await repo.create_loop_step(
         loop.id,
         sequence=tool_start + len(result.tool_events or []),
         step_type="model_generation",
@@ -231,6 +231,7 @@ async def stream_chat(
     conversation_id: int | None,
     model,
     citations: list[dict],
+    invoke_tool_fn=None,
 ):
     logger.info(
         "Conversation stream chat started platform_id=%s user_id=%s agent_id=%s conversation_id=%s message_chars=%s citation_count=%s",
@@ -275,6 +276,8 @@ async def stream_chat(
         ),
         user_message=message,
         citations=citations,
+        tools=[*context.mcp_tools, *context.skill_script_tools],
+        invoke_tool_fn=invoke_tool_fn,
     ):
         if item["type"] == "message_delta":
             yield {"type": "message_delta", "conversation": conversation, **item}
@@ -297,6 +300,7 @@ async def stream_chat(
             tool_steps[call_id] = tool_step
             await repo.save_loop(loop)
             yield {"type": "agent_step_started", "conversation": conversation, "loop_id": loop.id, "step_id": tool_step.id, "payload": {"loopRunId": str(loop.id), "stepId": str(tool_step.id), "sequence": tool_step.sequence, "stepType": tool_step.step_type, "title": tool_step.title, "status": tool_step.status, "toolName": tool_step.tool_name, "skillName": tool_step.skill_name, "skillVersion": tool_step.skill_version}}
+            yield {"type": "tool_call", "conversation": conversation, "payload": {"tool": item["tool"], "toolCallId": call_id}}
             continue
         if item["type"] == "tool_completed":
             call_id = str(item["tool_call_id"])
@@ -308,6 +312,12 @@ async def stream_chat(
                 tool_step.error = values["error"]
                 await repo.save_loop(loop)
                 yield {"type": "agent_step_completed", "conversation": conversation, "loop_id": loop.id, "step_id": tool_step.id, "payload": {"loopRunId": str(loop.id), "stepId": str(tool_step.id), "sequence": tool_step.sequence, "stepType": tool_step.step_type, "title": tool_step.title, "status": tool_step.status, "outputSummary": tool_step.output_summary, "toolName": tool_step.tool_name, "skillName": tool_step.skill_name, "skillVersion": tool_step.skill_version}}
+            outcome = item["outcome"]
+            yield {
+                "type": "confirmation_required" if outcome.status == "confirmation_required" else "tool_result",
+                "conversation": conversation,
+                "payload": outcome.model_dump(),
+            }
             continue
         result = item["result"]
         assistant = await repo.create_message(

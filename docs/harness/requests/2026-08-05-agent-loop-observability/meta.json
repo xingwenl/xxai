@@ -50,5 +50,5 @@
     "apps/backend/app/modules/conversation/router.py",
     "apps/backend/app/modules/gateway/router.py"
   ],
-  "notes": "已完成 research/spec/plan/implement；本地 verify 已通过，标准会话非流式响应已补齐已落库 Loop 步骤投影，SDK UI 已按 chat-glass 设计稿重写组件树和视觉 token。真实迁移实例版本复核、浏览器 WebSocket 联调和 Vue Test Utils 组件测试仍待补齐。后台详细审计页面和接口不在本期实现。"
+  "notes": "已完成 research/spec/plan/implement；本地 verify 已通过，标准 SSE 与 Embed WebSocket 均支持工具场景模型原生流式输出，SDK UI 已按 chat-glass 设计稿实现内容块、AgentLoop 和条件自动滚动。真实迁移实例版本复核、浏览器 WebSocket 联调和 Vue Test Utils 组件测试仍待补齐。后台详细审计页面和接口不在本期实现。"
 }
