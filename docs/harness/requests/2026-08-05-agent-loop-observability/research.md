@@ -142,3 +142,43 @@
 - 继续复用 `message_delta` 与现有 AgentLoop 生命周期事件，不新增 API 字段、数据库字段或权限行为。
 - 流式异常必须保留已发送内容用于当前界面展示，同时把 Loop 标记为失败并发送现有结构化错误事件；最终持久化仍以完整成功消息为事实来源。
 - 本次属于原 request 内的实现修正，不触发新的人工审批，但实施前需要补充计划与针对性验证。
+
+## 2026-08-06 增量调研：Agent 上游错误的终止事件
+
+### 调研问题
+
+- 模型网关返回 502 等上游错误时，如何让 C 端收到可展示提示并可靠结束当前消息？
+
+### 补充来源
+
+#### 来源 8
+
+- 类型：官方文档
+- 名称：OpenAI Python Library - Error handling
+- 链接：https://github.com/openai/openai-python#error-handling
+- 版本或发布日期：在线官方文档，调研日期为 2026-08-06。
+- 核心做法：将 HTTP 状态错误映射为带 `status_code` 的 API 异常，并区分可重试的连接/服务端错误；调用方应捕获异常并决定重试或向用户报告失败。
+- 对本项目的启发：后端应从异常中提取状态码和可重试性，使用统一结构化错误事件向 C 端报告，而不是把异常变成固定或不可分类的字符串。
+
+#### 来源 9
+
+- 类型：成熟开源项目
+- 名称：Vercel AI SDK UI message stream protocol
+- 链接：https://github.com/vercel/ai/tree/main/packages/ui-utils
+- 版本或发布日期：在线源码，调研日期为 2026-08-06。
+- 核心做法：流式消息协议将错误作为当前消息流的终止状态，客户端收到错误后停止 pending 消息并交给 UI 展示，同时保留可重试入口。
+- 对本项目的启发：无需新增事件类型；沿用现有 `error` 事件作为 request 的终止信号，SDK 必须清理 pending assistant，避免界面永久处于生成中。
+
+### 方案比较
+
+| 方案 | 优点 | 限制 | 与本项目的匹配度 |
+|---|---|---|---|
+| 方案 A：统一 `error` 事件作为终止信号 | 不新增协议类型；SSE、WebSocket、SDK 复用现有链路；客户端行为清晰 | 需要明确 error 是当前 request 的终止语义 | 高，选择 |
+| 方案 B：新增 `message_failed` 事件 | 语义显式 | 扩大协议契约，旧 SDK 兼容和重放逻辑需同步修改 | 中低 |
+| 方案 C：只改错误文案 | 改动最小 | 无状态码、重试语义和 pending 清理约束 | 低 |
+
+### 增量决策
+
+- 选择方案 A：后端统一输出 `error` 事件，payload 包含 `code`、用户可展示 `message`、`retryable` 和脱敏 `details`；该事件表示当前 request 结束，不再发送 `message_completed`。
+- 对 502、连接错误和服务端 API 错误统一映射为 `agent_upstream_unavailable`，用户提示为“Agent 连接失败（HTTP 502），本轮对话已结束”或对应状态码文案。
+- SDK 收到 `error` 后清理 pending assistant、结束当前 request，并触发已有 `onError` 与 error 事件回调。

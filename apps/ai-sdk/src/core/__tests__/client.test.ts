@@ -56,6 +56,73 @@ describe('AgentClient protocol events', () => {
     expect(sent).toEqual([{ type: 'message_cancel', requestId: 'req-1', payload: {} }])
   })
 
+  it('turns a terminal error event into a failed assistant message', () => {
+    const messages: any[] = []
+    const errors: Error[] = []
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws',
+      platformId: 'p',
+      agentId: 'a',
+      getToken: async () => 'token',
+      callbacks: {
+        onMessage: (message) => messages.push(message),
+        onError: (error) => errors.push(error)
+      }
+    })
+    const transport = (client as any).transport
+    transport.emit('message', {
+      id: '1', type: 'message_started', protocolVersion: 1, sequence: 1,
+      timestamp: new Date().toISOString(), requestId: 'r', payload: {}
+    })
+    transport.emit('message', {
+      id: '2', type: 'agent_loop_started', protocolVersion: 1, sequence: 2,
+      timestamp: new Date().toISOString(), requestId: 'r', payload: { loopRunId: 'loop-1' }
+    })
+    transport.emit('message', {
+      id: '3', type: 'error', protocolVersion: 1, sequence: 3,
+      timestamp: new Date().toISOString(), requestId: 'r', payload: {
+        code: 'agent_upstream_unavailable',
+        message: 'Agent 连接失败（HTTP 502），本轮对话已结束',
+        retryable: true,
+        details: { statusCode: '502' }
+      }
+    })
+
+    expect(messages[0]).toMatchObject({
+      type: 'error',
+      content: { text: 'Agent 连接失败（HTTP 502），本轮对话已结束' },
+      contentBlocks: [{ type: 'error', status: 'failed' }],
+      loop: { id: 'loop-1', status: 'failed' }
+    })
+    expect(errors[0].message).toContain('HTTP 502')
+    expect((client as any).pendingAssistantMessage).toBeNull()
+    expect((client as any).activeRequestId).toBeUndefined()
+  })
+
+  it('ends a queued request when the transport fails before message_started', async () => {
+    const messages: any[] = []
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws',
+      platformId: 'p',
+      agentId: 'a',
+      getToken: async () => 'token',
+      callbacks: { onMessage: (message) => messages.push(message) }
+    })
+    const transport = (client as any).transport
+
+    await client.sendMessage('测试连接')
+    transport.emit('error', new Error('WebSocket closed (4401)'))
+
+    expect(messages).toHaveLength(2)
+    expect(messages[1]).toMatchObject({
+      role: 'assistant',
+      type: 'error',
+      content: { text: 'Agent 连接失败，本轮对话已结束' },
+      contentBlocks: [{ type: 'error', status: 'failed' }]
+    })
+    expect((client as any).activeRequestId).toBeUndefined()
+  })
+
   it('keeps streamed AgentLoop steps when completion only carries a summary', () => {
     const client = new AgentClient({ endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token' })
     const transport = (client as any).transport

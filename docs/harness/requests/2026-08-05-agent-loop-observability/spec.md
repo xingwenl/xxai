@@ -191,6 +191,27 @@ type MessageContentBlock = {
 
 ## 变更记录
 
+### 2026-08-06 fix：Agent 上游错误发送到 C 端并结束本轮消息
+
+- 变更原因：模型网关返回 HTTP 502 等 Agent 连接错误时，标准 SSE 只返回固定 `chat failed`，Embed WebSocket 直接透传异常字符串；SDK 收到 `error` 后仍保留 pending assistant，C 端无法得到明确提示且本轮不会结束。
+- 变更内容：复用统一 `error` 事件作为当前 request 的终止信号。后端输出 `agent_upstream_unavailable`、用户可展示提示、`retryable` 和脱敏调试详情；SDK 收到后清理 pending assistant 并结束当前 request；失败运行中的 Loop/生成步骤标记为 `failed`，不发送 `message_completed`。
+- 方案依据：详见 `research.md` 的“2026-08-06 增量调研：Agent 上游错误的终止事件”，选择不新增 `message_failed` 协议类型。
+- 影响章节：协议事件草案、原生流式工具循环、风险、验收标准。
+- 是否触发人工确认：否，不新增事件类型、数据模型或权限行为。
+- 关联计划更新：已同步更新 `plan.md`。
+
+#### 错误路径审计补充
+
+- 服务端结构化 `error`、WebSocket 连接失败、token 获取失败和协议解析失败均进入 SDK 的统一失败收口；当前存在活跃 request 时必须生成失败助手消息并结束本轮。
+- 可恢复的工具执行失败继续使用 `agent_step_completed(status=failed)` 和 `tool_result` 投影，不升级为终止 `error`；只有错误导致整轮无法继续时才发送终止 `error`。
+- 握手、鉴权阶段尚未创建聊天 request 的失败只更新连接状态并触发 `onError`，不创建无归属的聊天消息。
+
+补充验收标准：
+
+- Agent 上游返回 502 或连接错误时，SSE/WebSocket 均只发送一个结构化 `error` 终止事件，C 端展示“Agent 连接失败（HTTP 502），本轮对话已结束”或对应状态码提示。
+- `error` 事件后不再发送 `message_completed`；SDK 的 pending assistant 不再保持生成中，已有 `onError` 回调仍被触发。
+- 失败的运行中 Loop 和模型生成步骤保存为 `failed`，失败半成品不创建完整助手消息。
+
 ### 2026-08-05 modify：工具场景使用模型原生流式输出
 
 - 变更原因：现有无工具场景已通过 `astream()` 增量输出，但只要 Agent 配置了工具，运行时就改用 `ainvoke()` 完成整个工具循环，最终回答只能一次性出现，首字延迟和交互感受不符合预期。

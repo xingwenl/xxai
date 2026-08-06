@@ -146,3 +146,33 @@ git diff --check
 
 - 不新增或修改 API 字段、数据库结构、鉴权、权限和服务边界。
 - 用户已于 2026-08-05 确认采用“AgentLoop 实时状态 + 最终回答原生流式输出”方案，可以进入实现。
+
+## 2026-08-06 增量计划：统一 Agent 上游错误终止语义
+
+### 变更文件
+
+- `apps/backend/app/modules/conversation/runtime.py`：新增异常分类和结构化错误 payload 构造，提取状态码、可重试性和脱敏摘要。
+- `apps/backend/app/modules/conversation/router.py`：标准 SSE 使用统一错误 payload，保证异常后只结束当前流。
+- `apps/backend/app/modules/conversation/services.py`：流式模型异常时将已创建的 Loop/生成步骤标记为失败并保存。
+- `apps/backend/app/modules/gateway/router.py`：Embed WebSocket Task 异常使用统一错误 payload，避免透传不可控原始字符串。
+- `apps/backend/app/modules/gateway/runtime.py`：Embed 流式运行异常时持久化失败 Loop/步骤并重新抛出供网关发送 error。
+- `apps/ai-sdk/src/core/client.ts`：收到 error 后清理 pending assistant、pending loop 和 active request，触发已有错误回调。
+- 后端和 SDK 测试文件：覆盖 502 payload、错误终止、Loop 失败落库和 pending 清理。
+
+### 实施步骤
+
+1. 先增加失败测试，锁定 502 的结构化 payload、错误后无完成事件和 SDK pending 清理。
+2. 在 conversation runtime 中实现统一异常分类，限制调试摘要长度并避免向 C 端暴露完整堆栈。
+3. 在标准 SSE 与 Embed WebSocket 入口复用该 payload；异常路径只发送一次 `error`。
+4. 在两条流式服务路径中保存运行中 Loop/模型步骤的 `failed` 状态，不创建失败助手消息。
+5. SDK 收到 `error` 后结束当前 request，并保留 `onError`/事件回调兼容。
+6. 执行定向后端测试、SDK 测试、类型检查、构建和 `git diff --check`，回填 verify/acceptance。
+
+### 回滚说明
+
+- 回滚 conversation/gateway 的错误映射和失败状态处理即可恢复原错误行为；不涉及数据库迁移。
+- SDK 回滚只影响 error 到达后的 pending 状态清理，不影响成功消息协议。
+
+### 人工确认点
+
+- 无。用户已确认使用现有统一 `error` 事件，不新增 `message_failed` 或其他协议类型。

@@ -16,8 +16,10 @@
     load_runtime_context() → build_system_prompt() → stream_graph()/run_graph() → GraphResult
 """
 
+import asyncio
 from dataclasses import dataclass
 import json
+import re
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
@@ -31,6 +33,46 @@ from app.modules.skill_runner.tools import build_skill_script_tools
 from app.modules.conversation.schemas import RuntimeContext
 
 logger = get_logger(__name__)
+
+
+def build_agent_error_payload(error: BaseException) -> dict[str, Any]:
+    """将模型/Agent 异常转换为可安全展示且可重试判断的错误事件。"""
+    raw_message = str(error).strip() or type(error).__name__
+    status_code = getattr(error, "status_code", None)
+    response = getattr(error, "response", None)
+    if status_code is None:
+        status_code = getattr(response, "status_code", None)
+    if not isinstance(status_code, int):
+        match = re.search(r"\b([45]\d{2})\b", raw_message)
+        status_code = int(match.group(1)) if match else None
+
+    is_connection_error = isinstance(error, (ConnectionError, TimeoutError)) or any(
+        token in raw_message.lower()
+        for token in ("connection", "connect", "timeout", "bad gateway", "upstream")
+    )
+    retryable = is_connection_error or bool(status_code and status_code >= 500)
+    if status_code == 502:
+        code = "agent_upstream_unavailable"
+        message = "Agent 连接失败（HTTP 502），本轮对话已结束"
+    elif status_code and status_code >= 500:
+        code = "agent_upstream_unavailable"
+        message = f"Agent 连接失败（HTTP {status_code}），本轮对话已结束"
+    elif is_connection_error:
+        code = "agent_upstream_unavailable"
+        message = "Agent 连接失败，本轮对话已结束"
+    else:
+        code = "agent_request_failed"
+        message = "Agent 请求失败，本轮对话已结束"
+    return {
+        "code": code,
+        "message": message,
+        "retryable": retryable,
+        "details": {
+            "statusCode": str(status_code) if status_code else "",
+            "error": raw_message[:500],
+            "exceptionType": type(error).__name__,
+        },
+    }
 
 
 @dataclass
@@ -179,7 +221,7 @@ def format_sse_event(event: dict[str, Any]) -> str:
     )
 
 
-async def stream_graph(
+async def _stream_graph(
     model,
     *,
     system_prompt: str,
@@ -429,6 +471,33 @@ async def stream_graph(
     }
 
 
+async def stream_graph(
+    model,
+    *,
+    system_prompt: str,
+    user_message: str,
+    citations: list[dict[str, Any]] | None = None,
+    tools: list[Any] | None = None,
+    invoke_tool_fn=None,
+):
+    """执行流式图，并将上游异常转换为终止 error 事件。"""
+    try:
+        async for event in _stream_graph(
+            model,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            citations=citations,
+            tools=tools,
+            invoke_tool_fn=invoke_tool_fn,
+        ):
+            yield event
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        logger.exception("Agent stream failed: %s", type(error).__name__)
+        yield {"type": "error", "payload": build_agent_error_payload(error)}
+
+
 async def run_graph(
     model,
     *,
@@ -497,9 +566,8 @@ async def run_graph(
         try:
             response = await bound_model.ainvoke(state["messages"])
         except Exception as e:
-            print(f"解析失败: {e}")
-            # raise e
-            return {"content": f"解析失败: {e}", "messages": [e]}
+            logger.exception("Model invocation failed: %s", type(e).__name__)
+            raise
 
         content = response.content
         # 兼容多模态内容格式：将列表形式的内容块拼接为纯文本

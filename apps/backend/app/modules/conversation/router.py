@@ -16,7 +16,11 @@ from app.modules.conversation.services import (
     retrieve_citations,
     stream_chat,
 )
-from app.modules.conversation.runtime import format_sse_event, load_runtime_context
+from app.modules.conversation.runtime import (
+    build_agent_error_payload,
+    format_sse_event,
+    load_runtime_context,
+)
 from app.modules.knowledge.repositories import KnowledgeRepository
 from app.modules.mcp.repositories import McpRepository
 from app.modules.mcp.runtime import RepositoryMcpExecutor
@@ -187,6 +191,9 @@ async def chat_endpoint(
                 if item["type"] in {"tool_call", "tool_result", "confirmation_required"}:
                     yield emit(item["type"], item["payload"], conversation.id, None)
                     continue
+                if item["type"] == "error":
+                    yield emit("error", item["payload"], conversation.id, None)
+                    return
                 assistant = item["assistant"]
                 result = item["result"]
                 for citation in result.citations:
@@ -203,14 +210,14 @@ async def chat_endpoint(
                     conversation.id,
                     assistant.id,
                 )
-        except Exception:
+        except Exception as error:
             yield format_sse_event(
                 {
                     "type": "error",
                     "conversation_id": payload.conversation_id or 0,
                     "message_id": None,
                     "sequence": 1,
-                    "payload": {"message": "chat failed"},
+                    "payload": build_agent_error_payload(error),
                 }
             )
 

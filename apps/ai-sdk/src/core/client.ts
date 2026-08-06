@@ -96,7 +96,12 @@ export class AgentClient {
 
     this.transport.on('error', (error: Error) => {
       console.error('Connection error:', error)
-      this._callbacks.onError?.(error)
+      this.handleRequestError({
+        code: 'agent_connection_failed',
+        message: 'Agent 连接失败，本轮对话已结束',
+        retryable: true,
+        details: { error: error.message }
+      })
     })
   }
 
@@ -232,8 +237,10 @@ export class AgentClient {
         }
         break
       case 'error':
-        this._callbacks.onError?.(new Error(String(msg.payload.message || msg.payload.code)))
-        this.eventEmitter.emit('error', msg.payload)
+        this.handleRequestError(
+          msg.payload as Record<string, unknown>,
+          msg.requestId
+        )
         break
       default:
         console.log('Unhandled message type:', msg.type)
@@ -254,6 +261,60 @@ export class AgentClient {
         loop: this.pendingAssistantMessage.loop
       })
     }
+  }
+
+  private handleRequestError(
+    errorPayload: Record<string, unknown>,
+    requestId?: string
+  ): void {
+    const errorText = String(errorPayload.message || errorPayload.code || '请求失败')
+    const activeRequestId = requestId || this.currentRequestId || this.activeRequestId
+    const failedLoop = this.pendingLoop
+      ? {
+          ...this.pendingLoop,
+          status: 'failed' as const,
+          summary: errorText,
+          steps: this.pendingLoop.steps.map((step) =>
+            step.status === 'running'
+              ? { ...step, status: 'failed' as const, error: errorPayload }
+              : step
+          )
+        }
+      : undefined
+    if (failedLoop) this.eventEmitter.emit('agent_loop', failedLoop)
+
+    if (activeRequestId || this.pendingAssistantMessage) {
+      const messageId = this.pendingAssistantMessage?.id || generateId()
+      const failedMessage: Message = {
+        id: messageId,
+        role: 'assistant',
+        type: 'error',
+        content: { type: 'text', text: errorText },
+        contentBlocks: [{
+          id: `${messageId}_error`,
+          type: 'error',
+          text: errorText,
+          status: 'failed',
+          metadata: { error: errorPayload }
+        }],
+        loop: failedLoop,
+        timestamp: new Date(),
+        conversationId: this.conversationId,
+        requestId: activeRequestId,
+        metadata: { error: errorPayload }
+      }
+      this.messageStore.addMessage(failedMessage)
+      this._callbacks.onMessage?.(failedMessage)
+      this.eventEmitter.emit('message', failedMessage)
+    }
+
+    this.pendingAssistantMessage = null
+    this.pendingLoop = null
+    this.pendingCitations = []
+    this.currentRequestId = undefined
+    this.activeRequestId = undefined
+    this._callbacks.onError?.(new Error(errorText))
+    this.eventEmitter.emit('error', errorPayload)
   }
 
   private mergeLoopStep(msg: WebSocketMessage): AgentLoopStep {
@@ -339,6 +400,8 @@ export class AgentClient {
       }
     }
 
+    this.currentRequestId = outgoing.requestId
+    this.activeRequestId = outgoing.requestId
     this.transport.send(outgoing)
   }
 

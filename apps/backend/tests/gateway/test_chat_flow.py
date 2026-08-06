@@ -85,6 +85,44 @@ class FakeUsageStreamingModel:
         )
 
 
+class FailingStreamingModel:
+    async def astream(self, _messages):
+        raise RuntimeError("HTTP 502 Bad Gateway")
+        yield  # pragma: no cover
+
+
+def test_embed_stream_sends_terminal_error_and_marks_loop_failed():
+    async def collect():
+        repo = FakeConversationRepository()
+        events = []
+        async for event in stream_embed_chat(
+            repo,
+            SimpleNamespace(
+                agent=SimpleNamespace(id=11),
+                version=SimpleNamespace(id=3, system_prompt="回答"),
+                skill_usages=[],
+                skill_instructions=[],
+                knowledge_bases=[],
+            ),
+            model=FailingStreamingModel(),
+            platform_id=1,
+            end_user_id=2,
+            message="测试",
+            conversation_id=None,
+            request_id="req-502",
+            citations=[],
+        ):
+            events.append(event)
+        return repo, events
+
+    repo, events = asyncio.run(collect())
+
+    assert events[-1]["type"] == "error"
+    assert events[-1]["payload"]["message"] == "Agent 连接失败（HTTP 502），本轮对话已结束"
+    assert repo.loop.status == "failed"
+    assert not any(event["type"] == "message_completed" for event in events)
+
+
 def test_embed_chat_emits_started_deltas_citation_and_completed():
     async def run():
         events = []

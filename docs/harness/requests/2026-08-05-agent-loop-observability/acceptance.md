@@ -5,6 +5,15 @@
 - 已完成 research、spec、plan 和 implement；verify 已完成可执行的本地代码验证。
 - 状态：代码验收通过，request 仍为 `active/verify`，待真实浏览器联调和数据库版本复核后再完成 acceptance。
 
+### 2026-08-06 增量验收：Agent 上游错误提示
+
+- 已满足：502/连接类 Agent 错误统一通过现有 `error` 事件发送到 C 端，提示包含 HTTP 状态码和“本轮对话已结束”。
+- 已满足：错误事件终止当前 request，不发送 `message_completed`；SDK pending assistant 和 Loop 状态收敛为失败并触发 `onError`。
+- 已满足：运行中 Loop/模型生成步骤保存为 `failed`，失败半成品不创建完整助手消息。
+- 已满足：C 端本地 WebSocket/token/协议传输错误与服务端 `error` 共用终止逻辑；活跃 request 即使尚未收到 `message_started` 也会结束并展示失败消息。
+- 验证结论：定向后端 25 项通过，conversation/gateway 回归 50 项通过（1 skipped）；SDK 29 项、类型检查和构建通过。
+- 剩余风险：尚未在真实 502 网关和浏览器环境联调，保留既有 request 的外部联调风险。
+
 ## 已满足项
 
 - 已创建独立 request 工作区。

@@ -19,7 +19,7 @@ from app.core.logging import get_logger
 from app.modules.agent.repositories import AgentRepository
 from app.modules.agent.services import build_chat_model
 from app.modules.conversation.repositories import ConversationRepository
-from app.modules.conversation.runtime import load_runtime_context
+from app.modules.conversation.runtime import build_agent_error_payload, load_runtime_context
 from app.modules.conversation.services import retrieve_citations
 from app.modules.gateway.runtime import RequestRegistry, stream_embed_chat
 from app.modules.gateway.replay import ReplayStore
@@ -356,11 +356,7 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                         "type": "error",
                         "request_id": request_id,
                         "conversation": None,
-                        "payload": {
-                            "code": "request_failed",
-                            "message": str(exc),
-                            "retryable": True,
-                        },
+                        "payload": build_agent_error_payload(exc),
                     }
                 )
             finally:

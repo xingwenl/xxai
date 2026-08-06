@@ -293,6 +293,21 @@ async def stream_embed_chat(
                     },
                 }
             continue
+        if item["type"] == "error":
+            generation_step.status = "failed"
+            generation_step.output_summary = "模型生成失败"
+            generation_step.error = item["payload"]
+            loop.status = "failed"
+            loop.summary = item["payload"]["message"]
+            await repo.save_loop(loop)
+            yield {
+                "type": "error",
+                "conversation": conversation,
+                "loop_run_id": loop.id,
+                "request_id": request_id,
+                "payload": item["payload"],
+            }
+            return
         result = item["result"]
 
     if result is None:

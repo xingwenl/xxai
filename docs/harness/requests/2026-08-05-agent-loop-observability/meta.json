@@ -40,7 +40,7 @@
   ],
   "owner": "ai",
   "createdAt": "2026-08-05",
-  "updatedAt": "2026-08-05",
+  "updatedAt": "2026-08-06",
   "relatedPaths": [
     "docs/design/agent-sdk-flow.md",
     "apps/ai-sdk/design/chat-glass.html",

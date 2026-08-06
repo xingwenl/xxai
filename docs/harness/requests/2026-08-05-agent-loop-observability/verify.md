@@ -28,6 +28,19 @@ git diff --check
 
 ## 结果
 
+### 2026-08-06 增量验证：Agent 上游错误终止
+
+- `cd apps/backend && poetry run pytest tests/conversation/test_runtime.py tests/gateway/test_chat_flow.py -q`：`25 passed`。
+- `cd apps/backend && poetry run pytest tests/conversation tests/gateway -q`：`50 passed, 1 skipped`；仅有 Starlette/httpx 未来版本弃用警告。
+- `cd apps/backend && poetry run ruff check ...`：通过。
+- `cd apps/backend && poetry run black --check app/modules/conversation/runtime.py`：通过。其余本次涉及文件沿用仓库现有未完全 Black 格式化状态，组合检查会提示 6 个文件可重排，本次未做无关整文件格式化。
+- `cd apps/ai-sdk && npm run test -- --run`：补充传输层错误测试后为 `29 passed`。
+- `cd apps/ai-sdk && npm run type-check`：通过。
+- `cd apps/ai-sdk && npm run build`：通过。
+- `git diff --check`：通过。
+- 新增回归证据：502 被映射为 `agent_upstream_unavailable`；标准 SSE/Embed 流只发终止 `error`，不发 `message_completed`；Embed Loop 和生成步骤为 `failed`；SDK 生成失败助手消息并清理 pending request。
+- 错误路径复审后补充 SDK 传输层收口：请求已发送但尚未收到 `message_started` 时若 WebSocket/token/协议连接失败，也会生成失败助手消息并清理 active request。SDK 定向测试为 `8 passed`，全量复测为 `29 passed`。
+
 - 已读取全局 Harness 策略，确认本需求属于复杂 / 架构级变更。
 - 已确认模板文件存在。
 - 已确认当前新增 request 不复用旧 request。
@@ -71,3 +84,4 @@ git diff --check
 - 本需求涉及数据模型变化和 API 契约变化，人工确认已于 2026-08-05 获得。
 - 当前未进入 acceptance 完成态：真实数据库版本复核和浏览器端联调仍缺少可执行证据。
 - Vue UI 仍未引入组件挂载测试依赖；本次滚动判断已通过纯函数单测、类型检查和生产构建验证。
+- 本次未进行真实 502 网关联调；验证使用抛出 `HTTP 502 Bad Gateway` 的模型桩覆盖协议和状态收敛。

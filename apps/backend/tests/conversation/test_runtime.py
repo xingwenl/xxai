@@ -7,6 +7,7 @@ from langchain_core.messages import AIMessage, AIMessageChunk
 from app.modules.mcp.schemas import ToolInvocationOutcome
 
 from app.modules.conversation.runtime import (
+    build_agent_error_payload,
     extract_token_usage,
     format_sse_event,
     build_system_prompt,
@@ -32,13 +33,26 @@ def test_content_blocks_keep_supported_custom_blocks_and_reject_unsafe_values():
             {"id": "too-long", "type": "markdown", "text": "x" * 120_001},
         ]
     )
-
     assert blocks[0]["type"] == "custom"
     assert blocks[0]["component_name"] == "OrderCard"
     assert blocks[1]["type"] == "error"
     assert blocks[2]["type"] == "markdown"
     assert len(blocks[2]["text"]) == 100_000
 
+
+def test_agent_upstream_502_is_mapped_to_safe_terminal_error():
+    error = RuntimeError("HTTP 502 Bad Gateway from model proxy")
+
+    assert build_agent_error_payload(error) == {
+        "code": "agent_upstream_unavailable",
+        "message": "Agent 连接失败（HTTP 502），本轮对话已结束",
+        "retryable": True,
+        "details": {
+            "statusCode": "502",
+            "error": "HTTP 502 Bad Gateway from model proxy",
+            "exceptionType": "RuntimeError",
+        },
+    }
 
 def test_build_loop_payload_includes_persisted_steps():
     class FakeLoopRepository:
@@ -564,6 +578,29 @@ class StreamingChatModel:
     async def astream(self, messages):
         for content in ("退款", "规则是 30 天。"):
             yield AIMessage(content=content)
+
+
+class FailingStreamingChatModel:
+    async def astream(self, messages):
+        raise RuntimeError("HTTP 502 Bad Gateway")
+        yield  # pragma: no cover
+
+
+def test_graph_stream_emits_terminal_error_without_completion():
+    async def collect():
+        return [
+            item
+            async for item in stream_graph(
+                FailingStreamingChatModel(),
+                system_prompt="回答问题",
+                user_message="测试",
+            )
+        ]
+
+    events = asyncio.run(collect())
+
+    assert [item["type"] for item in events] == ["error"]
+    assert events[0]["payload"]["code"] == "agent_upstream_unavailable"
 
 
 class UsageStreamingChatModel:
