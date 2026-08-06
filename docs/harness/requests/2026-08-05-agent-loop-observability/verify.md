@@ -28,6 +28,19 @@ git diff --check
 
 ## 结果
 
+### 2026-08-06 增量验证：生成中消息与过程面板展示
+
+- `cd apps/ai-sdk && npm run test -- --run`：`31 passed`，新增展示纯函数测试覆盖空白 Markdown、非文本内容块、运行中工具/知识库摘要和空步骤摘要。
+- `cd apps/ai-sdk && npm run type-check`：通过。
+- `cd apps/ai-sdk && npm run build`：通过，Vite 完成 69 个模块转换并生成 ESM、UMD、CSS 和类型声明产物。
+- 本地浏览器静态状态验证：pending assistant 仅含空白 Markdown 且 Loop 运行中时，`.xxai-message-content-blocks` 数量为 `0`，过程摘要为“思考中 · 调用工具 · 检索知识库”，按钮 `disabled=false`、初始 `aria-expanded=false`。
+- 运行中点击过程摘要后，`aria-expanded=true`，立即显示模型生成、MCP 工具和知识库检索 3 个过程卡片；验证未依赖最终 `message_completed`。
+- 390×844 视口验证：内容区域仍为 `0`、过程卡片为 `3`，过程组件最右边界为 `378px`，未超过 `390px` 视口；截图确认摘要、工具名和知识库状态未重叠。
+- 临时静态验证页已删除，本地 Vite 开发服务器已停止，不进入最终变更。
+- 补充实现：`ChatWidget` 在首个消息更新时创建临时 running Loop；`AgentLoopPanel` 在首个真实步骤到达时自动展开，后续步骤不会覆盖用户主动收起状态。
+- pending Message 响应式回归：浏览器中先以 `message.loop.steps=[]` 渲染 `ChatMessageList`，初始摘要为“思考中”、卡片数 `0`、`aria-expanded=false`；500ms 后整体替换父级 pending message，使其 Loop 包含一个 running MCP 工具步骤，`AgentLoopPanel` 直接从最新 `props.message.loop` 同步读取后变为“思考中 · 调用工具”、卡片数 `1`、`aria-expanded=true`，详情显示 `get_weather 正在执行...`。
+- 完整 Message 传递回归使用的临时 `reactivity-test.html` 已在验证后删除，不进入最终变更。
+
 ### 2026-08-06 增量验证：Agent 上游错误终止
 
 - `cd apps/backend && poetry run pytest tests/conversation/test_runtime.py tests/gateway/test_chat_flow.py -q`：`25 passed`。

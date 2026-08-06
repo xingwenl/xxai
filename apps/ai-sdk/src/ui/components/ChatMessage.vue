@@ -7,9 +7,13 @@
       <div class="xxai-assistant-row">
         <div class="xxai-agent-avatar" aria-hidden="true">✦</div>
         <div class="xxai-assistant-content">
-          <TypingIndicator v-if="pending && !contentBlocks[0]?.text && !message.loop" />
-          <MessageContent v-else :blocks="contentBlocks" @action="handleAction" />
-          <AgentLoopPanel :loop="message.loop" />
+          <TypingIndicator v-if="pending && !hasRenderableContent && !message.loop" />
+          <MessageContent
+            v-else-if="hasRenderableContent"
+            :blocks="contentBlocks"
+            @action="handleAction"
+          />
+          <AgentLoopPanel :message="message" />
         </div>
       </div>
     </div>
@@ -22,8 +26,12 @@ import type { Message, MessageContentBlock } from '../../core'
 import AgentLoopPanel from './AgentLoopPanel.vue'
 import MessageContent from './MessageContent.vue'
 import TypingIndicator from './TypingIndicator.vue'
+import { hasRenderableMessageContent } from '../message-presentation'
 
-const props = defineProps<{ message: Message; pending?: boolean }>()
+const props = defineProps<{
+  message: Message
+  pending?: boolean
+}>()
 const emit = defineEmits<{ buttonClick: [value: string] }>()
 const contentBlocks = computed<MessageContentBlock[]>(() => props.message.contentBlocks?.length
   ? props.message.contentBlocks
@@ -33,6 +41,7 @@ const contentBlocks = computed<MessageContentBlock[]>(() => props.message.conten
       text: String((props.message.content as { text?: string }).text || ''),
       status: 'completed'
     }])
+const hasRenderableContent = computed(() => hasRenderableMessageContent(contentBlocks.value))
 
 function handleAction(value: string) {
   emit('buttonClick', value)

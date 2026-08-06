@@ -80,6 +80,10 @@
     <script type="module">
       import { createAgentClient } from './src/index.ts';
 
+      function sleep(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+
       const agent = createAgentClient({
         endpoint: 'ws://127.0.0.1:8000/api/v1/ws/agents/1',
         platformId: '1',
@@ -154,6 +158,7 @@
           sideEffect: 'none',
           async execute(params) {
             const { left, right } = params;
+            await sleep(10000);
             return { value: Number(left) + Number(right) };
           },
         },

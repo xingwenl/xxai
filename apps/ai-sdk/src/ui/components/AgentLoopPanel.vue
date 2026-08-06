@@ -1,10 +1,11 @@
 <template>
-  <section v-if="loop" class="xxai-agent-loop">
+  <section v-if="message.loop" class="xxai-agent-loop">
     <button
       class="xxai-loop-summary"
       type="button"
       :aria-expanded="expanded"
-      @click="expanded = !expanded"
+      :disabled="!canExpand"
+      @click="toggleExpanded"
     >
       <span class="xxai-loop-summary-left">
         <span
@@ -14,10 +15,11 @@
           :class="`kind-${kind}`"
         ></span>
         <strong>{{ summaryLabel }}</strong>
-        <span v-if="loop?.status === 'running'" class="xxai-loop-summary-dots" aria-label="运行中"><span></span><span></span><span></span></span>
+        <span v-if="message.loop?.status === 'running'" class="xxai-loop-summary-dots" aria-label="运行中"><span></span><span></span><span></span></span>
       </span>
       <!-- <span class="xxai-loop-chevron" :class="{ expanded }" aria-hidden="true">⌄</span> -->
       <svg
+        v-if="canExpand"
         class="xxai-loop-chevron"
         :class="{ expanded }"
         xmlns="http://www.w3.org/2000/svg"
@@ -128,31 +130,36 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import type {
-  AgentLoopRun,
   AgentLoopStep,
   AgentLoopStepStatus,
+  Message,
 } from '../../core';
+import { loopSummaryLabel } from '../message-presentation';
 
-const props = defineProps<{ loop?: AgentLoopRun }>();
-const loop = computed(() => props.loop);
-const expanded = ref(loop.value?.status === 'running');
+const props = defineProps<{ message: Message }>();
+const expanded = ref(Boolean(props.message.loop?.status === 'running' && props.message.loop.steps.length));
 const sortedSteps = computed(() =>
-  [...(loop.value?.steps || [])].sort((a, b) => a.sequence - b.sequence),
+  [...(props.message.loop?.steps || [])].sort((a, b) => a.sequence - b.sequence),
 );
-watch(
-  () => loop.value?.status,
-  (status) => {
-    if (status === 'running') expanded.value = true;
-  },
-);
+const canExpand = computed(() => sortedSteps.value.length > 0);
 const presentKinds = computed(() => [
   ...new Set(sortedSteps.value.map(kindFor)),
 ]);
 const summaryLabel = computed(() =>
-  loop.value?.status === 'running'
-    ? '思考中 · ' + presentKinds.value.map(kindLabel).join(' · ')
-    : '已思考 · ' + presentKinds.value.map(kindLabel).join(' · '),
+  props.message.loop ? loopSummaryLabel(props.message.loop) : '思考中',
 );
+watch(
+  () => sortedSteps.value.length,
+  (count, previousCount) => {
+    // 首个真实步骤到达时展示过程；用户收起后，后续步骤更新不再强制展开。
+    if (previousCount === 0 && count > 0 && props.message.loop?.status === 'running') {
+      expanded.value = true;
+    }
+  },
+);
+function toggleExpanded() {
+  if (canExpand.value) expanded.value = !expanded.value;
+}
 function kindFor(step: AgentLoopStep) {
   if (step.stepType === 'knowledge_retrieval') return 'knowledge';
   if (step.stepType === 'skill_instruction' || step.stepType === 'skill_tool')
@@ -160,16 +167,6 @@ function kindFor(step: AgentLoopStep) {
   if (step.stepType === 'host_tool' || step.stepType === 'mcp_tool')
     return 'tool';
   return 'thinking';
-}
-function kindLabel(kind: string) {
-  return (
-    {
-      thinking: '已思考',
-      tool: '调用工具',
-      skill: '调用技能',
-      knowledge: '引用知识库',
-    } as Record<string, string>
-  )[kind];
 }
 function cardClass(step: AgentLoopStep) {
   return `kind-${kindFor(step)} is-${step.status}`;
@@ -251,6 +248,9 @@ function stepStatusText(status: AgentLoopStepStatus) {
   color: #64748b;
   cursor: pointer;
   backdrop-filter: blur(18px) saturate(160%);
+}
+.xxai-loop-summary:disabled {
+  cursor: default;
 }
 .xxai-loop-summary-left {
   display: flex;

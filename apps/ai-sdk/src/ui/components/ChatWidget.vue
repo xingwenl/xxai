@@ -117,10 +117,20 @@ function handleMessage(_msg: Message) {
 }
 
 function handleMessageUpdating(data: { id: string; text: string; loop?: import('../../core').AgentLoopRun }) {
+  // AgentLoop 事件可能晚于首个正文 delta；先给用户一个可持续更新的思考状态。
+  const loop = data.loop || pendingLoop.value || pendingMessage.value?.loop || {
+    id: `pending-${data.id}`,
+    requestId: '',
+    status: 'running' as const,
+    summary: '正在处理请求',
+    steps: []
+  }
   pendingMessage.value = {
     ...data,
-    loop: data.loop || pendingLoop.value || pendingMessage.value?.loop
+    loop
   }
+
+  pendingLoop.value = loop
   isSending.value = true
 }
 

@@ -182,3 +182,30 @@ git diff --check
 - 在 `apps/backend/app/core/config.py` 增加模型请求超时和最大重试配置。
 - 在 `apps/backend/app/modules/agent/services.py` 将请求超时、流式分块超时和重试上限注入 `ChatOpenAI`，默认 60 秒、0 次自动重试。
 - 通过 Agent 版本 `model_options` 保留按模型覆盖能力，增加设置和模型构造回归测试。
+
+## 2026-08-06 增量计划：生成中消息与过程面板展示
+
+### 变更文件
+
+- `apps/ai-sdk/src/ui/components/ChatMessage.vue`：仅在内容块存在可渲染内容时展示正文区域，避免空 Markdown 占位。
+- `apps/ai-sdk/src/ui/components/AgentLoopPanel.vue`：解除展开状态与运行状态的强制绑定，有实时步骤时立即允许用户展开或收起。
+- `apps/ai-sdk/src/ui/components/ChatWidget.vue`：在首个消息更新到达时创建临时运行中 Loop，避免等待 AgentLoop 事件期间没有过程反馈。
+- `apps/ai-sdk/src/ui/components/ChatMessageList.vue`、`ChatMessage.vue` 与 `AgentLoopPanel.vue`：全程传递完整 `Message`，由过程面板直接从 `props.message.loop` 读取 Loop，避免拆分 prop 或局部 computed 投影后停留在空步骤状态。
+- `apps/ai-sdk/src/ui/message-presentation.ts`：集中处理可渲染内容判定和 Loop 摘要文案。
+- `apps/ai-sdk/src/ui/__tests__/message-presentation.test.ts`：覆盖空白正文、非文本内容块、运行中过程类型和空步骤摘要。
+
+### 实施步骤
+
+1. 提取消息展示纯函数，明确空白文本块不属于可渲染正文，其他内容块维持原渲染入口。
+2. 调整助手消息条件渲染：无正文且有 Loop 时只展示过程面板，无正文且无 Loop 时继续展示输入指示器。
+3. 将过程面板改为默认收起、步骤到达后即可点击展开；状态和步骤更新保留用户当前选择。
+4. 调整运行中摘要文案，使工具、技能和知识库状态在最终答案完成前可识别。
+5. 执行 SDK 单元测试、类型检查、生产构建、页面交互检查和 `git diff --check`。
+
+### 回滚说明
+
+- 可独立回滚上述 UI 组件、展示纯函数和测试，不影响消息协议、Loop 状态聚合或历史数据。
+
+### 审批判断
+
+- 本次仅调整现有 SDK UI 的条件渲染和折叠交互，不修改 API、数据库、权限或架构边界，无需新增人工确认。

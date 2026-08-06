@@ -5,6 +5,7 @@
 - 🐛 fix：统一错误事件结束对话 `🧑‍💻 lixingwen`
 - 🐛 fix：限制模型重试避免请求挂起 `🧑‍💻 lixingwen`
 - ⚡ perf：优化知识库与技能按需注入 `🧑‍💻 lixingwen`
+- 🐛 fix：修复生成中过程面板实时展示 `🧑‍💻 lixingwen`
 
 ## - 2026-08-05
 - ✨ feat：增加可观测消息和玻璃态聊天 UI `🧑‍💻 lixingwen`
