@@ -28,8 +28,8 @@ from typing_extensions import TypedDict
 
 from app.core.logging import get_logger
 from app.modules.agent.services import build_chat_model
-from app.modules.skill.services import build_runtime_skill_instruction
-from app.modules.skill_runner.tools import build_skill_script_tools
+from app.modules.skill.services import build_runtime_skill_metadata
+from app.modules.skill_runner.tools import build_skill_instruction_tool, build_skill_script_tools
 from app.modules.conversation.schemas import RuntimeContext
 
 logger = get_logger(__name__)
@@ -345,7 +345,7 @@ async def _stream_graph(
                         if hasattr(tool, "server_id")
                         else (
                             "skill_tool"
-                            if getattr(tool, "kind", None) == "skill_script"
+                            if getattr(tool, "kind", None) in {"skill_script", "skill_instruction"}
                             else "host_tool"
                         )
                     ),
@@ -754,6 +754,7 @@ async def load_runtime_context(
 
     # 构建技能脚本工具（将技能绑定转换为可调用的工具对象）
     skill_script_tools = build_skill_script_tools(bindings)
+    skill_instruction_tool = build_skill_instruction_tool(bindings)
     skill_usages = []
     for binding in bindings:
         skill = binding.skill
@@ -791,10 +792,11 @@ async def load_runtime_context(
         version=agent.default_version,
         knowledge_bases=knowledge_bases,
         skill_instructions=[
-            build_runtime_skill_instruction(item.skill) for item in bindings
+            build_runtime_skill_metadata(item.skill) for item in bindings
         ],
         skill_usages=skill_usages,
         skill_script_tools=skill_script_tools,
+        skill_instruction_tool=skill_instruction_tool,
         mcp_tools=mcp_tools,
     )
 

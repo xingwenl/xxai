@@ -177,7 +177,7 @@ async def stream_embed_chat(
             step_type="skill_instruction",
             title=f"应用技能：{usage['name']}",
             status="succeeded",
-            output_summary="技能指令已加载" + ("，可调用脚本工具" if usage.get("has_script_tool") else ""),
+            output_summary="技能元数据已加载" + ("，可调用脚本工具" if usage.get("has_script_tool") else ""),
             skill_name=usage["name"],
             skill_version=usage.get("version"),
             step_metadata={"slug": usage.get("slug"), "hasScriptTool": usage.get("has_script_tool", False)},

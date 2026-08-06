@@ -11,6 +11,8 @@ export type KnowledgeBase = {
   active_index_version: number
   chunk_size: number
   chunk_overlap: number
+  retrieval_threshold: number
+  retrieval_top_k: number
   has_embedding_api_key: boolean
   created_at: string
   updated_at: string
@@ -33,6 +35,8 @@ export type KnowledgeBaseInput = {
   embedding_dimension: number
   chunk_size: number
   chunk_overlap: number
+  retrieval_threshold: number
+  retrieval_top_k: number
 }
 
 export type KnowledgeDocument = {

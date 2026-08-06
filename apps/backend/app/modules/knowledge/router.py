@@ -292,7 +292,12 @@ async def search_endpoint(
         raise NotFoundException("knowledge base not found")
     embedding = await build_embedding_model(base).aget_query_embedding(payload.query)
     validate_embedding_dimension(embedding, expected_dimension=base.embedding_dimension)
-    chunks = await repo.search(base, embedding, payload.limit)
+    matches = await repo.search(base, embedding, payload.limit)
+    chunks = [
+        chunk
+        for chunk, similarity in matches
+        if similarity >= base.retrieval_threshold
+    ]
     citations = build_citations(
         [
             {

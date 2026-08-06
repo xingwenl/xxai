@@ -1,0 +1,12 @@
+{
+  "requestId": "2026-08-06-agent-token-optimization",
+  "title": "Agent 对话 Token 优化",
+  "phase": "acceptance",
+  "status": "blocked",
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": ["数据模型变更", "API 契约变更", "技能加载行为变更"],
+  "approvalRecords": [
+    {"date": "2026-08-06", "decision": "用户确认第一期包含后端、数据库/API 和前端配置，并采用阈值+Top K+技能按需加载方案"}
+  ]
+}

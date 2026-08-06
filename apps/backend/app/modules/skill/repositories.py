@@ -134,6 +134,23 @@ class SkillRepository:
         )
         return list(result.scalars().all())
 
+    async def get_enabled_skill_for_agent(self, agent_id: int, platform_id: int, slug: str):
+        result = await self.session.execute(
+            select(Skill)
+            .join(AgentSkill, AgentSkill.skill_id == Skill.id)
+            .outerjoin(SkillPackage, SkillPackage.id == Skill.package_id)
+            .options(selectinload(Skill.package))
+            .where(
+                AgentSkill.agent_id == agent_id,
+                AgentSkill.is_enabled.is_(True),
+                Skill.platform_id == platform_id,
+                Skill.slug == slug,
+                Skill.is_active.is_(True),
+                or_(Skill.package_id.is_(None), SkillPackage.is_active.is_(True)),
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def get_allowed_script(
         self,
         *,

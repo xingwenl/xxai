@@ -94,6 +94,8 @@ const baseSchema = z.object({
   embedding_dimension: z.coerce.number().int().min(1).max(65535),
   chunk_size: z.coerce.number().int().min(32).max(8192),
   chunk_overlap: z.coerce.number().int().min(0).max(2048),
+  retrieval_threshold: z.coerce.number().min(0).max(1),
+  retrieval_top_k: z.coerce.number().int().min(1).max(20),
 })
 const urlSchema = z.object({
   url: z.string().url('请输入有效 URL'),
@@ -150,6 +152,8 @@ export function KnowledgeBasesPage() {
         embedding_dimension: Number(values.embedding_dimension),
         chunk_size: Number(values.chunk_size),
         chunk_overlap: Number(values.chunk_overlap),
+        retrieval_threshold: Number(values.retrieval_threshold),
+        retrieval_top_k: Number(values.retrieval_top_k),
       }
       return editing
         ? updateKnowledgeBase(activePlatformId, editing.id, input)
@@ -389,7 +393,7 @@ export function KnowledgeBasesPage() {
                 </h3>
                 <p className='text-xs text-muted-foreground'>
                   {activeBase
-                    ? `${activeBase.embedding_dimension} 维 · 分块 ${activeBase.chunk_size}/${activeBase.chunk_overlap}`
+                    ? `${activeBase.embedding_dimension} 维 · 分块 ${activeBase.chunk_size}/${activeBase.chunk_overlap} · 阈值 ${activeBase.retrieval_threshold} · Top K ${activeBase.retrieval_top_k}`
                     : '请选择知识库'}
                 </p>
               </div>
@@ -616,6 +620,8 @@ function KnowledgeBaseDialog({
       embedding_dimension: base?.embedding_dimension ?? 1536,
       chunk_size: base?.chunk_size ?? 512,
       chunk_overlap: base?.chunk_overlap ?? 50,
+      retrieval_threshold: base?.retrieval_threshold ?? 0.5,
+      retrieval_top_k: base?.retrieval_top_k ?? 5,
     },
   })
   return (
@@ -642,6 +648,8 @@ function KnowledgeBaseDialog({
               'embedding_dimension',
               'chunk_size',
               'chunk_overlap',
+              'retrieval_threshold',
+              'retrieval_top_k',
             ] as const
           ).map((name) => (
             <div
@@ -663,6 +671,8 @@ function KnowledgeBaseDialog({
                     embedding_dimension: '向量维度',
                     chunk_size: '分块大小',
                     chunk_overlap: '分块重叠',
+                    retrieval_threshold: '相似度阈值',
+                    retrieval_top_k: '检索 Top K',
                   }[name]
                 }
               </Label>
@@ -671,12 +681,15 @@ function KnowledgeBaseDialog({
                 type={
                   name.includes('dimension') ||
                   name.includes('size') ||
-                  name.includes('overlap')
+                  name.includes('overlap') ||
+                  name.includes('threshold') ||
+                  name.includes('top_k')
                     ? 'number'
                     : name.includes('key')
                       ? 'password'
                       : 'text'
                 }
+                step={name === 'retrieval_threshold' ? '0.01' : undefined}
                 disabled={base != null && name === 'slug'}
                 {...form.register(name)}
               />

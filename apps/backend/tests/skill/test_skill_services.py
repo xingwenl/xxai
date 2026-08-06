@@ -1,10 +1,12 @@
 from io import BytesIO
+import asyncio
+from types import SimpleNamespace
 from zipfile import ZipFile
 
 import pytest
 
 from app.modules.skill.importers import parse_skill_package
-from app.modules.skill.services import render_skill_instruction
+from app.modules.skill.services import load_bound_skill_instruction, render_skill_instruction
 from app.shared.exceptions import BadRequestException
 
 
@@ -20,6 +22,26 @@ def test_render_skill_instruction_uses_declared_parameters() -> None:
 def test_render_skill_instruction_rejects_missing_parameter() -> None:
     with pytest.raises(BadRequestException, match="skill parameter is missing"):
         render_skill_instruction("查询 {{ order_id }}", {})
+
+
+def test_load_bound_skill_instruction_only_returns_enabled_skill() -> None:
+    skill = SimpleNamespace(
+        slug="writer",
+        name="Writer",
+        description="写作",
+        instruction_template="先列提纲再写作",
+        package=None,
+    )
+
+    class Repo:
+        async def get_enabled_skill_for_agent(self, agent_id, platform_id, slug):
+            return skill if slug == "writer" else None
+
+    loaded = asyncio.run(load_bound_skill_instruction(Repo(), 1, 2, "writer"))
+    denied = asyncio.run(load_bound_skill_instruction(Repo(), 1, 2, "other"))
+    assert loaded.status == "completed"
+    assert loaded.result["instruction"] == "先列提纲再写作"
+    assert denied.status == "failed"
 
 
 def test_parse_root_skill_zip_preserves_scripts_and_assets() -> None:

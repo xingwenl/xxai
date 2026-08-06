@@ -13,6 +13,8 @@ const input: KnowledgeBaseInput = {
   embedding_dimension: 1536,
   chunk_size: 512,
   chunk_overlap: 50,
+  retrieval_threshold: 0.5,
+  retrieval_top_k: 5,
 }
 
 const normalized = normalizeKnowledgeBaseInput(input)

@@ -109,5 +109,6 @@ class RuntimeContext(BaseModel):
     skill_instructions: list[str] = Field(default_factory=list)
     skill_usages: list[dict[str, Any]] = Field(default_factory=list)
     skill_script_tools: list[Any] = Field(default_factory=list)
+    skill_instruction_tool: Any | None = None
     mcp_tools: list[Any] = Field(default_factory=list)
     host_tools: list[Any] = Field(default_factory=list)

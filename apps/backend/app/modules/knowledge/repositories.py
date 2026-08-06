@@ -243,15 +243,16 @@ class KnowledgeRepository:
         task.attempts += 1
         await self.session.commit()
 
-    async def search(self, base, embedding: list[float], limit: int):
+    async def search(self, base, embedding: list[float], limit: int | None = None):
         distance = KnowledgeChunk.embedding.cosine_distance(embedding)
+        effective_limit = limit or base.retrieval_top_k
         result = await self.session.execute(
-            select(KnowledgeChunk)
+            select(KnowledgeChunk, distance.label("distance"))
             .where(
                 KnowledgeChunk.knowledge_base_id == base.id,
                 KnowledgeChunk.index_version == base.active_index_version,
             )
             .order_by(distance)
-            .limit(limit)
+            .limit(effective_limit)
         )
-        return list(result.scalars())
+        return [(chunk, max(0.0, min(1.0, 1.0 - float(distance_value)))) for chunk, distance_value in result.all()]

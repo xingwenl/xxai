@@ -28,6 +28,7 @@ from app.modules.mcp.services import invoke_tool
 from app.modules.skill.repositories import SkillRepository
 from app.modules.skill_runner.client import SkillRunnerClient
 from app.modules.skill_runner.services import execute_skill_script
+from app.modules.skill.services import load_bound_skill_instruction
 from app.shared.exceptions import NotFoundException
 from app.shared.responses import success_response
 
@@ -58,6 +59,7 @@ async def _prepare(
         knowledge_repo, context.knowledge_bases, payload.message
     )
     mcp_repo = McpRepository(session)
+    loaded_skill_cache = {}
 
     async def invoke(**kwargs):
         tool = kwargs.get("tool")
@@ -71,6 +73,19 @@ async def _prepare(
                 agent_id=agent_id,
                 user_id=current_user.id,
             )
+        if getattr(tool, "kind", None) == "skill_instruction":
+            slug = kwargs.get("call", {}).get("args", {}).get("slug")
+            if isinstance(slug, str) and slug in loaded_skill_cache:
+                return loaded_skill_cache[slug]
+            outcome = await load_bound_skill_instruction(
+                skill_repo,
+                agent.platform_id,
+                agent_id,
+                slug,
+            )
+            if isinstance(slug, str) and outcome.status == "completed":
+                loaded_skill_cache[slug] = outcome
+            return outcome
         return await invoke_tool(
             mcp_repo,
             RepositoryMcpExecutor(mcp_repo),

@@ -1,4 +1,5 @@
 from app.core.logging import get_logger
+from app.core.config import get_settings
 from app.modules.conversation.repositories import ConversationRepository
 from app.modules.conversation.runtime import (
     build_system_prompt,
@@ -88,7 +89,7 @@ async def _start_loop(repo, conversation, user_message, request_id: str, citatio
             step_type="skill_instruction",
             title=f"应用技能：{usage['name']}",
             status="succeeded",
-            output_summary="技能指令已加载" + ("，可调用脚本工具" if usage.get("has_script_tool") else ""),
+            output_summary="技能元数据已加载" + ("，可调用脚本工具" if usage.get("has_script_tool") else ""),
             skill_name=usage["name"],
             skill_version=usage.get("version"),
             step_metadata={"slug": usage.get("slug"), "hasScriptTool": usage.get("has_script_tool", False)},
@@ -111,22 +112,53 @@ async def retrieve_citations(knowledge_repo, knowledge_bases, query: str):
         validate_embedding_dimension(
             embedding, expected_dimension=base.embedding_dimension
         )
-        matches = await knowledge_repo.search(base, embedding, limit=5)
+        matches = await knowledge_repo.search(
+            base, embedding, limit=int(getattr(base, "retrieval_top_k", 5))
+        )
         logger.info(
             "Knowledge search completed base_id=%s matches=%s active_index_version=%s",
             getattr(base, "id", None),
             len(matches),
             getattr(base, "active_index_version", None),
         )
-        chunks.extend(matches)
+        accepted = [
+            (chunk, similarity)
+            for chunk, similarity in matches
+            if similarity >= float(getattr(base, "retrieval_threshold", 0.5))
+        ][: int(getattr(base, "retrieval_top_k", 5))]
+        chunks.extend(accepted)
+        logger.info(
+            "Knowledge threshold applied base_id=%s threshold=%s accepted=%s",
+            getattr(base, "id", None),
+            getattr(base, "retrieval_threshold", 0.5),
+            len(accepted),
+        )
+    chunks.sort(key=lambda item: item[1], reverse=True)
+    deduped = []
+    seen = set()
+    total_chars = 0
+    max_context_chars = get_settings().knowledge_context_max_chars
+    for chunk, similarity in chunks:
+        key = (chunk.document_id, chunk.content.strip())
+        if key in seen:
+            continue
+        remaining = max_context_chars - total_chars
+        if remaining <= 0:
+            break
+        text = chunk.content[:remaining]
+        if not text.strip():
+            continue
+        seen.add(key)
+        total_chars += len(text)
+        deduped.append((chunk, similarity, text))
     citations = build_citations(
         [
             {
                 "title": chunk.source_metadata.get("title", ""),
                 "source_url": chunk.source_metadata.get("source_url"),
-                "content": chunk.content,
+                "content": text,
             }
-            for chunk in chunks
+            for chunk, _similarity, text in deduped
         ]
     )
     logger.info(
@@ -183,7 +215,11 @@ async def execute_chat(
         ),
         user_message=message,
         citations=citations,
-        tools=[*context.mcp_tools, *context.skill_script_tools],
+        tools=[
+            *context.mcp_tools,
+            *context.skill_script_tools,
+            *([context.skill_instruction_tool] if context.skill_instruction_tool else []),
+        ],
         invoke_tool_fn=invoke_tool_fn,
     )
     assistant = await repo.create_message(
@@ -276,7 +312,11 @@ async def stream_chat(
         ),
         user_message=message,
         citations=citations,
-        tools=[*context.mcp_tools, *context.skill_script_tools],
+        tools=[
+            *context.mcp_tools,
+            *context.skill_script_tools,
+            *([context.skill_instruction_tool] if context.skill_instruction_tool else []),
+        ],
         invoke_tool_fn=invoke_tool_fn,
     ):
         if item["type"] == "message_delta":

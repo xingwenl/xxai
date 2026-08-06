@@ -199,7 +199,9 @@ def test_runtime_context_only_loads_published_bound_capabilities():
 
     assert context.agent.id == 11
     assert [item.id for item in context.knowledge_bases] == [3]
-    assert context.skill_instructions == ["first", "second"]
+    assert len(context.skill_instructions) == 2
+    assert all("load_skill" in instruction for instruction in context.skill_instructions)
+    assert context.skill_instruction_tool.name == "load_skill"
     assert context.mcp_tools[0].name == "lookup"
 
 

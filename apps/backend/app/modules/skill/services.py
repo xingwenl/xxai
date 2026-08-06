@@ -14,6 +14,7 @@ from app.shared.exceptions import (
     ConflictException,
     NotFoundException,
 )
+from app.modules.skill_runner.schemas import SkillScriptToolOutcome
 
 _environment = SandboxedEnvironment(undefined=StrictUndefined, autoescape=False)
 
@@ -116,6 +117,34 @@ def build_runtime_skill_instruction(skill) -> str:
         f"- 包内入口：{skill.package_skill_path or 'SKILL.md'}\n"
         f"- 脚本权限：{script_status}\n"
         f"- 包存储路径：{package.storage_path}"
+    )
+
+
+def build_runtime_skill_metadata(skill) -> str:
+    """常驻上下文只保留可区分技能和触发按需加载的最小信息。"""
+    name = getattr(skill, "name", None) or getattr(skill, "slug", None) or "未命名技能"
+    slug = getattr(skill, "slug", None) or name
+    return (
+        f"- 技能名称：{name}\n"
+        f"- 技能 slug：{slug}\n"
+        f"- 技能描述：{getattr(skill, 'description', None) or '未提供描述'}\n"
+        "需要使用某个技能时，先调用 load_skill 获取完整指令。"
+    )
+
+
+async def load_bound_skill_instruction(repo, platform_id: int, agent_id: int, slug: str):
+    if not isinstance(slug, str) or not slug.strip():
+        return SkillScriptToolOutcome(status="failed", result={"error": "技能 slug 无效"})
+    skill = await repo.get_enabled_skill_for_agent(agent_id, platform_id, slug.strip())
+    if skill is None:
+        return SkillScriptToolOutcome(status="failed", result={"error": "技能未绑定或不可用"})
+    return SkillScriptToolOutcome(
+        status="completed",
+        result={
+            "slug": skill.slug,
+            "name": skill.name,
+            "instruction": build_runtime_skill_instruction(skill),
+        },
     )
 
 

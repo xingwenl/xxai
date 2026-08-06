@@ -40,6 +40,19 @@ class KnowledgeBase(BaseModel, TimeModel):
     chunk_overlap: Mapped[int] = mapped_column(
         Integer, nullable=False, default=50, server_default="50"
     )
+    retrieval_threshold: Mapped[float] = mapped_column(
+        comment="知识库检索余弦相似度最低阈值",
+        nullable=False,
+        default=0.5,
+        server_default="0.5",
+    )
+    retrieval_top_k: Mapped[int] = mapped_column(
+        Integer,
+        comment="每次检索最多注入的知识片段数量",
+        nullable=False,
+        default=5,
+        server_default="5",
+    )
 
 
 class AgentKnowledgeBase(BaseModel, TimeModel):

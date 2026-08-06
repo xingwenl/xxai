@@ -16,6 +16,52 @@ class SkillScriptTool:
     skill_version: str | None = None
 
 
+@dataclass(frozen=True)
+class SkillInstructionTool:
+    name: str
+    description: str
+    input_schema: dict
+    kind: str = "skill_instruction"
+    skill_name: str | None = None
+    skill_version: str | None = None
+
+
+def build_skill_instruction_tool(bindings) -> SkillInstructionTool | None:
+    """只暴露当前 Agent 的技能元数据，完整指令通过工具按需加载。"""
+    if not bindings:
+        return None
+    skills = []
+    for binding in bindings:
+        skill = binding.skill
+        package = getattr(skill, "package", None)
+        manifest = getattr(package, "manifest", {}) or {}
+        version = manifest.get("version") if isinstance(manifest, dict) else None
+        skills.append(
+            {
+                "slug": getattr(skill, "slug", None) or getattr(skill, "name", "skill"),
+                "name": getattr(skill, "name", None) or getattr(skill, "slug", "未命名技能"),
+                "description": getattr(skill, "description", None) or "未提供技能描述",
+                "version": version,
+            }
+        )
+    return SkillInstructionTool(
+        name="load_skill",
+        description="按需加载当前 Agent 已绑定技能的完整指令。只能使用清单中的 slug。",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "slug": {
+                    "type": "string",
+                    "enum": [item["slug"] for item in skills],
+                    "description": "要加载的技能 slug",
+                }
+            },
+            "required": ["slug"],
+            "additionalProperties": False,
+        },
+    )
+
+
 def build_skill_script_tools(bindings) -> list[SkillScriptTool]:
     tools: list[SkillScriptTool] = []
     seen_packages: set[int] = set()

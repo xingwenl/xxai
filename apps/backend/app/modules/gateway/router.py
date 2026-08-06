@@ -47,6 +47,7 @@ from app.modules.quota.service import (
 from app.modules.skill.repositories import SkillRepository
 from app.modules.skill_runner.client import SkillRunnerClient
 from app.modules.skill_runner.services import execute_skill_script
+from app.modules.skill.services import load_bound_skill_instruction
 from app.modules.knowledge.repositories import KnowledgeRepository
 from app.modules.mcp.repositories import McpRepository
 from app.modules.host_tool.repositories import HostToolRepository
@@ -224,6 +225,7 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                         context.knowledge_bases,
                         message["text"],
                     )
+                    loaded_skill_cache = {}
 
 
                     async def invoke_host_tool(*, tool, call):
@@ -243,6 +245,19 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                                 platform_end_user_id=int(payload["sub"]),
                                 request_id=request_id,
                             )
+                        if getattr(tool, "kind", None) == "skill_instruction":
+                            slug = call.get("args", {}).get("slug")
+                            if isinstance(slug, str) and slug in loaded_skill_cache:
+                                return loaded_skill_cache[slug]
+                            outcome = await load_bound_skill_instruction(
+                                skill_repo,
+                                int(payload["platform_id"]),
+                                agent_id,
+                                slug,
+                            )
+                            if isinstance(slug, str) and outcome.status == "completed":
+                                loaded_skill_cache[slug] = outcome
+                            return outcome
                         call_id = str(call.get("id") or f"{request_id}_{tool.name}")
                         arguments = call.get("args", {})
                         existing = await host_tool_repo.get_call(
@@ -324,6 +339,7 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                     runtime_tools = [
                         *context.host_tools,
                         *context.skill_script_tools,
+                        *([context.skill_instruction_tool] if context.skill_instruction_tool else []),
                     ]
                     # 模型看到的工具集合再次取自连接级注册状态，未注册工具不会进入 bind_tools。
                     logger.info(

@@ -59,6 +59,7 @@ class Settings:
     skill_runner_shared_secret: str
     skill_runner_timeout_seconds: int
     skill_runner_max_output_bytes: int
+    knowledge_context_max_chars: int
     celery_broker_url: str
     celery_result_backend: str
     metrics_enabled: bool
@@ -149,6 +150,9 @@ def get_settings() -> Settings:
         ),
         skill_runner_max_output_bytes=int(
             os.getenv("SKILL_RUNNER_MAX_OUTPUT_BYTES", str(64 * 1024))
+        ),
+        knowledge_context_max_chars=int(
+            os.getenv("KNOWLEDGE_CONTEXT_MAX_CHARS", "24000")
         ),
         celery_broker_url=os.getenv("CELERY_BROKER_URL", "redis://127.0.0.1:6379/0"),
         celery_result_backend=os.getenv(

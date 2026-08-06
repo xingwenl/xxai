@@ -12,6 +12,8 @@ class KnowledgeBaseCreate(BaseModel):
     embedding_dimension: int = Field(ge=1, le=65535)
     chunk_size: int = Field(default=512, ge=32, le=8192)
     chunk_overlap: int = Field(default=50, ge=0, le=2048)
+    retrieval_threshold: float = Field(default=0.5, ge=0, le=1)
+    retrieval_top_k: int = Field(default=5, ge=1, le=20)
 
 
 class KnowledgeBaseUpdate(BaseModel):
@@ -22,6 +24,8 @@ class KnowledgeBaseUpdate(BaseModel):
     embedding_dimension: int | None = Field(default=None, ge=1, le=65535)
     chunk_size: int | None = Field(default=None, ge=32, le=8192)
     chunk_overlap: int | None = Field(default=None, ge=0, le=2048)
+    retrieval_threshold: float | None = Field(default=None, ge=0, le=1)
+    retrieval_top_k: int | None = Field(default=None, ge=1, le=20)
 
 
 class KnowledgeBaseRead(BaseModel):
@@ -37,6 +41,8 @@ class KnowledgeBaseRead(BaseModel):
     active_index_version: int
     chunk_size: int
     chunk_overlap: int
+    retrieval_threshold: float
+    retrieval_top_k: int
     has_embedding_api_key: bool = False
     created_at: datetime
     updated_at: datetime
