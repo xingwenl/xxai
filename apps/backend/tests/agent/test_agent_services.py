@@ -147,6 +147,9 @@ def test_build_chat_model_decrypts_api_key_only_for_client() -> None:
 
     assert model.model_name == "gpt-4o-mini"
     assert model.openai_api_key.get_secret_value() == "sk-runtime"
+    assert model.request_timeout == 60
+    assert model.stream_chunk_timeout == 60
+    assert model.max_retries == 0
 
 
 async def agent_version(repo, agent_id: int, prompt: str):

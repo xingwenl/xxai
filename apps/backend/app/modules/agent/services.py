@@ -113,10 +113,17 @@ def build_chat_model(version) -> ChatOpenAI:
     api_key = (
         decrypt_secret(version.api_key_encrypted) if version.api_key_encrypted else None
     )
+    # 默认关闭 SDK 自动重试，确保上游 502/连接异常能在本轮超时前进入统一 error 事件。
+    model_options = {
+        "timeout": settings.model_request_timeout_seconds,
+        "stream_chunk_timeout": settings.model_request_timeout_seconds,
+        "max_retries": settings.model_max_retries,
+        **(version.model_options or {}),
+    }
     return ChatOpenAI(
         model=version.model_name or settings.model_default_name,
         base_url=version.model_base_url or settings.model_default_base_url,
         api_key=api_key,
         temperature=version.temperature,
-        **version.model_options,
+        **model_options,
     )

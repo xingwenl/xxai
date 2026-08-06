@@ -3,6 +3,7 @@
 ## - 2026-08-06
 - ✨ feat：支持工具场景原生流式对话 `🧑‍💻 lixingwen`
 - 🐛 fix：统一错误事件结束对话 `🧑‍💻 lixingwen`
+- 🐛 fix：限制模型重试避免请求挂起 `🧑‍💻 lixingwen`
 
 ## - 2026-08-05
 - ✨ feat：增加可观测消息和玻璃态聊天 UI `🧑‍💻 lixingwen`

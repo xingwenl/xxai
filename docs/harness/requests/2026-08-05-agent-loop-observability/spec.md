@@ -191,6 +191,14 @@ type MessageContentBlock = {
 
 ## 变更记录
 
+### 2026-08-06 fix：限制模型客户端重试和流式等待
+
+- 变更原因：上游 502 时 OpenAI 客户端使用默认重试策略，且流式分块等待没有统一上限，底层异常迟迟不抛出，导致 C 端无法收到终止 `error`。
+- 变更内容：`ChatOpenAI` 默认请求超时和流式分块超时均为 60 秒，默认 `max_retries=0`；通过 `MODEL_REQUEST_TIMEOUT_SECONDS` 和 `MODEL_MAX_RETRIES` 可调整，Agent 版本 `model_options` 可覆盖默认值。
+- 影响章节：错误处理、风险、验收标准。
+- 是否触发人工确认：否，不改变协议、数据模型、权限或工具语义。
+- 关联计划更新：已同步补充模型客户端超时与重试配置验证。
+
 ### 2026-08-06 fix：Agent 上游错误发送到 C 端并结束本轮消息
 
 - 变更原因：模型网关返回 HTTP 502 等 Agent 连接错误时，标准 SSE 只返回固定 `chat failed`，Embed WebSocket 直接透传异常字符串；SDK 收到 `error` 后仍保留 pending assistant，C 端无法得到明确提示且本轮不会结束。

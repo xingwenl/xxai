@@ -85,3 +85,4 @@ git diff --check
 - 当前未进入 acceptance 完成态：真实数据库版本复核和浏览器端联调仍缺少可执行证据。
 - Vue UI 仍未引入组件挂载测试依赖；本次滚动判断已通过纯函数单测、类型检查和生产构建验证。
 - 本次未进行真实 502 网关联调；验证使用抛出 `HTTP 502 Bad Gateway` 的模型桩覆盖协议和状态收敛。
+- 模型客户端超时补丁验证：`cd apps/backend && poetry run pytest tests/system/test_agent_settings.py tests/agent/test_agent_services.py -q`：`5 passed`；默认 `request_timeout=60`、`stream_chunk_timeout=60`、`max_retries=0` 已由测试断言覆盖。

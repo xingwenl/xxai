@@ -13,6 +13,7 @@
 - 已满足：C 端本地 WebSocket/token/协议传输错误与服务端 `error` 共用终止逻辑；活跃 request 即使尚未收到 `message_started` 也会结束并展示失败消息。
 - 验证结论：定向后端 25 项通过，conversation/gateway 回归 50 项通过（1 skipped）；SDK 29 项、类型检查和构建通过。
 - 剩余风险：尚未在真实 502 网关和浏览器环境联调，保留既有 request 的外部联调风险。
+- 已补充：模型客户端默认不自动重试 502，并在 60 秒请求/流分块超时后进入统一 `error`；可通过环境变量和 `model_options` 调整。
 
 ## 已满足项
 

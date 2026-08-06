@@ -49,6 +49,8 @@ class Settings:
     embed_origin: str
     model_default_name: str
     model_default_base_url: str | None
+    model_request_timeout_seconds: float
+    model_max_retries: int
     agent_file_storage_path: str
     agent_max_upload_bytes: int
     agent_fetch_timeout_seconds: int
@@ -117,6 +119,10 @@ def get_settings() -> Settings:
         embed_origin=os.getenv("EMBED_ORIGIN", ""),
         model_default_name=os.getenv("MODEL_DEFAULT_NAME", "gpt-4o-mini"),
         model_default_base_url=os.getenv("MODEL_DEFAULT_BASE_URL") or None,
+        model_request_timeout_seconds=float(
+            os.getenv("MODEL_REQUEST_TIMEOUT_SECONDS", "60")
+        ),
+        model_max_retries=int(os.getenv("MODEL_MAX_RETRIES", "0")),
         agent_file_storage_path=os.getenv(
             "AGENT_FILE_STORAGE_PATH", str(BASE_DIR / "storage")
         ),

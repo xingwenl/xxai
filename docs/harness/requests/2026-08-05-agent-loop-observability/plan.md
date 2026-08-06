@@ -176,3 +176,9 @@ git diff --check
 ### 人工确认点
 
 - 无。用户已确认使用现有统一 `error` 事件，不新增 `message_failed` 或其他协议类型。
+
+### 超时补充
+
+- 在 `apps/backend/app/core/config.py` 增加模型请求超时和最大重试配置。
+- 在 `apps/backend/app/modules/agent/services.py` 将请求超时、流式分块超时和重试上限注入 `ChatOpenAI`，默认 60 秒、0 次自动重试。
+- 通过 Agent 版本 `model_options` 保留按模型覆盖能力，增加设置和模型构造回归测试。
