@@ -13,10 +13,21 @@ from app.shared.exceptions import NotFoundException
 
 
 def _content_blocks(content: str) -> list[dict]:
-    return sanitize_content_blocks([{"id": "answer_markdown", "type": "markdown", "text": content, "status": "completed"}])
+    return sanitize_content_blocks(
+        [
+            {
+                "id": "answer_markdown",
+                "type": "markdown",
+                "text": content,
+                "status": "completed",
+            }
+        ]
+    )
 
 
-async def build_loop_payload(repo: ConversationRepository, loop_id: int, conversation_id: int) -> dict | None:
+async def build_loop_payload(
+    repo: ConversationRepository, loop_id: int, conversation_id: int
+) -> dict | None:
     loop = await repo.get_loop(loop_id, conversation_id)
     if loop is None:
         return None
@@ -48,23 +59,42 @@ async def build_loop_payload(repo: ConversationRepository, loop_id: int, convers
 def _tool_step_values(tool_event: dict, sequence: int) -> dict:
     outcome = tool_event["outcome"]
     outcome_status = getattr(outcome, "status", "succeeded")
-    status = {"confirmation_required": "waiting_confirmation", "failed": "failed", "error": "failed"}.get(outcome_status, "succeeded")
+    status = {
+        "confirmation_required": "waiting_confirmation",
+        "failed": "failed",
+        "error": "failed",
+    }.get(outcome_status, "succeeded")
     return {
         "sequence": sequence,
         "step_type": tool_event.get("tool_type", "host_tool"),
         "title": f"调用工具：{tool_event['tool']}",
         "status": status,
         "input_summary": tool_event.get("input_summary"),
-        "output_summary": "等待用户确认" if status == "waiting_confirmation" else f"工具执行{'失败' if status == 'failed' else '完成'}",
+        "output_summary": (
+            "等待用户确认"
+            if status == "waiting_confirmation"
+            else f"工具执行{'失败' if status == 'failed' else '完成'}"
+        ),
         "tool_name": tool_event["tool"],
         "skill_name": tool_event.get("skill_name"),
         "skill_version": tool_event.get("skill_version"),
         "tool_call_id": str(tool_event.get("tool_call_id", tool_event["tool"])),
-        "error": {"code": "tool_failed", "message": "工具执行失败"} if status == "failed" else None,
+        "error": (
+            {"code": "tool_failed", "message": "工具执行失败"}
+            if status == "failed"
+            else None
+        ),
     }
 
 
-async def _start_loop(repo, conversation, user_message, request_id: str, citations: list[dict], skill_usages: list[dict] | None = None):
+async def _start_loop(
+    repo,
+    conversation,
+    user_message,
+    request_id: str,
+    citations: list[dict],
+    skill_usages: list[dict] | None = None,
+):
     loop = await repo.create_loop(
         conversation.id,
         user_message_id=user_message.id,
@@ -78,24 +108,33 @@ async def _start_loop(repo, conversation, user_message, request_id: str, citatio
         step_type="knowledge_retrieval",
         title="检索知识库",
         status="succeeded",
-        output_summary=f"命中 {len(citations)} 条引用" if citations else "未命中知识库引用",
+        output_summary=(
+            f"命中 {len(citations)} 条引用" if citations else "未命中知识库引用"
+        ),
         citation_refs=citations,
     )
     skill_steps = []
     for offset, usage in enumerate(skill_usages or [], start=2):
-        skill_steps.append(await repo.create_loop_step(
-            loop.id,
-            sequence=offset,
-            step_type="skill_instruction",
-            title=f"应用技能：{usage['name']}",
-            status="succeeded",
-            output_summary="技能元数据已加载" + ("，可调用脚本工具" if usage.get("has_script_tool") else ""),
-            skill_name=usage["name"],
-            skill_version=usage.get("version"),
-            step_metadata={"slug": usage.get("slug"), "hasScriptTool": usage.get("has_script_tool", False)},
-        ))
+        skill_steps.append(
+            await repo.create_loop_step(
+                loop.id,
+                sequence=offset,
+                step_type="skill_instruction",
+                title=f"应用技能：{usage['name']}",
+                status="succeeded",
+                output_summary="技能元数据已加载"
+                + ("，可调用脚本工具" if usage.get("has_script_tool") else ""),
+                skill_name=usage["name"],
+                skill_version=usage.get("version"),
+                step_metadata={
+                    "slug": usage.get("slug"),
+                    "hasScriptTool": usage.get("has_script_tool", False),
+                },
+            )
+        )
     await repo.save_loop(loop)
     return loop, retrieval, skill_steps
+
 
 logger = get_logger(__name__)
 
@@ -200,6 +239,7 @@ async def execute_chat(
         conversation = await repo.create(
             platform_id, context.agent.id, user_id, message
         )
+    context.conversation_id = conversation.id
     user_message = await repo.create_message(
         conversation.id,
         role="user",
@@ -207,7 +247,14 @@ async def execute_chat(
         citations=[],
         knowledge_grounded=False,
     )
-    loop, _retrieval_step, skill_steps = await _start_loop(repo, conversation, user_message, f"conversation-{conversation.id}", citations, context.skill_usages)
+    loop, _retrieval_step, skill_steps = await _start_loop(
+        repo,
+        conversation,
+        user_message,
+        f"conversation-{conversation.id}",
+        citations,
+        context.skill_usages,
+    )
     result = await run_graph(
         model,
         system_prompt=build_system_prompt(
@@ -216,9 +263,14 @@ async def execute_chat(
         user_message=message,
         citations=citations,
         tools=[
+            *context.builtin_tools,
             *context.mcp_tools,
             *context.skill_script_tools,
-            *([context.skill_instruction_tool] if context.skill_instruction_tool else []),
+            *(
+                [context.skill_instruction_tool]
+                if context.skill_instruction_tool
+                else []
+            ),
         ],
         invoke_tool_fn=invoke_tool_fn,
     )
@@ -287,6 +339,7 @@ async def stream_chat(
         conversation = await repo.create(
             platform_id, context.agent.id, user_id, message
         )
+    context.conversation_id = conversation.id
     user_message = await repo.create_message(
         conversation.id,
         role="user",
@@ -294,15 +347,81 @@ async def stream_chat(
         citations=[],
         knowledge_grounded=False,
     )
-    loop, retrieval_step, skill_steps = await _start_loop(repo, conversation, user_message, f"conversation-{conversation.id}", citations, context.skill_usages)
-    yield {"type": "agent_loop_started", "conversation": conversation, "loop_id": loop.id, "payload": {"loopRunId": str(loop.id), "status": loop.status, "summary": loop.summary}}
-    yield {"type": "agent_step_completed", "conversation": conversation, "loop_id": loop.id, "step_id": retrieval_step.id, "payload": {"loopRunId": str(loop.id), "stepId": str(retrieval_step.id), "sequence": 1, "stepType": "knowledge_retrieval", "title": retrieval_step.title, "status": retrieval_step.status, "outputSummary": retrieval_step.output_summary, "citationRefs": citations}}
+    loop, retrieval_step, skill_steps = await _start_loop(
+        repo,
+        conversation,
+        user_message,
+        f"conversation-{conversation.id}",
+        citations,
+        context.skill_usages,
+    )
+    yield {
+        "type": "agent_loop_started",
+        "conversation": conversation,
+        "loop_id": loop.id,
+        "payload": {
+            "loopRunId": str(loop.id),
+            "status": loop.status,
+            "summary": loop.summary,
+        },
+    }
+    yield {
+        "type": "agent_step_completed",
+        "conversation": conversation,
+        "loop_id": loop.id,
+        "step_id": retrieval_step.id,
+        "payload": {
+            "loopRunId": str(loop.id),
+            "stepId": str(retrieval_step.id),
+            "sequence": 1,
+            "stepType": "knowledge_retrieval",
+            "title": retrieval_step.title,
+            "status": retrieval_step.status,
+            "outputSummary": retrieval_step.output_summary,
+            "citationRefs": citations,
+        },
+    }
     for skill_step in skill_steps:
-        yield {"type": "agent_step_completed", "conversation": conversation, "loop_id": loop.id, "step_id": skill_step.id, "payload": {"loopRunId": str(loop.id), "stepId": str(skill_step.id), "sequence": skill_step.sequence, "stepType": skill_step.step_type, "title": skill_step.title, "status": skill_step.status, "outputSummary": skill_step.output_summary, "skillName": skill_step.skill_name, "skillVersion": skill_step.skill_version}}
+        yield {
+            "type": "agent_step_completed",
+            "conversation": conversation,
+            "loop_id": loop.id,
+            "step_id": skill_step.id,
+            "payload": {
+                "loopRunId": str(loop.id),
+                "stepId": str(skill_step.id),
+                "sequence": skill_step.sequence,
+                "stepType": skill_step.step_type,
+                "title": skill_step.title,
+                "status": skill_step.status,
+                "outputSummary": skill_step.output_summary,
+                "skillName": skill_step.skill_name,
+                "skillVersion": skill_step.skill_version,
+            },
+        }
     generation_sequence = 2 + len(skill_steps)
-    generation_step = await repo.create_loop_step(loop.id, sequence=generation_sequence, step_type="model_generation", title="生成回答", status="running")
+    generation_step = await repo.create_loop_step(
+        loop.id,
+        sequence=generation_sequence,
+        step_type="model_generation",
+        title="生成回答",
+        status="running",
+    )
     await repo.save_loop(loop)
-    yield {"type": "agent_step_started", "conversation": conversation, "loop_id": loop.id, "step_id": generation_step.id, "payload": {"loopRunId": str(loop.id), "stepId": str(generation_step.id), "sequence": generation_sequence, "stepType": "model_generation", "title": generation_step.title, "status": generation_step.status}}
+    yield {
+        "type": "agent_step_started",
+        "conversation": conversation,
+        "loop_id": loop.id,
+        "step_id": generation_step.id,
+        "payload": {
+            "loopRunId": str(loop.id),
+            "stepId": str(generation_step.id),
+            "sequence": generation_sequence,
+            "stepType": "model_generation",
+            "title": generation_step.title,
+            "status": generation_step.status,
+        },
+    }
     tool_steps = {}
     next_step_sequence = generation_sequence + 1
     async for item in stream_graph(
@@ -313,9 +432,14 @@ async def stream_chat(
         user_message=message,
         citations=citations,
         tools=[
+            *context.builtin_tools,
             *context.mcp_tools,
             *context.skill_script_tools,
-            *([context.skill_instruction_tool] if context.skill_instruction_tool else []),
+            *(
+                [context.skill_instruction_tool]
+                if context.skill_instruction_tool
+                else []
+            ),
         ],
         invoke_tool_fn=invoke_tool_fn,
     ):
@@ -339,8 +463,28 @@ async def stream_chat(
             next_step_sequence += 1
             tool_steps[call_id] = tool_step
             await repo.save_loop(loop)
-            yield {"type": "agent_step_started", "conversation": conversation, "loop_id": loop.id, "step_id": tool_step.id, "payload": {"loopRunId": str(loop.id), "stepId": str(tool_step.id), "sequence": tool_step.sequence, "stepType": tool_step.step_type, "title": tool_step.title, "status": tool_step.status, "toolName": tool_step.tool_name, "skillName": tool_step.skill_name, "skillVersion": tool_step.skill_version}}
-            yield {"type": "tool_call", "conversation": conversation, "payload": {"tool": item["tool"], "toolCallId": call_id}}
+            yield {
+                "type": "agent_step_started",
+                "conversation": conversation,
+                "loop_id": loop.id,
+                "step_id": tool_step.id,
+                "payload": {
+                    "loopRunId": str(loop.id),
+                    "stepId": str(tool_step.id),
+                    "sequence": tool_step.sequence,
+                    "stepType": tool_step.step_type,
+                    "title": tool_step.title,
+                    "status": tool_step.status,
+                    "toolName": tool_step.tool_name,
+                    "skillName": tool_step.skill_name,
+                    "skillVersion": tool_step.skill_version,
+                },
+            }
+            yield {
+                "type": "tool_call",
+                "conversation": conversation,
+                "payload": {"tool": item["tool"], "toolCallId": call_id},
+            }
             continue
         if item["type"] == "tool_completed":
             call_id = str(item["tool_call_id"])
@@ -351,10 +495,31 @@ async def stream_chat(
                 tool_step.output_summary = values["output_summary"]
                 tool_step.error = values["error"]
                 await repo.save_loop(loop)
-                yield {"type": "agent_step_completed", "conversation": conversation, "loop_id": loop.id, "step_id": tool_step.id, "payload": {"loopRunId": str(loop.id), "stepId": str(tool_step.id), "sequence": tool_step.sequence, "stepType": tool_step.step_type, "title": tool_step.title, "status": tool_step.status, "outputSummary": tool_step.output_summary, "toolName": tool_step.tool_name, "skillName": tool_step.skill_name, "skillVersion": tool_step.skill_version}}
+                yield {
+                    "type": "agent_step_completed",
+                    "conversation": conversation,
+                    "loop_id": loop.id,
+                    "step_id": tool_step.id,
+                    "payload": {
+                        "loopRunId": str(loop.id),
+                        "stepId": str(tool_step.id),
+                        "sequence": tool_step.sequence,
+                        "stepType": tool_step.step_type,
+                        "title": tool_step.title,
+                        "status": tool_step.status,
+                        "outputSummary": tool_step.output_summary,
+                        "toolName": tool_step.tool_name,
+                        "skillName": tool_step.skill_name,
+                        "skillVersion": tool_step.skill_version,
+                    },
+                }
             outcome = item["outcome"]
             yield {
-                "type": "confirmation_required" if outcome.status == "confirmation_required" else "tool_result",
+                "type": (
+                    "confirmation_required"
+                    if outcome.status == "confirmation_required"
+                    else "tool_result"
+                ),
                 "conversation": conversation,
                 "payload": outcome.model_dump(),
             }
@@ -387,9 +552,27 @@ async def stream_chat(
         for offset, tool_event in enumerate(result.tool_events or [], start=2):
             if str(tool_event.get("tool_call_id", tool_event["tool"])) in tool_steps:
                 continue
-            tool_step = await repo.create_loop_step(loop.id, **_tool_step_values(tool_event, offset))
+            tool_step = await repo.create_loop_step(
+                loop.id, **_tool_step_values(tool_event, offset)
+            )
             await repo.save_loop(loop)
-            yield {"type": "agent_step_completed", "conversation": conversation, "assistant": assistant, "loop_id": loop.id, "step_id": tool_step.id, "payload": {"loopRunId": str(loop.id), "stepId": str(tool_step.id), "sequence": tool_step.sequence, "stepType": tool_step.step_type, "title": tool_step.title, "status": tool_step.status, "outputSummary": tool_step.output_summary, "toolName": tool_step.tool_name}}
+            yield {
+                "type": "agent_step_completed",
+                "conversation": conversation,
+                "assistant": assistant,
+                "loop_id": loop.id,
+                "step_id": tool_step.id,
+                "payload": {
+                    "loopRunId": str(loop.id),
+                    "stepId": str(tool_step.id),
+                    "sequence": tool_step.sequence,
+                    "stepType": tool_step.step_type,
+                    "title": tool_step.title,
+                    "status": tool_step.status,
+                    "outputSummary": tool_step.output_summary,
+                    "toolName": tool_step.tool_name,
+                },
+            }
         generation_step.sequence = next_step_sequence
         generation_step.output_summary = f"生成 {len(result.content)} 字符"
         loop.assistant_message_id = assistant.id
@@ -397,8 +580,33 @@ async def stream_chat(
         loop.summary = "已完成回答"
         await repo.save_loop(loop)
         result.loop_id = loop.id
-        yield {"type": "agent_step_completed", "conversation": conversation, "assistant": assistant, "loop_id": loop.id, "step_id": generation_step.id, "payload": {"loopRunId": str(loop.id), "stepId": str(generation_step.id), "sequence": 2, "stepType": "model_generation", "title": generation_step.title, "status": generation_step.status, "outputSummary": generation_step.output_summary}}
-        yield {"type": "agent_loop_completed", "conversation": conversation, "assistant": assistant, "loop_id": loop.id, "payload": {"loopRunId": str(loop.id), "status": loop.status, "summary": loop.summary}}
+        yield {
+            "type": "agent_step_completed",
+            "conversation": conversation,
+            "assistant": assistant,
+            "loop_id": loop.id,
+            "step_id": generation_step.id,
+            "payload": {
+                "loopRunId": str(loop.id),
+                "stepId": str(generation_step.id),
+                "sequence": 2,
+                "stepType": "model_generation",
+                "title": generation_step.title,
+                "status": generation_step.status,
+                "outputSummary": generation_step.output_summary,
+            },
+        }
+        yield {
+            "type": "agent_loop_completed",
+            "conversation": conversation,
+            "assistant": assistant,
+            "loop_id": loop.id,
+            "payload": {
+                "loopRunId": str(loop.id),
+                "status": loop.status,
+                "summary": loop.summary,
+            },
+        }
         logger.info(
             "Conversation stream chat completed conversation_id=%s assistant_id=%s knowledge_grounded=%s citation_count=%s usage=%s",
             conversation.id,

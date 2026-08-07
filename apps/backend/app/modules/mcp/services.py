@@ -17,6 +17,21 @@ def _record_id(record) -> int:
     return record["id"] if isinstance(record, dict) else record.id
 
 
+def _record_value(record, name: str):
+    return record.get(name) if isinstance(record, dict) else getattr(record, name)
+
+
+def _principal_values(
+    *, user_id: int | None, platform_end_user_id: int | None
+) -> dict[str, int | None]:
+    if (user_id is None) == (platform_end_user_id is None):
+        raise BadRequestException("exactly one MCP invocation principal is required")
+    return {
+        "user_id": user_id,
+        "platform_end_user_id": platform_end_user_id,
+    }
+
+
 def redact_sensitive(value):
     if isinstance(value, dict):
         return {
@@ -131,11 +146,15 @@ async def invoke_tool(
     *,
     platform_id: int,
     agent_id: int,
-    user_id: int,
     server_id: int,
     tool_name: str,
     arguments: dict,
+    user_id: int | None = None,
+    platform_end_user_id: int | None = None,
 ) -> ToolInvocationOutcome:
+    principal = _principal_values(
+        user_id=user_id, platform_end_user_id=platform_end_user_id
+    )
     tool = await repo.get_allowed_tool(platform_id, agent_id, server_id, tool_name)
     if tool is None:
         raise NotFoundException("MCP tool not found")
@@ -143,7 +162,7 @@ async def invoke_tool(
     audit = await repo.create_audit(
         platform_id=platform_id,
         agent_id=agent_id,
-        user_id=user_id,
+        **principal,
         tool=tool,
         arguments=redact_sensitive(arguments),
         status="awaiting_confirmation" if tool.side_effect != "none" else "running",
@@ -155,7 +174,7 @@ async def invoke_tool(
     confirmation = await repo.create_confirmation(
         platform_id=platform_id,
         agent_id=agent_id,
-        user_id=user_id,
+        **principal,
         tool=tool,
         arguments=arguments,
         audit_id=audit_id,
@@ -164,6 +183,7 @@ async def invoke_tool(
         status="confirmation_required",
         audit_id=audit_id,
         confirmation_id=_record_id(confirmation),
+        expires_at=_record_value(confirmation, "expires_at"),
     )
 
 
@@ -173,10 +193,16 @@ async def resolve_tool_confirmation(
     *,
     confirmation_id: int,
     platform_id: int,
-    user_id: int,
     approved: bool,
+    user_id: int | None = None,
+    platform_end_user_id: int | None = None,
 ) -> ToolInvocationOutcome:
-    confirmation = await repo.get_confirmation(confirmation_id, platform_id, user_id)
+    principal = _principal_values(
+        user_id=user_id, platform_end_user_id=platform_end_user_id
+    )
+    confirmation = await repo.get_confirmation(
+        confirmation_id, platform_id, **principal
+    )
     if confirmation is None:
         raise NotFoundException("tool confirmation not found")
     if confirmation.status != "pending":
@@ -184,7 +210,9 @@ async def resolve_tool_confirmation(
     if confirmation.expires_at and confirmation.expires_at <= datetime.now(UTC):
         if await repo.claim_confirmation(confirmation, "expired"):
             await repo.complete_audit(confirmation.audit_id, status="expired")
-        raise ConflictException("tool confirmation expired")
+        return ToolInvocationOutcome(
+            status="expired", audit_id=confirmation.audit_id
+        )
     claimed = await repo.claim_confirmation(
         confirmation, "approved" if approved else "rejected"
     )
@@ -201,3 +229,27 @@ async def resolve_tool_confirmation(
         confirmation.tool,
         confirmation.arguments,
     )
+
+
+async def expire_tool_confirmation(
+    repo,
+    *,
+    confirmation_id: int,
+    platform_id: int,
+    user_id: int | None = None,
+    platform_end_user_id: int | None = None,
+) -> ToolInvocationOutcome:
+    principal = _principal_values(
+        user_id=user_id, platform_end_user_id=platform_end_user_id
+    )
+    confirmation = await repo.get_confirmation(
+        confirmation_id, platform_id, **principal
+    )
+    if confirmation is None:
+        raise NotFoundException("tool confirmation not found")
+    if confirmation.status != "pending":
+        raise ConflictException("tool confirmation already resolved")
+    if not await repo.claim_confirmation(confirmation, "expired"):
+        raise ConflictException("tool confirmation already resolved")
+    await repo.complete_audit(confirmation.audit_id, status="expired")
+    return ToolInvocationOutcome(status="expired", audit_id=confirmation.audit_id)

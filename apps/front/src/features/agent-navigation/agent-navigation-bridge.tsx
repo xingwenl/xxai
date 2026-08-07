@@ -101,22 +101,8 @@ export function AgentNavigationBridge() {
         locale: 'zh-CN',
       },
       systemPrompt:
-        '你是后台导航助手。用户要求打开页面时，只能调用 navigate_to_page，并使用页面中文名称；不要输出或执行外部链接。',
+        '你是后台管理助手。根据用户意图使用当前 Agent 已授权的工具；涉及页面导航时使用 navigate_to_page 和页面中文名称，不要编造工具结果。',
       callbacks: {
-        onConfirmationRequired: (confirmation) => {
-          if (confirmation.name !== 'navigate_to_page') {
-            agent?.resolveToolCall(confirmation.callId, false)
-            return
-          }
-
-          const args = confirmation.summary?.arguments
-          const label =
-            args && typeof args === 'object' && 'page_name' in args
-              ? String(args.page_name)
-              : '目标页面'
-          const approved = window.confirm(`允许 AI 打开“${label}”吗？`)
-          agent?.resolveToolCall(confirmation.callId, approved)
-        },
         onError: (error) => {
           // SDK errors should not prevent the authenticated shell from rendering.
           // eslint-disable-next-line no-console

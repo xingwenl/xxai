@@ -11,6 +11,7 @@ import {
   Server,
   Trash2,
   Boxes,
+  Wrench,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -84,6 +85,7 @@ import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
 import { ProfileDropdown } from '@/components/profile-dropdown'
 import { ThemeSwitch } from '@/components/theme-switch'
+import { BuiltinToolsDialog } from './builtin-tools-dialog'
 
 const agentSchema = z.object({
   name: z.string().min(1, '请输入名称').max(120),
@@ -102,7 +104,8 @@ const versionSchema = z.object({
   temperature: z.coerce.number().min(0).max(2),
 })
 type AgentForm = z.infer<typeof agentSchema>
-type VersionForm = z.infer<typeof versionSchema>
+type VersionFormInput = z.input<typeof versionSchema>
+type VersionForm = z.output<typeof versionSchema>
 
 export function AgentsPage() {
   const queryClient = useQueryClient()
@@ -110,6 +113,7 @@ export function AgentsPage() {
   const [editing, setEditing] = useState<Agent | null | undefined>()
   const [deleting, setDeleting] = useState<Agent | null>(null)
   const [versionsForId, setVersionsForId] = useState<number | null>(null)
+  const [toolsForId, setToolsForId] = useState<number | null>(null)
   const [versionDialog, setVersionDialog] = useState(false)
   const platformsQuery = useQuery({
     queryKey: ['platforms'],
@@ -125,6 +129,8 @@ export function AgentsPage() {
   // 这样发布/回滚后 invalidate agents 列表时，对话框内的 agent.default_version_id 会同步更新。
   const versionsFor =
     agentsQuery.data?.items.find((item) => item.id === versionsForId) ?? null
+  const toolsFor =
+    agentsQuery.data?.items.find((item) => item.id === toolsForId) ?? null
   const invalidateAgents = () =>
     queryClient.invalidateQueries({ queryKey: ['agents', activePlatformId] })
   const saveMutation = useMutation({
@@ -308,6 +314,19 @@ export function AgentsPage() {
                             <Button
                               size='icon'
                               variant='ghost'
+                              onClick={() => setToolsForId(agent.id)}
+                            >
+                              <Wrench className='size-4' />
+                              <span className='sr-only'>内置工具</span>
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>内置工具</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size='icon'
+                              variant='ghost'
                               onClick={() => setEditing(agent)}
                             >
                               <Edit className='size-4' />
@@ -362,6 +381,14 @@ export function AgentsPage() {
           open
           onOpenChange={(open) => !open && setVersionsForId(null)}
           onCreate={() => setVersionDialog(true)}
+        />
+      )}
+      {activePlatformId && toolsFor && (
+        <BuiltinToolsDialog
+          platformId={activePlatformId}
+          agent={toolsFor}
+          open
+          onOpenChange={(open) => !open && setToolsForId(null)}
         />
       )}
       {activePlatformId && versionsFor && (
@@ -688,7 +715,7 @@ function VersionFormDialog({
   onOpenChange: (open: boolean) => void
   onCreated: () => void
 }) {
-  const form = useForm<VersionForm>({
+  const form = useForm<VersionFormInput, unknown, VersionForm>({
     resolver: zodResolver(versionSchema),
     defaultValues: {
       system_prompt: '',
@@ -785,6 +812,7 @@ function VersionFormDialog({
                       max='2'
                       step='0.1'
                       {...field}
+                      value={field.value as string | number | undefined}
                     />
                   </FormControl>
                   <FormMessage />

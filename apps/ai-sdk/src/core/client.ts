@@ -7,6 +7,7 @@ import type {
   Message,
   OutgoingMessage,
   ToolDefinition,
+  ToolConfirmation,
   WebSocketMessage
 } from './types'
 import { EventEmitter } from './event-emitter'
@@ -194,12 +195,16 @@ export class AgentClient {
         break
       case 'confirmation_required':
         this.pendingConfirmations.add(String(msg.payload.callId))
-        this._callbacks.onConfirmationRequired?.({
+        const confirmation: ToolConfirmation = {
           callId: String(msg.payload.callId),
           name: String(msg.payload.name),
-          summary: msg.payload.summary as Record<string, unknown> | undefined
-        })
-        this.eventEmitter.emit('confirmation_required', msg.payload)
+          toolType: msg.payload.toolType as ToolConfirmation['toolType'],
+          sideEffect: msg.payload.sideEffect as ToolConfirmation['sideEffect'],
+          summary: msg.payload.summary as Record<string, unknown> | undefined,
+          expiresAt: typeof msg.payload.expiresAt === 'string' ? msg.payload.expiresAt : undefined
+        }
+        this._callbacks.onConfirmationRequired?.(confirmation)
+        this.eventEmitter.emit('confirmation_required', confirmation)
         break
       case 'message_completed':
         if (this.pendingAssistantMessage) {
@@ -341,6 +346,7 @@ export class AgentClient {
 
   disconnect(): void {
     this.transport.disconnect()
+    this.clearPendingConfirmations()
   }
 
   get connectionState(): ConnectionState {
@@ -365,8 +371,7 @@ export class AgentClient {
     this.eventEmitter.removeAllListeners()
     this.messageStore.clearMessages()
     this.toolRegistry.clearCustomTools()
-    this.pendingConfirmations.clear()
-    this.pendingHostCalls.clear()
+    this.clearPendingConfirmations()
 
     if (this.uiContainer && this.uiMounted) {
       this.uiContainer.remove()
@@ -484,6 +489,15 @@ export class AgentClient {
     }
     if (approved && pending) void this.runHostTool(callId, pending.name, pending.arguments)
     if (!approved) this.pendingHostCalls.delete(callId)
+    this.eventEmitter.emit('confirmation_resolved', { callId, approved })
+  }
+
+  private clearPendingConfirmations(): void {
+    for (const callId of this.pendingConfirmations) {
+      this.eventEmitter.emit('confirmation_resolved', { callId, approved: false })
+    }
+    this.pendingConfirmations.clear()
+    this.pendingHostCalls.clear()
   }
 
   private async executeHostTool(msg: WebSocketMessage): Promise<void> {
@@ -499,8 +513,15 @@ export class AgentClient {
       if (msg.payload.requiresConfirmation) {
         this.pendingConfirmations.add(callId)
         this.pendingHostCalls.set(callId, { name, arguments: msg.payload.arguments })
-        this._callbacks.onConfirmationRequired?.({ callId, name, summary: { arguments: msg.payload.arguments } })
-        this.eventEmitter.emit('confirmation_required', { callId, name })
+        const confirmation: ToolConfirmation = {
+          callId,
+          name,
+          toolType: 'host_tool',
+          sideEffect: msg.payload.sideEffect as ToolConfirmation['sideEffect'],
+          summary: { arguments: msg.payload.arguments as unknown },
+        }
+        this._callbacks.onConfirmationRequired?.(confirmation)
+        this.eventEmitter.emit('confirmation_required', confirmation)
         return
       }
       await this.runHostTool(callId, name, msg.payload.arguments)

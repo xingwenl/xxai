@@ -23,7 +23,11 @@ function kindLabel(step: AgentLoopStep, status: AgentLoopRun['status']): string 
   if (step.stepType === 'skill_instruction' || step.stepType === 'skill_tool') {
     return '调用技能'
   }
-  if (step.stepType === 'host_tool' || step.stepType === 'mcp_tool') {
+  if (
+    step.stepType === 'builtin_tool' ||
+    step.stepType === 'host_tool' ||
+    step.stepType === 'mcp_tool'
+  ) {
     return '调用工具'
   }
   return ''

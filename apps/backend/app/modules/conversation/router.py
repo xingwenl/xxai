@@ -29,6 +29,9 @@ from app.modules.skill.repositories import SkillRepository
 from app.modules.skill_runner.client import SkillRunnerClient
 from app.modules.skill_runner.services import execute_skill_script
 from app.modules.skill.services import load_bound_skill_instruction
+from app.modules.asset.repositories import AssetRepository
+from app.modules.builtin_tool.repositories import BuiltinToolRepository
+from app.modules.builtin_tool.services import invoke_builtin_tool
 from app.shared.exceptions import NotFoundException
 from app.shared.responses import success_response
 
@@ -46,11 +49,13 @@ async def _prepare(
     if agent is None:
         raise NotFoundException("published agent not found")
     skill_repo = SkillRepository(session)
+    builtin_tool_repo = BuiltinToolRepository(session)
     context = await load_runtime_context(
         agent_repo,
         KnowledgeRepository(session),
         skill_repo,
         McpRepository(session),
+        builtin_tool_repo,
         agent_id=agent_id,
         platform_id=agent.platform_id,
     )
@@ -63,6 +68,17 @@ async def _prepare(
 
     async def invoke(**kwargs):
         tool = kwargs.get("tool")
+        if getattr(tool, "kind", None) == "builtin":
+            return await invoke_builtin_tool(
+                builtin_tool_repo,
+                AssetRepository(session),
+                tool=tool,
+                call=kwargs["call"],
+                platform_id=agent.platform_id,
+                agent_id=agent_id,
+                conversation_id=context.conversation_id,
+                user_id=current_user.id,
+            )
         if getattr(tool, "kind", None) == "skill_script":
             return await execute_skill_script(
                 skill_repo,
@@ -92,7 +108,11 @@ async def _prepare(
             platform_id=agent.platform_id,
             agent_id=agent_id,
             user_id=current_user.id,
-            **{key: value for key, value in kwargs.items() if key not in {"tool", "call"}},
+            **{
+                key: value
+                for key, value in kwargs.items()
+                if key not in {"tool", "call"}
+            },
         )
 
     return agent, context, citations, invoke
@@ -203,7 +223,11 @@ async def chat_endpoint(
                         getattr(item.get("assistant"), "id", None),
                     )
                     continue
-                if item["type"] in {"tool_call", "tool_result", "confirmation_required"}:
+                if item["type"] in {
+                    "tool_call",
+                    "tool_result",
+                    "confirmation_required",
+                }:
                     yield emit(item["type"], item["payload"], conversation.id, None)
                     continue
                 if item["type"] == "error":
@@ -220,7 +244,17 @@ async def chat_endpoint(
                         "contentBlocks": assistant.content_blocks,
                         "citations": result.citations,
                         "knowledge_grounded": result.knowledge_grounded,
-                        "loop": {"id": str(result.loop_id), "requestId": f"conversation-{conversation.id}", "status": "completed", "summary": "已完成回答", "steps": []} if result.loop_id else None,
+                        "loop": (
+                            {
+                                "id": str(result.loop_id),
+                                "requestId": f"conversation-{conversation.id}",
+                                "status": "completed",
+                                "summary": "已完成回答",
+                                "steps": [],
+                            }
+                            if result.loop_id
+                            else None
+                        ),
                     },
                     conversation.id,
                     assistant.id,

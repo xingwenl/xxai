@@ -90,7 +90,8 @@ class McpAuditRead(BaseModel):
     id: int
     platform_id: int
     agent_id: int
-    user_id: int
+    user_id: int | None
+    platform_end_user_id: int | None
     server_id: int
     tool_id: int
     tool_name: str
@@ -109,7 +110,10 @@ class DiscoveredMcpTool(BaseModel):
 
 
 class ToolInvocationOutcome(BaseModel):
-    status: Literal["completed", "confirmation_required", "rejected", "failed"]
+    status: Literal[
+        "completed", "confirmation_required", "rejected", "expired", "failed"
+    ]
     audit_id: int
     confirmation_id: int | None = None
+    expires_at: datetime | None = None
     result: Any = None

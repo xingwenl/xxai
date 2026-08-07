@@ -39,6 +39,7 @@ export type AgentLoopStepType =
   | 'knowledge_retrieval'
   | 'skill_instruction'
   | 'skill_tool'
+  | 'builtin_tool'
   | 'host_tool'
   | 'mcp_tool'
   | 'model_generation'
@@ -161,7 +162,7 @@ export interface AgentCallbacks {
   onToolCall?: (name: string, input: unknown) => void
   onToolResult?: (name: string, result: unknown) => void
   onError?: (error: Error) => void
-  onConfirmationRequired?: (confirmation: HostToolConfirmation) => void
+  onConfirmationRequired?: (confirmation: ToolConfirmation) => void
 }
 
 export type HostToolStatus =
@@ -173,11 +174,21 @@ export type HostToolStatus =
   | 'rejected'
   | 'expired'
 
-export interface HostToolConfirmation {
+export type ToolType = 'mcp_tool' | 'host_tool'
+
+export type ToolSideEffect = 'none' | 'navigation' | 'write' | 'financial' | 'external'
+
+export interface ToolConfirmation {
   callId: string
   name: string
+  toolType?: ToolType
+  sideEffect?: ToolSideEffect
   summary?: Record<string, unknown>
+  expiresAt?: string
 }
+
+/** @deprecated Use ToolConfirmation. Kept for SDK consumers on 0.1.x. */
+export type HostToolConfirmation = ToolConfirmation
 
 export interface TokenProviderContext {
   platformId: string

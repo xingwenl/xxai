@@ -1,5 +1,8 @@
 # Changelog
 
+## - 2026-08-07
+- ✨ feat：增加内置工具并接入 Embed MCP `🧑‍💻 lixingwen`
+
 ## - 2026-08-06
 - ✨ feat：支持工具场景原生流式对话 `🧑‍💻 lixingwen`
 - 🐛 fix：统一错误事件结束对话 `🧑‍💻 lixingwen`

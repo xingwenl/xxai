@@ -49,6 +49,7 @@
 5. MCP 高风险工具创建 confirmation 后，Gateway 发送通用 `confirmation_required`、等待连接级 Future，并在 `confirmation_resolve` 后调用 `resolve_tool_confirmation()`。
 6. 批准、拒绝、超时和断线都生成稳定工具结果；副作用调用不自动重试。
 7. 协议载荷只发送脱敏参数、公共 `callId`、工具类型、副作用和过期时间。
+8. 同一请求内的 MCP 调用使用单调序号生成唯一 `callId`；确认过期竞态返回 `expired` 工具结果，不中断模型循环。
 
 ## Task 3：SDK 协议、状态和内置确认 UI
 

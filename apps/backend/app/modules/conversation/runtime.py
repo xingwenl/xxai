@@ -29,10 +29,21 @@ from typing_extensions import TypedDict
 from app.core.logging import get_logger
 from app.modules.agent.services import build_chat_model
 from app.modules.skill.services import build_runtime_skill_metadata
-from app.modules.skill_runner.tools import build_skill_instruction_tool, build_skill_script_tools
+from app.modules.skill_runner.tools import (
+    build_skill_instruction_tool,
+    build_skill_script_tools,
+)
 from app.modules.conversation.schemas import RuntimeContext
 
 logger = get_logger(__name__)
+
+
+def _tool_result_content(tool, outcome) -> str:
+    """内置 GET 允许更大的有界文本，其他工具保持既有上下文上限。"""
+    limit = 100_000 if getattr(tool, "kind", None) == "builtin" else 20_000
+    if getattr(tool, "kind", None) == "builtin":
+        return json.dumps(outcome.result, ensure_ascii=False, default=str)[:limit]
+    return str(outcome.result)[:limit]
 
 
 def build_agent_error_payload(error: BaseException) -> dict[str, Any]:
@@ -345,8 +356,13 @@ async def _stream_graph(
                         if hasattr(tool, "server_id")
                         else (
                             "skill_tool"
-                            if getattr(tool, "kind", None) in {"skill_script", "skill_instruction"}
-                            else "host_tool"
+                            if getattr(tool, "kind", None)
+                            in {"skill_script", "skill_instruction"}
+                            else (
+                                "builtin_tool"
+                                if getattr(tool, "kind", None) == "builtin"
+                                else "host_tool"
+                            )
                         )
                     ),
                     "tool_call_id": call.get("id", tool.name),
@@ -387,7 +403,7 @@ async def _stream_graph(
 
                 messages.append(
                     ToolMessage(
-                        content=str(outcome.result)[:20_000],
+                        content=_tool_result_content(tool, outcome),
                         tool_call_id=call.get("id", tool.name),
                     )
                 )
@@ -621,7 +637,11 @@ async def run_graph(
                     else (
                         "skill_tool"
                         if getattr(tool, "kind", None) == "skill_script"
-                        else "host_tool"
+                        else (
+                            "builtin_tool"
+                            if getattr(tool, "kind", None) == "builtin"
+                            else "host_tool"
+                        )
                     )
                 ),
                 "tool_call_id": call.get("id", tool.name),
@@ -664,9 +684,7 @@ async def run_graph(
             state["messages"].append(response)
             state["messages"].append(
                 ToolMessage(
-                    content=str(outcome.result)[
-                        :20_000
-                    ],  # 限制工具结果长度，防止超出 Token 限制
+                    content=_tool_result_content(tool, outcome),
                     tool_call_id=call.get("id", tool.name),
                 )
             )
@@ -703,6 +721,7 @@ async def load_runtime_context(
     knowledge_repo,
     skill_repo,
     mcp_repo,
+    builtin_tool_repo=None,
     *,
     agent_id: int,
     platform_id: int,
@@ -751,6 +770,11 @@ async def load_runtime_context(
 
     # 加载 MCP 工具列表
     mcp_tools = await mcp_repo.list_enabled_tools_for_agent(agent_id, platform_id)
+    builtin_tools = (
+        await builtin_tool_repo.list_enabled_tools_for_agent(agent_id, platform_id)
+        if builtin_tool_repo is not None
+        else []
+    )
 
     # 构建技能脚本工具（将技能绑定转换为可调用的工具对象）
     skill_script_tools = build_skill_script_tools(bindings)
@@ -777,13 +801,14 @@ async def load_runtime_context(
         )
 
     logger.info(
-        "Loaded runtime context agent_id=%s platform_id=%s knowledge_bases=%s skill_count=%s script_tool_count=%s mcp_tool_count=%s",
+        "Loaded runtime context agent_id=%s platform_id=%s knowledge_bases=%s skill_count=%s script_tool_count=%s mcp_tool_count=%s builtin_tool_count=%s",
         agent_id,
         platform_id,
         [getattr(base, "id", None) for base in knowledge_bases],
         len(bindings),
         len(skill_script_tools),
         len(mcp_tools),
+        len(builtin_tools),
     )
 
     # 组装运行时上下文
@@ -798,6 +823,7 @@ async def load_runtime_context(
         skill_script_tools=skill_script_tools,
         skill_instruction_tool=skill_instruction_tool,
         mcp_tools=mcp_tools,
+        builtin_tools=builtin_tools,
     )
 
 
@@ -841,16 +867,16 @@ def build_system_prompt(
             "Do not invent citations:\n" + knowledge
         )
 
-    # 追加宿主工具说明段落，提供前端可用工具列表
+    # 追加运行时工具说明；实际可调用范围仍由 bind_tools 和服务端执行器约束。
     if host_tools:
         tools = "\n".join(
             f"- {tool.name}: {tool.description or '无描述'}" for tool in host_tools
         )
         sections.append(
-            "当前页面已注册且授权的宿主工具如下：\n"
+            "当前会话已注册且授权的工具如下：\n"
             f"{tools}\n"
             "用户询问可用工具时，只能根据以上实际列表回答。"
-            "用户要求打开后台页面时，必须调用 navigate_to_page，"
+            "用户请求与工具能力匹配的操作时，应调用对应工具，"
             "不能只描述应该怎么做，也不能编造未列出的工具。"
         )
 

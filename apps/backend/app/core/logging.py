@@ -102,6 +102,12 @@ def build_logging_config(
             "handlers": list(handlers),
             "level": level,
         },
+        # HTTPX 的默认 INFO 日志会包含完整 URL（包括查询参数）。统一提升级别，
+        # 避免模型提供的公开 URL 将令牌或业务参数写入应用日志。
+        "loggers": {
+            "httpx": {"level": "WARNING"},
+            "httpcore": {"level": "WARNING"},
+        },
     }
 
 

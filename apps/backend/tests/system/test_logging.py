@@ -18,6 +18,8 @@ def test_build_logging_config_includes_dated_file_handler(tmp_path) -> None:
     )
 
     assert config["root"]["handlers"] == ["console", "file"]
+    assert config["loggers"]["httpx"]["level"] == "WARNING"
+    assert config["loggers"]["httpcore"]["level"] == "WARNING"
     assert config["handlers"]["file"] == {
         "()": "app.core.logging.DatedFileHandler",
         "formatter": "default",

@@ -32,7 +32,14 @@ export type ProtocolPayload =
   | { title: string; text: string; sourceUrl?: string }
   | { name: string; status: string }
   | { callId: string; name: string; arguments: unknown; sideEffect?: string; requiresConfirmation?: boolean }
-  | { callId: string; name: string; summary?: Record<string, unknown> }
+  | {
+      callId: string
+      name: string
+      toolType?: 'mcp_tool' | 'host_tool'
+      sideEffect?: 'none' | 'navigation' | 'write' | 'financial' | 'external'
+      summary?: Record<string, unknown>
+      expiresAt?: string
+    }
   | ErrorPayload
 
 export interface ProtocolEvent {

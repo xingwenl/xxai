@@ -1,7 +1,7 @@
 import asyncio
 from types import SimpleNamespace
 
-from app.modules.gateway.runtime import stream_embed_chat
+from app.modules.gateway.runtime import filter_conflicting_runtime_tools, stream_embed_chat
 
 
 class FakeConversation:
@@ -89,6 +89,18 @@ class FailingStreamingModel:
     async def astream(self, _messages):
         raise RuntimeError("HTTP 502 Bad Gateway")
         yield  # pragma: no cover
+
+
+def test_runtime_tool_name_conflicts_exclude_all_duplicates():
+    tools = [
+        SimpleNamespace(name="same", kind="builtin"),
+        SimpleNamespace(name="same", server_id=4),
+        SimpleNamespace(name="read_only", server_id=4),
+    ]
+
+    filtered = filter_conflicting_runtime_tools(tools)
+
+    assert [tool.name for tool in filtered] == ["read_only"]
 
 
 def test_embed_stream_sends_terminal_error_and_marks_loop_failed():

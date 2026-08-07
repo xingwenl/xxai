@@ -24,7 +24,8 @@ describe('message presentation', () => {
       steps: [
         step('thinking', 'model_generation', 1),
         step('tool', 'mcp_tool', 2),
-        step('knowledge', 'knowledge_retrieval', 3)
+        step('builtin', 'builtin_tool', 3),
+        step('knowledge', 'knowledge_retrieval', 4)
       ]
     }
 

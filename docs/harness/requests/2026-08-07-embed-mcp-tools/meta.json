@@ -2,8 +2,8 @@
   "id": "2026-08-07-embed-mcp-tools",
   "title": "Embed 对话接入 MCP 工具",
   "scope": "monorepo",
-  "phase": "plan",
-  "status": "active",
+  "phase": "acceptance",
+  "status": "done",
   "riskLevel": "high",
   "changeTypes": [
     "architecture",
@@ -60,5 +60,5 @@
     "apps/front/src/features/agent-navigation",
     "docs/harness/requests/2026-08-07-embed-mcp-tools"
   ],
-  "notes": "正式 spec 已获批准，详细实施计划已完成，允许进入实现。"
+  "notes": "实现、自动化验证和真实 MCP 可用性验收已完成；前端全量 build 的既有类型错误作为剩余风险记录。"
 }

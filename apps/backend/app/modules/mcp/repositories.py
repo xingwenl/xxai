@@ -265,14 +265,27 @@ class McpRepository:
         audit.completed_at = datetime.now(UTC)
         await self.session.commit()
 
-    async def get_confirmation(self, confirmation_id, platform_id, user_id):
-        return await self.session.scalar(
-            select(McpToolConfirmation).where(
-                McpToolConfirmation.id == confirmation_id,
-                McpToolConfirmation.platform_id == platform_id,
-                McpToolConfirmation.user_id == user_id,
-            )
+    async def get_confirmation(
+        self,
+        confirmation_id: int,
+        platform_id: int,
+        *,
+        user_id: int | None = None,
+        platform_end_user_id: int | None = None,
+    ):
+        statement = select(McpToolConfirmation).where(
+            McpToolConfirmation.id == confirmation_id,
+            McpToolConfirmation.platform_id == platform_id,
         )
+        if user_id is not None and platform_end_user_id is None:
+            statement = statement.where(McpToolConfirmation.user_id == user_id)
+        elif platform_end_user_id is not None and user_id is None:
+            statement = statement.where(
+                McpToolConfirmation.platform_end_user_id == platform_end_user_id
+            )
+        else:
+            return None
+        return await self.session.scalar(statement)
 
     async def claim_confirmation(self, confirmation, status) -> bool:
         result = await self.session.execute(

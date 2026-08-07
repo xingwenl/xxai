@@ -55,6 +55,10 @@ class Settings:
     agent_max_upload_bytes: int
     agent_fetch_timeout_seconds: int
     agent_master_key: str
+    builtin_http_get_timeout_seconds: float
+    builtin_http_get_text_max_bytes: int
+    builtin_http_get_text_max_chars: int
+    builtin_http_get_file_max_bytes: int
     skill_runner_url: str
     skill_runner_shared_secret: str
     skill_runner_timeout_seconds: int
@@ -134,13 +138,27 @@ def get_settings() -> Settings:
         agent_master_key=os.getenv(
             "AGENT_MASTER_KEY", "dev-agent-master-key-change-me"
         ),
+        builtin_http_get_timeout_seconds=float(
+            os.getenv("BUILTIN_HTTP_GET_TIMEOUT_SECONDS", "30")
+        ),
+        builtin_http_get_text_max_bytes=int(
+            os.getenv("BUILTIN_HTTP_GET_TEXT_MAX_BYTES", str(1024 * 1024))
+        ),
+        builtin_http_get_text_max_chars=int(
+            os.getenv("BUILTIN_HTTP_GET_TEXT_MAX_CHARS", "100000")
+        ),
+        builtin_http_get_file_max_bytes=int(
+            os.getenv("BUILTIN_HTTP_GET_FILE_MAX_BYTES", str(25 * 1024 * 1024))
+        ),
         # 本地 Python API 运行在宿主机时使用开发 runner 端口；Compose API
         # 会通过环境变量显式覆盖为内部 DNS 地址，生产环境也必须显式配置。
         skill_runner_url=os.getenv(
             "SKILL_RUNNER_URL",
-            "http://127.0.0.1:8090"
-            if app_env == "development"
-            else "http://skill-runner:8090",
+            (
+                "http://127.0.0.1:8090"
+                if app_env == "development"
+                else "http://skill-runner:8090"
+            ),
         ),
         skill_runner_shared_secret=os.getenv(
             "SKILL_RUNNER_SHARED_SECRET", "dev-skill-runner-secret-change-me"

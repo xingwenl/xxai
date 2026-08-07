@@ -1,9 +1,9 @@
 {
   "id": "2026-08-07-builtin-http-get",
   "title": "内置 HTTP GET 工具",
-  "scope": "backend",
-  "phase": "spec",
-  "status": "active",
+  "scope": "fullstack",
+  "phase": "acceptance",
+  "status": "done",
   "riskLevel": "high",
   "changeTypes": [
     "architecture",
@@ -11,6 +11,8 @@
     "api",
     "authorization",
     "runtime",
+    "frontend",
+    "sdk",
     "docs"
   ],
   "research": {
@@ -25,7 +27,7 @@
     "decisionRecorded": true
   },
   "approvalRequired": true,
-  "approvalGranted": false,
+  "approvalGranted": true,
   "approvalReasons": [
     "架构边界变化",
     "数据模型变化",
@@ -38,6 +40,18 @@
       "at": "2026-08-07",
       "scope": "方案方向、架构、工具契约、错误行为和验证范围",
       "note": "用户逐段确认设计方向，并将请求超时调整为 30 秒；待审阅正式 spec 后授予实施确认。"
+    },
+    {
+      "by": "user",
+      "at": "2026-08-07",
+      "scope": "正式 spec 及其架构、数据模型、API、鉴权变更",
+      "note": "用户回复‘可以 开始吧’，批准正式规格并授权进入计划与实现。"
+    },
+    {
+      "by": "user",
+      "at": "2026-08-07",
+      "scope": "管理端内置工具入口与 SDK builtin_tool 步骤识别增量规格",
+      "note": "用户回复‘继续’，确认增量规格并授权进入实现。"
     }
   ],
   "owner": "ai",
@@ -47,7 +61,9 @@
     "apps/backend/app/modules/conversation",
     "apps/backend/app/modules/gateway",
     "apps/backend/app/modules/knowledge",
+    "apps/front/src/features/agents",
+    "apps/ai-sdk/src",
     "docs/harness/requests/2026-08-07-builtin-http-get"
   ],
-  "notes": "正式规格处于用户审阅停点，未进入 plan 或 implement。"
+  "notes": "后端、管理端与 SDK 增量实现和自动化验收已完成；真实 UI 启停操作需管理员登录后联调，全量前端 ESLint 保留无关既有错误。"
 }

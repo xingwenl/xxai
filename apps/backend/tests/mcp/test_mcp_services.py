@@ -4,8 +4,12 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.modules.mcp.services import invoke_tool, resolve_tool_confirmation
-from app.shared.exceptions import ConflictException, NotFoundException
+from app.modules.mcp.services import (
+    expire_tool_confirmation,
+    invoke_tool,
+    resolve_tool_confirmation,
+)
+from app.shared.exceptions import BadRequestException, ConflictException, NotFoundException
 
 
 @dataclass
@@ -22,7 +26,8 @@ class FakeConfirmation:
     id: int
     platform_id: int
     agent_id: int
-    user_id: int
+    user_id: int | None
+    platform_end_user_id: int | None
     tool: FakeTool
     arguments: dict
     audit_id: int
@@ -59,7 +64,14 @@ class FakeMcpRepository:
     async def complete_audit(self, audit_id, *, status, result=None, error=None):
         self.audits[audit_id].update(status=status, result=result, error=error)
 
-    async def get_confirmation(self, confirmation_id, platform_id, user_id):
+    async def get_confirmation(
+        self,
+        confirmation_id,
+        platform_id,
+        *,
+        user_id=None,
+        platform_end_user_id=None,
+    ):
         return next(
             (
                 item
@@ -67,6 +79,7 @@ class FakeMcpRepository:
                 if item.id == confirmation_id
                 and item.platform_id == platform_id
                 and item.user_id == user_id
+                and item.platform_end_user_id == platform_end_user_id
             ),
             None,
         )
@@ -128,6 +141,91 @@ def test_read_only_tool_executes_and_writes_completed_audit() -> None:
         assert outcome.result == {"ok": True}
         assert repo.audits[outcome.audit_id]["status"] == "completed"
         assert len(executor.calls) == 1
+
+    asyncio.run(run())
+
+
+def test_embed_principal_executes_and_is_written_to_audit() -> None:
+    async def run() -> None:
+        repo = FakeMcpRepository(
+            FakeTool(1, 4, "get_order", {"type": "object"}, "none")
+        )
+
+        outcome = await invoke_tool(
+            repo,
+            FakeExecutor(),
+            platform_id=1,
+            agent_id=2,
+            platform_end_user_id=9,
+            server_id=4,
+            tool_name="get_order",
+            arguments={},
+        )
+
+        assert repo.audits[outcome.audit_id]["user_id"] is None
+        assert repo.audits[outcome.audit_id]["platform_end_user_id"] == 9
+
+    asyncio.run(run())
+
+
+def test_invocation_requires_exactly_one_principal() -> None:
+    async def run() -> None:
+        repo = FakeMcpRepository(
+            FakeTool(1, 4, "get_order", {"type": "object"}, "none")
+        )
+        with pytest.raises(BadRequestException, match="exactly one"):
+            await invoke_tool(
+                repo,
+                FakeExecutor(),
+                platform_id=1,
+                agent_id=2,
+                server_id=4,
+                tool_name="get_order",
+                arguments={},
+            )
+        with pytest.raises(BadRequestException, match="exactly one"):
+            await invoke_tool(
+                repo,
+                FakeExecutor(),
+                platform_id=1,
+                agent_id=2,
+                user_id=3,
+                platform_end_user_id=9,
+                server_id=4,
+                tool_name="get_order",
+                arguments={},
+            )
+
+    asyncio.run(run())
+
+
+def test_embed_confirmation_can_expire_without_execution() -> None:
+    async def run() -> None:
+        repo = FakeMcpRepository(
+            FakeTool(1, 4, "cancel_order", {"type": "object"}, "write")
+        )
+        executor = FakeExecutor()
+        pending = await invoke_tool(
+            repo,
+            executor,
+            platform_id=1,
+            agent_id=2,
+            platform_end_user_id=9,
+            server_id=4,
+            tool_name="cancel_order",
+            arguments={},
+        )
+
+        expired = await expire_tool_confirmation(
+            repo,
+            confirmation_id=pending.confirmation_id,
+            platform_id=1,
+            platform_end_user_id=9,
+        )
+
+        assert expired.status == "expired"
+        assert repo.audits[pending.audit_id]["status"] == "expired"
+        assert executor.calls == []
 
     asyncio.run(run())
 
@@ -313,16 +411,16 @@ def test_expired_confirmation_does_not_execute() -> None:
         )
         repo.confirmations[0].expires_at = datetime.now(UTC) - timedelta(seconds=1)
 
-        with pytest.raises(ConflictException, match="expired"):
-            await resolve_tool_confirmation(
-                repo,
-                executor,
-                confirmation_id=pending.confirmation_id,
-                platform_id=1,
-                user_id=3,
-                approved=True,
-            )
+        expired = await resolve_tool_confirmation(
+            repo,
+            executor,
+            confirmation_id=pending.confirmation_id,
+            platform_id=1,
+            user_id=3,
+            approved=True,
+        )
 
+        assert expired.status == "expired"
         assert executor.calls == []
         assert repo.audits[pending.audit_id]["status"] == "expired"
 

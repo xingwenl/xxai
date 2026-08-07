@@ -145,6 +145,18 @@ describe('AgentClient protocol events', () => {
     expect(updates[updates.length - 1]).toMatchObject({ text: '', loop: { id: 'loop-1', status: 'running', steps: [{ status: 'running', toolName: 'weather' }] } })
   })
 
+  it('keeps builtin tool step metadata in live loop updates', () => {
+    const updates: any[] = []
+    const client = new AgentClient({ endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token' })
+    client.on('message_updating', (update) => updates.push(update))
+    const transport = (client as any).transport
+    transport.emit('message', { id: '1', type: 'message_started', protocolVersion: 1, sequence: 1, timestamp: new Date().toISOString(), requestId: 'r', payload: {} })
+    transport.emit('message', { id: '2', type: 'agent_loop_started', protocolVersion: 1, sequence: 2, timestamp: new Date().toISOString(), requestId: 'r', payload: { loopRunId: 'loop-1' } })
+    transport.emit('message', { id: '3', type: 'agent_step_started', protocolVersion: 1, sequence: 3, timestamp: new Date().toISOString(), requestId: 'r', payload: { loopRunId: 'loop-1', stepId: 'step-1', sequence: 1, stepType: 'builtin_tool', title: '调用工具：http_get', status: 'running', toolName: 'http_get' } })
+
+    expect(updates[updates.length - 1]).toMatchObject({ loop: { steps: [{ stepType: 'builtin_tool', toolName: 'http_get' }] } })
+  })
+
   it('keeps loop state visible when loop events arrive before message_started', () => {
     const updates: any[] = []
     const client = new AgentClient({ endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token' })
@@ -183,5 +195,34 @@ describe('AgentClient protocol events', () => {
       payload: { tools: [{ name: 'read_page' }] }
     })
     expect(registrations[0].payload.temporary).toBeUndefined()
+  })
+
+  it('dispatches MCP confirmations and resolves each call only once', () => {
+    const confirmations: any[] = []
+    const events: any[] = []
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token',
+      callbacks: { onConfirmationRequired: (value) => confirmations.push(value) }
+    })
+    const transport = (client as any).transport
+    const sent: any[] = []
+    transport.resolveToolCall = (callId: string, approved: boolean) => sent.push({ callId, approved })
+    client.on('confirmation_required', (value) => events.push(value))
+
+    transport.emit('message', {
+      id: 'confirm', type: 'confirmation_required', protocolVersion: 1, sequence: 1,
+      timestamp: new Date().toISOString(), payload: {
+        callId: 'mcp-call-1', name: 'orders.cancel', toolType: 'mcp_tool',
+        sideEffect: 'write', summary: { arguments: { orderId: 'o-1' } },
+        expiresAt: '2026-08-07T12:00:00Z'
+      }
+    })
+
+    client.resolveToolCall('mcp-call-1', true)
+    client.resolveToolCall('mcp-call-1', true)
+
+    expect(confirmations[0]).toMatchObject({ toolType: 'mcp_tool', sideEffect: 'write' })
+    expect(events[0]).toMatchObject({ callId: 'mcp-call-1', toolType: 'mcp_tool' })
+    expect(sent).toEqual([{ callId: 'mcp-call-1', approved: true }])
   })
 })

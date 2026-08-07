@@ -164,7 +164,11 @@ function kindFor(step: AgentLoopStep) {
   if (step.stepType === 'knowledge_retrieval') return 'knowledge';
   if (step.stepType === 'skill_instruction' || step.stepType === 'skill_tool')
     return 'skill';
-  if (step.stepType === 'host_tool' || step.stepType === 'mcp_tool')
+  if (
+    step.stepType === 'builtin_tool' ||
+    step.stepType === 'host_tool' ||
+    step.stepType === 'mcp_tool'
+  )
     return 'tool';
   return 'thinking';
 }
@@ -191,6 +195,7 @@ function iconFor(step: AgentLoopStep) {
 }
 function isTool(step: AgentLoopStep) {
   return (
+    step.stepType === 'builtin_tool' ||
     step.stepType === 'host_tool' ||
     step.stepType === 'mcp_tool' ||
     step.stepType === 'skill_tool'

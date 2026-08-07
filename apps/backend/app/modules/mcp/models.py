@@ -6,6 +6,7 @@ import json
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     JSON,
@@ -75,66 +76,129 @@ class AgentMcpServer(BaseModel, TimeModel):
 
 class McpToolCallAudit(BaseModel):
     __tablename__ = "mcp_tool_call_audits"
+    __table_args__ = (
+        CheckConstraint(
+            "(user_id IS NOT NULL AND platform_end_user_id IS NULL) OR "
+            "(user_id IS NULL AND platform_end_user_id IS NOT NULL)",
+            name="ck_mcp_tool_call_audits_exactly_one_principal",
+        ),
+    )
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        primary_key=True, autoincrement=True, comment="MCP 工具调用审计主键"
+    )
     platform_id: Mapped[int] = mapped_column(
-        ForeignKey("platforms.id", ondelete="CASCADE"), index=True
+        ForeignKey("platforms.id", ondelete="CASCADE"),
+        index=True,
+        comment="调用所属平台 ID",
     )
     agent_id: Mapped[int] = mapped_column(
-        ForeignKey("agents.id", ondelete="CASCADE"), index=True
+        ForeignKey("agents.id", ondelete="CASCADE"),
+        index=True,
+        comment="发起调用的智能体 ID",
     )
-    user_id: Mapped[int] = mapped_column(
-        ForeignKey("sys_users.id", ondelete="RESTRICT"), index=True
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("sys_users.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+        comment="后台用户 ID，与 Embed 最终用户互斥",
+    )
+    platform_end_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("platform_end_users.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+        comment="Embed 最终用户 ID，与后台用户互斥",
     )
     server_id: Mapped[int] = mapped_column(
-        ForeignKey("mcp_servers.id", ondelete="RESTRICT")
+        ForeignKey("mcp_servers.id", ondelete="RESTRICT"),
+        comment="被调用的 MCP 服务 ID",
     )
     tool_id: Mapped[int] = mapped_column(
-        ForeignKey("mcp_tools.id", ondelete="RESTRICT")
+        ForeignKey("mcp_tools.id", ondelete="RESTRICT"),
+        comment="被调用的 MCP 工具 ID",
     )
-    tool_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    tool_name: Mapped[str] = mapped_column(
+        String(255), nullable=False, comment="调用时的 MCP 工具名称"
+    )
     arguments: Mapped[dict[str, Any]] = mapped_column(
-        JSON, nullable=False, default=dict
+        JSON, nullable=False, default=dict, comment="脱敏后的工具调用参数"
     )
-    status: Mapped[str] = mapped_column(String(40), nullable=False)
-    result: Mapped[Any | None] = mapped_column(JSON, nullable=True)
-    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(40), nullable=False, comment="工具调用审计状态"
+    )
+    result: Mapped[Any | None] = mapped_column(
+        JSON, nullable=True, comment="脱敏后的工具调用结果"
+    )
+    error: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="工具调用失败信息"
+    )
     started_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
+        DateTime(timezone=True), nullable=False, comment="工具调用开始时间"
     )
     completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        DateTime(timezone=True), nullable=True, comment="工具调用结束时间"
     )
 
 
 class McpToolConfirmation(BaseModel, TimeModel):
     __tablename__ = "mcp_tool_confirmations"
+    __table_args__ = (
+        CheckConstraint(
+            "(user_id IS NOT NULL AND platform_end_user_id IS NULL) OR "
+            "(user_id IS NULL AND platform_end_user_id IS NOT NULL)",
+            name="ck_mcp_tool_confirmations_exactly_one_principal",
+        ),
+    )
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        primary_key=True, autoincrement=True, comment="MCP 工具确认请求主键"
+    )
     platform_id: Mapped[int] = mapped_column(
-        ForeignKey("platforms.id", ondelete="CASCADE"), index=True
+        ForeignKey("platforms.id", ondelete="CASCADE"),
+        index=True,
+        comment="确认请求所属平台 ID",
     )
     agent_id: Mapped[int] = mapped_column(
-        ForeignKey("agents.id", ondelete="CASCADE"), index=True
+        ForeignKey("agents.id", ondelete="CASCADE"),
+        index=True,
+        comment="发起确认的智能体 ID",
     )
-    user_id: Mapped[int] = mapped_column(
-        ForeignKey("sys_users.id", ondelete="RESTRICT"), index=True
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("sys_users.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+        comment="后台用户 ID，与 Embed 最终用户互斥",
+    )
+    platform_end_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("platform_end_users.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+        comment="Embed 最终用户 ID，与后台用户互斥",
     )
     tool_id: Mapped[int] = mapped_column(
-        ForeignKey("mcp_tools.id", ondelete="RESTRICT")
+        ForeignKey("mcp_tools.id", ondelete="RESTRICT"),
+        comment="等待确认的 MCP 工具 ID",
     )
     audit_id: Mapped[int] = mapped_column(
-        ForeignKey("mcp_tool_call_audits.id", ondelete="CASCADE"), unique=True
+        ForeignKey("mcp_tool_call_audits.id", ondelete="CASCADE"),
+        unique=True,
+        comment="关联的 MCP 工具调用审计 ID",
     )
-    arguments_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
+    arguments_encrypted: Mapped[str] = mapped_column(
+        Text, nullable=False, comment="加密保存的待执行工具参数"
+    )
     status: Mapped[str] = mapped_column(
-        String(30), nullable=False, default="pending", server_default="pending"
+        String(30),
+        nullable=False,
+        default="pending",
+        server_default="pending",
+        comment="确认请求状态",
     )
     resolved_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        DateTime(timezone=True), nullable=True, comment="确认请求处理时间"
     )
     expires_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
+        DateTime(timezone=True), nullable=False, comment="确认请求过期时间"
     )
     tool: Mapped[McpTool] = relationship(lazy="joined")
 

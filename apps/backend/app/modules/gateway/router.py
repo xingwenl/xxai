@@ -19,9 +19,16 @@ from app.core.logging import get_logger
 from app.modules.agent.repositories import AgentRepository
 from app.modules.agent.services import build_chat_model
 from app.modules.conversation.repositories import ConversationRepository
-from app.modules.conversation.runtime import build_agent_error_payload, load_runtime_context
+from app.modules.conversation.runtime import (
+    build_agent_error_payload,
+    load_runtime_context,
+)
 from app.modules.conversation.services import retrieve_citations
-from app.modules.gateway.runtime import RequestRegistry, stream_embed_chat
+from app.modules.gateway.runtime import (
+    RequestRegistry,
+    filter_conflicting_runtime_tools,
+    stream_embed_chat,
+)
 from app.modules.gateway.replay import ReplayStore
 from app.modules.gateway.auth import (
     CAPABILITIES,
@@ -50,6 +57,12 @@ from app.modules.skill_runner.services import execute_skill_script
 from app.modules.skill.services import load_bound_skill_instruction
 from app.modules.knowledge.repositories import KnowledgeRepository
 from app.modules.mcp.repositories import McpRepository
+from app.modules.mcp.runtime import RepositoryMcpExecutor
+from app.modules.mcp.services import (
+    expire_tool_confirmation,
+    invoke_tool,
+    resolve_tool_confirmation,
+)
 from app.modules.host_tool.repositories import HostToolRepository
 from app.modules.host_tool.services import (
     allowed_host_tool_names,
@@ -59,6 +72,9 @@ from app.modules.host_tool.services import (
     utc_naive_now,
     validate_registration,
 )
+from app.modules.asset.repositories import AssetRepository
+from app.modules.builtin_tool.repositories import BuiltinToolRepository
+from app.modules.builtin_tool.services import invoke_builtin_tool
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -150,6 +166,7 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
         registered_host_tools: set[str] = set()
         registered_host_policies: dict[str, object] = {}
         pending_host_results: dict[str, asyncio.Future] = {}
+        pending_mcp_confirmations: dict[str, asyncio.Future] = {}
         sequence = 1
 
         def envelope(
@@ -212,11 +229,13 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                 async with get_session_factory()() as session:
                     agent_repo = AgentRepository(session)
                     skill_repo = SkillRepository(session)
+                    builtin_tool_repo = BuiltinToolRepository(session)
                     context = await load_runtime_context(
                         agent_repo,
                         KnowledgeRepository(session),
                         skill_repo,
                         McpRepository(session),
+                        builtin_tool_repo,
                         agent_id=agent_id,
                         platform_id=payload["platform_id"],
                     )
@@ -226,14 +245,117 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                         message["text"],
                     )
                     loaded_skill_cache = {}
+                    mcp_tools_by_key = {
+                        (tool.server_id, tool.name): tool
+                        for tool in context.mcp_tools
+                    }
 
+                    mcp_repo = McpRepository(session)
+                    mcp_call_sequence = 0
 
-                    async def invoke_host_tool(*, tool, call):
-                        """把模型 tool_call 转换为页面可执行的宿主工具调用。
+                    async def invoke_runtime_tool(
+                        *,
+                        tool=None,
+                        call=None,
+                        server_id=None,
+                        tool_name=None,
+                        arguments=None,
+                    ):
+                        """按工具来源分流，并在 MCP 确认后恢复同一模型循环。"""
+                        nonlocal mcp_call_sequence
+                        if tool is None and server_id is not None and tool_name is not None:
+                            tool = mcp_tools_by_key.get((server_id, tool_name))
+                            mcp_call_sequence += 1
+                            call = {
+                                "id": f"{request_id}_mcp_{mcp_call_sequence}",
+                                "args": arguments or {},
+                            }
+                        if tool is None or call is None:
+                            raise ValueError("runtime tool context is missing")
+                        if hasattr(tool, "server_id"):
+                            call_id = str(call.get("id") or f"{request_id}_{tool.name}")
+                            arguments = call.get("args", {})
+                            outcome = await invoke_tool(
+                                mcp_repo,
+                                RepositoryMcpExecutor(mcp_repo),
+                                platform_id=int(payload["platform_id"]),
+                                agent_id=agent_id,
+                                platform_end_user_id=int(payload["sub"]),
+                                server_id=tool.server_id,
+                                tool_name=tool.name,
+                                arguments=arguments,
+                            )
+                            if outcome.status != "confirmation_required":
+                                return outcome
 
-                        先按 callId 查询审计，保证重试/重放不会以不同参数复用同一 ID；
-                        新调用写入审计后，通过 Future 等待页面回传结果。
-                        """
+                            decision = asyncio.get_running_loop().create_future()
+                            pending_mcp_confirmations[call_id] = decision
+                            expires_at = outcome.expires_at
+                            timeout_seconds = 600.0
+                            if expires_at is not None:
+                                timeout_seconds = max(
+                                    0.0,
+                                    (expires_at - datetime.now(UTC)).total_seconds(),
+                                )
+                            await event_queue.put(
+                                {
+                                    "type": "confirmation_required",
+                                    "conversation": None,
+                                    "request_id": request_id,
+                                    "call_id": call_id,
+                                    "name": tool.name,
+                                    "tool_type": "mcp_tool",
+                                    "side_effect": tool.side_effect,
+                                    "arguments": redact_sensitive(arguments),
+                                    "expires_at": (
+                                        expires_at.isoformat() if expires_at else None
+                                    ),
+                                }
+                            )
+                            try:
+                                approved = await asyncio.wait_for(
+                                    decision, timeout=timeout_seconds
+                                )
+                                resolved = await resolve_tool_confirmation(
+                                    mcp_repo,
+                                    RepositoryMcpExecutor(mcp_repo),
+                                    confirmation_id=outcome.confirmation_id,
+                                    platform_id=int(payload["platform_id"]),
+                                    platform_end_user_id=int(payload["sub"]),
+                                    approved=bool(approved),
+                                )
+                            except asyncio.TimeoutError:
+                                resolved = await expire_tool_confirmation(
+                                    mcp_repo,
+                                    confirmation_id=outcome.confirmation_id,
+                                    platform_id=int(payload["platform_id"]),
+                                    platform_end_user_id=int(payload["sub"]),
+                                )
+                            finally:
+                                pending_mcp_confirmations.pop(call_id, None)
+
+                            if resolved.status in {"rejected", "expired"}:
+                                resolved.result = {
+                                    "status": resolved.status,
+                                    "message": (
+                                        "用户拒绝执行该工具，请勿自动重试"
+                                        if resolved.status == "rejected"
+                                        else "工具确认已超时，工具未执行"
+                                    ),
+                                }
+                            return resolved
+
+                        if getattr(tool, "kind", None) == "builtin":
+                            return await invoke_builtin_tool(
+                                builtin_tool_repo,
+                                AssetRepository(session),
+                                tool=tool,
+                                call=call,
+                                platform_id=int(payload["platform_id"]),
+                                agent_id=agent_id,
+                                conversation_id=context.conversation_id,
+                                platform_end_user_id=int(payload["sub"]),
+                            )
                         if getattr(tool, "kind", None) == "skill_script":
                             return await execute_skill_script(
                                 skill_repo,
@@ -337,10 +459,17 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                         if name in registered_host_policies
                     ]
                     runtime_tools = [
+                        *context.builtin_tools,
+                        *context.mcp_tools,
                         *context.host_tools,
                         *context.skill_script_tools,
-                        *([context.skill_instruction_tool] if context.skill_instruction_tool else []),
+                        *(
+                            [context.skill_instruction_tool]
+                            if context.skill_instruction_tool
+                            else []
+                        ),
                     ]
+                    runtime_tools = filter_conflicting_runtime_tools(runtime_tools)
                     # 模型看到的工具集合再次取自连接级注册状态，未注册工具不会进入 bind_tools。
                     logger.info(
                         "Starting embed chat request %s with host tools=%s",
@@ -358,8 +487,9 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                         conversation_id=message.get("conversationId"),
                         request_id=request_id,
                         citations=[item.model_dump() for item in citations],
-                        host_tools=runtime_tools,
-                        invoke_host_tool_fn=invoke_host_tool,
+                        host_tools=context.host_tools,
+                        runtime_tools=runtime_tools,
+                        invoke_host_tool_fn=invoke_runtime_tool,
                     ):
                         await event_queue.put(event)
             except asyncio.CancelledError:
@@ -435,6 +565,17 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                             "sideEffect": event["side_effect"],
                             "requiresConfirmation": event["requires_confirmation"],
                         }
+                    if event_type == "confirmation_required":
+                        event_payload = {
+                            "callId": event["call_id"],
+                            "name": event["name"],
+                            "toolType": event["tool_type"],
+                            "sideEffect": event["side_effect"],
+                            "summary": {
+                                "arguments": redact_sensitive(event["arguments"])
+                            },
+                            "expiresAt": event.get("expires_at"),
+                        }
                     if event_type in {
                         "agent_loop_started",
                         "agent_step_started",
@@ -449,13 +590,17 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                             "citations": event["result"].citations,
                             "knowledgeGrounded": event["result"].knowledge_grounded,
                             "usage": event["result"].usage,
-                            "loop": {
-                                "id": str(event.get("loop_run_id")),
-                                "requestId": event.get("request_id"),
-                                "status": "completed",
-                                "summary": "已完成回答",
-                                "steps": [],
-                            } if event.get("loop_run_id") else None,
+                            "loop": (
+                                {
+                                    "id": str(event.get("loop_run_id")),
+                                    "requestId": event.get("request_id"),
+                                    "status": "completed",
+                                    "summary": "已完成回答",
+                                    "steps": [],
+                                }
+                                if event.get("loop_run_id")
+                                else None
+                            ),
                         }
                     conversation_id = getattr(event.get("conversation"), "id", None)
                     request_id = event.get("request_id")
@@ -553,9 +698,11 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                                         "error",
                                         {
                                             "code": decision.code,
-                                            "message": "message quota unavailable"
-                                            if decision.code == "quota_unavailable"
-                                            else "message quota exceeded",
+                                            "message": (
+                                                "message quota unavailable"
+                                                if decision.code == "quota_unavailable"
+                                                else "message quota exceeded"
+                                            ),
                                             "retryable": decision.retryable,
                                             "details": {
                                                 "retryAfterSeconds": str(
@@ -673,6 +820,11 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                     call_id = message.get("payload", {}).get("callId")
                     approved = message.get("payload", {}).get("approved")
                     if isinstance(call_id, str) and isinstance(approved, bool):
+                        mcp_decision = pending_mcp_confirmations.get(call_id)
+                        if mcp_decision is not None:
+                            if not mcp_decision.done():
+                                mcp_decision.set_result(approved)
+                            continue
                         audit = await host_tool_repo.get_call(
                             call_id,
                             platform_id=int(payload["platform_id"]),
@@ -742,6 +894,13 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
         await websocket.close(code=4401)
     finally:
         # 无论认证、模型或客户端哪一层失败，都释放数据库和 Redis 连接。
+        active = locals().get("active_task")
+        if active is not None and not active.done():
+            active.cancel()
+            await asyncio.gather(active, return_exceptions=True)
+        for future in locals().get("pending_mcp_confirmations", {}).values():
+            if not future.done():
+                future.cancel()
         host_session = locals().get("host_tool_session")
         if host_session is not None:
             await host_session.close()

@@ -64,6 +64,30 @@ describe('protocol v1', () => {
     expect(event.payload).toMatchObject({ callId: 'call_123456' })
   })
 
+  it('parses MCP confirmation metadata without exposing credentials', () => {
+    const event = parseProtocolEvent({
+      id: 'evt_confirm',
+      type: 'confirmation_required',
+      protocolVersion: 1,
+      sequence: 6,
+      timestamp: new Date().toISOString(),
+      payload: {
+        callId: 'call_mcp_1',
+        name: 'orders.cancel',
+        toolType: 'mcp_tool',
+        sideEffect: 'write',
+        summary: { arguments: { orderId: 'o-1' } },
+        expiresAt: '2026-08-07T12:00:00Z'
+      }
+    })
+
+    expect(event.payload).toMatchObject({
+      callId: 'call_mcp_1',
+      toolType: 'mcp_tool',
+      summary: { arguments: { orderId: 'o-1' } }
+    })
+  })
+
   it('normalizes unknown event types so old SDKs can ignore them', () => {
     const event = parseProtocolEvent({
       id: 'evt_future',
