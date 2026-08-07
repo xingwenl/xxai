@@ -1,0 +1,53 @@
+{
+  "id": "2026-08-07-builtin-http-get",
+  "title": "内置 HTTP GET 工具",
+  "scope": "backend",
+  "phase": "spec",
+  "status": "active",
+  "riskLevel": "high",
+  "changeTypes": [
+    "architecture",
+    "data-model",
+    "api",
+    "authorization",
+    "runtime",
+    "docs"
+  ],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "OWASP SSRF Prevention Cheat Sheet",
+      "HTTPX official documentation and source",
+      "LangChain Requests Toolkit",
+      "repository knowledge fetch implementation"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": false,
+  "approvalReasons": [
+    "架构边界变化",
+    "数据模型变化",
+    "API 契约变化",
+    "鉴权或权限行为变化"
+  ],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-08-07",
+      "scope": "方案方向、架构、工具契约、错误行为和验证范围",
+      "note": "用户逐段确认设计方向，并将请求超时调整为 30 秒；待审阅正式 spec 后授予实施确认。"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-08-07",
+  "updatedAt": "2026-08-07",
+  "relatedPaths": [
+    "apps/backend/app/modules/conversation",
+    "apps/backend/app/modules/gateway",
+    "apps/backend/app/modules/knowledge",
+    "docs/harness/requests/2026-08-07-builtin-http-get"
+  ],
+  "notes": "正式规格处于用户审阅停点，未进入 plan 或 implement。"
+}
