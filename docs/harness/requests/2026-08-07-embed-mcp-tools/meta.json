@@ -1,0 +1,58 @@
+{
+  "id": "2026-08-07-embed-mcp-tools",
+  "title": "Embed 对话接入 MCP 工具",
+  "scope": "monorepo",
+  "phase": "spec",
+  "status": "active",
+  "riskLevel": "high",
+  "changeTypes": [
+    "architecture",
+    "data-model",
+    "api",
+    "authorization",
+    "runtime",
+    "frontend",
+    "sdk",
+    "docs"
+  ],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "Model Context Protocol Tools specification 2025-06-18",
+      "MCP Python SDK",
+      "LangChain Human-in-the-loop",
+      "repository host-tool and MCP runtime designs"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": false,
+  "approvalReasons": [
+    "架构边界变化",
+    "数据模型变化",
+    "WebSocket API 契约变化",
+    "鉴权与权限行为变化"
+  ],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-08-07",
+      "scope": "方案方向、Gateway 分流、SDK 默认确认 UI、错误语义和双主体数据模型",
+      "note": "用户逐段确认设计方向；正式书面规格仍待审阅，尚未授权进入实现。"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-08-07",
+  "updatedAt": "2026-08-07",
+  "relatedPaths": [
+    "apps/backend/app/modules/gateway",
+    "apps/backend/app/modules/mcp",
+    "apps/backend/app/modules/conversation",
+    "apps/backend/migrations/versions",
+    "apps/ai-sdk",
+    "apps/front/src/features/agent-navigation",
+    "docs/harness/requests/2026-08-07-embed-mcp-tools"
+  ],
+  "notes": "research 与正式 spec 已完成，等待用户审阅规格并明确批准实施。"
+}
