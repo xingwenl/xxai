@@ -197,6 +197,16 @@ describe('AgentClient protocol events', () => {
     expect(registrations[0].payload.temporary).toBeUndefined()
   })
 
+  it('registers page tools only when explicitly enabled', () => {
+    const disabled = new AgentClient({ endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token' })
+    expect(disabled.getToolNames().filter(name => name.startsWith('page_'))).toEqual([])
+
+    const enabled = new AgentClient({ endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token', pageTools: { enabled: true } })
+    expect(enabled.getToolNames().filter(name => name.startsWith('page_'))).toEqual([
+      'page_snapshot', 'page_click', 'page_type', 'page_scroll', 'page_wait', 'page_extract'
+    ])
+  })
+
   it('dispatches MCP confirmations and resolves each call only once', () => {
     const confirmations: any[] = []
     const events: any[] = []

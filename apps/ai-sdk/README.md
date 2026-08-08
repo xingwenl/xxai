@@ -183,6 +183,22 @@ agent.registerTool({
 })
 ```
 
+### 页面自动发现工具
+
+页面工具默认关闭。显式开启后，SDK 会把当前顶层页面视口中的可见元素转换为语义快照，供 Agent 使用 `page_snapshot`、`page_click`、`page_type`、`page_scroll`、`page_wait` 和 `page_extract`。
+
+```typescript
+const agent = createAgentClient({
+  // ...
+  pageTools: {
+    enabled: true,
+    confirmationKeywords: ['提交', '删除', '支付']
+  }
+})
+```
+
+页面工具只接受快照中的临时 `snapshotId/ref`，不执行任意 JavaScript，不接收 CSS/XPath。密码框、文件框和跨域 iframe 不可操作；服务端或现有确认 UI 仍是高风险操作的最终控制点。
+
 ### 临时内存工具
 
 如果 Embed Client 已在后台开启“允许临时页面工具”，工具只服务于当前页面和当前连接时，不需要在 SDK 中增加额外配置：

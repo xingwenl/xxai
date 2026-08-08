@@ -217,6 +217,10 @@ export interface AgentClientOptions {
     maxRetries?: number
     delayMs?: number
   }
+  pageTools?: {
+    enabled?: boolean
+    confirmationKeywords?: string[]
+  }
 }
 
 export interface WebSocketMessage {

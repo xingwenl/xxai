@@ -15,6 +15,7 @@ import { MessageStore } from './message-store'
 import { ToolRegistry } from './tool-registry'
 import { WebSocketTransport } from './websocket'
 import type { Transport } from './transport'
+import { createPageTools } from './page/tools'
 
 let messageId = 0
 function generateId(): string {
@@ -72,6 +73,10 @@ export class AgentClient {
       user: this.options.user,
       reconnect: this.options.reconnect
     })
+
+    if (options.pageTools?.enabled) {
+      this.registerTools(createPageTools(options.pageTools))
+    }
 
     this.setupTransportListeners()
   }

@@ -41,6 +41,8 @@ export type {
   UIColors
 }
 
+export type { PageElement, PageSnapshot, PageToolsOptions } from './core'
+
 export { registerCustomComponent }
 
 export { AgentClient } from './core'
