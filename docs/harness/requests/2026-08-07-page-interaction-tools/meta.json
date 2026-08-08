@@ -1,7 +1,7 @@
 {
   "id": "2026-08-07-page-interaction-tools",
   "title": "AI SDK 页面自动发现与基础操作工具",
-  "phase": "spec",
+  "phase": "plan",
   "status": "active",
   "approvalRequired": true,
   "approvalGranted": true,
@@ -9,7 +9,7 @@
   "approvalRecords": [
     {
       "by": "user",
-      "at": "2026-08-07",
+      "at": "2026-08-08",
       "scope": "确认当前宿主页面、自动发现当前视口元素、分级确认和语义快照方案"
     }
   ]
