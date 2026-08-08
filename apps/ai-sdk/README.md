@@ -192,12 +192,15 @@ const agent = createAgentClient({
   // ...
   pageTools: {
     enabled: true,
-    confirmationKeywords: ['提交', '删除', '支付']
+    confirmationKeywords: ['提交', '删除', '支付'],
+    maxCalls: 20,
+    maxDurationMs: 120000
   }
 })
 ```
 
 页面工具只接受快照中的临时 `snapshotId/ref`，不执行任意 JavaScript，不接收 CSS/XPath。密码框、文件框和跨域 iframe 不可操作；服务端或现有确认 UI 仍是高风险操作的最终控制点。
+页面工具默认最多执行 20 次、累计 120 秒；`maxCalls` 最大 100，`maxDurationMs` 最大 600000，超过预算会返回 `page_tool_budget_exceeded`。
 
 ### 临时内存工具
 

@@ -220,6 +220,8 @@ export interface AgentClientOptions {
   pageTools?: {
     enabled?: boolean
     confirmationKeywords?: string[]
+    maxCalls?: number
+    maxDurationMs?: number
   }
 }
 

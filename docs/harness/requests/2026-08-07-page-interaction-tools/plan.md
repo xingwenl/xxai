@@ -9,6 +9,7 @@
 - `apps/ai-sdk/src/core/page/ref-store.ts`：保存当前快照版本和临时 `ref`，在 DOM/URL 变化后失效。
 - `apps/ai-sdk/src/core/page/actions.ts`：实现点击、输入、滚动、等待和提取；执行前重新校验引用。
 - `apps/ai-sdk/src/core/page/tools.ts`：把页面能力封装为六个内置 `ToolDefinition`，与现有 `ToolRegistry` 合并并避免名称冲突。
+- `apps/ai-sdk/src/core/page/runtime.ts`：维护页面工具实例级调用次数和累计执行时长预算。
 - `apps/ai-sdk/src/core/client.ts`、`tool-registry.ts`：增加内置工具生命周期、页面重置和清理，不改变业务方 `registerTool()` 语义。
 - `apps/ai-sdk/src/core/__tests__/page/*.test.ts`：覆盖快照、引用失效、可见性、风险分类和动作错误。
 - `apps/ai-sdk/src/core/__tests__/client.test.ts`、`protocol.test.ts`：覆盖内置工具注册、调用、确认、重复 callId 和重连。
@@ -38,6 +39,7 @@
 - `page_scroll` 限制方向和最大距离，执行后返回滚动位置和“需要重新快照”的结果。
 - `page_wait` 只等待有限的 DOM/文本条件，不执行模型提供的脚本；超时返回稳定错误。
 - `page_extract` 仅从当前快照提取已暴露的文本和值，禁止重新读取整页 HTML。
+- 每次页面工具执行前消耗预算；默认最多 20 次、累计 120 秒，可通过 `pageTools` 配置但强制限制在安全上限内。
 
 ### 4. 接入现有工具运行时和确认链路
 

@@ -3,6 +3,10 @@ import type { PageElement, PageElementRole, PageSnapshot, PageToolRuntime } from
 const MAX_ELEMENTS = 200
 const MAX_TEXT = 16 * 1024
 const MAX_FIELD = 512
+const DEFAULT_MAX_CALLS = 20
+const HARD_MAX_CALLS = 100
+const DEFAULT_MAX_DURATION_MS = 120_000
+const HARD_MAX_DURATION_MS = 600_000
 let snapshotSequence = 0
 
 function visible(element: Element): boolean {
@@ -49,9 +53,22 @@ export class PageRuntime implements PageToolRuntime {
   private current: { snapshot: PageSnapshot; refs: Map<string, Element> } | null = null
   private refSequence = 0
   private readonly confirmationKeywords: string[]
+  private readonly maxCalls: number
+  private readonly maxDurationMs: number
+  private calls = 0
+  private budgetStartedAt: number | null = null
 
-  constructor(options?: { confirmationKeywords?: string[] }) {
+  constructor(options?: { confirmationKeywords?: string[]; maxCalls?: number; maxDurationMs?: number }) {
     this.confirmationKeywords = (options?.confirmationKeywords || ['提交', '删除', '支付', '转账', '确认', '退出', 'submit', 'delete', 'pay', 'transfer', 'confirm']).map(item => item.toLowerCase())
+    this.maxCalls = Math.min(Math.max(Math.floor(options?.maxCalls ?? DEFAULT_MAX_CALLS), 1), HARD_MAX_CALLS)
+    this.maxDurationMs = Math.min(Math.max(Math.floor(options?.maxDurationMs ?? DEFAULT_MAX_DURATION_MS), 1000), HARD_MAX_DURATION_MS)
+  }
+
+  consumeBudget(): void {
+    const now = Date.now()
+    if (this.budgetStartedAt === null) this.budgetStartedAt = now
+    if (this.calls >= this.maxCalls || now - this.budgetStartedAt >= this.maxDurationMs) throw new Error('page_tool_budget_exceeded')
+    this.calls += 1
   }
 
   snapshot(): PageSnapshot {

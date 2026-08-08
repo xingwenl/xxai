@@ -21,4 +21,10 @@ describe('page tools', () => {
       expect(JSON.stringify({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema })).not.toContain('function')
     }
   })
+
+  it('stops executing after the configured call budget', async () => {
+    const snapshot = createPageTools({ maxCalls: 1 }).find(tool => tool.name === 'page_snapshot')!
+    await expect(snapshot.execute({}, {})).rejects.toThrow('page_unavailable')
+    await expect(snapshot.execute({}, {})).rejects.toThrow('page_tool_budget_exceeded')
+  })
 })

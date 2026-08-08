@@ -28,6 +28,8 @@ export interface PageSnapshot {
 export interface PageToolsOptions {
   enabled?: boolean
   confirmationKeywords?: string[]
+  maxCalls?: number
+  maxDurationMs?: number
 }
 
 export interface PageToolRuntime {
