@@ -301,6 +301,39 @@ def test_graph_returns_answer_with_structured_citations():
     assert result.knowledge_grounded is True
 
 
+def test_graph_injects_persisted_history_before_current_message():
+    captured = []
+
+    class HistoryModel:
+        async def ainvoke(self, messages):
+            captured.append(messages)
+            return AIMessage(content="收到")
+
+    history = [
+        SimpleNamespace(role="user", content="我叫小明", tool_call_id=None),
+        SimpleNamespace(role="assistant", content="你好，小明", tool_call_id=None),
+        SimpleNamespace(role="tool", content="工具结果", tool_call_id="call-1"),
+    ]
+    asyncio.run(
+        run_graph(
+            HistoryModel(),
+            system_prompt="系统",
+            history=history,
+            user_message="我叫什么？",
+        )
+    )
+
+    assert [type(item).__name__ for item in captured[0]] == [
+        "SystemMessage",
+        "HumanMessage",
+        "AIMessage",
+        "ToolMessage",
+        "HumanMessage",
+    ]
+    assert captured[0][-2].content == "工具结果"
+    assert captured[0][-1].content == "我叫什么？"
+
+
 class ToolCallingModel:
     def __init__(self, second_response, tool_name="lookup"):
         self.calls = 0

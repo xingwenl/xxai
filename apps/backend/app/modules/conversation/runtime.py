@@ -22,7 +22,7 @@ import json
 import re
 from typing import Any
 
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
@@ -36,6 +36,28 @@ from app.modules.skill_runner.tools import (
 from app.modules.conversation.schemas import RuntimeContext
 
 logger = get_logger(__name__)
+
+
+def build_history_messages(history: list[Any] | None = None) -> list[Any]:
+    """将持久化消息转换为模型消息，忽略不支持的角色和空内容。"""
+    converted = []
+    for item in history or []:
+        content = getattr(item, "content", "")
+        if not isinstance(content, str) or not content.strip():
+            continue
+        role = getattr(item, "role", None)
+        if role == "user":
+            converted.append(HumanMessage(content=content))
+        elif role == "assistant":
+            converted.append(AIMessage(content=content))
+        elif role == "tool":
+            converted.append(
+                ToolMessage(
+                    content=content,
+                    tool_call_id=getattr(item, "tool_call_id", None) or "history-tool",
+                )
+            )
+    return converted
 
 
 def _tool_result_content(tool, outcome) -> str:
@@ -237,6 +259,7 @@ async def _stream_graph(
     *,
     system_prompt: str,
     user_message: str,
+    history: list[Any] | None = None,
     citations: list[dict[str, Any]] | None = None,
     tools: list[Any] | None = None,
     invoke_tool_fn=None,
@@ -295,6 +318,7 @@ async def _stream_graph(
                 model,
                 system_prompt=system_prompt,
                 user_message=user_message,
+                history=history,
                 citations=citations,
                 tools=tools,
                 invoke_tool_fn=invoke_tool_fn,
@@ -306,6 +330,7 @@ async def _stream_graph(
 
         messages = [
             SystemMessage(content=system_prompt),
+            *build_history_messages(history),
             HumanMessage(content=user_message),
         ]
         content_parts: list[str] = []
@@ -429,6 +454,7 @@ async def _stream_graph(
             model,
             system_prompt=system_prompt,
             user_message=user_message,
+            history=history,
             citations=citations,
         )
         if result.content:
@@ -492,6 +518,7 @@ async def stream_graph(
     *,
     system_prompt: str,
     user_message: str,
+    history: list[Any] | None = None,
     citations: list[dict[str, Any]] | None = None,
     tools: list[Any] | None = None,
     invoke_tool_fn=None,
@@ -502,6 +529,7 @@ async def stream_graph(
             model,
             system_prompt=system_prompt,
             user_message=user_message,
+            history=history,
             citations=citations,
             tools=tools,
             invoke_tool_fn=invoke_tool_fn,
@@ -519,6 +547,7 @@ async def run_graph(
     *,
     system_prompt: str,
     user_message: str,
+    history: list[Any] | None = None,
     citations: list[dict[str, Any]] | None = None,
     tools: list[Any] | None = None,
     invoke_tool_fn=None,
@@ -604,6 +633,7 @@ async def run_graph(
     state = {
         "messages": [
             SystemMessage(content=system_prompt),
+            *build_history_messages(history),
             HumanMessage(content=user_message),
         ]
     }

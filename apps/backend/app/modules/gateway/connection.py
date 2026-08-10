@@ -6,6 +6,23 @@ MAX_MESSAGE_BYTES = 64 * 1024
 MAX_TEXT_BYTES = 16 * 1024
 
 
+def normalize_conversation_id(value: object) -> int | None:
+    """把 WebSocket 字符串会话 ID 转为数据库主键类型。"""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError("invalid_conversation_id")
+    if isinstance(value, int):
+        conversation_id = value
+    elif isinstance(value, str) and value.isdecimal():
+        conversation_id = int(value)
+    else:
+        raise ValueError("invalid_conversation_id")
+    if conversation_id < 1:
+        raise ValueError("invalid_conversation_id")
+    return conversation_id
+
+
 def validate_incoming_message(raw: str) -> dict:
     """把客户端文本消息解析为受限的协议字典。
 

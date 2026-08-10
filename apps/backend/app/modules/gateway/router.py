@@ -38,7 +38,10 @@ from app.modules.gateway.auth import (
     authenticate_embed_token,
     check_client_compatibility,
 )
-from app.modules.gateway.connection import validate_incoming_message
+from app.modules.gateway.connection import (
+    normalize_conversation_id,
+    validate_incoming_message,
+)
 from app.modules.observability.metrics import (
     record_authentication,
     record_connection,
@@ -669,6 +672,38 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                         continue
                     else:
                         message_payload = message.get("payload", {})
+                        if not isinstance(message_payload, dict):
+                            message_payload = {}
+                        raw_conversation_id = message_payload.get(
+                            "conversationId", message.get("conversationId")
+                        )
+                        try:
+                            conversation_id = normalize_conversation_id(
+                                raw_conversation_id
+                            )
+                        except ValueError:
+                            await websocket.send_text(
+                                envelope(
+                                    "error",
+                                    {
+                                        "code": "invalid_conversation_id",
+                                        "message": "conversationId must be a positive integer",
+                                        "retryable": False,
+                                    },
+                                    request_id=request_id,
+                                )
+                            )
+                            continue
+                        message_payload = {
+                            **message_payload,
+                            "conversationId": conversation_id,
+                        }
+                        logger.info(
+                            "Embed message received request_id=%s raw_conversation_id=%s normalized_conversation_id=%s",
+                            request_id,
+                            raw_conversation_id,
+                            conversation_id,
+                        )
                         if not isinstance(message_payload.get("text"), str):
                             await websocket.send_text(
                                 envelope(

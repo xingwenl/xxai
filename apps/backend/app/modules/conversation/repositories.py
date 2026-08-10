@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -83,6 +85,22 @@ class ConversationRepository:
             select(ConversationMessage)
             .where(ConversationMessage.conversation_id == conversation_id)
             .order_by(ConversationMessage.id)
+        )
+        return list(result.scalars().all())
+
+    async def list_recent_context_messages(
+        self, conversation_id: int, *, since: datetime
+    ):
+        """读取可安全回填模型上下文的近期已完成消息。"""
+        result = await self.session.execute(
+            select(ConversationMessage)
+            .where(
+                ConversationMessage.conversation_id == conversation_id,
+                ConversationMessage.created_at >= since,
+                ConversationMessage.status == "completed",
+                ConversationMessage.role.in_(("user", "assistant", "tool")),
+            )
+            .order_by(ConversationMessage.created_at, ConversationMessage.id)
         )
         return list(result.scalars().all())
 

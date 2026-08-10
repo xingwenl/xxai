@@ -117,11 +117,24 @@ export class AgentClient {
   }
 
   private handleTransportMessage(msg: WebSocketMessage): void {
+    // 网关在每个会话事件的顶层返回 conversationId；同步到 Client，保证
+    // UI 消息、宿主工具上下文和后续重连看到的是同一个会话标识。
+    if (typeof msg.conversationId === 'string' && msg.conversationId) {
+      console.info('[xxai-agent][conversation] client synchronized conversation id', {
+        eventType: msg.type,
+        requestId: msg.requestId,
+        previousConversationId: this.conversationId,
+        conversationId: msg.conversationId
+      })
+      this.conversationId = msg.conversationId
+    }
     let message: Message | null = null
 
     switch (msg.type) {
       case 'session_ready':
-        this.conversationId = msg.payload.sessionId as string
+        if (typeof msg.payload.sessionId === 'string' && msg.payload.sessionId) {
+          this.conversationId = msg.payload.sessionId
+        }
         break
       case 'message_started':
         this.currentRequestId = msg.requestId

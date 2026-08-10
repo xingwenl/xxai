@@ -1,5 +1,8 @@
 # Changelog
 
+## - 2026-08-10
+- 🐛 fix：修复会话历史与会话标识传递 `🧑‍💻 lixingwen`
+
 ## - 2026-08-07
 - ✨ feat：增加内置工具并接入 Embed MCP `🧑‍💻 lixingwen`
 

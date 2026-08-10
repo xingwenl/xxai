@@ -28,6 +28,7 @@ class FakeConversationRepository:
     def __init__(self):
         self.conversation = None
         self.messages = []
+        self.history = []
         self.usage_records = []
         self.next_message_id = 1
         self.loop = None
@@ -47,6 +48,11 @@ class FakeConversationRepository:
         self.next_message_id += 1
         self.messages.append(values)
         return message
+
+    async def list_recent_context_messages(self, conversation_id, *, since):
+        assert conversation_id == self.conversation.id
+        assert since.tzinfo is not None
+        return self.history
 
     async def record_model_usage(self, **values):
         self.usage_records.append(values)

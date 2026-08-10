@@ -155,6 +155,30 @@ describe('WebSocketTransport', () => {
     expect(transport.state).toBe('disconnected')
   })
 
+  it('includes the server conversation id on subsequent chat messages', async () => {
+    const socket = new FakeWebSocket('wss://agent.test/ws')
+    const transport = new WebSocketTransport({
+      endpoint: socket.url,
+      getToken: vi.fn().mockResolvedValue('token'),
+      platformId: 'p',
+      agentId: 'a',
+      websocketFactory: () => socket
+    })
+    const connected = transport.connect()
+    socket.open()
+    await Promise.resolve()
+    socket.receive(event(1, 'session_ready', { sessionId: 'conversation-42' }))
+    await connected
+
+    transport.send({ type: 'message_send', requestId: 'req-2', payload: { text: '继续' } })
+
+    expect(JSON.parse(socket.sent[1])).toMatchObject({
+      type: 'message_send',
+      conversationId: 'conversation-42',
+      payload: { text: '继续' }
+    })
+  })
+
   it('reconnects with exponential backoff after an unexpected close', async () => {
     vi.useFakeTimers()
     const sockets: FakeWebSocket[] = []

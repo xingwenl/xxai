@@ -1,0 +1,19 @@
+{
+  "id": "2026-08-10-conversation-history-context",
+  "title": "按时间窗口注入会话历史消息",
+  "scope": "backend",
+  "phase": "acceptance",
+  "status": "done",
+  "riskLevel": "medium",
+  "changeTypes": ["configuration", "service", "runtime", "tests"],
+  "research": {"required": true, "status": "completed", "sources": ["OpenAI conversation state", "LangChain ConversationBufferWindowMemory"], "decisionRecorded": true},
+  "approvalRequired": false,
+  "approvalGranted": false,
+  "approvalReasons": [],
+  "approvalRecords": [],
+  "owner": "ai",
+  "createdAt": "2026-08-10",
+  "updatedAt": "2026-08-10",
+  "relatedPaths": ["apps/backend/app/modules/conversation", "apps/backend/app/core/config.py"],
+  "notes": "按 research -> spec -> plan -> implement -> verify -> acceptance 推进。"
+}

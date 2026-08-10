@@ -4,6 +4,7 @@ from app.modules.gateway.connection import (
     MAX_MESSAGE_BYTES,
     MAX_TEXT_BYTES,
     RequestLimiter,
+    normalize_conversation_id,
     validate_incoming_message,
 )
 
@@ -32,3 +33,14 @@ def test_connection_allows_only_one_active_request():
     assert limiter.begin() is False
     limiter.end()
     assert limiter.begin() is True
+
+
+@pytest.mark.parametrize("value", ["42", 42])
+def test_normalize_conversation_id_accepts_positive_numeric_values(value):
+    assert normalize_conversation_id(value) == 42
+
+
+@pytest.mark.parametrize("value", ["", "abc", "0", 0, -1, True])
+def test_normalize_conversation_id_rejects_invalid_values(value):
+    with pytest.raises(ValueError, match="invalid_conversation_id"):
+        normalize_conversation_id(value)

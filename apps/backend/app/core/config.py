@@ -64,6 +64,7 @@ class Settings:
     skill_runner_timeout_seconds: int
     skill_runner_max_output_bytes: int
     knowledge_context_max_chars: int
+    conversation_history_window_seconds: int
     celery_broker_url: str
     celery_result_backend: str
     metrics_enabled: bool
@@ -171,6 +172,9 @@ def get_settings() -> Settings:
         ),
         knowledge_context_max_chars=int(
             os.getenv("KNOWLEDGE_CONTEXT_MAX_CHARS", "24000")
+        ),
+        conversation_history_window_seconds=max(
+            0, int(os.getenv("CONVERSATION_HISTORY_WINDOW_SECONDS", "3600"))
         ),
         celery_broker_url=os.getenv("CELERY_BROKER_URL", "redis://127.0.0.1:6379/0"),
         celery_result_backend=os.getenv(

@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from app.core.logging import get_logger
 from app.core.config import get_settings
 from app.modules.conversation.repositories import ConversationRepository
@@ -139,6 +141,12 @@ async def _start_loop(
 logger = get_logger(__name__)
 
 
+async def _load_history(repo: ConversationRepository, conversation_id: int):
+    window = get_settings().conversation_history_window_seconds
+    since = datetime.now(timezone.utc) - timedelta(seconds=window)
+    return await repo.list_recent_context_messages(conversation_id, since=since)
+
+
 async def retrieve_citations(knowledge_repo, knowledge_bases, query: str):
     logger.info(
         "Retrieving citations knowledge_bases=%s query_chars=%s",
@@ -240,6 +248,7 @@ async def execute_chat(
             platform_id, context.agent.id, user_id, message
         )
     context.conversation_id = conversation.id
+    history = await _load_history(repo, conversation.id)
     user_message = await repo.create_message(
         conversation.id,
         role="user",
@@ -261,6 +270,7 @@ async def execute_chat(
             context.version, context.skill_instructions, citations
         ),
         user_message=message,
+        history=history,
         citations=citations,
         tools=[
             *context.builtin_tools,
@@ -340,6 +350,7 @@ async def stream_chat(
             platform_id, context.agent.id, user_id, message
         )
     context.conversation_id = conversation.id
+    history = await _load_history(repo, conversation.id)
     user_message = await repo.create_message(
         conversation.id,
         role="user",
@@ -430,6 +441,7 @@ async def stream_chat(
             context.version, context.skill_instructions, citations
         ),
         user_message=message,
+        history=history,
         citations=citations,
         tools=[
             *context.builtin_tools,

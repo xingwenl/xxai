@@ -2,6 +2,20 @@ import { describe, expect, it } from 'vitest'
 import { AgentClient } from '../client'
 
 describe('AgentClient protocol events', () => {
+  it('同步服务端事件顶层的 conversationId 到客户端消息和工具上下文', () => {
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token'
+    })
+    const transport = (client as any).transport
+    transport.emit('message', {
+      id: '1', type: 'message_started', protocolVersion: 1, sequence: 1,
+      timestamp: new Date().toISOString(), conversationId: '42', requestId: 'r', payload: {}
+    })
+
+    expect((client as any).conversationId).toBe('42')
+    expect((client as any).pendingAssistantMessage).toMatchObject({ id: expect.any(String) })
+  })
+
   it('maps streaming, citations, tools and errors to SDK callbacks', () => {
     const messages: any[] = []
     const client = new AgentClient({

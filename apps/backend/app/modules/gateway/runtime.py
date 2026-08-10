@@ -2,7 +2,9 @@
 
 import asyncio
 from collections.abc import AsyncIterator
+from datetime import datetime, timedelta, timezone
 
+from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.modules.conversation.repositories import ConversationRepository
 from app.modules.conversation.runtime import build_system_prompt, stream_graph
@@ -137,6 +139,7 @@ async def stream_embed_chat(
         len(host_tools or []),
     )
     conversation = None
+    requested_conversation_id = conversation_id
     if conversation_id is not None:
         conversation = await repo.get_for_principal(
             conversation_id, platform_id, end_user_id=end_user_id
@@ -151,6 +154,23 @@ async def stream_embed_chat(
             title=message,
         )
     context.conversation_id = conversation.id
+    logger.info(
+        "Embed conversation resolved request_id=%s requested_conversation_id=%s resolved_conversation_id=%s created_new=%s",
+        request_id,
+        requested_conversation_id,
+        conversation.id,
+        requested_conversation_id is None,
+    )
+
+    # Embed SDK 只发送当前消息和可信会话 ID，历史由服务端按窗口读取。
+    history_since = datetime.now(timezone.utc) - timedelta(
+        seconds=get_settings().conversation_history_window_seconds
+    )
+    history = await repo.list_recent_context_messages(
+        conversation.id, since=history_since
+    )
+    logger.info("conversation.id=%s Embed chat history_since=%s", conversation.id, history_since)
+    logger.info("conversation.id=%s Embed chat history_count=%s", conversation.id, len(history))
 
     user_message = await repo.create_message(
         conversation.id,
@@ -287,6 +307,7 @@ async def stream_embed_chat(
             host_tools=runtime_tools if runtime_tools is not None else host_tools,
         ),
         user_message=message,
+        history=history,
         citations=citations,
         tools=runtime_tools if runtime_tools is not None else host_tools,
         invoke_tool_fn=invoke_host_tool_fn,
