@@ -41,7 +41,6 @@ async function requestAgentToken(
 }
 
 export function AgentNavigationBridge() {
-
   // return null
   const navigate = useNavigate()
   const user = useAuthStore((state) => state.auth.user)
@@ -108,6 +107,12 @@ export function AgentNavigationBridge() {
           // eslint-disable-next-line no-console
           if (import.meta.env.DEV) console.warn('[agent-navigation]', error)
         },
+      },
+      pageTools: {
+        enabled: true,
+        confirmationKeywords: ['提交', '删除', '支付'],
+        maxCalls: 50,
+        maxDurationMs: 60_000,
       },
     })
     agent.registerTool(navigationTool)

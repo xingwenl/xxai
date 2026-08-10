@@ -2,6 +2,7 @@
 
 ## - 2026-08-10
 - 🐛 fix：修复会话历史与会话标识传递 `🧑‍💻 lixingwen`
+- 🧰 chore：同步 SDK 与页面交互改动 `🧑‍💻 lixingwen`
 
 ## - 2026-08-07
 - ✨ feat：增加内置工具并接入 Embed MCP `🧑‍💻 lixingwen`

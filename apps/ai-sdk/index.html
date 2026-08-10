@@ -56,6 +56,14 @@
         background: #0284c7;
       }
     </style>
+    <script>
+      function onSubmit(event) {
+        event.preventDefault();
+        const account = document.getElementById('account').value;
+        const name = document.getElementById('password').value;
+        document.getElementById('tokenResult').textContent = `account: ${account}, password: ${name}`;
+      }
+    </script>
   </head>
   <body>
     <div class="container">
@@ -75,6 +83,13 @@
       <p id="toolStatus"></p>
       <button id="runToolBtn" type="button">执行全部本地 Tools</button>
       <pre id="toolResult"></pre>
+
+      <div onsubmit="onSubmit">
+        <input  name="account" id="account" value="" />
+        <input  name="password" id="password" value="" />
+        <button type="submit" onclick="onSubmit(event)">提交</button>
+      </div>
+      <div id="tokenResult"></div>
     </div>
 
     <script type="module">
@@ -83,6 +98,7 @@
       function sleep(ms) {
         return new Promise((resolve) => setTimeout(resolve, ms));
       }
+
 
       const agent = createAgentClient({
         endpoint: 'ws://127.0.0.1:8000/api/v1/ws/agents/1',
@@ -111,6 +127,10 @@
           position: 'right',
           theme: 'auto',
         },
+        pageTools: {
+          enabled: true,
+          confirmationKeywords: ['提交', '删除', '支付']
+        }
       });
 
       const demoTools = [

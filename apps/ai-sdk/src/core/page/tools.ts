@@ -1,21 +1,252 @@
-import type { ToolDefinition, ToolContext } from '../types'
-import { PageRuntime } from './runtime'
-import type { PageToolsOptions } from './types'
+import type { ToolDefinition, ToolContext } from '../types';
+import { PageRuntime } from './runtime';
+import type { PageToolsOptions } from './types';
 
 function args(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('page_input_invalid')
-  return value as Record<string, unknown>
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new Error('page_input_invalid');
+  return value as Record<string, unknown>;
 }
 
 export function createPageTools(options?: PageToolsOptions): ToolDefinition[] {
-  const runtime = new PageRuntime(options)
-  const context = (_: ToolContext): Record<string, unknown> => ({ page: location.href })
+  const runtime = new PageRuntime(options);
+  const context = (_: ToolContext): Record<string, unknown> => ({
+    page: location.href,
+  });
   return [
-    { name: 'page_snapshot', description: '读取当前页面视口中的可见内容和可交互元素', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, sideEffect: 'none', execute: async () => { runtime.consumeBudget(); return runtime.snapshot() } },
-    { name: 'page_click', description: '点击当前页面快照中的元素（由现有宿主工具确认策略保护）', inputSchema: { type: 'object', properties: { snapshotId: { type: 'string' }, ref: { type: 'string' } }, required: ['snapshotId', 'ref'], additionalProperties: false }, sideEffect: 'navigation', execute: async (value, toolContext) => { runtime.consumeBudget(); const input = args(value); const element = runtime.resolve(String(input.snapshotId), String(input.ref)); (element as HTMLElement).click(); return { ok: true, ref: input.ref, context: context(toolContext) } } },
-    { name: 'page_type', description: '在当前页面快照中的输入框写入文本', inputSchema: { type: 'object', properties: { snapshotId: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, mode: { type: 'string', enum: ['replace', 'append'] } }, required: ['snapshotId', 'ref', 'text'], additionalProperties: false }, sideEffect: 'write', execute: async (value) => { runtime.consumeBudget(); const input = args(value); const element = runtime.resolve(String(input.snapshotId), String(input.ref)); if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || (element instanceof HTMLElement && element.isContentEditable))) throw new Error('page_action_not_allowed'); if (element instanceof HTMLInputElement && ['password', 'file'].includes(element.type)) throw new Error('page_action_not_allowed'); const text = String(input.text); if (element instanceof HTMLElement && element.isContentEditable) element.textContent = input.mode === 'append' ? `${element.textContent || ''}${text}` : text; else { const target = element as HTMLInputElement | HTMLTextAreaElement; target.value = input.mode === 'append' ? `${target.value}${text}` : text } element.dispatchEvent(new Event('input', { bubbles: true })); element.dispatchEvent(new Event('change', { bubbles: true })); return { ok: true, ref: input.ref } } },
-    { name: 'page_scroll', description: '滚动当前页面视口', inputSchema: { type: 'object', properties: { direction: { type: 'string', enum: ['up', 'down'] }, amount: { type: 'number' } }, required: ['direction'], additionalProperties: false }, sideEffect: 'none', execute: async (value) => { runtime.consumeBudget(); const input = args(value); const amount = Math.min(Math.max(Number(input.amount || innerHeight * 0.8), 50), innerHeight * 2); window.scrollBy({ top: input.direction === 'up' ? -amount : amount, behavior: 'smooth' }); return { ok: true, scrollY: scrollY, requiresSnapshot: true } } },
-    { name: 'page_wait', description: '等待页面内容变化或指定文本出现', inputSchema: { type: 'object', properties: { text: { type: 'string' }, timeoutMs: { type: 'number' } }, additionalProperties: false }, sideEffect: 'none', execute: async (value) => { runtime.consumeBudget(); const input = args(value); const timeout = Math.min(Math.max(Number(input.timeoutMs || 3000), 100), 10000); const wanted = typeof input.text === 'string' ? input.text : undefined; const start = Date.now(); while (Date.now() - start < timeout) { if (!wanted || (document.body?.innerText || '').includes(wanted)) return { ok: true, found: Boolean(wanted), requiresSnapshot: true }; await new Promise(resolve => setTimeout(resolve, 100)) } throw new Error('page_action_timeout') } },
-    { name: 'page_extract', description: '从最近一次页面快照提取可见内容', inputSchema: { type: 'object', properties: { snapshotId: { type: 'string' }, refs: { type: 'array', items: { type: 'string' } } }, required: ['snapshotId'], additionalProperties: false }, sideEffect: 'none', execute: async (value) => { runtime.consumeBudget(); const input = args(value); const snapshot = runtime.currentSnapshot(); if (String(input.snapshotId) !== snapshot.snapshotId) throw new Error('page_snapshot_stale'); const refs = Array.isArray(input.refs) ? new Set(input.refs.map(String)) : undefined; return { text: snapshot.text, elements: refs ? snapshot.elements.filter(element => refs.has(element.ref)) : snapshot.elements } } }
-  ]
+    {
+      name: 'page_snapshot',
+      description: '读取当前页面视口中的可见内容和可交互元素',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+        additionalProperties: false,
+      },
+      sideEffect: 'none',
+      execute: async () => {
+        runtime.consumeBudget();
+        return runtime.snapshot();
+      },
+    },
+    {
+      name: 'page_click',
+      description: '点击当前页面快照中的元素（由现有宿主工具确认策略保护）',
+      inputSchema: {
+        type: 'object',
+        properties: { snapshotId: { type: 'string' }, ref: { type: 'string' } },
+        required: ['snapshotId', 'ref'],
+        additionalProperties: false,
+      },
+      sideEffect: 'navigation',
+      execute: async (value, toolContext) => {
+        runtime.consumeBudget();
+        const input = args(value);
+        const element = runtime.resolve(
+          String(input.snapshotId),
+          String(input.ref),
+        );
+        (element as HTMLElement).click();
+        return { ok: true, ref: input.ref, context: context(toolContext) };
+      },
+    },
+    {
+      name: 'page_type',
+      description: '在当前页面快照中的输入框写入文本',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          snapshotId: { type: 'string' },
+          ref: { type: 'string' },
+          text: { type: 'string' },
+          mode: { type: 'string', enum: ['replace', 'append'] },
+        },
+        required: ['snapshotId', 'ref', 'text'],
+        additionalProperties: false,
+      },
+      sideEffect: 'write',
+      execute: async (value) => {
+        runtime.consumeBudget();
+        const input = args(value);
+        const element = runtime.resolve(
+          String(input.snapshotId),
+          String(input.ref),
+        );
+
+        if (
+          !(
+            element instanceof HTMLInputElement ||
+            element instanceof HTMLTextAreaElement ||
+            (element instanceof HTMLElement && element.isContentEditable)
+          )
+        )
+          throw new Error('page_action_not_allowed');
+
+        if (
+          element instanceof HTMLInputElement &&
+          ['password', 'file'].includes(element.type)
+        )
+          throw new Error('page_action_not_allowed');
+
+        const text = String(input.text);
+
+        // contentEditable 元素的处理（保持不变）
+        if (element instanceof HTMLElement && element.isContentEditable) {
+          element.textContent =
+            input.mode === 'append'
+              ? `${element.textContent || ''}${text}`
+              : text;
+          element.dispatchEvent(new Event('input', { bubbles: true }));
+          element.dispatchEvent(new Event('change', { bubbles: true }));
+          return { ok: true, ref: input.ref };
+        }
+
+        // input / textarea 的通用处理（兼容 React、Vue、原生）
+        const target = element as HTMLInputElement | HTMLTextAreaElement;
+        const lastValue = target.value;
+        const newValue =
+          input.mode === 'append' ? `${target.value}${text}` : text;
+
+        // 获取原生 setter
+        const nativeSetter = Object.getOwnPropertyDescriptor(
+          target instanceof HTMLTextAreaElement
+            ? HTMLTextAreaElement.prototype
+            : HTMLInputElement.prototype,
+          'value',
+        )!.set!;
+
+        // 通过原生 setter 赋值
+        nativeSetter.call(target, newValue);
+
+        // 重置 React 的 _valueTracker
+        const tracker = (target as any)._valueTracker;
+        if (tracker) {
+          tracker.setValue(lastValue);
+        }
+
+        // 派发事件
+        target.dispatchEvent(new Event('input', { bubbles: true }));
+        target.dispatchEvent(new Event('change', { bubbles: true }));
+
+        return { ok: true, ref: input.ref };
+      },
+      // execute: async (value) => {
+      //   runtime.consumeBudget();
+      //   const input = args(value);
+      //   const element = runtime.resolve(
+      //     String(input.snapshotId),
+      //     String(input.ref),
+      //   );
+      //   if (
+      //     !(
+      //       element instanceof HTMLInputElement ||
+      //       element instanceof HTMLTextAreaElement ||
+      //       (element instanceof HTMLElement && element.isContentEditable)
+      //     )
+      //   )
+      //     throw new Error('page_action_not_allowed');
+      //   if (
+      //     element instanceof HTMLInputElement &&
+      //     ['password', 'file'].includes(element.type)
+      //   )
+      //     throw new Error('page_action_not_allowed');
+      //   const text = String(input.text);
+      //   if (element instanceof HTMLElement && element.isContentEditable)
+      //     element.textContent =
+      //       input.mode === 'append'
+      //         ? `${element.textContent || ''}${text}`
+      //         : text;
+      //   else {
+      //     const target = element as HTMLInputElement | HTMLTextAreaElement;
+      //     target.value =
+      //       input.mode === 'append' ? `${target.value}${text}` : text;
+      //   }
+      //   element.dispatchEvent(new Event('input', { bubbles: true }));
+      //   element.dispatchEvent(new Event('change', { bubbles: true }));
+      //   return { ok: true, ref: input.ref };
+      // },
+    },
+    {
+      name: 'page_scroll',
+      description: '滚动当前页面视口',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          direction: { type: 'string', enum: ['up', 'down'] },
+          amount: { type: 'number' },
+        },
+        required: ['direction'],
+        additionalProperties: false,
+      },
+      sideEffect: 'none',
+      execute: async (value) => {
+        runtime.consumeBudget();
+        const input = args(value);
+        const amount = Math.min(
+          Math.max(Number(input.amount || innerHeight * 0.8), 50),
+          innerHeight * 2,
+        );
+        window.scrollBy({
+          top: input.direction === 'up' ? -amount : amount,
+          behavior: 'smooth',
+        });
+        return { ok: true, scrollY: scrollY, requiresSnapshot: true };
+      },
+    },
+    {
+      name: 'page_wait',
+      description: '等待页面内容变化或指定文本出现',
+      inputSchema: {
+        type: 'object',
+        properties: { text: { type: 'string' }, timeoutMs: { type: 'number' } },
+        additionalProperties: false,
+      },
+      sideEffect: 'none',
+      execute: async (value) => {
+        runtime.consumeBudget();
+        const input = args(value);
+        const timeout = Math.min(
+          Math.max(Number(input.timeoutMs || 3000), 100),
+          10000,
+        );
+        const wanted = typeof input.text === 'string' ? input.text : undefined;
+        const start = Date.now();
+        while (Date.now() - start < timeout) {
+          if (!wanted || (document.body?.innerText || '').includes(wanted))
+            return { ok: true, found: Boolean(wanted), requiresSnapshot: true };
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        throw new Error('page_action_timeout');
+      },
+    },
+    {
+      name: 'page_extract',
+      description: '从最近一次页面快照提取可见内容',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          snapshotId: { type: 'string' },
+          refs: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['snapshotId'],
+        additionalProperties: false,
+      },
+      sideEffect: 'none',
+      execute: async (value) => {
+        runtime.consumeBudget();
+        const input = args(value);
+        const snapshot = runtime.currentSnapshot();
+        if (String(input.snapshotId) !== snapshot.snapshotId)
+          throw new Error('page_snapshot_stale');
+        const refs = Array.isArray(input.refs)
+          ? new Set(input.refs.map(String))
+          : undefined;
+        return {
+          text: snapshot.text,
+          elements: refs
+            ? snapshot.elements.filter((element) => refs.has(element.ref))
+            : snapshot.elements,
+        };
+      },
+    },
+  ];
 }

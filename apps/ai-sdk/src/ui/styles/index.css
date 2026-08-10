@@ -273,8 +273,8 @@
   font-size: 14px;
   line-height: 1.65;
   word-break: break-word;
-  backdrop-filter: var(--agent-glass-blur);
-  -webkit-backdrop-filter: var(--agent-glass-blur);
+  /* backdrop-filter: var(--agent-glass-blur); */
+  /* -webkit-backdrop-filter: var(--agent-glass-blur); */
   box-shadow: var(--agent-shadow-soft);
 }
 

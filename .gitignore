@@ -43,3 +43,6 @@ build/
 .superpowers
 node_modules/
 backend-admin/
+
+
+draw-things-output
