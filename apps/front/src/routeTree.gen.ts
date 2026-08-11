@@ -50,910 +50,522 @@ import { Route as AuthenticatedAiKnowledgeBasesRouteImport } from './routes/_aut
 import { Route as AuthenticatedAiHostToolsRouteImport } from './routes/_authenticated/ai/host-tools'
 import { Route as AuthenticatedAiEmbedClientsRouteImport } from './routes/_authenticated/ai/embed-clients'
 import { Route as AuthenticatedAiBotsRouteImport } from './routes/_authenticated/ai/bots'
+import { Route as AuthenticatedAiBotsAgentIdRouteImport } from './routes/_authenticated/ai/bots.$agentId'
 
 const ClerkRouteRoute = ClerkRouteRouteImport.update({
-  id: '/clerk',
-  path: '/clerk',
-  getParentRoute: () => rootRouteImport,
-} as any)
+            id: '/clerk',path: '/clerk',getParentRoute: () => rootRouteImport
+          }as any)
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
-  id: '/_authenticated',
-  getParentRoute: () => rootRouteImport,
-} as any)
+            id: '/_authenticated',getParentRoute: () => rootRouteImport
+          }as any)
 const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
+            id: '/',path: '/',getParentRoute: () => AuthenticatedRouteRoute
+          }as any)
 const errors503Route = errors503RouteImport.update({
-  id: '/(errors)/503',
-  path: '/503',
-  getParentRoute: () => rootRouteImport,
-} as any)
+            id: '/(errors)/503',path: '/503',getParentRoute: () => rootRouteImport
+          }as any)
 const errors500Route = errors500RouteImport.update({
-  id: '/(errors)/500',
-  path: '/500',
-  getParentRoute: () => rootRouteImport,
-} as any)
+            id: '/(errors)/500',path: '/500',getParentRoute: () => rootRouteImport
+          }as any)
 const errors404Route = errors404RouteImport.update({
-  id: '/(errors)/404',
-  path: '/404',
-  getParentRoute: () => rootRouteImport,
-} as any)
+            id: '/(errors)/404',path: '/404',getParentRoute: () => rootRouteImport
+          }as any)
 const errors403Route = errors403RouteImport.update({
-  id: '/(errors)/403',
-  path: '/403',
-  getParentRoute: () => rootRouteImport,
-} as any)
+            id: '/(errors)/403',path: '/403',getParentRoute: () => rootRouteImport
+          }as any)
 const errors401Route = errors401RouteImport.update({
-  id: '/(errors)/401',
-  path: '/401',
-  getParentRoute: () => rootRouteImport,
-} as any)
+            id: '/(errors)/401',path: '/401',getParentRoute: () => rootRouteImport
+          }as any)
 const authSignUpRoute = authSignUpRouteImport.update({
-  id: '/(auth)/sign-up',
-  path: '/sign-up',
-  getParentRoute: () => rootRouteImport,
-} as any)
+            id: '/(auth)/sign-up',path: '/sign-up',getParentRoute: () => rootRouteImport
+          }as any)
 const authSignIn2Route = authSignIn2RouteImport.update({
-  id: '/(auth)/sign-in-2',
-  path: '/sign-in-2',
-  getParentRoute: () => rootRouteImport,
-} as any)
+            id: '/(auth)/sign-in-2',path: '/sign-in-2',getParentRoute: () => rootRouteImport
+          }as any)
 const authSignInRoute = authSignInRouteImport.update({
-  id: '/(auth)/sign-in',
-  path: '/sign-in',
-  getParentRoute: () => rootRouteImport,
-} as any)
+            id: '/(auth)/sign-in',path: '/sign-in',getParentRoute: () => rootRouteImport
+          }as any)
 const authOtpRoute = authOtpRouteImport.update({
-  id: '/(auth)/otp',
-  path: '/otp',
-  getParentRoute: () => rootRouteImport,
-} as any)
+            id: '/(auth)/otp',path: '/otp',getParentRoute: () => rootRouteImport
+          }as any)
 const authForgotPasswordRoute = authForgotPasswordRouteImport.update({
-  id: '/(auth)/forgot-password',
-  path: '/forgot-password',
-  getParentRoute: () => rootRouteImport,
-} as any)
+            id: '/(auth)/forgot-password',path: '/forgot-password',getParentRoute: () => rootRouteImport
+          }as any)
 const ClerkAuthenticatedRouteRoute = ClerkAuthenticatedRouteRouteImport.update({
-  id: '/_authenticated',
-  getParentRoute: () => ClerkRouteRoute,
-} as any)
+            id: '/_authenticated',getParentRoute: () => ClerkRouteRoute
+          }as any)
 const ClerkauthRouteRoute = ClerkauthRouteRouteImport.update({
-  id: '/(auth)',
-  getParentRoute: () => ClerkRouteRoute,
-} as any)
-const AuthenticatedSettingsRouteRoute =
-  AuthenticatedSettingsRouteRouteImport.update({
-    id: '/settings',
-    path: '/settings',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
+            id: '/(auth)',getParentRoute: () => ClerkRouteRoute
+          }as any)
+const AuthenticatedSettingsRouteRoute = AuthenticatedSettingsRouteRouteImport.update({
+            id: '/settings',path: '/settings',getParentRoute: () => AuthenticatedRouteRoute
+          }as any)
 const AuthenticatedUsersIndexRoute = AuthenticatedUsersIndexRouteImport.update({
-  id: '/users/',
-  path: '/users/',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
+            id: '/users/',path: '/users/',getParentRoute: () => AuthenticatedRouteRoute
+          }as any)
 const AuthenticatedTasksIndexRoute = AuthenticatedTasksIndexRouteImport.update({
-  id: '/tasks/',
-  path: '/tasks/',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const AuthenticatedSettingsIndexRoute =
-  AuthenticatedSettingsIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AuthenticatedSettingsRouteRoute,
-  } as any)
-const AuthenticatedHelpCenterIndexRoute =
-  AuthenticatedHelpCenterIndexRouteImport.update({
-    id: '/help-center/',
-    path: '/help-center/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
+            id: '/tasks/',path: '/tasks/',getParentRoute: () => AuthenticatedRouteRoute
+          }as any)
+const AuthenticatedSettingsIndexRoute = AuthenticatedSettingsIndexRouteImport.update({
+            id: '/',path: '/',getParentRoute: () => AuthenticatedSettingsRouteRoute
+          }as any)
+const AuthenticatedHelpCenterIndexRoute = AuthenticatedHelpCenterIndexRouteImport.update({
+            id: '/help-center/',path: '/help-center/',getParentRoute: () => AuthenticatedRouteRoute
+          }as any)
 const AuthenticatedChatsIndexRoute = AuthenticatedChatsIndexRouteImport.update({
-  id: '/chats/',
-  path: '/chats/',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
+            id: '/chats/',path: '/chats/',getParentRoute: () => AuthenticatedRouteRoute
+          }as any)
 const AuthenticatedAppsIndexRoute = AuthenticatedAppsIndexRouteImport.update({
-  id: '/apps/',
-  path: '/apps/',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const ClerkAuthenticatedUserManagementRoute =
-  ClerkAuthenticatedUserManagementRouteImport.update({
-    id: '/user-management',
-    path: '/user-management',
-    getParentRoute: () => ClerkAuthenticatedRouteRoute,
-  } as any)
+            id: '/apps/',path: '/apps/',getParentRoute: () => AuthenticatedRouteRoute
+          }as any)
+const ClerkAuthenticatedUserManagementRoute = ClerkAuthenticatedUserManagementRouteImport.update({
+            id: '/user-management',path: '/user-management',getParentRoute: () => ClerkAuthenticatedRouteRoute
+          }as any)
 const ClerkauthSignUpRoute = ClerkauthSignUpRouteImport.update({
-  id: '/sign-up',
-  path: '/sign-up',
-  getParentRoute: () => ClerkauthRouteRoute,
-} as any)
+            id: '/sign-up',path: '/sign-up',getParentRoute: () => ClerkauthRouteRoute
+          }as any)
 const ClerkauthSignInRoute = ClerkauthSignInRouteImport.update({
-  id: '/sign-in',
-  path: '/sign-in',
-  getParentRoute: () => ClerkauthRouteRoute,
-} as any)
-const AuthenticatedSystemUsersRoute =
-  AuthenticatedSystemUsersRouteImport.update({
-    id: '/system/users',
-    path: '/system/users',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedSystemRolesRoute =
-  AuthenticatedSystemRolesRouteImport.update({
-    id: '/system/roles',
-    path: '/system/roles',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedSystemMcpServersRoute =
-  AuthenticatedSystemMcpServersRouteImport.update({
-    id: '/system/mcp-servers',
-    path: '/system/mcp-servers',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedSystemAiHtmlPagesRoute =
-  AuthenticatedSystemAiHtmlPagesRouteImport.update({
-    id: '/system/ai-html-pages',
-    path: '/system/ai-html-pages',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedSettingsNotificationsRoute =
-  AuthenticatedSettingsNotificationsRouteImport.update({
-    id: '/notifications',
-    path: '/notifications',
-    getParentRoute: () => AuthenticatedSettingsRouteRoute,
-  } as any)
-const AuthenticatedSettingsDisplayRoute =
-  AuthenticatedSettingsDisplayRouteImport.update({
-    id: '/display',
-    path: '/display',
-    getParentRoute: () => AuthenticatedSettingsRouteRoute,
-  } as any)
-const AuthenticatedSettingsAppearanceRoute =
-  AuthenticatedSettingsAppearanceRouteImport.update({
-    id: '/appearance',
-    path: '/appearance',
-    getParentRoute: () => AuthenticatedSettingsRouteRoute,
-  } as any)
-const AuthenticatedSettingsAccountRoute =
-  AuthenticatedSettingsAccountRouteImport.update({
-    id: '/account',
-    path: '/account',
-    getParentRoute: () => AuthenticatedSettingsRouteRoute,
-  } as any)
-const AuthenticatedErrorsErrorRoute =
-  AuthenticatedErrorsErrorRouteImport.update({
-    id: '/errors/$error',
-    path: '/errors/$error',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
+            id: '/sign-in',path: '/sign-in',getParentRoute: () => ClerkauthRouteRoute
+          }as any)
+const AuthenticatedSystemUsersRoute = AuthenticatedSystemUsersRouteImport.update({
+            id: '/system/users',path: '/system/users',getParentRoute: () => AuthenticatedRouteRoute
+          }as any)
+const AuthenticatedSystemRolesRoute = AuthenticatedSystemRolesRouteImport.update({
+            id: '/system/roles',path: '/system/roles',getParentRoute: () => AuthenticatedRouteRoute
+          }as any)
+const AuthenticatedSystemMcpServersRoute = AuthenticatedSystemMcpServersRouteImport.update({
+            id: '/system/mcp-servers',path: '/system/mcp-servers',getParentRoute: () => AuthenticatedRouteRoute
+          }as any)
+const AuthenticatedSystemAiHtmlPagesRoute = AuthenticatedSystemAiHtmlPagesRouteImport.update({
+            id: '/system/ai-html-pages',path: '/system/ai-html-pages',getParentRoute: () => AuthenticatedRouteRoute
+          }as any)
+const AuthenticatedSettingsNotificationsRoute = AuthenticatedSettingsNotificationsRouteImport.update({
+            id: '/notifications',path: '/notifications',getParentRoute: () => AuthenticatedSettingsRouteRoute
+          }as any)
+const AuthenticatedSettingsDisplayRoute = AuthenticatedSettingsDisplayRouteImport.update({
+            id: '/display',path: '/display',getParentRoute: () => AuthenticatedSettingsRouteRoute
+          }as any)
+const AuthenticatedSettingsAppearanceRoute = AuthenticatedSettingsAppearanceRouteImport.update({
+            id: '/appearance',path: '/appearance',getParentRoute: () => AuthenticatedSettingsRouteRoute
+          }as any)
+const AuthenticatedSettingsAccountRoute = AuthenticatedSettingsAccountRouteImport.update({
+            id: '/account',path: '/account',getParentRoute: () => AuthenticatedSettingsRouteRoute
+          }as any)
+const AuthenticatedErrorsErrorRoute = AuthenticatedErrorsErrorRouteImport.update({
+            id: '/errors/$error',path: '/errors/$error',getParentRoute: () => AuthenticatedRouteRoute
+          }as any)
 const AuthenticatedAiSkillsRoute = AuthenticatedAiSkillsRouteImport.update({
-  id: '/ai/skills',
-  path: '/ai/skills',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const AuthenticatedAiPlatformsRoute =
-  AuthenticatedAiPlatformsRouteImport.update({
-    id: '/ai/platforms',
-    path: '/ai/platforms',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAiModelUsageRoute =
-  AuthenticatedAiModelUsageRouteImport.update({
-    id: '/ai/model-usage',
-    path: '/ai/model-usage',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAiKnowledgeBasesRoute =
-  AuthenticatedAiKnowledgeBasesRouteImport.update({
-    id: '/ai/knowledge-bases',
-    path: '/ai/knowledge-bases',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAiHostToolsRoute =
-  AuthenticatedAiHostToolsRouteImport.update({
-    id: '/ai/host-tools',
-    path: '/ai/host-tools',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAiEmbedClientsRoute =
-  AuthenticatedAiEmbedClientsRouteImport.update({
-    id: '/ai/embed-clients',
-    path: '/ai/embed-clients',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
+            id: '/ai/skills',path: '/ai/skills',getParentRoute: () => AuthenticatedRouteRoute
+          }as any)
+const AuthenticatedAiPlatformsRoute = AuthenticatedAiPlatformsRouteImport.update({
+            id: '/ai/platforms',path: '/ai/platforms',getParentRoute: () => AuthenticatedRouteRoute
+          }as any)
+const AuthenticatedAiModelUsageRoute = AuthenticatedAiModelUsageRouteImport.update({
+            id: '/ai/model-usage',path: '/ai/model-usage',getParentRoute: () => AuthenticatedRouteRoute
+          }as any)
+const AuthenticatedAiKnowledgeBasesRoute = AuthenticatedAiKnowledgeBasesRouteImport.update({
+            id: '/ai/knowledge-bases',path: '/ai/knowledge-bases',getParentRoute: () => AuthenticatedRouteRoute
+          }as any)
+const AuthenticatedAiHostToolsRoute = AuthenticatedAiHostToolsRouteImport.update({
+            id: '/ai/host-tools',path: '/ai/host-tools',getParentRoute: () => AuthenticatedRouteRoute
+          }as any)
+const AuthenticatedAiEmbedClientsRoute = AuthenticatedAiEmbedClientsRouteImport.update({
+            id: '/ai/embed-clients',path: '/ai/embed-clients',getParentRoute: () => AuthenticatedRouteRoute
+          }as any)
 const AuthenticatedAiBotsRoute = AuthenticatedAiBotsRouteImport.update({
-  id: '/ai/bots',
-  path: '/ai/bots',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
+            id: '/ai/bots',path: '/ai/bots',getParentRoute: () => AuthenticatedRouteRoute
+          }as any)
+const AuthenticatedAiBotsAgentIdRoute = AuthenticatedAiBotsAgentIdRouteImport.update({
+            id: '/$agentId',path: '/$agentId',getParentRoute: () => AuthenticatedAiBotsRoute
+          }as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof AuthenticatedIndexRoute
-  '/clerk': typeof ClerkAuthenticatedRouteRouteWithChildren
-  '/settings': typeof AuthenticatedSettingsRouteRouteWithChildren
-  '/forgot-password': typeof authForgotPasswordRoute
-  '/otp': typeof authOtpRoute
-  '/sign-in': typeof authSignInRoute
-  '/sign-in-2': typeof authSignIn2Route
-  '/sign-up': typeof authSignUpRoute
-  '/401': typeof errors401Route
-  '/403': typeof errors403Route
-  '/404': typeof errors404Route
-  '/500': typeof errors500Route
-  '/503': typeof errors503Route
-  '/ai/bots': typeof AuthenticatedAiBotsRoute
-  '/ai/embed-clients': typeof AuthenticatedAiEmbedClientsRoute
-  '/ai/host-tools': typeof AuthenticatedAiHostToolsRoute
-  '/ai/knowledge-bases': typeof AuthenticatedAiKnowledgeBasesRoute
-  '/ai/model-usage': typeof AuthenticatedAiModelUsageRoute
-  '/ai/platforms': typeof AuthenticatedAiPlatformsRoute
-  '/ai/skills': typeof AuthenticatedAiSkillsRoute
-  '/errors/$error': typeof AuthenticatedErrorsErrorRoute
-  '/settings/account': typeof AuthenticatedSettingsAccountRoute
-  '/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
-  '/settings/display': typeof AuthenticatedSettingsDisplayRoute
-  '/settings/notifications': typeof AuthenticatedSettingsNotificationsRoute
-  '/system/ai-html-pages': typeof AuthenticatedSystemAiHtmlPagesRoute
-  '/system/mcp-servers': typeof AuthenticatedSystemMcpServersRoute
-  '/system/roles': typeof AuthenticatedSystemRolesRoute
-  '/system/users': typeof AuthenticatedSystemUsersRoute
-  '/clerk/sign-in': typeof ClerkauthSignInRoute
-  '/clerk/sign-up': typeof ClerkauthSignUpRoute
-  '/clerk/user-management': typeof ClerkAuthenticatedUserManagementRoute
-  '/apps/': typeof AuthenticatedAppsIndexRoute
-  '/chats/': typeof AuthenticatedChatsIndexRoute
-  '/help-center/': typeof AuthenticatedHelpCenterIndexRoute
-  '/settings/': typeof AuthenticatedSettingsIndexRoute
-  '/tasks/': typeof AuthenticatedTasksIndexRoute
-  '/users/': typeof AuthenticatedUsersIndexRoute
+'/': typeof AuthenticatedIndexRoute,'/clerk': typeof ClerkAuthenticatedRouteRouteWithChildren,'/settings': typeof AuthenticatedSettingsRouteRouteWithChildren,'/forgot-password': typeof authForgotPasswordRoute,'/otp': typeof authOtpRoute,'/sign-in': typeof authSignInRoute,'/sign-in-2': typeof authSignIn2Route,'/sign-up': typeof authSignUpRoute,'/401': typeof errors401Route,'/403': typeof errors403Route,'/404': typeof errors404Route,'/500': typeof errors500Route,'/503': typeof errors503Route,'/ai/bots': typeof AuthenticatedAiBotsRouteWithChildren,'/ai/embed-clients': typeof AuthenticatedAiEmbedClientsRoute,'/ai/host-tools': typeof AuthenticatedAiHostToolsRoute,'/ai/knowledge-bases': typeof AuthenticatedAiKnowledgeBasesRoute,'/ai/model-usage': typeof AuthenticatedAiModelUsageRoute,'/ai/platforms': typeof AuthenticatedAiPlatformsRoute,'/ai/skills': typeof AuthenticatedAiSkillsRoute,'/errors/$error': typeof AuthenticatedErrorsErrorRoute,'/settings/account': typeof AuthenticatedSettingsAccountRoute,'/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute,'/settings/display': typeof AuthenticatedSettingsDisplayRoute,'/settings/notifications': typeof AuthenticatedSettingsNotificationsRoute,'/system/ai-html-pages': typeof AuthenticatedSystemAiHtmlPagesRoute,'/system/mcp-servers': typeof AuthenticatedSystemMcpServersRoute,'/system/roles': typeof AuthenticatedSystemRolesRoute,'/system/users': typeof AuthenticatedSystemUsersRoute,'/clerk/sign-in': typeof ClerkauthSignInRoute,'/clerk/sign-up': typeof ClerkauthSignUpRoute,'/clerk/user-management': typeof ClerkAuthenticatedUserManagementRoute,'/apps/': typeof AuthenticatedAppsIndexRoute,'/chats/': typeof AuthenticatedChatsIndexRoute,'/help-center/': typeof AuthenticatedHelpCenterIndexRoute,'/settings/': typeof AuthenticatedSettingsIndexRoute,'/tasks/': typeof AuthenticatedTasksIndexRoute,'/users/': typeof AuthenticatedUsersIndexRoute,'/ai/bots/$agentId': typeof AuthenticatedAiBotsAgentIdRoute
 }
 export interface FileRoutesByTo {
-  '/clerk': typeof ClerkAuthenticatedRouteRouteWithChildren
-  '/forgot-password': typeof authForgotPasswordRoute
-  '/otp': typeof authOtpRoute
-  '/sign-in': typeof authSignInRoute
-  '/sign-in-2': typeof authSignIn2Route
-  '/sign-up': typeof authSignUpRoute
-  '/401': typeof errors401Route
-  '/403': typeof errors403Route
-  '/404': typeof errors404Route
-  '/500': typeof errors500Route
-  '/503': typeof errors503Route
-  '/': typeof AuthenticatedIndexRoute
-  '/ai/bots': typeof AuthenticatedAiBotsRoute
-  '/ai/embed-clients': typeof AuthenticatedAiEmbedClientsRoute
-  '/ai/host-tools': typeof AuthenticatedAiHostToolsRoute
-  '/ai/knowledge-bases': typeof AuthenticatedAiKnowledgeBasesRoute
-  '/ai/model-usage': typeof AuthenticatedAiModelUsageRoute
-  '/ai/platforms': typeof AuthenticatedAiPlatformsRoute
-  '/ai/skills': typeof AuthenticatedAiSkillsRoute
-  '/errors/$error': typeof AuthenticatedErrorsErrorRoute
-  '/settings/account': typeof AuthenticatedSettingsAccountRoute
-  '/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
-  '/settings/display': typeof AuthenticatedSettingsDisplayRoute
-  '/settings/notifications': typeof AuthenticatedSettingsNotificationsRoute
-  '/system/ai-html-pages': typeof AuthenticatedSystemAiHtmlPagesRoute
-  '/system/mcp-servers': typeof AuthenticatedSystemMcpServersRoute
-  '/system/roles': typeof AuthenticatedSystemRolesRoute
-  '/system/users': typeof AuthenticatedSystemUsersRoute
-  '/clerk/sign-in': typeof ClerkauthSignInRoute
-  '/clerk/sign-up': typeof ClerkauthSignUpRoute
-  '/clerk/user-management': typeof ClerkAuthenticatedUserManagementRoute
-  '/apps': typeof AuthenticatedAppsIndexRoute
-  '/chats': typeof AuthenticatedChatsIndexRoute
-  '/help-center': typeof AuthenticatedHelpCenterIndexRoute
-  '/settings': typeof AuthenticatedSettingsIndexRoute
-  '/tasks': typeof AuthenticatedTasksIndexRoute
-  '/users': typeof AuthenticatedUsersIndexRoute
+'/clerk': typeof ClerkAuthenticatedRouteRouteWithChildren,'/forgot-password': typeof authForgotPasswordRoute,'/otp': typeof authOtpRoute,'/sign-in': typeof authSignInRoute,'/sign-in-2': typeof authSignIn2Route,'/sign-up': typeof authSignUpRoute,'/401': typeof errors401Route,'/403': typeof errors403Route,'/404': typeof errors404Route,'/500': typeof errors500Route,'/503': typeof errors503Route,'/': typeof AuthenticatedIndexRoute,'/ai/bots': typeof AuthenticatedAiBotsRouteWithChildren,'/ai/embed-clients': typeof AuthenticatedAiEmbedClientsRoute,'/ai/host-tools': typeof AuthenticatedAiHostToolsRoute,'/ai/knowledge-bases': typeof AuthenticatedAiKnowledgeBasesRoute,'/ai/model-usage': typeof AuthenticatedAiModelUsageRoute,'/ai/platforms': typeof AuthenticatedAiPlatformsRoute,'/ai/skills': typeof AuthenticatedAiSkillsRoute,'/errors/$error': typeof AuthenticatedErrorsErrorRoute,'/settings/account': typeof AuthenticatedSettingsAccountRoute,'/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute,'/settings/display': typeof AuthenticatedSettingsDisplayRoute,'/settings/notifications': typeof AuthenticatedSettingsNotificationsRoute,'/system/ai-html-pages': typeof AuthenticatedSystemAiHtmlPagesRoute,'/system/mcp-servers': typeof AuthenticatedSystemMcpServersRoute,'/system/roles': typeof AuthenticatedSystemRolesRoute,'/system/users': typeof AuthenticatedSystemUsersRoute,'/clerk/sign-in': typeof ClerkauthSignInRoute,'/clerk/sign-up': typeof ClerkauthSignUpRoute,'/clerk/user-management': typeof ClerkAuthenticatedUserManagementRoute,'/apps': typeof AuthenticatedAppsIndexRoute,'/chats': typeof AuthenticatedChatsIndexRoute,'/help-center': typeof AuthenticatedHelpCenterIndexRoute,'/settings': typeof AuthenticatedSettingsIndexRoute,'/tasks': typeof AuthenticatedTasksIndexRoute,'/users': typeof AuthenticatedUsersIndexRoute,'/ai/bots/$agentId': typeof AuthenticatedAiBotsAgentIdRoute
 }
 export interface FileRoutesById {
-  __root__: typeof rootRouteImport
-  '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
-  '/clerk': typeof ClerkRouteRouteWithChildren
-  '/_authenticated/settings': typeof AuthenticatedSettingsRouteRouteWithChildren
-  '/clerk/(auth)': typeof ClerkauthRouteRouteWithChildren
-  '/clerk/_authenticated': typeof ClerkAuthenticatedRouteRouteWithChildren
-  '/(auth)/forgot-password': typeof authForgotPasswordRoute
-  '/(auth)/otp': typeof authOtpRoute
-  '/(auth)/sign-in': typeof authSignInRoute
-  '/(auth)/sign-in-2': typeof authSignIn2Route
-  '/(auth)/sign-up': typeof authSignUpRoute
-  '/(errors)/401': typeof errors401Route
-  '/(errors)/403': typeof errors403Route
-  '/(errors)/404': typeof errors404Route
-  '/(errors)/500': typeof errors500Route
-  '/(errors)/503': typeof errors503Route
-  '/_authenticated/': typeof AuthenticatedIndexRoute
-  '/_authenticated/ai/bots': typeof AuthenticatedAiBotsRoute
-  '/_authenticated/ai/embed-clients': typeof AuthenticatedAiEmbedClientsRoute
-  '/_authenticated/ai/host-tools': typeof AuthenticatedAiHostToolsRoute
-  '/_authenticated/ai/knowledge-bases': typeof AuthenticatedAiKnowledgeBasesRoute
-  '/_authenticated/ai/model-usage': typeof AuthenticatedAiModelUsageRoute
-  '/_authenticated/ai/platforms': typeof AuthenticatedAiPlatformsRoute
-  '/_authenticated/ai/skills': typeof AuthenticatedAiSkillsRoute
-  '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
-  '/_authenticated/settings/account': typeof AuthenticatedSettingsAccountRoute
-  '/_authenticated/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
-  '/_authenticated/settings/display': typeof AuthenticatedSettingsDisplayRoute
-  '/_authenticated/settings/notifications': typeof AuthenticatedSettingsNotificationsRoute
-  '/_authenticated/system/ai-html-pages': typeof AuthenticatedSystemAiHtmlPagesRoute
-  '/_authenticated/system/mcp-servers': typeof AuthenticatedSystemMcpServersRoute
-  '/_authenticated/system/roles': typeof AuthenticatedSystemRolesRoute
-  '/_authenticated/system/users': typeof AuthenticatedSystemUsersRoute
-  '/clerk/(auth)/sign-in': typeof ClerkauthSignInRoute
-  '/clerk/(auth)/sign-up': typeof ClerkauthSignUpRoute
-  '/clerk/_authenticated/user-management': typeof ClerkAuthenticatedUserManagementRoute
-  '/_authenticated/apps/': typeof AuthenticatedAppsIndexRoute
-  '/_authenticated/chats/': typeof AuthenticatedChatsIndexRoute
-  '/_authenticated/help-center/': typeof AuthenticatedHelpCenterIndexRoute
-  '/_authenticated/settings/': typeof AuthenticatedSettingsIndexRoute
-  '/_authenticated/tasks/': typeof AuthenticatedTasksIndexRoute
-  '/_authenticated/users/': typeof AuthenticatedUsersIndexRoute
+'__root__': typeof rootRouteImport,
+'/_authenticated': typeof AuthenticatedRouteRouteWithChildren,'/clerk': typeof ClerkRouteRouteWithChildren,'/_authenticated/settings': typeof AuthenticatedSettingsRouteRouteWithChildren,'/clerk/(auth)': typeof ClerkauthRouteRouteWithChildren,'/clerk/_authenticated': typeof ClerkAuthenticatedRouteRouteWithChildren,'/(auth)/forgot-password': typeof authForgotPasswordRoute,'/(auth)/otp': typeof authOtpRoute,'/(auth)/sign-in': typeof authSignInRoute,'/(auth)/sign-in-2': typeof authSignIn2Route,'/(auth)/sign-up': typeof authSignUpRoute,'/(errors)/401': typeof errors401Route,'/(errors)/403': typeof errors403Route,'/(errors)/404': typeof errors404Route,'/(errors)/500': typeof errors500Route,'/(errors)/503': typeof errors503Route,'/_authenticated/': typeof AuthenticatedIndexRoute,'/_authenticated/ai/bots': typeof AuthenticatedAiBotsRouteWithChildren,'/_authenticated/ai/embed-clients': typeof AuthenticatedAiEmbedClientsRoute,'/_authenticated/ai/host-tools': typeof AuthenticatedAiHostToolsRoute,'/_authenticated/ai/knowledge-bases': typeof AuthenticatedAiKnowledgeBasesRoute,'/_authenticated/ai/model-usage': typeof AuthenticatedAiModelUsageRoute,'/_authenticated/ai/platforms': typeof AuthenticatedAiPlatformsRoute,'/_authenticated/ai/skills': typeof AuthenticatedAiSkillsRoute,'/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute,'/_authenticated/settings/account': typeof AuthenticatedSettingsAccountRoute,'/_authenticated/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute,'/_authenticated/settings/display': typeof AuthenticatedSettingsDisplayRoute,'/_authenticated/settings/notifications': typeof AuthenticatedSettingsNotificationsRoute,'/_authenticated/system/ai-html-pages': typeof AuthenticatedSystemAiHtmlPagesRoute,'/_authenticated/system/mcp-servers': typeof AuthenticatedSystemMcpServersRoute,'/_authenticated/system/roles': typeof AuthenticatedSystemRolesRoute,'/_authenticated/system/users': typeof AuthenticatedSystemUsersRoute,'/clerk/(auth)/sign-in': typeof ClerkauthSignInRoute,'/clerk/(auth)/sign-up': typeof ClerkauthSignUpRoute,'/clerk/_authenticated/user-management': typeof ClerkAuthenticatedUserManagementRoute,'/_authenticated/apps/': typeof AuthenticatedAppsIndexRoute,'/_authenticated/chats/': typeof AuthenticatedChatsIndexRoute,'/_authenticated/help-center/': typeof AuthenticatedHelpCenterIndexRoute,'/_authenticated/settings/': typeof AuthenticatedSettingsIndexRoute,'/_authenticated/tasks/': typeof AuthenticatedTasksIndexRoute,'/_authenticated/users/': typeof AuthenticatedUsersIndexRoute,'/_authenticated/ai/bots/$agentId': typeof AuthenticatedAiBotsAgentIdRoute
 }
 export interface FileRouteTypes {
-  fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    | '/'
-    | '/clerk'
-    | '/settings'
-    | '/forgot-password'
-    | '/otp'
-    | '/sign-in'
-    | '/sign-in-2'
-    | '/sign-up'
-    | '/401'
-    | '/403'
-    | '/404'
-    | '/500'
-    | '/503'
-    | '/ai/bots'
-    | '/ai/embed-clients'
-    | '/ai/host-tools'
-    | '/ai/knowledge-bases'
-    | '/ai/model-usage'
-    | '/ai/platforms'
-    | '/ai/skills'
-    | '/errors/$error'
-    | '/settings/account'
-    | '/settings/appearance'
-    | '/settings/display'
-    | '/settings/notifications'
-    | '/system/ai-html-pages'
-    | '/system/mcp-servers'
-    | '/system/roles'
-    | '/system/users'
-    | '/clerk/sign-in'
-    | '/clerk/sign-up'
-    | '/clerk/user-management'
-    | '/apps/'
-    | '/chats/'
-    | '/help-center/'
-    | '/settings/'
-    | '/tasks/'
-    | '/users/'
-  fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/clerk'
-    | '/forgot-password'
-    | '/otp'
-    | '/sign-in'
-    | '/sign-in-2'
-    | '/sign-up'
-    | '/401'
-    | '/403'
-    | '/404'
-    | '/500'
-    | '/503'
-    | '/'
-    | '/ai/bots'
-    | '/ai/embed-clients'
-    | '/ai/host-tools'
-    | '/ai/knowledge-bases'
-    | '/ai/model-usage'
-    | '/ai/platforms'
-    | '/ai/skills'
-    | '/errors/$error'
-    | '/settings/account'
-    | '/settings/appearance'
-    | '/settings/display'
-    | '/settings/notifications'
-    | '/system/ai-html-pages'
-    | '/system/mcp-servers'
-    | '/system/roles'
-    | '/system/users'
-    | '/clerk/sign-in'
-    | '/clerk/sign-up'
-    | '/clerk/user-management'
-    | '/apps'
-    | '/chats'
-    | '/help-center'
-    | '/settings'
-    | '/tasks'
-    | '/users'
-  id:
-    | '__root__'
-    | '/_authenticated'
-    | '/clerk'
-    | '/_authenticated/settings'
-    | '/clerk/(auth)'
-    | '/clerk/_authenticated'
-    | '/(auth)/forgot-password'
-    | '/(auth)/otp'
-    | '/(auth)/sign-in'
-    | '/(auth)/sign-in-2'
-    | '/(auth)/sign-up'
-    | '/(errors)/401'
-    | '/(errors)/403'
-    | '/(errors)/404'
-    | '/(errors)/500'
-    | '/(errors)/503'
-    | '/_authenticated/'
-    | '/_authenticated/ai/bots'
-    | '/_authenticated/ai/embed-clients'
-    | '/_authenticated/ai/host-tools'
-    | '/_authenticated/ai/knowledge-bases'
-    | '/_authenticated/ai/model-usage'
-    | '/_authenticated/ai/platforms'
-    | '/_authenticated/ai/skills'
-    | '/_authenticated/errors/$error'
-    | '/_authenticated/settings/account'
-    | '/_authenticated/settings/appearance'
-    | '/_authenticated/settings/display'
-    | '/_authenticated/settings/notifications'
-    | '/_authenticated/system/ai-html-pages'
-    | '/_authenticated/system/mcp-servers'
-    | '/_authenticated/system/roles'
-    | '/_authenticated/system/users'
-    | '/clerk/(auth)/sign-in'
-    | '/clerk/(auth)/sign-up'
-    | '/clerk/_authenticated/user-management'
-    | '/_authenticated/apps/'
-    | '/_authenticated/chats/'
-    | '/_authenticated/help-center/'
-    | '/_authenticated/settings/'
-    | '/_authenticated/tasks/'
-    | '/_authenticated/users/'
-  fileRoutesById: FileRoutesById
+fileRoutesByFullPath: FileRoutesByFullPath
+fullPaths: '/'|'/clerk'|'/settings'|'/forgot-password'|'/otp'|'/sign-in'|'/sign-in-2'|'/sign-up'|'/401'|'/403'|'/404'|'/500'|'/503'|'/ai/bots'|'/ai/embed-clients'|'/ai/host-tools'|'/ai/knowledge-bases'|'/ai/model-usage'|'/ai/platforms'|'/ai/skills'|'/errors/$error'|'/settings/account'|'/settings/appearance'|'/settings/display'|'/settings/notifications'|'/system/ai-html-pages'|'/system/mcp-servers'|'/system/roles'|'/system/users'|'/clerk/sign-in'|'/clerk/sign-up'|'/clerk/user-management'|'/apps/'|'/chats/'|'/help-center/'|'/settings/'|'/tasks/'|'/users/'|'/ai/bots/$agentId'
+fileRoutesByTo: FileRoutesByTo
+to: '/clerk'|'/forgot-password'|'/otp'|'/sign-in'|'/sign-in-2'|'/sign-up'|'/401'|'/403'|'/404'|'/500'|'/503'|'/'|'/ai/bots'|'/ai/embed-clients'|'/ai/host-tools'|'/ai/knowledge-bases'|'/ai/model-usage'|'/ai/platforms'|'/ai/skills'|'/errors/$error'|'/settings/account'|'/settings/appearance'|'/settings/display'|'/settings/notifications'|'/system/ai-html-pages'|'/system/mcp-servers'|'/system/roles'|'/system/users'|'/clerk/sign-in'|'/clerk/sign-up'|'/clerk/user-management'|'/apps'|'/chats'|'/help-center'|'/settings'|'/tasks'|'/users'|'/ai/bots/$agentId'
+id: '__root__'|'/_authenticated'|'/clerk'|'/_authenticated/settings'|'/clerk/(auth)'|'/clerk/_authenticated'|'/(auth)/forgot-password'|'/(auth)/otp'|'/(auth)/sign-in'|'/(auth)/sign-in-2'|'/(auth)/sign-up'|'/(errors)/401'|'/(errors)/403'|'/(errors)/404'|'/(errors)/500'|'/(errors)/503'|'/_authenticated/'|'/_authenticated/ai/bots'|'/_authenticated/ai/embed-clients'|'/_authenticated/ai/host-tools'|'/_authenticated/ai/knowledge-bases'|'/_authenticated/ai/model-usage'|'/_authenticated/ai/platforms'|'/_authenticated/ai/skills'|'/_authenticated/errors/$error'|'/_authenticated/settings/account'|'/_authenticated/settings/appearance'|'/_authenticated/settings/display'|'/_authenticated/settings/notifications'|'/_authenticated/system/ai-html-pages'|'/_authenticated/system/mcp-servers'|'/_authenticated/system/roles'|'/_authenticated/system/users'|'/clerk/(auth)/sign-in'|'/clerk/(auth)/sign-up'|'/clerk/_authenticated/user-management'|'/_authenticated/apps/'|'/_authenticated/chats/'|'/_authenticated/help-center/'|'/_authenticated/settings/'|'/_authenticated/tasks/'|'/_authenticated/users/'|'/_authenticated/ai/bots/$agentId'
+fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
-  ClerkRouteRoute: typeof ClerkRouteRouteWithChildren
-  authForgotPasswordRoute: typeof authForgotPasswordRoute
-  authOtpRoute: typeof authOtpRoute
-  authSignInRoute: typeof authSignInRoute
-  authSignIn2Route: typeof authSignIn2Route
-  authSignUpRoute: typeof authSignUpRoute
-  errors401Route: typeof errors401Route
-  errors403Route: typeof errors403Route
-  errors404Route: typeof errors404Route
-  errors500Route: typeof errors500Route
-  errors503Route: typeof errors503Route
+AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren,ClerkRouteRoute: typeof ClerkRouteRouteWithChildren,authForgotPasswordRoute: typeof authForgotPasswordRoute,authOtpRoute: typeof authOtpRoute,authSignInRoute: typeof authSignInRoute,authSignIn2Route: typeof authSignIn2Route,authSignUpRoute: typeof authSignUpRoute,errors401Route: typeof errors401Route,errors403Route: typeof errors403Route,errors404Route: typeof errors404Route,errors500Route: typeof errors500Route,errors503Route: typeof errors503Route
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
     '/clerk': {
-      id: '/clerk'
-      path: '/clerk'
-      fullPath: '/clerk'
-      preLoaderRoute: typeof ClerkRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_authenticated': {
-      id: '/_authenticated'
-      path: ''
-      fullPath: '/'
-      preLoaderRoute: typeof AuthenticatedRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_authenticated/': {
-      id: '/_authenticated/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof AuthenticatedIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/(errors)/503': {
-      id: '/(errors)/503'
-      path: '/503'
-      fullPath: '/503'
-      preLoaderRoute: typeof errors503RouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(errors)/500': {
-      id: '/(errors)/500'
-      path: '/500'
-      fullPath: '/500'
-      preLoaderRoute: typeof errors500RouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(errors)/404': {
-      id: '/(errors)/404'
-      path: '/404'
-      fullPath: '/404'
-      preLoaderRoute: typeof errors404RouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(errors)/403': {
-      id: '/(errors)/403'
-      path: '/403'
-      fullPath: '/403'
-      preLoaderRoute: typeof errors403RouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(errors)/401': {
-      id: '/(errors)/401'
-      path: '/401'
-      fullPath: '/401'
-      preLoaderRoute: typeof errors401RouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(auth)/sign-up': {
-      id: '/(auth)/sign-up'
-      path: '/sign-up'
-      fullPath: '/sign-up'
-      preLoaderRoute: typeof authSignUpRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(auth)/sign-in-2': {
-      id: '/(auth)/sign-in-2'
-      path: '/sign-in-2'
-      fullPath: '/sign-in-2'
-      preLoaderRoute: typeof authSignIn2RouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(auth)/sign-in': {
-      id: '/(auth)/sign-in'
-      path: '/sign-in'
-      fullPath: '/sign-in'
-      preLoaderRoute: typeof authSignInRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(auth)/otp': {
-      id: '/(auth)/otp'
-      path: '/otp'
-      fullPath: '/otp'
-      preLoaderRoute: typeof authOtpRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(auth)/forgot-password': {
-      id: '/(auth)/forgot-password'
-      path: '/forgot-password'
-      fullPath: '/forgot-password'
-      preLoaderRoute: typeof authForgotPasswordRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/clerk/_authenticated': {
-      id: '/clerk/_authenticated'
-      path: ''
-      fullPath: '/clerk'
-      preLoaderRoute: typeof ClerkAuthenticatedRouteRouteImport
-      parentRoute: typeof ClerkRouteRoute
-    }
-    '/clerk/(auth)': {
-      id: '/clerk/(auth)'
-      path: ''
-      fullPath: '/clerk'
-      preLoaderRoute: typeof ClerkauthRouteRouteImport
-      parentRoute: typeof ClerkRouteRoute
-    }
-    '/_authenticated/settings': {
-      id: '/_authenticated/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof AuthenticatedSettingsRouteRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/users/': {
-      id: '/_authenticated/users/'
-      path: '/users'
-      fullPath: '/users/'
-      preLoaderRoute: typeof AuthenticatedUsersIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/tasks/': {
-      id: '/_authenticated/tasks/'
-      path: '/tasks'
-      fullPath: '/tasks/'
-      preLoaderRoute: typeof AuthenticatedTasksIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/settings/': {
-      id: '/_authenticated/settings/'
-      path: '/'
-      fullPath: '/settings/'
-      preLoaderRoute: typeof AuthenticatedSettingsIndexRouteImport
-      parentRoute: typeof AuthenticatedSettingsRouteRoute
-    }
-    '/_authenticated/help-center/': {
-      id: '/_authenticated/help-center/'
-      path: '/help-center'
-      fullPath: '/help-center/'
-      preLoaderRoute: typeof AuthenticatedHelpCenterIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/chats/': {
-      id: '/_authenticated/chats/'
-      path: '/chats'
-      fullPath: '/chats/'
-      preLoaderRoute: typeof AuthenticatedChatsIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/apps/': {
-      id: '/_authenticated/apps/'
-      path: '/apps'
-      fullPath: '/apps/'
-      preLoaderRoute: typeof AuthenticatedAppsIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/clerk/_authenticated/user-management': {
-      id: '/clerk/_authenticated/user-management'
-      path: '/user-management'
-      fullPath: '/clerk/user-management'
-      preLoaderRoute: typeof ClerkAuthenticatedUserManagementRouteImport
-      parentRoute: typeof ClerkAuthenticatedRouteRoute
-    }
-    '/clerk/(auth)/sign-up': {
-      id: '/clerk/(auth)/sign-up'
-      path: '/sign-up'
-      fullPath: '/clerk/sign-up'
-      preLoaderRoute: typeof ClerkauthSignUpRouteImport
-      parentRoute: typeof ClerkauthRouteRoute
-    }
-    '/clerk/(auth)/sign-in': {
-      id: '/clerk/(auth)/sign-in'
-      path: '/sign-in'
-      fullPath: '/clerk/sign-in'
-      preLoaderRoute: typeof ClerkauthSignInRouteImport
-      parentRoute: typeof ClerkauthRouteRoute
-    }
-    '/_authenticated/system/users': {
-      id: '/_authenticated/system/users'
-      path: '/system/users'
-      fullPath: '/system/users'
-      preLoaderRoute: typeof AuthenticatedSystemUsersRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/system/roles': {
-      id: '/_authenticated/system/roles'
-      path: '/system/roles'
-      fullPath: '/system/roles'
-      preLoaderRoute: typeof AuthenticatedSystemRolesRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/system/mcp-servers': {
-      id: '/_authenticated/system/mcp-servers'
-      path: '/system/mcp-servers'
-      fullPath: '/system/mcp-servers'
-      preLoaderRoute: typeof AuthenticatedSystemMcpServersRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/system/ai-html-pages': {
-      id: '/_authenticated/system/ai-html-pages'
-      path: '/system/ai-html-pages'
-      fullPath: '/system/ai-html-pages'
-      preLoaderRoute: typeof AuthenticatedSystemAiHtmlPagesRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/settings/notifications': {
-      id: '/_authenticated/settings/notifications'
-      path: '/notifications'
-      fullPath: '/settings/notifications'
-      preLoaderRoute: typeof AuthenticatedSettingsNotificationsRouteImport
-      parentRoute: typeof AuthenticatedSettingsRouteRoute
-    }
-    '/_authenticated/settings/display': {
-      id: '/_authenticated/settings/display'
-      path: '/display'
-      fullPath: '/settings/display'
-      preLoaderRoute: typeof AuthenticatedSettingsDisplayRouteImport
-      parentRoute: typeof AuthenticatedSettingsRouteRoute
-    }
-    '/_authenticated/settings/appearance': {
-      id: '/_authenticated/settings/appearance'
-      path: '/appearance'
-      fullPath: '/settings/appearance'
-      preLoaderRoute: typeof AuthenticatedSettingsAppearanceRouteImport
-      parentRoute: typeof AuthenticatedSettingsRouteRoute
-    }
-    '/_authenticated/settings/account': {
-      id: '/_authenticated/settings/account'
-      path: '/account'
-      fullPath: '/settings/account'
-      preLoaderRoute: typeof AuthenticatedSettingsAccountRouteImport
-      parentRoute: typeof AuthenticatedSettingsRouteRoute
-    }
-    '/_authenticated/errors/$error': {
-      id: '/_authenticated/errors/$error'
-      path: '/errors/$error'
-      fullPath: '/errors/$error'
-      preLoaderRoute: typeof AuthenticatedErrorsErrorRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/ai/skills': {
-      id: '/_authenticated/ai/skills'
-      path: '/ai/skills'
-      fullPath: '/ai/skills'
-      preLoaderRoute: typeof AuthenticatedAiSkillsRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/ai/platforms': {
-      id: '/_authenticated/ai/platforms'
-      path: '/ai/platforms'
-      fullPath: '/ai/platforms'
-      preLoaderRoute: typeof AuthenticatedAiPlatformsRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/ai/model-usage': {
-      id: '/_authenticated/ai/model-usage'
-      path: '/ai/model-usage'
-      fullPath: '/ai/model-usage'
-      preLoaderRoute: typeof AuthenticatedAiModelUsageRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/ai/knowledge-bases': {
-      id: '/_authenticated/ai/knowledge-bases'
-      path: '/ai/knowledge-bases'
-      fullPath: '/ai/knowledge-bases'
-      preLoaderRoute: typeof AuthenticatedAiKnowledgeBasesRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/ai/host-tools': {
-      id: '/_authenticated/ai/host-tools'
-      path: '/ai/host-tools'
-      fullPath: '/ai/host-tools'
-      preLoaderRoute: typeof AuthenticatedAiHostToolsRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/ai/embed-clients': {
-      id: '/_authenticated/ai/embed-clients'
-      path: '/ai/embed-clients'
-      fullPath: '/ai/embed-clients'
-      preLoaderRoute: typeof AuthenticatedAiEmbedClientsRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/ai/bots': {
-      id: '/_authenticated/ai/bots'
-      path: '/ai/bots'
-      fullPath: '/ai/bots'
-      preLoaderRoute: typeof AuthenticatedAiBotsRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
+          id: '/clerk'
+          path: '/clerk'
+          fullPath: '/clerk'
+          preLoaderRoute: typeof ClerkRouteRouteImport
+          parentRoute: typeof rootRouteImport
+        }
+'/_authenticated': {
+          id: '/_authenticated'
+          path: ''
+          fullPath: '/'
+          preLoaderRoute: typeof AuthenticatedRouteRouteImport
+          parentRoute: typeof rootRouteImport
+        }
+'/_authenticated/': {
+          id: '/_authenticated/'
+          path: '/'
+          fullPath: '/'
+          preLoaderRoute: typeof AuthenticatedIndexRouteImport
+          parentRoute: typeof AuthenticatedRouteRoute
+        }
+'/(errors)/503': {
+          id: '/(errors)/503'
+          path: '/503'
+          fullPath: '/503'
+          preLoaderRoute: typeof errors503RouteImport
+          parentRoute: typeof rootRouteImport
+        }
+'/(errors)/500': {
+          id: '/(errors)/500'
+          path: '/500'
+          fullPath: '/500'
+          preLoaderRoute: typeof errors500RouteImport
+          parentRoute: typeof rootRouteImport
+        }
+'/(errors)/404': {
+          id: '/(errors)/404'
+          path: '/404'
+          fullPath: '/404'
+          preLoaderRoute: typeof errors404RouteImport
+          parentRoute: typeof rootRouteImport
+        }
+'/(errors)/403': {
+          id: '/(errors)/403'
+          path: '/403'
+          fullPath: '/403'
+          preLoaderRoute: typeof errors403RouteImport
+          parentRoute: typeof rootRouteImport
+        }
+'/(errors)/401': {
+          id: '/(errors)/401'
+          path: '/401'
+          fullPath: '/401'
+          preLoaderRoute: typeof errors401RouteImport
+          parentRoute: typeof rootRouteImport
+        }
+'/(auth)/sign-up': {
+          id: '/(auth)/sign-up'
+          path: '/sign-up'
+          fullPath: '/sign-up'
+          preLoaderRoute: typeof authSignUpRouteImport
+          parentRoute: typeof rootRouteImport
+        }
+'/(auth)/sign-in-2': {
+          id: '/(auth)/sign-in-2'
+          path: '/sign-in-2'
+          fullPath: '/sign-in-2'
+          preLoaderRoute: typeof authSignIn2RouteImport
+          parentRoute: typeof rootRouteImport
+        }
+'/(auth)/sign-in': {
+          id: '/(auth)/sign-in'
+          path: '/sign-in'
+          fullPath: '/sign-in'
+          preLoaderRoute: typeof authSignInRouteImport
+          parentRoute: typeof rootRouteImport
+        }
+'/(auth)/otp': {
+          id: '/(auth)/otp'
+          path: '/otp'
+          fullPath: '/otp'
+          preLoaderRoute: typeof authOtpRouteImport
+          parentRoute: typeof rootRouteImport
+        }
+'/(auth)/forgot-password': {
+          id: '/(auth)/forgot-password'
+          path: '/forgot-password'
+          fullPath: '/forgot-password'
+          preLoaderRoute: typeof authForgotPasswordRouteImport
+          parentRoute: typeof rootRouteImport
+        }
+'/clerk/_authenticated': {
+          id: '/clerk/_authenticated'
+          path: ''
+          fullPath: '/clerk'
+          preLoaderRoute: typeof ClerkAuthenticatedRouteRouteImport
+          parentRoute: typeof ClerkRouteRoute
+        }
+'/clerk/(auth)': {
+          id: '/clerk/(auth)'
+          path: ''
+          fullPath: '/clerk'
+          preLoaderRoute: typeof ClerkauthRouteRouteImport
+          parentRoute: typeof ClerkRouteRoute
+        }
+'/_authenticated/settings': {
+          id: '/_authenticated/settings'
+          path: '/settings'
+          fullPath: '/settings'
+          preLoaderRoute: typeof AuthenticatedSettingsRouteRouteImport
+          parentRoute: typeof AuthenticatedRouteRoute
+        }
+'/_authenticated/users/': {
+          id: '/_authenticated/users/'
+          path: '/users'
+          fullPath: '/users/'
+          preLoaderRoute: typeof AuthenticatedUsersIndexRouteImport
+          parentRoute: typeof AuthenticatedRouteRoute
+        }
+'/_authenticated/tasks/': {
+          id: '/_authenticated/tasks/'
+          path: '/tasks'
+          fullPath: '/tasks/'
+          preLoaderRoute: typeof AuthenticatedTasksIndexRouteImport
+          parentRoute: typeof AuthenticatedRouteRoute
+        }
+'/_authenticated/settings/': {
+          id: '/_authenticated/settings/'
+          path: '/'
+          fullPath: '/settings/'
+          preLoaderRoute: typeof AuthenticatedSettingsIndexRouteImport
+          parentRoute: typeof AuthenticatedSettingsRouteRoute
+        }
+'/_authenticated/help-center/': {
+          id: '/_authenticated/help-center/'
+          path: '/help-center'
+          fullPath: '/help-center/'
+          preLoaderRoute: typeof AuthenticatedHelpCenterIndexRouteImport
+          parentRoute: typeof AuthenticatedRouteRoute
+        }
+'/_authenticated/chats/': {
+          id: '/_authenticated/chats/'
+          path: '/chats'
+          fullPath: '/chats/'
+          preLoaderRoute: typeof AuthenticatedChatsIndexRouteImport
+          parentRoute: typeof AuthenticatedRouteRoute
+        }
+'/_authenticated/apps/': {
+          id: '/_authenticated/apps/'
+          path: '/apps'
+          fullPath: '/apps/'
+          preLoaderRoute: typeof AuthenticatedAppsIndexRouteImport
+          parentRoute: typeof AuthenticatedRouteRoute
+        }
+'/clerk/_authenticated/user-management': {
+          id: '/clerk/_authenticated/user-management'
+          path: '/user-management'
+          fullPath: '/clerk/user-management'
+          preLoaderRoute: typeof ClerkAuthenticatedUserManagementRouteImport
+          parentRoute: typeof ClerkAuthenticatedRouteRoute
+        }
+'/clerk/(auth)/sign-up': {
+          id: '/clerk/(auth)/sign-up'
+          path: '/sign-up'
+          fullPath: '/clerk/sign-up'
+          preLoaderRoute: typeof ClerkauthSignUpRouteImport
+          parentRoute: typeof ClerkauthRouteRoute
+        }
+'/clerk/(auth)/sign-in': {
+          id: '/clerk/(auth)/sign-in'
+          path: '/sign-in'
+          fullPath: '/clerk/sign-in'
+          preLoaderRoute: typeof ClerkauthSignInRouteImport
+          parentRoute: typeof ClerkauthRouteRoute
+        }
+'/_authenticated/system/users': {
+          id: '/_authenticated/system/users'
+          path: '/system/users'
+          fullPath: '/system/users'
+          preLoaderRoute: typeof AuthenticatedSystemUsersRouteImport
+          parentRoute: typeof AuthenticatedRouteRoute
+        }
+'/_authenticated/system/roles': {
+          id: '/_authenticated/system/roles'
+          path: '/system/roles'
+          fullPath: '/system/roles'
+          preLoaderRoute: typeof AuthenticatedSystemRolesRouteImport
+          parentRoute: typeof AuthenticatedRouteRoute
+        }
+'/_authenticated/system/mcp-servers': {
+          id: '/_authenticated/system/mcp-servers'
+          path: '/system/mcp-servers'
+          fullPath: '/system/mcp-servers'
+          preLoaderRoute: typeof AuthenticatedSystemMcpServersRouteImport
+          parentRoute: typeof AuthenticatedRouteRoute
+        }
+'/_authenticated/system/ai-html-pages': {
+          id: '/_authenticated/system/ai-html-pages'
+          path: '/system/ai-html-pages'
+          fullPath: '/system/ai-html-pages'
+          preLoaderRoute: typeof AuthenticatedSystemAiHtmlPagesRouteImport
+          parentRoute: typeof AuthenticatedRouteRoute
+        }
+'/_authenticated/settings/notifications': {
+          id: '/_authenticated/settings/notifications'
+          path: '/notifications'
+          fullPath: '/settings/notifications'
+          preLoaderRoute: typeof AuthenticatedSettingsNotificationsRouteImport
+          parentRoute: typeof AuthenticatedSettingsRouteRoute
+        }
+'/_authenticated/settings/display': {
+          id: '/_authenticated/settings/display'
+          path: '/display'
+          fullPath: '/settings/display'
+          preLoaderRoute: typeof AuthenticatedSettingsDisplayRouteImport
+          parentRoute: typeof AuthenticatedSettingsRouteRoute
+        }
+'/_authenticated/settings/appearance': {
+          id: '/_authenticated/settings/appearance'
+          path: '/appearance'
+          fullPath: '/settings/appearance'
+          preLoaderRoute: typeof AuthenticatedSettingsAppearanceRouteImport
+          parentRoute: typeof AuthenticatedSettingsRouteRoute
+        }
+'/_authenticated/settings/account': {
+          id: '/_authenticated/settings/account'
+          path: '/account'
+          fullPath: '/settings/account'
+          preLoaderRoute: typeof AuthenticatedSettingsAccountRouteImport
+          parentRoute: typeof AuthenticatedSettingsRouteRoute
+        }
+'/_authenticated/errors/$error': {
+          id: '/_authenticated/errors/$error'
+          path: '/errors/$error'
+          fullPath: '/errors/$error'
+          preLoaderRoute: typeof AuthenticatedErrorsErrorRouteImport
+          parentRoute: typeof AuthenticatedRouteRoute
+        }
+'/_authenticated/ai/skills': {
+          id: '/_authenticated/ai/skills'
+          path: '/ai/skills'
+          fullPath: '/ai/skills'
+          preLoaderRoute: typeof AuthenticatedAiSkillsRouteImport
+          parentRoute: typeof AuthenticatedRouteRoute
+        }
+'/_authenticated/ai/platforms': {
+          id: '/_authenticated/ai/platforms'
+          path: '/ai/platforms'
+          fullPath: '/ai/platforms'
+          preLoaderRoute: typeof AuthenticatedAiPlatformsRouteImport
+          parentRoute: typeof AuthenticatedRouteRoute
+        }
+'/_authenticated/ai/model-usage': {
+          id: '/_authenticated/ai/model-usage'
+          path: '/ai/model-usage'
+          fullPath: '/ai/model-usage'
+          preLoaderRoute: typeof AuthenticatedAiModelUsageRouteImport
+          parentRoute: typeof AuthenticatedRouteRoute
+        }
+'/_authenticated/ai/knowledge-bases': {
+          id: '/_authenticated/ai/knowledge-bases'
+          path: '/ai/knowledge-bases'
+          fullPath: '/ai/knowledge-bases'
+          preLoaderRoute: typeof AuthenticatedAiKnowledgeBasesRouteImport
+          parentRoute: typeof AuthenticatedRouteRoute
+        }
+'/_authenticated/ai/host-tools': {
+          id: '/_authenticated/ai/host-tools'
+          path: '/ai/host-tools'
+          fullPath: '/ai/host-tools'
+          preLoaderRoute: typeof AuthenticatedAiHostToolsRouteImport
+          parentRoute: typeof AuthenticatedRouteRoute
+        }
+'/_authenticated/ai/embed-clients': {
+          id: '/_authenticated/ai/embed-clients'
+          path: '/ai/embed-clients'
+          fullPath: '/ai/embed-clients'
+          preLoaderRoute: typeof AuthenticatedAiEmbedClientsRouteImport
+          parentRoute: typeof AuthenticatedRouteRoute
+        }
+'/_authenticated/ai/bots': {
+          id: '/_authenticated/ai/bots'
+          path: '/ai/bots'
+          fullPath: '/ai/bots'
+          preLoaderRoute: typeof AuthenticatedAiBotsRouteImport
+          parentRoute: typeof AuthenticatedRouteRoute
+        }
+'/_authenticated/ai/bots/$agentId': {
+          id: '/_authenticated/ai/bots/$agentId'
+          path: '/$agentId'
+          fullPath: '/ai/bots/$agentId'
+          preLoaderRoute: typeof AuthenticatedAiBotsAgentIdRouteImport
+          parentRoute: typeof AuthenticatedAiBotsRoute
+        }
   }
 }
+
+
 
 interface AuthenticatedSettingsRouteRouteChildren {
-  AuthenticatedSettingsAccountRoute: typeof AuthenticatedSettingsAccountRoute
-  AuthenticatedSettingsAppearanceRoute: typeof AuthenticatedSettingsAppearanceRoute
-  AuthenticatedSettingsDisplayRoute: typeof AuthenticatedSettingsDisplayRoute
-  AuthenticatedSettingsNotificationsRoute: typeof AuthenticatedSettingsNotificationsRoute
-  AuthenticatedSettingsIndexRoute: typeof AuthenticatedSettingsIndexRoute
+  AuthenticatedSettingsAccountRoute: typeof AuthenticatedSettingsAccountRoute,AuthenticatedSettingsAppearanceRoute: typeof AuthenticatedSettingsAppearanceRoute,AuthenticatedSettingsDisplayRoute: typeof AuthenticatedSettingsDisplayRoute,AuthenticatedSettingsNotificationsRoute: typeof AuthenticatedSettingsNotificationsRoute,AuthenticatedSettingsIndexRoute: typeof AuthenticatedSettingsIndexRoute
 }
 
-const AuthenticatedSettingsRouteRouteChildren: AuthenticatedSettingsRouteRouteChildren =
-  {
-    AuthenticatedSettingsAccountRoute: AuthenticatedSettingsAccountRoute,
-    AuthenticatedSettingsAppearanceRoute: AuthenticatedSettingsAppearanceRoute,
-    AuthenticatedSettingsDisplayRoute: AuthenticatedSettingsDisplayRoute,
-    AuthenticatedSettingsNotificationsRoute:
-      AuthenticatedSettingsNotificationsRoute,
-    AuthenticatedSettingsIndexRoute: AuthenticatedSettingsIndexRoute,
-  }
+const AuthenticatedSettingsRouteRouteChildren: AuthenticatedSettingsRouteRouteChildren = {
+  AuthenticatedSettingsAccountRoute: AuthenticatedSettingsAccountRoute,AuthenticatedSettingsAppearanceRoute: AuthenticatedSettingsAppearanceRoute,AuthenticatedSettingsDisplayRoute: AuthenticatedSettingsDisplayRoute,AuthenticatedSettingsNotificationsRoute: AuthenticatedSettingsNotificationsRoute,AuthenticatedSettingsIndexRoute: AuthenticatedSettingsIndexRoute
+}
 
-const AuthenticatedSettingsRouteRouteWithChildren =
-  AuthenticatedSettingsRouteRoute._addFileChildren(
-    AuthenticatedSettingsRouteRouteChildren,
-  )
+const AuthenticatedSettingsRouteRouteWithChildren = AuthenticatedSettingsRouteRoute._addFileChildren(AuthenticatedSettingsRouteRouteChildren)
+
+
+interface AuthenticatedAiBotsRouteChildren {
+  AuthenticatedAiBotsAgentIdRoute: typeof AuthenticatedAiBotsAgentIdRoute
+}
+
+const AuthenticatedAiBotsRouteChildren: AuthenticatedAiBotsRouteChildren = {
+  AuthenticatedAiBotsAgentIdRoute: AuthenticatedAiBotsAgentIdRoute
+}
+
+const AuthenticatedAiBotsRouteWithChildren = AuthenticatedAiBotsRoute._addFileChildren(AuthenticatedAiBotsRouteChildren)
 
 interface AuthenticatedRouteRouteChildren {
-  AuthenticatedSettingsRouteRoute: typeof AuthenticatedSettingsRouteRouteWithChildren
-  AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
-  AuthenticatedAiBotsRoute: typeof AuthenticatedAiBotsRoute
-  AuthenticatedAiEmbedClientsRoute: typeof AuthenticatedAiEmbedClientsRoute
-  AuthenticatedAiHostToolsRoute: typeof AuthenticatedAiHostToolsRoute
-  AuthenticatedAiKnowledgeBasesRoute: typeof AuthenticatedAiKnowledgeBasesRoute
-  AuthenticatedAiModelUsageRoute: typeof AuthenticatedAiModelUsageRoute
-  AuthenticatedAiPlatformsRoute: typeof AuthenticatedAiPlatformsRoute
-  AuthenticatedAiSkillsRoute: typeof AuthenticatedAiSkillsRoute
-  AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
-  AuthenticatedSystemAiHtmlPagesRoute: typeof AuthenticatedSystemAiHtmlPagesRoute
-  AuthenticatedSystemMcpServersRoute: typeof AuthenticatedSystemMcpServersRoute
-  AuthenticatedSystemRolesRoute: typeof AuthenticatedSystemRolesRoute
-  AuthenticatedSystemUsersRoute: typeof AuthenticatedSystemUsersRoute
-  AuthenticatedAppsIndexRoute: typeof AuthenticatedAppsIndexRoute
-  AuthenticatedChatsIndexRoute: typeof AuthenticatedChatsIndexRoute
-  AuthenticatedHelpCenterIndexRoute: typeof AuthenticatedHelpCenterIndexRoute
-  AuthenticatedTasksIndexRoute: typeof AuthenticatedTasksIndexRoute
-  AuthenticatedUsersIndexRoute: typeof AuthenticatedUsersIndexRoute
+  AuthenticatedSettingsRouteRoute: typeof AuthenticatedSettingsRouteRouteWithChildren,AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute,AuthenticatedAiBotsRoute: typeof AuthenticatedAiBotsRouteWithChildren,AuthenticatedAiEmbedClientsRoute: typeof AuthenticatedAiEmbedClientsRoute,AuthenticatedAiHostToolsRoute: typeof AuthenticatedAiHostToolsRoute,AuthenticatedAiKnowledgeBasesRoute: typeof AuthenticatedAiKnowledgeBasesRoute,AuthenticatedAiModelUsageRoute: typeof AuthenticatedAiModelUsageRoute,AuthenticatedAiPlatformsRoute: typeof AuthenticatedAiPlatformsRoute,AuthenticatedAiSkillsRoute: typeof AuthenticatedAiSkillsRoute,AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute,AuthenticatedSystemAiHtmlPagesRoute: typeof AuthenticatedSystemAiHtmlPagesRoute,AuthenticatedSystemMcpServersRoute: typeof AuthenticatedSystemMcpServersRoute,AuthenticatedSystemRolesRoute: typeof AuthenticatedSystemRolesRoute,AuthenticatedSystemUsersRoute: typeof AuthenticatedSystemUsersRoute,AuthenticatedAppsIndexRoute: typeof AuthenticatedAppsIndexRoute,AuthenticatedChatsIndexRoute: typeof AuthenticatedChatsIndexRoute,AuthenticatedHelpCenterIndexRoute: typeof AuthenticatedHelpCenterIndexRoute,AuthenticatedTasksIndexRoute: typeof AuthenticatedTasksIndexRoute,AuthenticatedUsersIndexRoute: typeof AuthenticatedUsersIndexRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
-  AuthenticatedSettingsRouteRoute: AuthenticatedSettingsRouteRouteWithChildren,
-  AuthenticatedIndexRoute: AuthenticatedIndexRoute,
-  AuthenticatedAiBotsRoute: AuthenticatedAiBotsRoute,
-  AuthenticatedAiEmbedClientsRoute: AuthenticatedAiEmbedClientsRoute,
-  AuthenticatedAiHostToolsRoute: AuthenticatedAiHostToolsRoute,
-  AuthenticatedAiKnowledgeBasesRoute: AuthenticatedAiKnowledgeBasesRoute,
-  AuthenticatedAiModelUsageRoute: AuthenticatedAiModelUsageRoute,
-  AuthenticatedAiPlatformsRoute: AuthenticatedAiPlatformsRoute,
-  AuthenticatedAiSkillsRoute: AuthenticatedAiSkillsRoute,
-  AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
-  AuthenticatedSystemAiHtmlPagesRoute: AuthenticatedSystemAiHtmlPagesRoute,
-  AuthenticatedSystemMcpServersRoute: AuthenticatedSystemMcpServersRoute,
-  AuthenticatedSystemRolesRoute: AuthenticatedSystemRolesRoute,
-  AuthenticatedSystemUsersRoute: AuthenticatedSystemUsersRoute,
-  AuthenticatedAppsIndexRoute: AuthenticatedAppsIndexRoute,
-  AuthenticatedChatsIndexRoute: AuthenticatedChatsIndexRoute,
-  AuthenticatedHelpCenterIndexRoute: AuthenticatedHelpCenterIndexRoute,
-  AuthenticatedTasksIndexRoute: AuthenticatedTasksIndexRoute,
-  AuthenticatedUsersIndexRoute: AuthenticatedUsersIndexRoute,
+  AuthenticatedSettingsRouteRoute: AuthenticatedSettingsRouteRouteWithChildren,AuthenticatedIndexRoute: AuthenticatedIndexRoute,AuthenticatedAiBotsRoute: AuthenticatedAiBotsRouteWithChildren,AuthenticatedAiEmbedClientsRoute: AuthenticatedAiEmbedClientsRoute,AuthenticatedAiHostToolsRoute: AuthenticatedAiHostToolsRoute,AuthenticatedAiKnowledgeBasesRoute: AuthenticatedAiKnowledgeBasesRoute,AuthenticatedAiModelUsageRoute: AuthenticatedAiModelUsageRoute,AuthenticatedAiPlatformsRoute: AuthenticatedAiPlatformsRoute,AuthenticatedAiSkillsRoute: AuthenticatedAiSkillsRoute,AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,AuthenticatedSystemAiHtmlPagesRoute: AuthenticatedSystemAiHtmlPagesRoute,AuthenticatedSystemMcpServersRoute: AuthenticatedSystemMcpServersRoute,AuthenticatedSystemRolesRoute: AuthenticatedSystemRolesRoute,AuthenticatedSystemUsersRoute: AuthenticatedSystemUsersRoute,AuthenticatedAppsIndexRoute: AuthenticatedAppsIndexRoute,AuthenticatedChatsIndexRoute: AuthenticatedChatsIndexRoute,AuthenticatedHelpCenterIndexRoute: AuthenticatedHelpCenterIndexRoute,AuthenticatedTasksIndexRoute: AuthenticatedTasksIndexRoute,AuthenticatedUsersIndexRoute: AuthenticatedUsersIndexRoute
 }
 
-const AuthenticatedRouteRouteWithChildren =
-  AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
+const AuthenticatedRouteRouteWithChildren = AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
+
 
 interface ClerkauthRouteRouteChildren {
-  ClerkauthSignInRoute: typeof ClerkauthSignInRoute
-  ClerkauthSignUpRoute: typeof ClerkauthSignUpRoute
+  ClerkauthSignInRoute: typeof ClerkauthSignInRoute,ClerkauthSignUpRoute: typeof ClerkauthSignUpRoute
 }
 
 const ClerkauthRouteRouteChildren: ClerkauthRouteRouteChildren = {
-  ClerkauthSignInRoute: ClerkauthSignInRoute,
-  ClerkauthSignUpRoute: ClerkauthSignUpRoute,
+  ClerkauthSignInRoute: ClerkauthSignInRoute,ClerkauthSignUpRoute: ClerkauthSignUpRoute
 }
 
-const ClerkauthRouteRouteWithChildren = ClerkauthRouteRoute._addFileChildren(
-  ClerkauthRouteRouteChildren,
-)
+const ClerkauthRouteRouteWithChildren = ClerkauthRouteRoute._addFileChildren(ClerkauthRouteRouteChildren)
+
 
 interface ClerkAuthenticatedRouteRouteChildren {
   ClerkAuthenticatedUserManagementRoute: typeof ClerkAuthenticatedUserManagementRoute
 }
 
-const ClerkAuthenticatedRouteRouteChildren: ClerkAuthenticatedRouteRouteChildren =
-  {
-    ClerkAuthenticatedUserManagementRoute:
-      ClerkAuthenticatedUserManagementRoute,
-  }
+const ClerkAuthenticatedRouteRouteChildren: ClerkAuthenticatedRouteRouteChildren = {
+  ClerkAuthenticatedUserManagementRoute: ClerkAuthenticatedUserManagementRoute
+}
 
-const ClerkAuthenticatedRouteRouteWithChildren =
-  ClerkAuthenticatedRouteRoute._addFileChildren(
-    ClerkAuthenticatedRouteRouteChildren,
-  )
+const ClerkAuthenticatedRouteRouteWithChildren = ClerkAuthenticatedRouteRoute._addFileChildren(ClerkAuthenticatedRouteRouteChildren)
 
 interface ClerkRouteRouteChildren {
-  ClerkauthRouteRoute: typeof ClerkauthRouteRouteWithChildren
-  ClerkAuthenticatedRouteRoute: typeof ClerkAuthenticatedRouteRouteWithChildren
+  ClerkauthRouteRoute: typeof ClerkauthRouteRouteWithChildren,ClerkAuthenticatedRouteRoute: typeof ClerkAuthenticatedRouteRouteWithChildren
 }
 
 const ClerkRouteRouteChildren: ClerkRouteRouteChildren = {
-  ClerkauthRouteRoute: ClerkauthRouteRouteWithChildren,
-  ClerkAuthenticatedRouteRoute: ClerkAuthenticatedRouteRouteWithChildren,
+  ClerkauthRouteRoute: ClerkauthRouteRouteWithChildren,ClerkAuthenticatedRouteRoute: ClerkAuthenticatedRouteRouteWithChildren
 }
 
-const ClerkRouteRouteWithChildren = ClerkRouteRoute._addFileChildren(
-  ClerkRouteRouteChildren,
-)
+const ClerkRouteRouteWithChildren = ClerkRouteRoute._addFileChildren(ClerkRouteRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
-  AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
-  ClerkRouteRoute: ClerkRouteRouteWithChildren,
-  authForgotPasswordRoute: authForgotPasswordRoute,
-  authOtpRoute: authOtpRoute,
-  authSignInRoute: authSignInRoute,
-  authSignIn2Route: authSignIn2Route,
-  authSignUpRoute: authSignUpRoute,
-  errors401Route: errors401Route,
-  errors403Route: errors403Route,
-  errors404Route: errors404Route,
-  errors500Route: errors500Route,
-  errors503Route: errors503Route,
+  AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,ClerkRouteRoute: ClerkRouteRouteWithChildren,authForgotPasswordRoute: authForgotPasswordRoute,authOtpRoute: authOtpRoute,authSignInRoute: authSignInRoute,authSignIn2Route: authSignIn2Route,authSignUpRoute: authSignUpRoute,errors401Route: errors401Route,errors403Route: errors403Route,errors404Route: errors404Route,errors500Route: errors500Route,errors503Route: errors503Route
 }
-export const routeTree = rootRouteImport
-  ._addFileChildren(rootRouteChildren)
-  ._addFileTypes<FileRouteTypes>()
+export const routeTree = rootRouteImport._addFileChildren(rootRouteChildren)._addFileTypes<FileRouteTypes>()
