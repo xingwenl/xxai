@@ -113,6 +113,7 @@ async def stream_embed_chat(
     end_user_id: int,
     client_id: str | None = None,
     message: str,
+    system_prompt: str | None = None,
     conversation_id: int | None,
     request_id: str,
     citations: list[dict],
@@ -169,8 +170,6 @@ async def stream_embed_chat(
     history = await repo.list_recent_context_messages(
         conversation.id, since=history_since
     )
-    logger.info("conversation.id=%s Embed chat history_since=%s", conversation.id, history_since)
-    logger.info("conversation.id=%s Embed chat history_count=%s", conversation.id, len(history))
 
     user_message = await repo.create_message(
         conversation.id,
@@ -305,6 +304,7 @@ async def stream_embed_chat(
             context.skill_instructions,
             citations,
             host_tools=runtime_tools if runtime_tools is not None else host_tools,
+            caller_system_prompt=system_prompt,
         ),
         user_message=message,
         history=history,

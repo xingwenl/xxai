@@ -179,6 +179,29 @@ describe('WebSocketTransport', () => {
     })
   })
 
+  it('uses a restored conversation id on the first message and can clear it', async () => {
+    const socket = new FakeWebSocket('wss://agent.test/ws')
+    const transport = new WebSocketTransport({
+      endpoint: socket.url,
+      getToken: vi.fn().mockResolvedValue('token'),
+      platformId: 'p',
+      agentId: 'a',
+      conversationId: '42',
+      websocketFactory: () => socket
+    })
+    const connected = transport.connect()
+    socket.open()
+    await Promise.resolve()
+    socket.receive(event(1, 'session_ready'))
+    await connected
+    transport.send({ type: 'message_send', requestId: 'req-restored', payload: { text: '继续' } })
+    expect(JSON.parse(socket.sent[1])).toMatchObject({ conversationId: '42', payload: { conversationId: '42' } })
+    transport.setConversationId(undefined)
+    transport.send({ type: 'message_send', requestId: 'req-new', payload: { text: '新会话' } })
+    expect(JSON.parse(socket.sent[2])).not.toHaveProperty('conversationId')
+    expect(JSON.parse(socket.sent[2]).payload.conversationId).toBeUndefined()
+  })
+
   it('reconnects with exponential backoff after an unexpected close', async () => {
     vi.useFakeTimers()
     const sockets: FakeWebSocket[] = []

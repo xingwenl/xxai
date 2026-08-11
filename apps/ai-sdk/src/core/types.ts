@@ -211,6 +211,8 @@ export interface AgentClientOptions {
   ui?: UIOptions
   systemPrompt?: string
   messages?: Message[]
+  /** 本地消息和会话 ID 的存储键；未提供时按平台、Agent 和用户隔离。 */
+  storageKey?: string
   callbacks?: AgentCallbacks
   transport?: 'websocket'
   reconnect?: {

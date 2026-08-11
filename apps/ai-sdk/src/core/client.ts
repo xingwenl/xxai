@@ -40,6 +40,7 @@ export class AgentClient {
   private pendingConfirmations = new Set<string>()
   private pendingHostCalls = new Map<string, { name: string; arguments: unknown }>()
   private pendingLoop: AgentLoopRun | null = null
+  private readonly storageKey: string
 
   constructor(options: AgentClientOptions) {
     this.options = {
@@ -60,8 +61,11 @@ export class AgentClient {
     }
 
     this._systemPrompt = options.systemPrompt
+    this.storageKey = options.storageKey || `xxai-agent:${options.platformId}:${options.agentId}:${options.user?.id || 'anonymous'}`
     this.eventEmitter = new EventEmitter()
-    this.messageStore = new MessageStore(options.messages || [])
+    const persisted = this.readPersistedState()
+    this.conversationId = persisted?.conversationId
+    this.messageStore = new MessageStore(persisted?.messages || options.messages || [])
     this.toolRegistry = new ToolRegistry()
     this._callbacks = options.callbacks || {}
 
@@ -71,7 +75,8 @@ export class AgentClient {
       platformId: this.options.platformId,
       agentId: this.options.agentId,
       user: this.options.user,
-      reconnect: this.options.reconnect
+      reconnect: this.options.reconnect,
+      conversationId: this.conversationId
     })
 
     if (options.pageTools?.enabled) {
@@ -79,6 +84,7 @@ export class AgentClient {
     }
 
     this.setupTransportListeners()
+    this.persistState()
   }
 
   private setupTransportListeners(): void {
@@ -127,6 +133,7 @@ export class AgentClient {
         conversationId: msg.conversationId
       })
       this.conversationId = msg.conversationId
+      this.persistState()
     }
     let message: Message | null = null
 
@@ -134,6 +141,7 @@ export class AgentClient {
       case 'session_ready':
         if (typeof msg.payload.sessionId === 'string' && msg.payload.sessionId) {
           this.conversationId = msg.payload.sessionId
+          this.persistState()
         }
         break
       case 'message_started':
@@ -253,6 +261,7 @@ export class AgentClient {
             }
           }
           this.messageStore.addMessage(message)
+          this.persistState()
           this.pendingAssistantMessage = null
           this.activeRequestId = undefined
           this.pendingCitations = []
@@ -327,6 +336,7 @@ export class AgentClient {
         metadata: { error: errorPayload }
       }
       this.messageStore.addMessage(failedMessage)
+      this.persistState()
       this._callbacks.onMessage?.(failedMessage)
       this.eventEmitter.emit('message', failedMessage)
     }
@@ -412,6 +422,7 @@ export class AgentClient {
     }
 
     this.messageStore.addMessage(userMessage)
+    this.persistState()
     this._callbacks.onMessage?.(userMessage)
     this.eventEmitter.emit('message', userMessage)
 
@@ -419,7 +430,8 @@ export class AgentClient {
       type: 'message_send',
       requestId: generateId(),
       payload: {
-        text: text
+        text,
+        ...(this._systemPrompt ? { systemPrompt: this._systemPrompt } : {})
       }
     }
 
@@ -446,6 +458,7 @@ export class AgentClient {
 
   addMessage(message: Message): void {
     this.messageStore.addMessage(message)
+    this.persistState()
     this._callbacks.onMessage?.(message)
     this.eventEmitter.emit('message', message)
   }
@@ -453,6 +466,22 @@ export class AgentClient {
   clearMessages(): void {
     this.messageStore.clearMessages()
     this.pendingAssistantMessage = null
+  }
+
+  clearLocalHistory(): void {
+    this.cancelMessage()
+    this.messageStore.clearMessages()
+    this.pendingAssistantMessage = null
+    this.pendingLoop = null
+    this.pendingCitations = []
+    this.conversationId = undefined
+    if (this.transport instanceof WebSocketTransport) this.transport.setConversationId(undefined)
+    try {
+      globalThis.localStorage?.removeItem(this.storageKey)
+    } catch {
+      // 浏览器禁用存储时保持内存状态可用。
+    }
+    this.eventEmitter.emit('history_cleared')
   }
 
   registerTool(tool: ToolDefinition): void {
@@ -573,6 +602,42 @@ export class AgentClient {
 
   setSystemPrompt(prompt: string): void {
     this._systemPrompt = prompt
+  }
+
+  private readPersistedState(): { messages: Message[]; conversationId?: string } | null {
+    try {
+      const raw = globalThis.localStorage?.getItem(this.storageKey)
+      if (!raw) return null
+      const value = JSON.parse(raw) as { version?: number; messages?: Message[]; conversationId?: string }
+      if (value.version !== 1 || !Array.isArray(value.messages)) {
+        globalThis.localStorage?.removeItem(this.storageKey)
+        return null
+      }
+      const messages = value.messages.filter((message) => message && typeof message.id === 'string').map((message) => ({
+        ...message,
+        timestamp: new Date(message.timestamp)
+      }))
+      return { messages, conversationId: typeof value.conversationId === 'string' ? value.conversationId : undefined }
+    } catch {
+      try {
+        globalThis.localStorage?.removeItem(this.storageKey)
+      } catch {
+        // 存储整体不可用时无需继续处理损坏缓存。
+      }
+      return null
+    }
+  }
+
+  private persistState(): void {
+    try {
+      globalThis.localStorage?.setItem(this.storageKey, JSON.stringify({
+        version: 1,
+        conversationId: this.conversationId,
+        messages: this.messageStore.getMessages()
+      }))
+    } catch {
+      // 浏览器禁用或超出容量时降级为内存消息。
+    }
   }
 
   getSystemPrompt(): string | undefined {

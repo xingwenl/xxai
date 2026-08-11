@@ -185,6 +185,17 @@ def test_system_prompt_explains_available_host_tools():
     assert "用户询问可用工具时" in prompt
 
 
+def test_system_prompt_includes_caller_prompt_without_replacing_base_prompt():
+    prompt = build_system_prompt(
+        SimpleNamespace(system_prompt="base prompt"),
+        [],
+        [],
+        caller_system_prompt="用中文回答",
+    )
+    assert "base prompt" in prompt
+    assert "用中文回答" in prompt
+
+
 def test_runtime_context_only_loads_published_bound_capabilities():
     context = asyncio.run(
         load_runtime_context(

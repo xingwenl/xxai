@@ -58,6 +58,7 @@ export class WebSocketTransport extends EventEmitter implements Transport {
     websocketFactory?: SocketFactory;
     setTimeout?: typeof setTimeout;
     clearTimeout?: typeof clearTimeout;
+    conversationId?: string;
   }) {
     super();
     this._endpoint = options.endpoint;
@@ -65,6 +66,7 @@ export class WebSocketTransport extends EventEmitter implements Transport {
     this._platformId = options.platformId;
     this._agentId = options.agentId;
     this._user = options.user;
+    this._conversationId = options.conversationId;
     this._maxRetries = options.reconnect?.maxRetries ?? 5;
     this._reconnectDelay = options.reconnect?.delayMs ?? 3000;
     this._websocketFactory =
@@ -86,6 +88,10 @@ export class WebSocketTransport extends EventEmitter implements Transport {
   }
   get serverCapabilities(): string[] {
     return [...this._serverCapabilities];
+  }
+
+  setConversationId(conversationId?: string): void {
+    this._conversationId = conversationId || undefined;
   }
 
   private setState(state: ConnectionState): void {

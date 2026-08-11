@@ -487,6 +487,9 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                         client_id=str(payload["client_id"]),
                         end_user_id=int(payload["sub"]),
                         message=message["text"],
+                        system_prompt=message.get("systemPrompt")
+                        if isinstance(message.get("systemPrompt"), str)
+                        else None,
                         conversation_id=message.get("conversationId"),
                         request_id=request_id,
                         citations=[item.model_dump() for item in citations],

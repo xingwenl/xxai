@@ -1,0 +1,19 @@
+{
+  "id": "2026-08-11-ai-sdk-local-persistence-system-prompt",
+  "title": "ai-sdk 本地续聊与 systemPrompt",
+  "scope": "apps/ai-sdk + apps/backend",
+  "phase": "acceptance",
+  "status": "done",
+  "riskLevel": "medium",
+  "changeTypes": ["sdk", "protocol", "runtime", "tests", "docs"],
+  "research": {"required": true, "status": "completed", "sources": ["MDN Web Storage API", "OpenAI Conversation State", "本项目会话历史实现"], "decisionRecorded": true},
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": ["API 契约变化"],
+  "approvalRecords": [{"by": "user", "at": "2026-08-11", "scope": "systemPrompt 参与回答；本地缓存消息和会话 ID；清空后新会话"}],
+  "owner": "ai",
+  "createdAt": "2026-08-11",
+  "updatedAt": "2026-08-11",
+  "relatedPaths": ["apps/ai-sdk", "apps/backend/app/modules/gateway", "apps/backend/app/modules/conversation"],
+  "notes": "按 research -> spec -> plan -> implement -> verify -> acceptance 推进。"
+}

@@ -1,7 +1,41 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { AgentClient } from '../client'
 
 describe('AgentClient protocol events', () => {
+  it('恢复并持久化本地消息和会话，并可清空开启新会话', () => {
+    const storage = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+      removeItem: (key: string) => storage.delete(key)
+    })
+    const options = {
+      endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a',
+      user: { id: 'u' }, getToken: async () => 'token', storageKey: 'test-history'
+    }
+    const first = new AgentClient(options)
+    ;(first as any).conversationId = '42'
+    first.addMessage({ id: 'm1', role: 'user', type: 'text', content: { type: 'text', text: '你好' }, timestamp: new Date() })
+    const second = new AgentClient(options)
+    expect(second.getMessages()).toHaveLength(1)
+    expect((second as any).conversationId).toBe('42')
+    second.clearLocalHistory()
+    expect(second.getMessages()).toEqual([])
+    expect(storage.has('test-history')).toBe(false)
+    vi.unstubAllGlobals()
+  })
+
+  it('发送消息时携带 systemPrompt', async () => {
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a',
+      getToken: async () => 'token', systemPrompt: '用中文回答'
+    })
+    const sent: any[] = []
+    ;(client as any).transport.send = (message: any) => sent.push(message)
+    await client.sendMessage('测试')
+    expect(sent[0].payload).toMatchObject({ text: '测试', systemPrompt: '用中文回答' })
+  })
+
   it('同步服务端事件顶层的 conversationId 到客户端消息和工具上下文', () => {
     const client = new AgentClient({
       endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token'

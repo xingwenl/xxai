@@ -193,8 +193,9 @@ SDK 不生成、不拼接、不通过 WebSocket 发送 `external_user_id`。接�
 | `getToken` | `(context) => Promise<string>` | 是 | 获取短期 Embed Access Token；连接和重连都会调用 |
 | `user` | `{ id: string; displayName?: string }` | 否 | 传给 token provider 的业务上下文，不负责认证 |
 | `ui` | `UIOptions` | 否 | `floating` 或 `headless` 等 UI 配置 |
-| `systemPrompt` | `string` | 否 | 当前 SDK 实例的本地提示词状态；当前不会发送给后端模型 |
+| `systemPrompt` | `string` | 否 | 随每次消息发送给后端并作为调用方补充系统提示词参与回答 |
 | `messages` | `Message[]` | 否 | 初始消息列表 |
+| `storageKey` | `string` | 否 | 本地消息和会话 ID 的存储键；默认按平台、Agent 和用户隔离 |
 | `callbacks` | `AgentCallbacks` | 否 | 回调配置 |
 | `transport` | `'websocket'` | 否 | 默认使用 WebSocket |
 | `pageTools` | `PageToolsOptions` | 否 | 页面自动发现工具，默认关闭 |
@@ -219,8 +220,9 @@ agent.destroy()
 | `open()` / `close()` / `toggle()` | 控制悬浮窗口 |
 | `sendMessage(text)` | 发送消息 |
 | `cancelMessage()` | 停止当前生成 |
-| `getMessages()` / `addMessage()` / `clearMessages()` | 管理本地消息 |
-| `setSystemPrompt()` / `getSystemPrompt()` | 管理本地提示词状态 |
+| `getMessages()` / `addMessage()` / `clearMessages()` | 管理内存消息 |
+| `clearLocalHistory()` | 清除本地消息和会话 ID，下一次发送开启新会话 |
+| `setSystemPrompt()` / `getSystemPrompt()` | 管理参与模型回答的调用方提示词 |
 | `destroy()` | 释放 WebSocket、定时器、DOM 和事件监听 |
 
 工具和确认方法：
