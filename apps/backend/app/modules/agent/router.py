@@ -6,6 +6,7 @@ from app.core.security import require_current_active_user
 from app.modules.agent.repositories import AgentRepository
 from app.modules.agent.schemas import (
     AgentCreate,
+    AgentDetailRead,
     AgentListData,
     AgentRead,
     AgentUpdate,
@@ -89,6 +90,30 @@ async def update_agent_endpoint(
         AgentRepository(session), agent_id, payload, platform_id=platform_id
     )
     return success_response(data=AgentRead.model_validate(agent), message="agent updated")
+
+
+@router.get("/{agent_id}", response_model=ApiResponse[AgentDetailRead])
+async def get_agent_endpoint(
+    platform_id: int,
+    agent_id: int,
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> ApiResponse[AgentDetailRead]:
+    await _require_platform_admin(platform_id, current_user.id, session)
+    agent = await AgentRepository(session).get_agent_detail(agent_id, platform_id)
+    if agent is None:
+        raise NotFoundException("agent not found")
+    data = AgentDetailRead.model_validate(
+        {
+            **agent.__dict__,
+            "current_version": (
+                _version_read(agent.default_version)
+                if agent.default_version is not None
+                else None
+            ),
+        }
+    )
+    return success_response(data=data, message="agent fetched")
 
 
 @router.delete("/{agent_id}", response_model=ApiResponse[None])

@@ -22,3 +22,9 @@ def test_agent_management_routes_require_bearer_authentication() -> None:
     assert openapi["paths"]["/api/v1/platforms/{platform_id}/agents"]["get"][
         "security"
     ] == [{"HTTPBearer": []}]
+
+
+def test_agent_detail_route_requires_get() -> None:
+    paths = app.openapi()["paths"]
+    path = "/api/v1/platforms/{platform_id}/agents/{agent_id}"
+    assert "get" in paths[path]

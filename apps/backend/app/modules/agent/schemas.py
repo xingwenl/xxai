@@ -65,3 +65,7 @@ class AgentVersionRead(BaseModel):
     created_at: datetime
     published_at: datetime | None = None
     has_api_key: bool = False
+
+
+class AgentDetailRead(AgentRead):
+    current_version: AgentVersionRead | None = None

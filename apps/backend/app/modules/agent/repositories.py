@@ -27,6 +27,14 @@ class AgentRepository(BaseRepository[Agent]):
         )
         return result.scalar_one_or_none()
 
+    async def get_agent_detail(self, agent_id: int, platform_id: int) -> Agent | None:
+        result = await self.session.execute(
+            select(Agent)
+            .options(selectinload(Agent.default_version))
+            .where(Agent.id == agent_id, Agent.platform_id == platform_id)
+        )
+        return result.scalar_one_or_none()
+
     async def list_agents(self, platform_id: int, params: PaginationParams):
         statement = (
             select(Agent)
