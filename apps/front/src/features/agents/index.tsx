@@ -1,43 +1,18 @@
 import { useState } from 'react'
-import { z } from 'zod'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-  Edit,
-  History,
-  Plus,
-  RefreshCw,
-  Server,
-  Trash2,
-  Boxes,
-  Wrench,
-} from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import { Boxes, Plus, RefreshCw, Server } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   createAgent,
-  createAgentVersion,
-  deleteAgent,
-  listAgentVersions,
   listAgents,
-  publishAgentVersion,
-  rollbackAgentVersion,
   updateAgent,
   type Agent,
   type AgentInput,
-  type AgentVersionInput,
 } from '@/api/agent'
 import { listPlatforms } from '@/api/platform'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -75,46 +50,19 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
 import { ConfigDrawer } from '@/components/config-drawer'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
 import { ProfileDropdown } from '@/components/profile-dropdown'
 import { ThemeSwitch } from '@/components/theme-switch'
-import { BuiltinToolsDialog } from './builtin-tools-dialog'
-
-const agentSchema = z.object({
-  name: z.string().min(1, '请输入名称').max(120),
-  slug: z
-    .string()
-    .min(2, '标识至少 2 个字符')
-    .regex(/^[a-z0-9][a-z0-9_-]*$/, '只允许小写字母、数字、下划线和短横线'),
-  description: z.string().max(500).optional(),
-  is_active: z.boolean(),
-})
-const versionSchema = z.object({
-  system_prompt: z.string().min(1, '请输入系统提示词'),
-  model_name: z.string().min(1, '请输入模型名称').max(120),
-  model_base_url: z.string().url('请输入有效 URL').optional().or(z.literal('')),
-  api_key: z.string().optional(),
-  temperature: z.coerce.number().min(0).max(2),
-})
-type AgentForm = z.infer<typeof agentSchema>
-type VersionFormInput = z.input<typeof versionSchema>
-type VersionForm = z.output<typeof versionSchema>
+import { agentSchema, type AgentForm } from './agent-form-schema'
 
 export function AgentsPage() {
   const queryClient = useQueryClient()
   const [platformId, setPlatformId] = useState<number>()
   const [editing, setEditing] = useState<Agent | null | undefined>()
-  const [deleting, setDeleting] = useState<Agent | null>(null)
-  const [versionsForId, setVersionsForId] = useState<number | null>(null)
-  const [toolsForId, setToolsForId] = useState<number | null>(null)
-  const [versionDialog, setVersionDialog] = useState(false)
+  const [keyword, setKeyword] = useState('')
+  const [status, setStatus] = useState('all')
   const platformsQuery = useQuery({
     queryKey: ['platforms'],
     queryFn: listPlatforms,
@@ -125,12 +73,6 @@ export function AgentsPage() {
     queryFn: () => listAgents(activePlatformId!),
     enabled: activePlatformId != null,
   })
-  // versionsFor 只存 id，实际 agent 对象从 query 缓存中查找最新值，
-  // 这样发布/回滚后 invalidate agents 列表时，对话框内的 agent.default_version_id 会同步更新。
-  const versionsFor =
-    agentsQuery.data?.items.find((item) => item.id === versionsForId) ?? null
-  const toolsFor =
-    agentsQuery.data?.items.find((item) => item.id === toolsForId) ?? null
   const invalidateAgents = () =>
     queryClient.invalidateQueries({ queryKey: ['agents', activePlatformId] })
   const saveMutation = useMutation({
@@ -167,13 +109,15 @@ export function AgentsPage() {
       await invalidateAgents()
     },
   })
-  const deleteMutation = useMutation({
-    mutationFn: (agent: Agent) => deleteAgent(activePlatformId!, agent.id),
-    onSuccess: async () => {
-      toast.success('智能体及其版本已删除')
-      setDeleting(null)
-      await invalidateAgents()
-    },
+  // 名称/Slug 搜索与启用状态筛选在客户端完成，分页仍由后端按列表接口返回。
+  const filteredAgents = (agentsQuery.data?.items ?? []).filter((agent) => {
+    const matchesKeyword =
+      !keyword || agent.name.includes(keyword) || agent.slug.includes(keyword)
+    const matchesStatus =
+      status === 'all' ||
+      (status === 'active' && agent.is_active) ||
+      (status === 'inactive' && !agent.is_active)
+    return matchesKeyword && matchesStatus
   })
   const selectedPlatform = platformsQuery.data?.find(
     (item) => item.id === activePlatformId
@@ -197,6 +141,22 @@ export function AgentsPage() {
             </p>
           </div>
           <div className='flex items-center gap-2'>
+            <Input
+              value={keyword}
+              onChange={(event) => setKeyword(event.target.value)}
+              placeholder='搜索名称或标识'
+              className='w-56'
+            />
+            <Select value={status} onValueChange={setStatus}>
+              <SelectTrigger className='w-32'>
+                <SelectValue placeholder='全部状态' />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>全部状态</SelectItem>
+                <SelectItem value='active'>启用</SelectItem>
+                <SelectItem value='inactive'>停用</SelectItem>
+              </SelectContent>
+            </Select>
             <Select
               value={activePlatformId?.toString()}
               onValueChange={(value) => setPlatformId(Number(value))}
@@ -254,8 +214,8 @@ export function AgentsPage() {
                     </TableCell>
                   </TableRow>
                 ))
-              ) : agentsQuery.data?.items.length ? (
-                agentsQuery.data.items.map((agent) => (
+              ) : filteredAgents.length ? (
+                filteredAgents.map((agent) => (
                   <TableRow key={agent.id}>
                     <TableCell>
                       <div className='flex items-center gap-3'>
@@ -295,61 +255,15 @@ export function AgentsPage() {
                       </div>
                     </TableCell>
                     <TableCell className='text-end'>
-                      <div className='flex justify-end gap-1'>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              size='icon'
-                              variant='ghost'
-                              onClick={() => setVersionsForId(agent.id)}
-                            >
-                              <History className='size-4' />
-                              <span className='sr-only'>版本管理</span>
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>版本管理</TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              size='icon'
-                              variant='ghost'
-                              onClick={() => setToolsForId(agent.id)}
-                            >
-                              <Wrench className='size-4' />
-                              <span className='sr-only'>内置工具</span>
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>内置工具</TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              size='icon'
-                              variant='ghost'
-                              onClick={() => setEditing(agent)}
-                            >
-                              <Edit className='size-4' />
-                              <span className='sr-only'>编辑</span>
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>编辑</TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              size='icon'
-                              variant='ghost'
-                              className='text-destructive hover:text-destructive'
-                              onClick={() => setDeleting(agent)}
-                            >
-                              <Trash2 className='size-4' />
-                              <span className='sr-only'>删除</span>
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>删除</TooltipContent>
-                        </Tooltip>
-                      </div>
+                      <Button size='sm' variant='outline' asChild>
+                        <Link
+                          to='/ai/bots/$agentId'
+                          params={{ agentId: String(agent.id) }}
+                          search={{ platform: activePlatformId }}
+                        >
+                          详情
+                        </Link>
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))
@@ -374,60 +288,6 @@ export function AgentsPage() {
         isSaving={saveMutation.isPending}
         onSubmit={(values) => saveMutation.mutate(values)}
       />
-      {activePlatformId && versionsFor && (
-        <VersionsDialog
-          platformId={activePlatformId}
-          agent={versionsFor}
-          open
-          onOpenChange={(open) => !open && setVersionsForId(null)}
-          onCreate={() => setVersionDialog(true)}
-        />
-      )}
-      {activePlatformId && toolsFor && (
-        <BuiltinToolsDialog
-          platformId={activePlatformId}
-          agent={toolsFor}
-          open
-          onOpenChange={(open) => !open && setToolsForId(null)}
-        />
-      )}
-      {activePlatformId && versionsFor && (
-        <VersionFormDialog
-          platformId={activePlatformId}
-          agent={versionsFor}
-          open={versionDialog}
-          onOpenChange={setVersionDialog}
-          onCreated={() => {
-            setVersionDialog(false)
-            queryClient.invalidateQueries({
-              queryKey: ['agent-versions', activePlatformId, versionsFor.id],
-            })
-          }}
-        />
-      )}
-      <AlertDialog
-        open={!!deleting}
-        onOpenChange={(open) => !open && setDeleting(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>硬删除智能体</AlertDialogTitle>
-            <AlertDialogDescription>
-              确认删除 {deleting?.name}
-              ？该智能体及其所有版本将永久删除，无法恢复。
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => deleting && deleteMutation.mutate(deleting)}
-              className='text-destructive-foreground bg-destructive hover:bg-destructive/90'
-            >
-              永久删除
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   )
 }
@@ -534,313 +394,6 @@ function AgentDialog({
         <DialogFooter>
           <Button type='submit' form='agent-form' disabled={isSaving}>
             {isSaving ? '保存中...' : '保存'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function VersionsDialog({
-  platformId,
-  agent,
-  open,
-  onOpenChange,
-  onCreate,
-}: {
-  platformId: number
-  agent: Agent
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onCreate: () => void
-}) {
-  const queryClient = useQueryClient()
-  const versionsQuery = useQuery({
-    queryKey: ['agent-versions', platformId, agent.id],
-    queryFn: () => listAgentVersions(platformId, agent.id),
-    enabled: open,
-  })
-  const invalidateAfterVersionChange = async () => {
-    // 同时刷新版本列表和智能体列表：发布/回滚会更新 agent.default_version_id，
-    // 不刷新 agents 列表会导致"当前版本"标注和默认版本信息停留在旧值。
-    await Promise.all([
-      queryClient.invalidateQueries({
-        queryKey: ['agent-versions', platformId, agent.id],
-      }),
-      queryClient.invalidateQueries({ queryKey: ['agents', platformId] }),
-    ])
-  }
-  const publishMutation = useMutation({
-    mutationFn: (versionId: number) =>
-      publishAgentVersion(platformId, agent.id, versionId),
-    onSuccess: async () => {
-      toast.success('版本已发布')
-      await invalidateAfterVersionChange()
-    },
-  })
-  const rollbackMutation = useMutation({
-    mutationFn: (versionId: number) =>
-      rollbackAgentVersion(platformId, agent.id, versionId),
-    onSuccess: async () => {
-      toast.success('版本已回滚')
-      await invalidateAfterVersionChange()
-    },
-  })
-  const currentVersionId = agent.default_version_id
-  const currentVersion = versionsQuery.data?.find(
-    (version) => version.id === currentVersionId
-  )
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='max-w-3xl'>
-        <DialogHeader>
-          <DialogTitle>{agent.name} · 版本管理</DialogTitle>
-          <DialogDescription>
-            {currentVersion
-              ? `当前使用版本：v${currentVersion.version} · ${currentVersion.model_name}`
-              : '当前未发布任何版本'}
-            。API Key 仅在创建版本时提交，后端不会返回明文。
-          </DialogDescription>
-        </DialogHeader>
-        <div className='flex justify-end'>
-          <Button size='sm' onClick={onCreate}>
-            <Plus className='me-2 size-4' />
-            新建版本
-          </Button>
-        </div>
-        <div className='max-h-[50vh] overflow-auto rounded-md border'>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>版本</TableHead>
-                <TableHead>模型</TableHead>
-                <TableHead>模型地址</TableHead>
-                <TableHead>温度</TableHead>
-                <TableHead>API Key</TableHead>
-                <TableHead>发布时间</TableHead>
-                <TableHead>操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {versionsQuery.isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={7}>
-                    <Skeleton className='h-8 w-full' />
-                  </TableCell>
-                </TableRow>
-              ) : versionsQuery.data?.length ? (
-                versionsQuery.data.map((version) => {
-                  const isCurrent = version.id === currentVersionId
-                  return (
-                    <TableRow
-                      key={version.id}
-                      className={isCurrent ? 'bg-muted/40' : undefined}
-                    >
-                      <TableCell>
-                        <div className='flex items-center gap-2'>
-                          <span>v{version.version}</span>
-                          {isCurrent && <Badge>当前版本</Badge>}
-                        </div>
-                      </TableCell>
-                      <TableCell>{version.model_name}</TableCell>
-                      <TableCell className='max-w-[260px] truncate text-xs text-muted-foreground'>
-                        {version.model_base_url || '默认'}
-                      </TableCell>
-                      <TableCell>{version.temperature}</TableCell>
-                      <TableCell>
-                        {version.has_api_key ? '已配置' : '未配置'}
-                      </TableCell>
-                      <TableCell>
-                        {version.published_at
-                          ? new Date(version.published_at).toLocaleString()
-                          : '未发布'}
-                      </TableCell>
-                      <TableCell>
-                        <div className='flex gap-1'>
-                          {!version.published_at && (
-                            <Button
-                              size='sm'
-                              variant='outline'
-                              onClick={() => publishMutation.mutate(version.id)}
-                            >
-                              发布
-                            </Button>
-                          )}
-                          {version.published_at && !isCurrent && (
-                            <Button
-                              size='sm'
-                              variant='outline'
-                              onClick={() =>
-                                rollbackMutation.mutate(version.id)
-                              }
-                            >
-                              回滚到此版本
-                            </Button>
-                          )}
-                          {isCurrent && (
-                            <span className='text-xs text-muted-foreground'>
-                              使用中
-                            </span>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  )
-                })
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={7} className='h-20 text-center'>
-                    暂无版本
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function VersionFormDialog({
-  platformId,
-  agent,
-  open,
-  onOpenChange,
-  onCreated,
-}: {
-  platformId: number
-  agent: Agent
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onCreated: () => void
-}) {
-  const form = useForm<VersionFormInput, unknown, VersionForm>({
-    resolver: zodResolver(versionSchema),
-    defaultValues: {
-      system_prompt: '',
-      model_name: 'gpt-4o-mini',
-      model_base_url: '',
-      api_key: '',
-      temperature: 0.2,
-    },
-  })
-  const mutation = useMutation({
-    mutationFn: (values: VersionForm) => {
-      const input: AgentVersionInput = {
-        ...values,
-        api_key: values.api_key || undefined,
-        model_base_url: values.model_base_url || undefined,
-        model_options: {},
-      }
-      return createAgentVersion(platformId, agent.id, input)
-    },
-    onSuccess: () => {
-      toast.success('版本已创建')
-      form.reset()
-      onCreated()
-    },
-  })
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='max-w-2xl'>
-        <DialogHeader>
-          <DialogTitle>为 {agent.name} 创建版本</DialogTitle>
-        </DialogHeader>
-        <Form {...form}>
-          <form
-            id='agent-version-form'
-            onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
-            className='grid gap-4'
-          >
-            <FormField
-              control={form.control}
-              name='model_name'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>模型名称</FormLabel>
-                  <FormControl>
-                    <Input {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name='model_base_url'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>模型地址</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder='可选，例如 https://api.openai.com/v1'
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name='api_key'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>API Key</FormLabel>
-                  <FormControl>
-                    <Input
-                      type='password'
-                      placeholder='仅本次提交'
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name='temperature'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Temperature</FormLabel>
-                  <FormControl>
-                    <Input
-                      type='number'
-                      min='0'
-                      max='2'
-                      step='0.1'
-                      {...field}
-                      value={field.value as string | number | undefined}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name='system_prompt'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>系统提示词</FormLabel>
-                  <FormControl>
-                    <Textarea rows={6} {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </form>
-        </Form>
-        <DialogFooter>
-          <Button
-            type='submit'
-            form='agent-version-form'
-            disabled={mutation.isPending}
-          >
-            {mutation.isPending ? '保存中...' : '创建版本'}
           </Button>
         </DialogFooter>
       </DialogContent>
