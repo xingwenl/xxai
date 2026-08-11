@@ -2,7 +2,7 @@
   "id": "2026-08-11-agent-detail-workbench",
   "title": "智能体详情工作台",
   "scope": "frontend-and-backend",
-  "phase": "spec",
+  "phase": "plan",
   "status": "active",
   "riskLevel": "high",
   "changeTypes": ["frontend", "backend", "api", "docs"],
@@ -20,12 +20,21 @@
     "decisionRecorded": true
   },
   "approvalRequired": true,
-  "approvalGranted": false,
+  "approvalGranted": true,
   "approvalReasons": [
     "新增智能体详情读取 API",
     "新增知识库关联查询与解除关联 API"
   ],
-  "approvalRecords": [],
+  "approvalRecords": [
+    {
+      "date": "2026-08-11",
+      "by": "user",
+      "items": [
+        "新增智能体详情读取 API",
+        "新增知识库关联查询与解除关联 API"
+      ]
+    }
+  ],
   "owner": "ai",
   "createdAt": "2026-08-11",
   "updatedAt": "2026-08-11",
@@ -37,5 +46,5 @@
     "apps/backend/app/modules/knowledge",
     "apps/backend/app/modules/model_usage"
   ],
-  "notes": "已完成调研与设计，等待用户审核 spec 并确认 API 契约变化。"
+  "notes": "spec 与新增 API 契约已获用户确认，实施计划已编写完成，等待用户确认后进入实现阶段。"
 }
