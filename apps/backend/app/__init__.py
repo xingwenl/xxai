@@ -11,7 +11,10 @@ from app.core.database import dispose_database
 from app.core.logging import get_logger, setup_logging
 from app.modules.auth.router import router as auth_router
 from app.modules.agent.router import router as agent_router
-from app.modules.knowledge.router import router as knowledge_router
+from app.modules.knowledge.router import (
+    knowledge_agent_router,
+    router as knowledge_router,
+)
 from app.modules.mcp.router import router as mcp_router
 from app.modules.skill.router import router as skill_router
 from app.modules.role.router import router as role_router
@@ -70,6 +73,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router, prefix=settings.api_v1_prefix)
     app.include_router(agent_router, prefix=settings.api_v1_prefix)
     app.include_router(knowledge_router, prefix=settings.api_v1_prefix)
+    app.include_router(knowledge_agent_router, prefix=settings.api_v1_prefix)
     app.include_router(mcp_router, prefix=settings.api_v1_prefix)
     app.include_router(skill_router, prefix=settings.api_v1_prefix)
     app.include_router(role_router, prefix=settings.api_v1_prefix)

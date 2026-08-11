@@ -6,9 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.database import get_db_session
 from app.core.security import require_current_active_user
+from app.modules.agent.repositories import AgentRepository
 from app.modules.knowledge.repositories import KnowledgeRepository
 from app.modules.knowledge.runtime import build_embedding_model
 from app.modules.knowledge.schemas import (
+    AgentKnowledgeBaseRead,
     DocumentRead,
     KnowledgeBaseCreate,
     KnowledgeBaseRead,
@@ -45,6 +47,54 @@ async def _require_admin(platform_id: int, user_id: int, session: AsyncSession) 
         is None
     ):
         raise NotFoundException("platform not found")
+
+
+knowledge_agent_router = APIRouter(
+    prefix="/platforms/{platform_id}/agents", tags=["knowledge-agent"]
+)
+
+
+@knowledge_agent_router.get(
+    "/{agent_id}/knowledge-bases",
+    response_model=ApiResponse[list[AgentKnowledgeBaseRead]],
+)
+async def list_agent_knowledge_bases_endpoint(
+    platform_id: int,
+    agent_id: int,
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    await _require_admin(platform_id, current_user.id, session)
+    if await AgentRepository(session).get_agent(agent_id, platform_id) is None:
+        raise NotFoundException("agent not found")
+    rows = await KnowledgeRepository(session).list_agent_bindings(
+        platform_id, agent_id
+    )
+    return success_response(
+        data=[AgentKnowledgeBaseRead.model_validate(row) for row in rows],
+        message="agent knowledge bases listed",
+    )
+
+
+@knowledge_agent_router.delete(
+    "/{agent_id}/knowledge-bases/{base_id}",
+    response_model=ApiResponse[None],
+)
+async def unbind_agent_knowledge_base_endpoint(
+    platform_id: int,
+    agent_id: int,
+    base_id: int,
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    await _require_admin(platform_id, current_user.id, session)
+    if await AgentRepository(session).get_agent(agent_id, platform_id) is None:
+        raise NotFoundException("agent not found")
+    if not await KnowledgeRepository(session).unbind_agent(
+        agent_id, base_id, platform_id
+    ):
+        raise NotFoundException("knowledge base binding not found")
+    return success_response(message="knowledge base unbound")
 
 
 def _base_read(base) -> KnowledgeBaseRead:

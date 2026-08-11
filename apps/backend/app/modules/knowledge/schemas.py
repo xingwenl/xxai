@@ -91,6 +91,24 @@ class KnowledgeSearchResponse(BaseModel):
     citations: list[Citation]
 
 
+class AgentKnowledgeBaseRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    agent_id: int
+    knowledge_base_id: int
+    is_enabled: bool
+    sort_order: int
+    created_at: datetime
+    updated_at: datetime
+    name: str
+    slug: str
+    embedding_model: str
+    active_index_version: int
+    has_embedding_api_key: bool = False
+    document_count: int = 0
+
+
 class AgentKnowledgeBaseBind(BaseModel):
     knowledge_base_id: int = Field(ge=1)
     sort_order: int = Field(default=0, ge=0)

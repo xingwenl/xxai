@@ -93,6 +93,60 @@ class KnowledgeRepository:
         await self.session.refresh(binding)
         return binding
 
+    async def list_agent_bindings(self, platform_id: int, agent_id: int):
+        document_count = (
+            select(func.count(KnowledgeDocument.id))
+            .where(KnowledgeDocument.knowledge_base_id == KnowledgeBase.id)
+            .scalar_subquery()
+        )
+        statement = (
+            select(
+                AgentKnowledgeBase,
+                KnowledgeBase,
+                document_count.label("document_count"),
+            )
+            .join(
+                KnowledgeBase,
+                KnowledgeBase.id == AgentKnowledgeBase.knowledge_base_id,
+            )
+            .where(
+                AgentKnowledgeBase.agent_id == agent_id,
+                KnowledgeBase.platform_id == platform_id,
+            )
+            .order_by(AgentKnowledgeBase.sort_order, KnowledgeBase.id)
+        )
+        rows = (await self.session.execute(statement)).all()
+        return [
+            {
+                **base.__dict__,
+                **binding.__dict__,
+                "document_count": int(document_count or 0),
+                "has_embedding_api_key": bool(base.embedding_api_key_encrypted),
+            }
+            for binding, base, document_count in rows
+        ]
+
+    async def unbind_agent(
+        self, agent_id: int, knowledge_base_id: int, platform_id: int
+    ) -> bool:
+        binding = await self.session.scalar(
+            select(AgentKnowledgeBase)
+            .join(
+                KnowledgeBase,
+                KnowledgeBase.id == AgentKnowledgeBase.knowledge_base_id,
+            )
+            .where(
+                AgentKnowledgeBase.agent_id == agent_id,
+                AgentKnowledgeBase.knowledge_base_id == knowledge_base_id,
+                KnowledgeBase.platform_id == platform_id,
+            )
+        )
+        if binding is None:
+            return False
+        await self.session.delete(binding)
+        await self.session.commit()
+        return True
+
     async def create_base(self, platform_id: int, payload: KnowledgeBaseCreate):
         values = payload.model_dump(exclude={"embedding_api_key"})
         values["embedding_api_key_encrypted"] = payload.embedding_api_key

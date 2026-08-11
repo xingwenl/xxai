@@ -27,3 +27,17 @@ def test_knowledge_management_routes_require_bearer_authentication() -> None:
     assert openapi["paths"][
         "/api/v1/platforms/{platform_id}/knowledge-bases"
     ]["get"]["security"] == [{"HTTPBearer": []}]
+
+
+def test_agent_knowledge_routes_are_registered() -> None:
+    paths = app.openapi()["paths"]
+    list_path = (
+        "/api/v1/platforms/{platform_id}/agents/{agent_id}/knowledge-bases"
+    )
+    unbind_path = (
+        "/api/v1/platforms/{platform_id}/agents/{agent_id}/knowledge-bases/{base_id}"
+    )
+    assert list_path in paths
+    assert unbind_path in paths
+    assert "get" in paths[list_path]
+    assert "delete" in paths[unbind_path]
