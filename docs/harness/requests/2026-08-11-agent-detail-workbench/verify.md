@@ -37,3 +37,10 @@
 ## 结论
 
 后端定向测试、ruff、前端 ESLint/Prettier、类型检查与工具函数测试全部通过；全量构建与浏览器联调受环境限制未完成，需合入主仓库后在用户正常开发环境补验。
+
+## 修复记录：详情页被列表路由拦截（2026-08-11）
+
+- 现象：访问 `/ai/bots/3` 时停留在列表页，详情页无法进入。
+- 根因：`bots.tsx`（列表路由）与 `bots.$agentId.tsx`（详情路由）构成父子路由，且列表路由组件没有 `<Outlet/>`，TanStack Router 渲染父级组件后子路由内容无法输出（已在 `@tanstack/react-router` 源码 `Match.js` 确认：路由有 component 时由组件自行渲染 `Outlet`）。
+- 修复：将两个文件重构为目录式兄弟路由 `bots/index.tsx` 与 `bots/$agentId.tsx`（与仓库既有 `users/index.tsx` 等模式一致），详情路由父级改为渲染 `Outlet` 的 `/_authenticated` 布局。
+- 验证：重新生成 `routeTree.gen.ts` 后，两路由均为 `/_authenticated` 的子路由；用真实 router 包构造新旧两种树并匹配 `/ai/bots/3`：旧结构匹配含列表路由的 4 层，新结构仅匹配 `__root__ → _authenticated → 详情` 3 层；前端 tsc、ESLint、Prettier 全部通过，`to: '/ai/bots'` 类型引用仍有效。
