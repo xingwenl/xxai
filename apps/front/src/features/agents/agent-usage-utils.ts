@@ -28,7 +28,10 @@ export function formatNumber(value: number) {
   return new Intl.NumberFormat('zh-CN').format(value)
 }
 
-export function percentChange(current: number, previous: number): string | null {
+export function percentChange(
+  current: number,
+  previous: number
+): string | null {
   if (previous === 0) return null
   const delta = ((current - previous) / previous) * 100
   return `${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%`

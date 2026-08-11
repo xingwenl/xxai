@@ -1,5 +1,9 @@
 import { strict as assert } from 'node:assert'
-import { formatNumber, getUsageRanges, percentChange } from './agent-usage-utils'
+import {
+  formatNumber,
+  getUsageRanges,
+  percentChange,
+} from './agent-usage-utils'
 
 const ranges = getUsageRanges(7)
 assert.equal(ranges.start.length, 10)
