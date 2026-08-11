@@ -134,7 +134,7 @@ export function AgentDetailPage() {
           }
           className='gap-0'
         >
-          <TabsList className='h-auto w-full justify-start overflow-x-auto rounded-lg'>
+          <TabsList className='h-auto w-full justify-start overflow-x-auto rounded-lg mb-4'>
             <TabsTrigger value='overview'>概览</TabsTrigger>
             <TabsTrigger value='config'>配置</TabsTrigger>
             <TabsTrigger value='knowledge'>知识库</TabsTrigger>
