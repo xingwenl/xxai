@@ -140,10 +140,18 @@ function SummaryTable({
   )
 }
 
-export function ModelUsagePage() {
+export function ModelUsagePage({
+  initialPlatformId,
+  initialAgentId,
+}: {
+  initialPlatformId?: number
+  initialAgentId?: string
+} = {}) {
   const defaultRange = useMemo(() => getDefaultDateRange(), [])
-  const [platformId, setPlatformId] = useState<number>()
-  const [agentId, setAgentId] = useState<string>('all')
+  const [platformId, setPlatformId] = useState<number | undefined>(
+    initialPlatformId
+  )
+  const [agentId, setAgentId] = useState<string>(initialAgentId ?? 'all')
   const [clientId, setClientId] = useState<string>('all')
   const [startDate, setStartDate] = useState(defaultRange.start)
   const [endDate, setEndDate] = useState(defaultRange.end)
