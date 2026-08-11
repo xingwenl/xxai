@@ -110,13 +110,6 @@
             external_user_id: '2',
             origin: window.location.origin,
           });
-          // for (const name of [
-          //   'get_weather',
-          //   'calculate_total',
-          //   'get_order_status',
-          // ]) {
-          //   params.append('host_tool_names', name);
-          // }
           const response = await fetch('/api/agent-token?' + params.toString());
           const result = await response.json();
           return result.data.access_token;

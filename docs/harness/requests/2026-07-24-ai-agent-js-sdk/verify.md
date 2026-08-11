@@ -2,6 +2,14 @@
 
 ## 执行命令
 
+### 2026-08-10 文档增量验证
+
+- `git diff --check` - 验证 README 和 Harness 文档没有空白错误。
+- `rg -n "api/v1/embed/tokens|client_secret|external_user_id|无后端代理" apps/ai-sdk/README.md` - 验证 README 覆盖 token 获取、身份来源和无代理边界。
+- `npm run verify-package`（工作目录 `apps/ai-sdk`）- 验证 SDK 包入口和现有构建产物仍完整。
+- `rg -n '^```' apps/ai-sdk/README.md | wc -l` - 验证 Markdown 代码围栏数量为偶数。
+- `sed -n '1,420p' apps/ai-sdk/README.md` - 人工核对安装、初始化、代理示例、生命周期、工具和安全清单章节。
+
 ### 2026-07-31 增量验证
 
 - `cd apps/ai-sdk && npm run test -- --run` - 验证 token provider 上下文、空 token 和重连行为及既有 SDK 回归。
@@ -21,6 +29,14 @@
 - 运行 `npm run dev` 能够正常启动 Demo 页面
 
 ## 实际结果
+
+### 2026-08-10 文档增量结果
+
+- ✅ README 已合并为单一接入入口，覆盖生产、本地 Demo 和无后端代理边界。
+- ✅ 文档中的生产接口、响应结构和现有后端实现一致。
+- ✅ 明确未将尚未实现的 Public Client/OIDC 接口描述为当前可用能力。
+- ✅ SDK 包入口校验通过，代码围栏数量为 42 个且成对。
+- ✅ `git diff --check` 通过。
 
 ### 2026-07-31 增量结果
 

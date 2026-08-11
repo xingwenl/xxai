@@ -1,5 +1,8 @@
 # Changelog
 
+## - 2026-08-11
+- ✨ feat：完善接入文档与本地工具演示 `🧑‍💻 lixingwen`
+
 ## - 2026-08-10
 - 🐛 fix：修复会话历史与会话标识传递 `🧑‍💻 lixingwen`
 - 🧰 chore：同步 SDK 与页面交互改动 `🧑‍💻 lixingwen`
