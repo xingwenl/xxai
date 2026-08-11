@@ -57,6 +57,42 @@ export type AgentKnowledgeBaseBinding = {
   knowledge_base_id: number
 }
 
+export type AgentKnowledgeBaseBindingDetail = {
+  id: number
+  agent_id: number
+  knowledge_base_id: number
+  is_enabled: boolean
+  sort_order: number
+  created_at: string
+  updated_at: string
+  name: string
+  slug: string
+  embedding_model: string
+  active_index_version: number
+  has_embedding_api_key: boolean
+  document_count: number
+}
+
+export async function listAgentKnowledgeBases(
+  platformId: number,
+  agentId: number
+): Promise<AgentKnowledgeBaseBindingDetail[]> {
+  const { data } = await http.get<AgentKnowledgeBaseBindingDetail[]>(
+    `/platforms/${platformId}/agents/${agentId}/knowledge-bases`
+  )
+  return data ?? []
+}
+
+export async function unbindKnowledgeBaseAgent(
+  platformId: number,
+  agentId: number,
+  baseId: number
+) {
+  await http.delete(
+    `/platforms/${platformId}/agents/${agentId}/knowledge-bases/${baseId}`
+  )
+}
+
 export async function listKnowledgeBases(
   platformId: number,
   params: { page?: number; pageSize?: number } = {}

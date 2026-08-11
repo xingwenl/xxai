@@ -45,6 +45,10 @@ export type AgentVersion = {
   has_api_key: boolean
 }
 
+export type AgentDetail = Agent & {
+  current_version: AgentVersion | null
+}
+
 export type AgentVersionInput = {
   system_prompt: string
   model_name: string
@@ -69,6 +73,16 @@ export async function listAgents(
     pageSize: Number(data?.page_size ?? 20),
     totalPage: Number(data?.pages ?? 1),
   }
+}
+
+export async function getAgent(
+  platformId: number,
+  agentId: number
+): Promise<AgentDetail> {
+  const { data } = await http.get<AgentDetail>(
+    `/platforms/${platformId}/agents/${agentId}`
+  )
+  return data
 }
 
 export async function createAgent(
