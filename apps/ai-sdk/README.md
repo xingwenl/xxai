@@ -402,9 +402,11 @@ SDK 通过 GitHub Actions 自动发布到 npm 官方仓库，工作流见 `.gith
 
 发布前需要配置：
 
-- GitHub 仓库 Secrets 中新增 `NPM_TOKEN`，值为 npmjs.com 的自动化发布 token（Automation 类型，权限 `Read and publish`）。
+- GitHub 仓库 Secrets 中新增 `NPM_TOKEN`，值为 npmjs.com 的 **Granular Access Token**：权限选择 `Read and write`（可限定仅 `xxai-agent` 包），并且**必须勾选 "Bypass two-factor authentication"**。npm 已于 2025-11 移除旧的 Automation/legacy token，未勾选 Bypass 2FA 的 token 在 CI 发布时会报 `ENEEDAUTH` / `EOTP`。
 - `prepublishOnly` 会自动执行构建和 `verify-package` 产物校验，校验不通过会中止发布。
 - npm provenance 来源证明要求 GitHub 仓库为公开仓库，且 `package.json` 的 `repository` 与发布仓库一致（当前为 `xingwenl/xxai`）。
+
+> 推荐长期方案：npm **Trusted Publishing**（OIDC，无需 token）。在 npmjs.com 的 `xxai-agent` 包设置中添加 Trusted Publisher，GitHub 配置填 `xingwenl` / `xxai` / 工作流 `publish-ai-sdk.yml`；配置后 CI 使用 Node ≥ 22 自带的最新 npm，`npm publish` 自动完成身份认证和 provenance。注意：首次发布仍需先用 token 完成，包存在后才能配置 Trusted Publisher。
 
 ## 11. 常见问题
 
