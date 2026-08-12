@@ -390,7 +390,23 @@ npm run type-check
 
 本地 Demo 使用 `/api/agent-token?external_user_id=demo-user` 时，确认 AI Base 后端已配置 `EMBED_CLIENT_ID`、`EMBED_CLIENT_SECRET`、`EMBED_AGENT_ID` 和 `EMBED_ORIGIN`。
 
-## 10. 常见问题
+## 10. 发布到 npm
+
+SDK 通过 GitHub Actions 自动发布到 npm 官方仓库，工作流见 `.github/workflows/publish-ai-sdk.yml`，触发方式是 GitHub Release 创建（`release` 事件类型 `published`）。
+
+发布流程：
+
+1. 修改 `apps/ai-sdk/package.json` 中的 `version`（遵循语义化版本），提交并推送到 GitHub。
+2. 在 GitHub 仓库创建 Release。版本号以 `package.json` 的 `version` 为准，与 Tag 是否一致不影响发布；版本号为预发布（如 `0.2.0-beta.1`）时，npm 会自动使用预发布标识（如 `beta`）作为 dist-tag，不会覆盖 `latest`。
+3. Release 发布后，Actions 依次执行类型检查、单元测试，再执行 `npm publish --provenance --access public` 发布到 npmjs.com；任一步骤失败都不会发布。
+
+发布前需要配置：
+
+- GitHub 仓库 Secrets 中新增 `NPM_TOKEN`，值为 npmjs.com 的自动化发布 token（Automation 类型，权限 `Read and publish`）。
+- `prepublishOnly` 会自动执行构建和 `verify-package` 产物校验，校验不通过会中止发布。
+- npm provenance 来源证明要求 GitHub 仓库为公开仓库，且 `package.json` 的 `repository` 与发布仓库一致（当前为 `xingwenl/xxai`）。
+
+## 11. 常见问题
 
 ### token 从哪里获取？
 
@@ -408,7 +424,7 @@ npm run type-check
 
 SDK 在重连时会再次调用 `getToken`。如果主动断开后重新连接，也应重新获取短期 token，不要缓存长期 token。
 
-## 11. 安全检查清单
+## 12. 安全检查清单
 
 - 浏览器请求中没有 `client_secret`。
 - WebSocket URL 中没有 token。

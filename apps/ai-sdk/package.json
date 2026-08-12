@@ -8,6 +8,10 @@
   "main": "./dist/xxai-agent.umd.cjs",
   "module": "./dist/xxai-agent.es.js",
   "types": "./dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xingwenl/xxai.git"
+  },
   "exports": {
     ".": {
       "import": "./dist/xxai-agent.es.js",
