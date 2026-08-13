@@ -4,6 +4,7 @@ import type {
   ConnectionState,
   AgentLoopRun,
   AgentLoopStep,
+  AssistantTimelineEntry,
   Message,
   OutgoingMessage,
   ToolDefinition,
@@ -33,7 +34,7 @@ export class AgentClient {
   private conversationId: string | undefined
   private currentRequestId: string | undefined
   private activeRequestId: string | undefined
-  private pendingAssistantMessage: { id: string; text: string; loop?: AgentLoopRun } | null = null
+  private pendingAssistantMessage: { id: string; text: string; timeline?: AssistantTimelineEntry[]; loop?: AgentLoopRun } | null = null
   private pendingCitations: unknown[] = []
   private uiMounted = false
   private uiContainer: HTMLElement | null = null
@@ -150,6 +151,7 @@ export class AgentClient {
         this.pendingAssistantMessage = {
           id: generateId(),
           text: '',
+          timeline: [],
           loop: this.pendingLoop || undefined
         }
         this.pendingCitations = []
@@ -181,6 +183,30 @@ export class AgentClient {
         const index = this.pendingLoop.steps.findIndex((item) => item.id === step.id)
         if (index === -1) this.pendingLoop.steps.push(step)
         else this.pendingLoop.steps[index] = { ...this.pendingLoop.steps[index], ...step }
+        this.upsertTimelineStep(step.id)
+        this.eventEmitter.emit('agent_loop', { ...this.pendingLoop, steps: [...this.pendingLoop.steps] })
+        this.pendingAssistantMessage && (this.pendingAssistantMessage.loop = this.pendingLoop)
+        this.updatePendingMessage()
+        break
+      }
+      case 'agent_step_delta': {
+        if (!this.pendingLoop) break
+        const payload = msg.payload as Record<string, unknown>
+        const content = typeof payload.content === 'string' ? payload.content : ''
+        if (payload.field !== 'thinking' || !content) break
+        const stepId = typeof payload.stepId === 'string' ? payload.stepId : ''
+        let index = this.pendingLoop.steps.findIndex((item) => item.id === stepId)
+        if (index === -1) {
+          index = this.pendingLoop.steps.findIndex(
+            (item) => item.stepType === 'model_generation' || item.stepType === 'thinking'
+          )
+        }
+        if (index === -1) break
+        const step = this.pendingLoop.steps[index]
+        this.pendingLoop.steps[index] = {
+          ...step,
+          thinkingText: (step.thinkingText || '') + content
+        }
         this.eventEmitter.emit('agent_loop', { ...this.pendingLoop, steps: [...this.pendingLoop.steps] })
         this.pendingAssistantMessage && (this.pendingAssistantMessage.loop = this.pendingLoop)
         this.updatePendingMessage()
@@ -200,7 +226,9 @@ export class AgentClient {
         break
       case 'message_delta':
         if (this.pendingAssistantMessage) {
-          this.pendingAssistantMessage.text += (msg.payload.content as string) || ''
+          const delta = (msg.payload.content as string) || ''
+          this.pendingAssistantMessage.text += delta
+          this.appendTimelineText(delta)
           this.updatePendingMessage()
         }
         break
@@ -239,6 +267,11 @@ export class AgentClient {
           const loop = completedLoop && this.pendingLoop
             ? { ...this.pendingLoop, ...completedLoop, steps: completedLoop.steps?.length ? completedLoop.steps : this.pendingLoop.steps }
             : completedLoop || this.pendingLoop || undefined
+          const timeline = this.pendingAssistantMessage.timeline?.length
+            ? this.pendingAssistantMessage.timeline
+            : finalText
+              ? [{ kind: 'text' as const, id: `${this.pendingAssistantMessage.id}_text`, text: finalText }]
+              : undefined
           message = {
             id: this.pendingAssistantMessage.id,
             role: 'assistant',
@@ -250,6 +283,7 @@ export class AgentClient {
             contentBlocks: Array.isArray(msg.payload.contentBlocks)
               ? msg.payload.contentBlocks as Message['contentBlocks']
               : [{ id: `${this.pendingAssistantMessage.id}_text`, type: 'markdown', text: finalText, status: 'completed' }],
+            timeline,
             loop,
             timestamp: new Date(),
             conversationId: this.conversationId,
@@ -290,8 +324,28 @@ export class AgentClient {
       this.eventEmitter.emit('message_updating', {
         id: this.pendingAssistantMessage.id,
         text: this.pendingAssistantMessage.text,
+        timeline: this.pendingAssistantMessage.timeline,
         loop: this.pendingAssistantMessage.loop
       })
+    }
+  }
+
+  private appendTimelineText(text: string): void {
+    if (!this.pendingAssistantMessage || !text) return
+    const timeline = this.pendingAssistantMessage.timeline || (this.pendingAssistantMessage.timeline = [])
+    const last = timeline[timeline.length - 1]
+    if (last && last.kind === 'text') {
+      last.text += text
+    } else {
+      timeline.push({ kind: 'text', id: generateId(), text })
+    }
+  }
+
+  private upsertTimelineStep(stepId: string): void {
+    if (!this.pendingAssistantMessage || !stepId) return
+    const timeline = this.pendingAssistantMessage.timeline || (this.pendingAssistantMessage.timeline = [])
+    if (!timeline.some((entry) => entry.kind === 'step' && entry.stepId === stepId)) {
+      timeline.push({ kind: 'step', id: generateId(), stepId })
     }
   }
 
@@ -358,7 +412,9 @@ export class AgentClient {
       stepType: String(payload.stepType || 'thinking'),
       title: String(payload.title || '处理中'),
       status: (payload.status as AgentLoopStep['status']) || 'running',
+      inputSummary: typeof payload.inputSummary === 'string' ? payload.inputSummary : undefined,
       outputSummary: typeof payload.outputSummary === 'string' ? payload.outputSummary : undefined,
+      thinkingText: typeof payload.thinkingText === 'string' ? payload.thinkingText : undefined,
       toolName: typeof payload.toolName === 'string' ? payload.toolName : undefined,
       skillName: typeof payload.skillName === 'string' ? payload.skillName : undefined,
       skillVersion: typeof payload.skillVersion === 'string' ? payload.skillVersion : undefined,

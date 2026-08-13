@@ -34,6 +34,21 @@ export interface MessageContentBlock {
   metadata?: Record<string, unknown>
 }
 
+export interface KnowledgeBaseRef {
+  id?: number | string
+  name?: string
+  slug?: string
+}
+
+export interface KnowledgeCitation {
+  title: string
+  sourceUrl?: string
+  source?: string
+  text?: string
+  knowledgeBase?: KnowledgeBaseRef
+  [key: string]: unknown
+}
+
 export type AgentLoopStepType =
   | 'thinking'
   | 'knowledge_retrieval'
@@ -55,11 +70,13 @@ export interface AgentLoopStep {
   stepType: AgentLoopStepType | string
   title: string
   status: AgentLoopStepStatus
+  inputSummary?: string
   outputSummary?: string
+  thinkingText?: string
   toolName?: string
   skillName?: string
   skillVersion?: string
-  citationRefs?: unknown[]
+  citationRefs?: KnowledgeCitation[]
   error?: Record<string, unknown>
   startedAt?: string
   completedAt?: string
@@ -115,12 +132,17 @@ export interface Message {
   type: MessageType
   content: MessageContent
   contentBlocks?: MessageContentBlock[]
+  timeline?: AssistantTimelineEntry[]
   loop?: AgentLoopRun
   timestamp: Date
   conversationId?: string
   requestId?: string
   metadata?: Record<string, unknown>
 }
+
+export type AssistantTimelineEntry =
+  | { kind: 'text'; id: string; text: string }
+  | { kind: 'step'; id: string; stepId: string }
 
 export interface ToolDefinition {
   name: string

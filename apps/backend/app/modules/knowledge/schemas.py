@@ -76,10 +76,17 @@ class DocumentRead(BaseModel):
     updated_at: datetime
 
 
+class KnowledgeBaseRef(BaseModel):
+    id: int
+    name: str
+    slug: str
+
+
 class Citation(BaseModel):
     title: str
     source_url: str | None = None
     text: str
+    knowledge_base: KnowledgeBaseRef | None = None
 
 
 class KnowledgeSearchRequest(BaseModel):

@@ -99,6 +99,7 @@ def _event_to_protocol_payload(event_type: str, event: dict) -> dict:
     if event_type in {
         "agent_loop_started",
         "agent_step_started",
+        "agent_step_delta",
         "agent_step_completed",
         "agent_loop_completed",
     }:

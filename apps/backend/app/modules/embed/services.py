@@ -235,6 +235,8 @@ async def get_embed_message_snapshot(repo, *, conversation_id: int, claims: dict
                     "title": step.title,
                     "status": step.status,
                     "outputSummary": step.output_summary,
+                    "inputSummary": step.input_summary,
+                    "thinkingText": step.thinking_text,
                     "toolName": step.tool_name,
                     "skillName": step.skill_name,
                     "citationRefs": step.citation_refs,

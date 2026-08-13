@@ -266,9 +266,9 @@ git diff --check
 
 一次 `message_send` 对应一个 `AgentLoopRun`，最终助手消息通过 `assistant_message_id` 关联该运行。消息本身保存兼容的纯文本 `content` 和可恢复的 `content_blocks`；图片、文件内容块保存稳定的资源 ID，读取时再按权限生成临时访问地址。
 
-AgentLoop 步骤只保存面向用户的安全摘要和必要审计字段，常见步骤包括知识库检索、技能指令、技能工具、宿主工具、MCP 工具、模型生成、handoff 和 guardrail。原始 chain-of-thought、完整 system prompt、密钥、Token 和未脱敏敏感参数不落库。
+AgentLoop 步骤保存面向用户的安全摘要和必要审计字段，常见步骤包括知识库检索、技能指令、技能工具、宿主工具、MCP 工具、模型生成、handoff 和 guardrail。模型思考内容（reasoning/thinking）经用户确认后落库到 `agent_loop_steps.thinking_text`，与正文严格分离；完整 system prompt、密钥、Token 和未脱敏敏感参数不落库。工具步骤的 `input_summary` / `output_summary` 只保存脱敏截断的参数与结果摘要。`langchain-openai` 的 `ChatOpenAI` 只按官方 OpenAI 规范解析响应，会丢弃 DeepSeek/GLM 等厂商的 `reasoning_content` 字段；模型工厂统一使用 `ProviderThinkingChatOpenAI` 子类，在流式 delta 与完整 message 两个解析入口把 `reasoning_content`/`reasoning`/`reasoning_details` 归一化补回 `additional_kwargs`，`stream_graph` 再从中实时提取并落库。
 
-实时协议保留既有消息和工具事件，并增加 `agent_loop_started`、`agent_step_started`、`agent_step_completed`、`agent_loop_completed`。第一版不发送逐步骤摘要增量事件；旧 SDK 遇到未知事件时忽略该事件，继续消费兼容的消息事件。聊天前端展示安全摘要，后台详细审计页面和接口作为后续扩展。
+实时协议保留既有消息和工具事件，并增加 `agent_loop_started`、`agent_step_started`、`agent_step_delta`、`agent_step_completed`、`agent_loop_completed`。`agent_step_delta` 用于步骤过程增量（第一版承载思考内容，payload 含 `stepId`、`stepType`、`field`、`content`）；步骤事件兼容性携带 `inputSummary`、`outputSummary`、`thinkingText`，引用对象携带 `knowledgeBase`。旧 SDK 遇到未知事件时忽略该事件，继续消费兼容的消息事件。聊天前端按事件到达顺序内联渲染正文片段与步骤卡片，历史消息无时间线时降级为“过程在上、正文在下”的折叠面板。
 
 ```mermaid
 flowchart LR

@@ -254,6 +254,7 @@ def test_build_citations_contains_source_and_matched_text() -> None:
                 "title": "手册",
                 "source_url": "https://example.com/manual",
                 "content": "退款规则",
+                "knowledge_base": {"id": 3, "name": "客服知识库", "slug": "support"},
             }
         ]
     )
@@ -261,6 +262,11 @@ def test_build_citations_contains_source_and_matched_text() -> None:
     assert citations[0].title == "手册"
     assert citations[0].source_url == "https://example.com/manual"
     assert citations[0].text == "退款规则"
+    assert citations[0].knowledge_base.model_dump() == {
+        "id": 3,
+        "name": "客服知识库",
+        "slug": "support",
+    }
 
 
 def test_failed_document_can_be_retried() -> None:

@@ -15,6 +15,7 @@ export type ProtocolEventType =
   | 'pong'
   | 'agent_loop_started'
   | 'agent_step_started'
+  | 'agent_step_delta'
   | 'agent_step_completed'
   | 'agent_loop_completed'
   | 'unknown'
@@ -92,6 +93,7 @@ export function parseProtocolEvent(input: unknown): ProtocolEvent {
     'pong',
     'agent_loop_started',
     'agent_step_started',
+    'agent_step_delta',
     'agent_step_completed',
     'agent_loop_completed'
   ]

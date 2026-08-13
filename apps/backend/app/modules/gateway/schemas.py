@@ -89,6 +89,7 @@ ProtocolEventType = Literal[
     "pong",
     "agent_loop_started",
     "agent_step_started",
+    "agent_step_delta",
     "agent_step_completed",
     "agent_loop_completed",
 ]

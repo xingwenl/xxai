@@ -2,6 +2,7 @@
 
 ## - 2026-08-13
 - ♻️ refactor：抽取运行时工具分发器并修复 embedding 批次超限 `🧑‍💻 lixingwen`
+- ✨ feat：AgentLoop 过程可观测与思考内容实时展示落库 `🧑‍💻 lixingwen`
 
 ## - 2026-08-11
 - ✨ feat：完善接入文档与本地工具演示 `🧑‍💻 lixingwen`

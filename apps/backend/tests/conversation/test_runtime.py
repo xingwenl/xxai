@@ -14,6 +14,9 @@ from app.modules.conversation.runtime import (
     load_runtime_context,
     run_graph,
     stream_graph,
+    _thinking_text,
+    _summarize_json,
+    tool_step_values,
 )
 from app.modules.conversation.schemas import sanitize_content_blocks
 from app.modules.conversation.services import build_loop_payload
@@ -54,6 +57,7 @@ def test_agent_upstream_502_is_mapped_to_safe_terminal_error():
         },
     }
 
+
 def test_build_loop_payload_includes_persisted_steps():
     class FakeLoopRepository:
         async def get_loop(self, loop_id, conversation_id):
@@ -75,6 +79,7 @@ def test_build_loop_payload_includes_persisted_steps():
                     title="生成回答",
                     status="succeeded",
                     output_summary="生成 4 字符",
+                    thinking_text="先分析再回答",
                     tool_name=None,
                     skill_name=None,
                     skill_version=None,
@@ -98,6 +103,7 @@ def test_build_loop_payload_includes_persisted_steps():
                 "title": "生成回答",
                 "status": "succeeded",
                 "outputSummary": "生成 4 字符",
+                "thinkingText": "先分析再回答",
                 "toolName": None,
                 "skillName": None,
                 "skillVersion": None,
@@ -106,6 +112,79 @@ def test_build_loop_payload_includes_persisted_steps():
             }
         ],
     }
+
+
+def test_thinking_text_extracts_reasoning_content_and_thinking_blocks():
+    chunk_with_blocks = AIMessageChunk(
+        content=[
+            {"type": "thinking", "thinking": "先分析问题"},
+            {"type": "text", "text": "正文内容"},
+        ],
+    )
+    chunk_with_reasoning = AIMessageChunk(
+        content="",
+        additional_kwargs={"reasoning_content": "再补充推理"},
+    )
+    chunk_with_alias = AIMessageChunk(
+        content="",
+        additional_kwargs={"reasoning": "厂商别名思考"},
+    )
+    chunk_with_details = AIMessageChunk(
+        content="",
+        additional_kwargs={
+            "reasoning_details": [{"text": "细节一"}, {"content": "细节二"}]
+        },
+    )
+
+    assert _thinking_text(chunk_with_blocks) == "先分析问题"
+    assert _thinking_text(chunk_with_reasoning) == "再补充推理"
+    assert _thinking_text(chunk_with_alias) == "厂商别名思考"
+    assert _thinking_text(chunk_with_details) == "细节一细节二"
+    assert _thinking_text(AIMessageChunk(content="普通文本")) == ""
+
+
+def test_tool_step_values_include_input_and_result_summaries():
+    outcome = ToolInvocationOutcome(
+        status="completed",
+        audit_id=1,
+        result={"weather": "晴", "temperature": 26},
+    )
+    event = {
+        "tool": "get_weather",
+        "tool_type": "mcp_tool",
+        "tool_call_id": "call-1",
+        "input_summary": '{"city":"上海"}',
+        "outcome": outcome,
+    }
+
+    values = tool_step_values(event, sequence=3)
+
+    assert values["step_type"] == "mcp_tool"
+    assert values["status"] == "succeeded"
+    assert values["input_summary"] == '{"city":"上海"}'
+    assert values["output_summary"] == '工具执行完成：{"weather":"晴","temperature":26}'
+
+
+def test_tool_step_values_keep_confirmation_status_without_result():
+    outcome = ToolInvocationOutcome(
+        status="confirmation_required",
+        audit_id=1,
+        confirmation_id=5,
+        result=None,
+    )
+
+    values = tool_step_values(
+        {"tool": "pay", "tool_type": "mcp_tool", "outcome": outcome},
+        sequence=4,
+    )
+
+    assert values["status"] == "waiting_confirmation"
+    assert values["output_summary"] == "等待用户确认"
+
+
+def test_summarize_json_truncates_long_values():
+    assert _summarize_json({"city": "上海"}, limit=9) == '{"city":"'
+    assert _summarize_json("纯文本结果", limit=3) == "纯文本"
 
 
 class FakeAgentRepository:
@@ -211,7 +290,9 @@ def test_runtime_context_only_loads_published_bound_capabilities():
     assert context.agent.id == 11
     assert [item.id for item in context.knowledge_bases] == [3]
     assert len(context.skill_instructions) == 2
-    assert all("load_skill" in instruction for instruction in context.skill_instructions)
+    assert all(
+        "load_skill" in instruction for instruction in context.skill_instructions
+    )
     assert context.skill_instruction_tool.name == "load_skill"
     assert context.mcp_tools[0].name == "lookup"
 
@@ -717,3 +798,38 @@ def test_graph_streams_model_deltas_and_returns_final_result():
 
     assert deltas == ["退款", "规则是 30 天。"]
     assert final["result"].content == "退款规则是 30 天。"
+
+
+class ThinkingStreamingChatModel:
+    async def astream(self, messages):
+        yield AIMessageChunk(
+            content="",
+            additional_kwargs={"reasoning_content": "先分析问题"},
+        )
+        yield AIMessageChunk(
+            content="",
+            additional_kwargs={"reasoning_content": "再补充推理"},
+        )
+        yield AIMessageChunk(content="最终回答")
+
+
+def test_graph_stream_emits_thinking_deltas_and_keeps_thinking_text():
+    async def collect():
+        thinking = []
+        final = None
+        async for item in stream_graph(
+            ThinkingStreamingChatModel(),
+            system_prompt="回答问题",
+            user_message="测试",
+        ):
+            if item["type"] == "thinking_delta":
+                thinking.append(item["content"])
+            elif item["type"] == "completed":
+                final = item["result"]
+        return thinking, final
+
+    thinking, final = asyncio.run(collect())
+
+    assert thinking == ["先分析问题", "再补充推理"]
+    assert final.content == "最终回答"
+    assert final.thinking_text == "先分析问题再补充推理"

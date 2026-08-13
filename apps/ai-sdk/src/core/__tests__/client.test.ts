@@ -283,4 +283,74 @@ describe('AgentClient protocol events', () => {
     expect(events[0]).toMatchObject({ callId: 'mcp-call-1', toolType: 'mcp_tool' })
     expect(sent).toEqual([{ callId: 'mcp-call-1', approved: true }])
   })
+
+  it('maps inputSummary and thinkingText from step payloads', () => {
+    const updates: any[] = []
+    const client = new AgentClient({ endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token' })
+    client.on('message_updating', (update) => updates.push(update))
+    const transport = (client as any).transport
+
+    transport.emit('message', { id: '1', type: 'message_started', protocolVersion: 1, sequence: 1, timestamp: new Date().toISOString(), requestId: 'r', payload: {} })
+    transport.emit('message', { id: '2', type: 'agent_loop_started', protocolVersion: 1, sequence: 2, timestamp: new Date().toISOString(), requestId: 'r', payload: { loopRunId: 'loop-1' } })
+    transport.emit('message', { id: '3', type: 'agent_step_started', protocolVersion: 1, sequence: 3, timestamp: new Date().toISOString(), requestId: 'r', payload: { loopRunId: 'loop-1', stepId: 'gen-1', sequence: 1, stepType: 'model_generation', title: '生成回答', status: 'running' } })
+    transport.emit('message', { id: '4', type: 'agent_step_started', protocolVersion: 1, sequence: 4, timestamp: new Date().toISOString(), requestId: 'r', payload: { loopRunId: 'loop-1', stepId: 'tool-1', sequence: 2, stepType: 'mcp_tool', title: '调用工具：get_weather', status: 'running', toolName: 'get_weather', inputSummary: '{"city":"上海"}' } })
+
+    const steps = updates[updates.length - 1].loop.steps
+    expect(steps.find((s: any) => s.id === 'tool-1')).toMatchObject({ inputSummary: '{"city":"上海"}' })
+  })
+
+  it('appends agent_step_delta thinking content to the generation step', () => {
+    const updates: any[] = []
+    const client = new AgentClient({ endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token' })
+    client.on('message_updating', (update) => updates.push(update))
+    const transport = (client as any).transport
+
+    transport.emit('message', { id: '1', type: 'message_started', protocolVersion: 1, sequence: 1, timestamp: new Date().toISOString(), requestId: 'r', payload: {} })
+    transport.emit('message', { id: '2', type: 'agent_loop_started', protocolVersion: 1, sequence: 2, timestamp: new Date().toISOString(), requestId: 'r', payload: { loopRunId: 'loop-1' } })
+    transport.emit('message', { id: '3', type: 'agent_step_started', protocolVersion: 1, sequence: 3, timestamp: new Date().toISOString(), requestId: 'r', payload: { loopRunId: 'loop-1', stepId: 'gen-1', sequence: 1, stepType: 'model_generation', title: '生成回答', status: 'running' } })
+    transport.emit('message', { id: '4', type: 'agent_step_delta', protocolVersion: 1, sequence: 4, timestamp: new Date().toISOString(), requestId: 'r', payload: { loopRunId: 'loop-1', stepId: 'gen-1', stepType: 'model_generation', field: 'thinking', content: '先分析' } })
+    transport.emit('message', { id: '5', type: 'agent_step_delta', protocolVersion: 1, sequence: 5, timestamp: new Date().toISOString(), requestId: 'r', payload: { loopRunId: 'loop-1', stepId: 'gen-1', stepType: 'model_generation', field: 'thinking', content: '再回答' } })
+
+    const step = updates[updates.length - 1].loop.steps[0]
+    expect(step).toMatchObject({ stepType: 'model_generation', thinkingText: '先分析再回答' })
+  })
+
+  it('builds a chronological timeline from deltas and steps', () => {
+    const updates: any[] = []
+    const client = new AgentClient({ endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token' })
+    client.on('message_updating', (update) => updates.push(update))
+    const transport = (client as any).transport
+
+    transport.emit('message', { id: '1', type: 'message_started', protocolVersion: 1, sequence: 1, timestamp: new Date().toISOString(), requestId: 'r', payload: {} })
+    transport.emit('message', { id: '2', type: 'agent_step_started', protocolVersion: 1, sequence: 2, timestamp: new Date().toISOString(), requestId: 'r', payload: { loopRunId: 'loop-1', stepId: 'gen-1', sequence: 1, stepType: 'model_generation', title: '生成回答', status: 'running' } })
+    transport.emit('message', { id: '3', type: 'message_delta', protocolVersion: 1, sequence: 3, timestamp: new Date().toISOString(), requestId: 'r', payload: { content: '开头' } })
+    transport.emit('message', { id: '4', type: 'agent_step_started', protocolVersion: 1, sequence: 4, timestamp: new Date().toISOString(), requestId: 'r', payload: { loopRunId: 'loop-1', stepId: 'tool-1', sequence: 2, stepType: 'mcp_tool', title: '调用工具：get_weather', status: 'running', toolName: 'get_weather' } })
+    transport.emit('message', { id: '5', type: 'message_delta', protocolVersion: 1, sequence: 5, timestamp: new Date().toISOString(), requestId: 'r', payload: { content: '结尾' } })
+
+    const timeline = updates[updates.length - 1].timeline
+    expect(timeline.map((entry: any) => entry.kind)).toEqual(['step', 'text', 'step', 'text'])
+    const texts = timeline.filter((entry: any) => entry.kind === 'text')
+    expect(texts.map((entry: any) => entry.text)).toEqual(['开头', '结尾'])
+  })
+
+  it('keeps the timeline on the completed message', () => {
+    const messages: any[] = []
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token',
+      callbacks: { onMessage: (message) => messages.push(message) }
+    })
+    const transport = (client as any).transport
+
+    transport.emit('message', { id: '1', type: 'message_started', protocolVersion: 1, sequence: 1, timestamp: new Date().toISOString(), requestId: 'r', payload: {} })
+    transport.emit('message', { id: '2', type: 'agent_step_started', protocolVersion: 1, sequence: 2, timestamp: new Date().toISOString(), requestId: 'r', payload: { loopRunId: 'loop-1', stepId: 'gen-1', sequence: 1, stepType: 'model_generation', title: '生成回答', status: 'running' } })
+    transport.emit('message', { id: '3', type: 'message_delta', protocolVersion: 1, sequence: 3, timestamp: new Date().toISOString(), requestId: 'r', payload: { content: '回答内容' } })
+    transport.emit('message', { id: '4', type: 'agent_step_completed', protocolVersion: 1, sequence: 4, timestamp: new Date().toISOString(), requestId: 'r', payload: { loopRunId: 'loop-1', stepId: 'gen-1', sequence: 1, stepType: 'model_generation', title: '生成回答', status: 'succeeded', outputSummary: '生成 4 字符', thinkingText: '思考全文' } })
+    transport.emit('message', { id: '5', type: 'message_completed', protocolVersion: 1, sequence: 5, timestamp: new Date().toISOString(), requestId: 'r', payload: { content: '回答内容', loop: { id: 'loop-1', requestId: 'r', status: 'completed', summary: '已完成回答', steps: [] } } })
+
+    expect(messages[0].timeline).toEqual([
+      { kind: 'step', id: expect.any(String), stepId: 'gen-1' },
+      { kind: 'text', id: expect.any(String), text: '回答内容' }
+    ])
+    expect(messages[0].loop.steps[0]).toMatchObject({ thinkingText: '思考全文' })
+  })
 })

@@ -20,7 +20,12 @@
       "https://openai.github.io/openai-agents-python/tracing/#sensitive-data",
       "https://ai-sdk.dev/docs/ai-sdk-ui/chatbot-message-persistence",
       "https://modelcontextprotocol.io/specification/2025-06-18/server/tools#tool-result",
-      "https://langchain-ai.github.io/langgraphjs/concepts/streaming/"
+      "https://langchain-ai.github.io/langgraphjs/concepts/streaming/",
+      "https://aiuxplayground.com/teardowns/chatgpt/citations/",
+      "https://www.aiuxplayground.com/pattern/tool-use/",
+      "https://github.com/vercel/ai/issues/5275",
+      "https://github.com/hao-hoang/deepseek-thinking-ui",
+      "https://docs.ollama.com/capabilities/thinking"
     ],
     "decisionRecorded": true
   },
@@ -36,11 +41,16 @@
       "date": "2026-08-05",
       "approver": "user",
       "scope": "确认 AgentLoop + 多内容块数据模型、实时协议、前端安全摘要、后台详细审计预留、asset_id 资源引用和不落库原始 chain-of-thought。"
+    },
+    {
+      "date": "2026-08-13",
+      "approver": "user",
+      "scope": "确认回答过程按时间顺序内联展示、知识库引用与工具参数/结果明细，并明确模型思考内容实时展示且落库（agent_loop_steps 新增 thinking_text），同意新增 agent_step_delta 事件与可选字段。"
     }
   ],
   "owner": "ai",
   "createdAt": "2026-08-05",
-  "updatedAt": "2026-08-06",
+  "updatedAt": "2026-08-13",
   "relatedPaths": [
     "docs/design/agent-sdk-flow.md",
     "apps/ai-sdk/design/chat-glass.html",
@@ -50,5 +60,5 @@
     "apps/backend/app/modules/conversation/router.py",
     "apps/backend/app/modules/gateway/router.py"
   ],
-  "notes": "已完成 research/spec/plan/implement；本地 verify 已通过，标准 SSE 与 Embed WebSocket 均支持工具场景模型原生流式输出，SDK UI 已按 chat-glass 设计稿实现内容块、AgentLoop 和条件自动滚动。真实迁移实例版本复核、浏览器 WebSocket 联调和 Vue Test Utils 组件测试仍待补齐。后台详细审计页面和接口不在本期实现。"
+  "notes": "2026-08-13 增量：回答过程按时间顺序内联展示并补充引用/工具明细（SDK timeline + inputSummary + knowledgeBase），思考步骤实时展示模型思考内容并落库（agent_step_delta + thinking_text 迁移）。实现与本地验证完成：后端 252 passed、SDK 60 passed、类型检查与构建通过；真实浏览器/思考模型端到端联调与数据库迁移复核由用户在有库环境执行。补充：用户实测看不到思考内容，根因为 langchain-openai 1.4.1 ChatOpenAI 丢弃厂商 reasoning_content 字段，已通过 ProviderThinkingChatOpenAI 子类在流式/非流式解析入口补回并新增回归测试；用户反馈后新增技能步骤合并折叠（AgentLoopSkillGroup）与思考内容折叠（details 展开/收起），并引入 SSR 组件渲染测试。"
 }

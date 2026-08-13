@@ -1,5 +1,6 @@
 import ipaddress
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -74,12 +75,13 @@ def next_index_version(
     return current_version + 1 if embedding_changed else current_version
 
 
-def build_citations(matches: list[dict[str, str | None]]) -> list[Citation]:
+def build_citations(matches: list[dict[str, Any]]) -> list[Citation]:
     return [
         Citation(
             title=str(match["title"]),
             source_url=match.get("source_url"),
             text=str(match["content"]),
+            knowledge_base=match.get("knowledge_base"),
         )
         for match in matches
     ]

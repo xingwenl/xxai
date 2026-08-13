@@ -99,3 +99,68 @@ git diff --check
 - Vue UI 仍未引入组件挂载测试依赖；本次滚动判断已通过纯函数单测、类型检查和生产构建验证。
 - 本次未进行真实 502 网关联调；验证使用抛出 `HTTP 502 Bad Gateway` 的模型桩覆盖协议和状态收敛。
 - 模型客户端超时补丁验证：`cd apps/backend && poetry run pytest tests/system/test_agent_settings.py tests/agent/test_agent_services.py -q`：`5 passed`；默认 `request_timeout=60`、`stream_chunk_timeout=60`、`max_retries=0` 已由测试断言覆盖。
+
+## 2026-08-13 增量验证：时间线内联展示、引用/工具明细与思考内容落库
+
+实际执行命令与结果：
+
+- `cd apps/backend && .venv/bin/pytest tests/conversation/test_runtime.py tests/knowledge/test_knowledge_services.py -q`：`50 passed`。
+- `cd apps/backend && .venv/bin/pytest tests/conversation tests/gateway tests/embed tests/knowledge -q`：`106 passed, 1 skipped`。
+- `cd apps/backend && .venv/bin/pytest -q --import-mode=importlib`：`247 passed, 1 skipped`（默认收集模式的同名测试文件冲突为既有问题，与本次变更无关）。
+- `cd apps/ai-sdk && npx vitest run`：`51 passed`（含新增 4 个 client 时间线/思考增量测试与 3 个展示纯函数测试）。
+- `cd apps/ai-sdk && npm run type-check`：通过。
+- `cd apps/ai-sdk && npm run build`：通过，生成 ESM/UMD/CSS/类型声明产物。
+- `git diff --check`：通过。
+- 迁移：新增 `20260813_0021_agent_loop_step_thinking`（`agent_loop_steps.thinking_text`），语法解析通过；数据库实例迁移由用户在有库环境执行 `poetry run alembic upgrade head`。
+
+新增覆盖：
+
+- 工具步骤 `input_summary` 输出脱敏截断参数 JSON（≤300 字符），`output_summary` 输出脱敏截断结果摘要（≤500 字符），确认与失败/等待确认状态文案保持兼容。
+- 知识库引用携带 `knowledgeBase`（id/name/slug）与命中片段 `text`，`retrieve_citations` 按知识库归属回填。
+- `_thinking_text` 兼容 `reasoning_content` 与 thinking 内容块；`stream_graph`/`run_graph` 把思考文本累计到 `GraphResult.thinking_text` 并落库。
+- `agent_step_delta`（field=thinking）在标准 SSE 与 Embed WebSocket 两条路径实时下发；SDK 时间线按事件到达顺序维护“正文片段 + 步骤卡片”，完成消息保留时间线。
+- SDK `AgentLoopStepCard` 展示思考文本（流式/折叠/超长截断）、知识库名+段落、工具参数与结果；无时间线历史消息降级为“过程在上、正文在下”折叠面板。
+
+## 2026-08-13 增量验证：思考内容真实链路修复（用户反馈“看不到思考内容”）
+
+用户使用思考模型（DeepSeek reasoner 等）实测反馈思考内容未展示。定位根因：
+
+- `langchain-openai 1.4.1` 的 `ChatOpenAI` 模块文档明确声明“非官方 OpenAI 规范字段（如 `reasoning_content`）不会被提取或保留”，流式 `_convert_delta_to_message_chunk` 与非流式 `_convert_dict_to_message` 都会丢弃 DeepSeek/GLM/Kimi 在 `delta`/`message` 中返回的 `reasoning_content`。
+- 后端 `_thinking_text` 依赖 `additional_kwargs["reasoning_content"]`，但真实链路中该字段在 LangChain 解析阶段就已丢失，因此思考内容既不实时下发也不落库；单测直接构造 `additional_kwargs` 无法暴露该问题。
+
+修复：
+
+- `app/modules/agent/services.py` 新增 `ProviderThinkingChatOpenAI` 子类：在 `_convert_chunk_to_generation_chunk`（流式）与 `_create_chat_result`（非流式）两个解析入口，把 `reasoning_content`/`reasoning`/`reasoning_details` 归一化补回 `additional_kwargs`；`build_chat_model` 默认返回该子类，覆盖所有 Agent 模型配置。
+- `app/modules/conversation/runtime.py` 的 `_thinking_text` 同步兼容 `reasoning` 别名与列表形式（如 `reasoning_details` 内容块），保持与正文严格分离。
+- 新增回归测试 `tests/agent/test_thinking_model.py`（厂商字段归一化、流式 delta 保留、非流式 response 保留、正文不受影响）与 `tests/conversation/test_runtime.py` 的 `stream_graph` 全链路测试（逐块 `thinking_delta` + `GraphResult.thinking_text` 累计）。
+
+实际执行命令与结果：
+
+- `cd apps/backend && .venv/bin/pytest tests/agent/test_thinking_model.py tests/conversation/test_runtime.py -q`：`31 passed`。
+- `cd apps/backend && .venv/bin/pytest tests/conversation tests/gateway tests/embed tests/knowledge tests/agent -q`：`119 passed, 1 skipped`。
+- `cd apps/backend && .venv/bin/pytest -q --import-mode=importlib`：`252 passed, 1 skipped`（较上轮新增 5 个思考链路测试）。
+- `cd apps/backend && .venv/bin/ruff check app/modules/agent/services.py app/modules/conversation/runtime.py tests/agent/test_thinking_model.py tests/conversation/test_runtime.py`：通过；`black --check` 同组文件：通过。
+- `cd apps/ai-sdk && npx vitest run`：`51 passed`（SDK 本轮无改动，回归确认）。
+- `git diff --check`：通过。
+
+验证边界说明：
+
+- 本地模拟 DeepSeek SSE 流式服务验证曾尝试启动（`HTTPServer` 绑定 127.0.0.1），因沙箱网络策略被拒且提升权限被自动审核拒绝；改为用与真实 DeepSeek reasoner 完全一致的 delta 结构（`delta.reasoning_content`）驱动假流式模型，走通 `stream_graph` 全链路验证提取与累计逻辑。
+- 真实浏览器 + DeepSeek reasoner 端到端联调与 `poetry run alembic upgrade head` 仍由用户在有库环境执行；确认可见后即可进入 acceptance。
+
+## 2026-08-13 增量验证：技能步骤合并折叠与思考内容折叠
+
+用户反馈“一开始调用的多个技能合并在一起可折叠，思考内容也可折叠”。实现（仅 SDK 展示层，无协议/数据模型变化，无需重新审批）：
+
+- `apps/ai-sdk/src/ui/message-presentation.ts` 新增 `isSkillStep` / `leadingSkillSteps`：只合并首个 `model_generation` 之前的连续技能步骤（`skill_instruction` / `skill_tool`）；回答中途再调用的技能保持独立卡片，按时间顺序内联展示。
+- 新增 `AgentLoopSkillGroup.vue` 技能组折叠卡片：summary 显示“调用技能 · N 个”与汇总状态（执行中/完成/失败/待确认），展开后逐行展示技能名、版本、状态与输出摘要；默认展开、用户可折叠。
+- `AgentLoopStepCard.vue` 思考内容改为 `<details>` 折叠：生成进行中默认展开实时可见，完成后默认收起；用户手动切换状态通过 `@toggle` 保持，不被后续步骤事件覆盖。
+- `ChatMessage.vue` 时间线与 `AgentLoopPanel.vue` 历史降级路径均把组内技能步骤按原时间顺序合并渲染，不产生重复卡片或空占位。
+- `vitest.config.ts` 接入 `@vitejs/plugin-vue`，新增 SSR 组件渲染测试 `chat-message.ssr.test.ts`，覆盖技能组合并、思考折叠/展开、生成后技能不合并、历史面板路径。
+
+实际执行命令与结果：
+
+- `cd apps/ai-sdk && npx vitest run`：`60 passed`（新增 4 个 `leadingSkillSteps` 纯函数测试与 5 个 SSR 组件渲染测试）。
+- `cd apps/ai-sdk && npm run type-check`：通过。
+- `cd apps/ai-sdk && npm run build`：通过，生成 ESM/UMD/CSS/类型声明产物。
+- `git diff --check`：通过。

@@ -17,7 +17,6 @@
         <strong>{{ summaryLabel }}</strong>
         <span v-if="message.loop?.status === 'running'" class="xxai-loop-summary-dots" aria-label="运行中"><span></span><span></span><span></span></span>
       </span>
-      <!-- <span class="xxai-loop-chevron" :class="{ expanded }" aria-hidden="true">⌄</span> -->
       <svg
         v-if="canExpand"
         class="xxai-loop-chevron"
@@ -31,116 +30,59 @@
         stroke-width="2"
         stroke-linecap="round"
         stroke-linejoin="round"
-        data-lucide="chevron-down"
         aria-hidden="true"
-        >
-        <!-- class="lucide lucide-chevron-down process-chevron" -->
+      >
         <path d="m6 9 6 6 6-6"></path>
       </svg>
     </button>
     <div v-if="expanded" class="xxai-loop-details">
-      <article
-        v-for="step in sortedSteps"
-        :key="step.id"
-        class="xxai-loop-card"
-        :class="cardClass(step)"
+      <template
+        v-for="item in renderSteps"
+        :key="item.kind === 'group' ? 'skill-group' : item.step.id"
       >
-        <header class="xxai-loop-card-header">
-          <span class="xxai-loop-icon" aria-hidden="true">{{
-            iconFor(step)
-          }}</span>
-          <strong>{{ labelFor(step) }}</strong>
-          <span
-            v-if="step.stepType === 'model_generation'"
-            class="xxai-loop-count"
-          >
-            <span
-              v-if="step.status === 'running'"
-              class="xxai-loop-typing-dots"
-              aria-label="思考中"
-              ><span></span><span></span><span></span
-            ></span>
-            <template v-else>{{ stepStatusText(step.status) }}</template>
-          </span>
-          <span v-else class="xxai-loop-state" :class="`state-${step.status}`">
-            <span
-              v-if="step.status === 'running'"
-              class="xxai-loop-typing-dots"
-              aria-label="执行中"
-              ><span></span><span></span><span></span
-            ></span>
-            <template v-else>{{ stateIcon(step.status) }}</template>
-          </span>
-        </header>
-        <p
-          v-if="
-            step.stepType === 'model_generation' || step.stepType === 'thinking'
-          "
-          class="xxai-loop-thinking-text"
-        >
-          {{ step.outputSummary || '正在理解你的问题并组织回答...' }}
-        </p>
-        <div v-else-if="isTool(step)" class="xxai-loop-detail-line">
-          <span class="xxai-loop-badge">{{
-            step.skillName ||
-            step.toolName ||
-            step.title.replace(/^调用工具：/, '')
-          }}</span>
-          <span>{{ step.outputSummary || '正在执行...' }}</span>
-          <span v-if="step.skillVersion" class="xxai-loop-version"
-            >v{{ step.skillVersion }}</span
-          >
-        </div>
-        <div
-          v-else-if="step.stepType === 'skill_instruction'"
-          class="xxai-loop-detail-line"
-        >
-          <span class="xxai-loop-badge">{{
-            step.skillName || step.title.replace(/^应用技能：/, '')
-          }}</span>
-          <span>{{ step.outputSummary || '正在加载技能...' }}</span>
-          <span v-if="step.skillVersion" class="xxai-loop-version"
-            >v{{ step.skillVersion }}</span
-          >
-        </div>
-        <div
-          v-else-if="step.stepType === 'knowledge_retrieval'"
-          class="xxai-loop-references"
-        >
-          <div
-            v-for="(citation, index) in step.citationRefs || []"
-            :key="index"
-            class="xxai-loop-reference"
-          >
-            <span class="xxai-reference-icon" aria-hidden="true">▤</span>
-            <span
-              ><strong>{{ citationTitle(citation, index) }}</strong
-              ><small>{{ citationSource(citation) }}</small></span
-            >
-          </div>
-          <span v-if="!step.citationRefs?.length" class="xxai-loop-empty">{{
-            step.outputSummary || '未命中知识库引用'
-          }}</span>
-        </div>
-      </article>
+        <AgentLoopSkillGroup v-if="item.kind === 'group'" :steps="item.steps" />
+        <AgentLoopStepCard v-else :step="item.step" />
+      </template>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type {
-  AgentLoopStep,
-  AgentLoopStepStatus,
-  Message,
-} from '../../core';
-import { loopSummaryLabel } from '../message-presentation';
+import type { AgentLoopStep, Message } from '../../core';
+import { leadingSkillSteps, loopSummaryLabel } from '../message-presentation';
+import AgentLoopSkillGroup from './AgentLoopSkillGroup.vue';
+import AgentLoopStepCard from './AgentLoopStepCard.vue';
 
 const props = defineProps<{ message: Message }>();
 const expanded = ref(Boolean(props.message.loop?.status === 'running' && props.message.loop.steps.length));
+const userCollapsed = ref(false);
 const sortedSteps = computed(() =>
   [...(props.message.loop?.steps || [])].sort((a, b) => a.sequence - b.sequence),
 );
+const skillGroupSteps = computed<AgentLoopStep[]>(() =>
+  leadingSkillSteps(sortedSteps.value),
+);
+type RenderItem =
+  | { kind: 'group'; steps: AgentLoopStep[] }
+  | { kind: 'step'; step: AgentLoopStep };
+const renderSteps = computed<RenderItem[]>(() => {
+  const group = skillGroupSteps.value;
+  const groupIds = new Set(group.map((step) => step.id));
+  const items: RenderItem[] = [];
+  let groupRendered = false;
+  for (const step of sortedSteps.value) {
+    if (groupIds.has(step.id)) {
+      if (!groupRendered) {
+        items.push({ kind: 'group', steps: group });
+        groupRendered = true;
+      }
+      continue;
+    }
+    items.push({ kind: 'step', step });
+  }
+  return items;
+});
 const canExpand = computed(() => sortedSteps.value.length > 0);
 const presentKinds = computed(() => [
   ...new Set(sortedSteps.value.map(kindFor)),
@@ -148,6 +90,7 @@ const presentKinds = computed(() => [
 const summaryLabel = computed(() =>
   props.message.loop ? loopSummaryLabel(props.message.loop) : '思考中',
 );
+
 watch(
   () => sortedSteps.value.length,
   (count, previousCount) => {
@@ -157,9 +100,28 @@ watch(
     }
   },
 );
+
+watch(
+  () => props.message.loop?.status,
+  (status, previousStatus) => {
+    // 运行结束时自动展开，让过程明细按时间顺序保留在消息中。
+    if (
+      previousStatus === 'running' &&
+      (status === 'completed' || status === 'failed' || status === 'cancelled') &&
+      sortedSteps.value.length > 0 &&
+      !userCollapsed.value
+    ) {
+      expanded.value = true;
+    }
+  },
+);
+
 function toggleExpanded() {
-  if (canExpand.value) expanded.value = !expanded.value;
+  if (!canExpand.value) return;
+  expanded.value = !expanded.value;
+  if (!expanded.value) userCollapsed.value = true;
 }
+
 function kindFor(step: AgentLoopStep) {
   if (step.stepType === 'knowledge_retrieval') return 'knowledge';
   if (step.stepType === 'skill_instruction' || step.stepType === 'skill_tool')
@@ -171,62 +133,6 @@ function kindFor(step: AgentLoopStep) {
   )
     return 'tool';
   return 'thinking';
-}
-function cardClass(step: AgentLoopStep) {
-  return `kind-${kindFor(step)} is-${step.status}`;
-}
-function labelFor(step: AgentLoopStep) {
-  return (
-    {
-      thinking: step.status === 'running' ? '思考中' : '生成回答',
-      tool: '调用工具',
-      skill: '调用技能',
-      knowledge: '知识库引用',
-    } as Record<string, string>
-  )[kindFor(step)];
-}
-function iconFor(step: AgentLoopStep) {
-  return (
-    { thinking: '✣', tool: '▣', skill: '✦', knowledge: '▤' } as Record<
-      string,
-      string
-    >
-  )[kindFor(step)];
-}
-function isTool(step: AgentLoopStep) {
-  return (
-    step.stepType === 'builtin_tool' ||
-    step.stepType === 'host_tool' ||
-    step.stepType === 'mcp_tool' ||
-    step.stepType === 'skill_tool'
-  );
-}
-function stateIcon(status: AgentLoopStepStatus) {
-  return status === 'failed'
-    ? '!'
-    : status === 'waiting_confirmation'
-      ? '?'
-      : '✓';
-}
-function citationTitle(citation: unknown, index: number) {
-  const item = citation as Record<string, unknown>;
-  return String(item.title || `来源 ${index + 1}`);
-}
-function citationSource(citation: unknown) {
-  const item = citation as Record<string, unknown>;
-  return String(
-    item.source || item.sourceUrl || item.text || '知识库引用',
-  ).slice(0, 100);
-}
-function stepStatusText(status: AgentLoopStepStatus) {
-  return {
-    queued: '排队',
-    running: '处理中',
-    succeeded: '完成',
-    failed: '失败',
-    cancelled: '取消',
-    waiting_confirmation: '待确认',
-  }[status];
 }
 </script>
 
@@ -317,7 +223,6 @@ function stepStatusText(status: AgentLoopStepStatus) {
   flex: 0 0 16px;
   font-size: 18px;
   line-height: 1;
-  /* transform: translateY(-1px); */
   transition: transform 0.2s ease;
 }
 .xxai-loop-chevron.expanded {
@@ -327,165 +232,6 @@ function stepStatusText(status: AgentLoopStepStatus) {
   display: grid;
   gap: 6px;
   padding-top: 6px;
-}
-.xxai-loop-card {
-  padding: 10px 12px;
-  border: 1px solid;
-  border-left-width: 3px;
-  border-radius: 12px;
-  box-shadow:
-    0 4px 20px rgba(15, 23, 42, 0.05),
-    0 1px 3px rgba(15, 23, 42, 0.03);
-  backdrop-filter: blur(18px) saturate(160%);
-}
-.xxai-loop-card.kind-thinking {
-  color: #6d28d9;
-  background: #f5f3ff;
-  border-color: #ddd6fe;
-  border-left-color: #8b5cf6;
-}
-.xxai-loop-card.kind-tool {
-  color: #1d4ed8;
-  background: #eff6ff;
-  border-color: #bfdbfe;
-  border-left-color: #3b82f6;
-}
-.xxai-loop-card.kind-skill {
-  color: #047857;
-  background: #ecfdf5;
-  border-color: #a7f3d0;
-  border-left-color: #10b981;
-}
-.xxai-loop-card.kind-knowledge {
-  color: #b45309;
-  background: #fffbeb;
-  border-color: #fde68a;
-  border-left-color: #f59e0b;
-}
-.xxai-loop-card-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 18px;
-  margin-bottom: 4px;
-  font-size: 12px;
-}
-.xxai-loop-icon {
-  width: 16px;
-  font-size: 16px;
-  text-align: center;
-}
-.xxai-loop-count,
-.xxai-loop-state {
-  margin-left: auto;
-  font-size: 12px;
-  font-weight: 500;
-}
-.xxai-loop-state {
-  display: inline-flex;
-  align-items: center;
-  color: #10b981;
-  font-size: 16px;
-  line-height: 1;
-}
-.xxai-loop-typing-dots {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 0;
-}
-.xxai-loop-typing-dots span {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  animation: xxai-loop-typing-bounce 1.4s infinite ease-in-out both;
-}
-.xxai-loop-typing-dots span:nth-child(1) {
-  animation-delay: 0s;
-}
-.xxai-loop-typing-dots span:nth-child(2) {
-  animation-delay: 0.2s;
-}
-.xxai-loop-typing-dots span:nth-child(3) {
-  animation-delay: 0.4s;
-}
-.state-failed {
-  color: #dc2626;
-}
-.state-waiting_confirmation {
-  color: #f59e0b;
-}
-.xxai-loop-thinking-text {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.45;
-}
-.xxai-loop-detail-line {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 6px;
-  line-height: 1.4;
-}
-.xxai-loop-badge {
-  padding: 2px 8px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.55);
-  font-weight: 500;
-}
-.xxai-loop-version {
-  opacity: 0.68;
-  font-size: 12px;
-}
-.xxai-loop-references {
-  display: grid;
-  gap: 4px;
-  margin-top: 2px;
-}
-.xxai-loop-reference {
-  display: flex;
-  gap: 6px;
-  align-items: flex-start;
-  min-width: 0;
-  padding: 6px 8px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.5);
-}
-.xxai-reference-icon {
-  font-size: 18px;
-}
-.xxai-loop-reference > span:last-child {
-  min-width: 0;
-}
-.xxai-loop-reference strong,
-.xxai-loop-reference small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.xxai-loop-reference strong {
-  font-size: 13px;
-}
-.xxai-loop-reference small {
-  margin-top: 2px;
-  font-size: 11px;
-  opacity: 0.72;
-  white-space: nowrap;
-  max-width: 100%;
-}
-.xxai-loop-empty {
-  opacity: 0.7;
-}
-.is-running .xxai-loop-icon {
-  animation: xxai-loop-pulse 1.2s ease-in-out infinite;
-}
-@keyframes xxai-loop-pulse {
-  50% {
-    opacity: 0.35;
-    transform: scale(0.82);
-  }
 }
 @keyframes xxai-loop-typing-bounce {
   0%,
@@ -500,7 +246,7 @@ function stepStatusText(status: AgentLoopStepStatus) {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .xxai-loop-typing-dots span {
+  .xxai-loop-summary-dots span {
     animation: none !important;
   }
 }

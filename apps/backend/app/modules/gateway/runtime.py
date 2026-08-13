@@ -119,6 +119,7 @@ def _step_payload(
     loop_run_id,
     sequence: int | None = None,
     citation_refs: list | None = None,
+    with_input: bool = False,
     with_output: bool = False,
     with_tool: bool = False,
     with_skill: bool = False,
@@ -132,8 +133,12 @@ def _step_payload(
         "title": step.title,
         "status": step.status,
     }
+    if with_input:
+        payload["inputSummary"] = step.input_summary
     if with_output:
         payload["outputSummary"] = step.output_summary
+    if getattr(step, "thinking_text", None):
+        payload["thinkingText"] = step.thinking_text
     if with_tool:
         payload["toolName"] = step.tool_name
     if with_skill:
@@ -211,6 +216,7 @@ async def _finish_embed_chat(
             "payload": _step_payload(
                 tool_step,
                 loop_run_id=loop.id,
+                with_input=True,
                 with_output=True,
                 with_tool=True,
             ),
@@ -222,6 +228,7 @@ async def _finish_embed_chat(
         else "waiting_confirmation"
     )
     generation_step.output_summary = f"生成 {len(result.content)} 字符"
+    generation_step.thinking_text = result.thinking_text
     loop.assistant_message_id = assistant.id
     loop.status = (
         "waiting_confirmation"
@@ -474,6 +481,23 @@ async def stream_embed_chat(
                 "request_id": request_id,
             }
             continue
+        if item["type"] == "thinking_delta":
+            yield {
+                "type": "agent_step_delta",
+                "conversation": conversation,
+                "request_id": request_id,
+                "loop_run_id": loop.id,
+                "step_id": generation_step.id,
+                "payload": {
+                    "loopRunId": str(loop.id),
+                    "stepId": str(generation_step.id),
+                    "sequence": generation_step.sequence,
+                    "stepType": "model_generation",
+                    "field": "thinking",
+                    "content": item["content"],
+                },
+            }
+            continue
         if item["type"] == "tool_started":
             call_id = str(item["tool_call_id"])
             tool_step = await repo.create_loop_step(
@@ -500,6 +524,7 @@ async def stream_embed_chat(
                 "payload": _step_payload(
                     tool_step,
                     loop_run_id=loop.id,
+                    with_input=True,
                     with_output=True,
                     with_tool=True,
                     with_skill=True,
@@ -524,6 +549,7 @@ async def stream_embed_chat(
                     "payload": _step_payload(
                         tool_step,
                         loop_run_id=loop.id,
+                        with_input=True,
                         with_output=True,
                         with_tool=True,
                         with_skill=True,

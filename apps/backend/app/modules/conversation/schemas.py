@@ -118,7 +118,9 @@ class AgentLoopStepRead(BaseModel):
     step_type: str
     title: str
     status: str
+    input_summary: str | None = None
     output_summary: str | None = None
+    thinking_text: str | None = None
     tool_name: str | None = None
     skill_name: str | None = None
     skill_version: str | None = None

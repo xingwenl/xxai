@@ -48,6 +48,7 @@ import ChatInput from './ChatInput.vue'
 import ToolConfirmation from './ToolConfirmation.vue'
 import type {
   AgentClient,
+  AssistantTimelineEntry,
   ConnectionState,
   UIOptions,
   Message,
@@ -72,7 +73,7 @@ const props = withDefaults(defineProps<Props>(), {
 const isOpen = ref(false)
 const isSending = ref(false)
 const messages = ref<Message[]>([])
-const pendingMessage = ref<{ id: string; text: string; loop?: import('../../core').AgentLoopRun } | null>(null)
+const pendingMessage = ref<{ id: string; text: string; timeline?: AssistantTimelineEntry[]; loop?: import('../../core').AgentLoopRun } | null>(null)
 const pendingLoop = ref<import('../../core').AgentLoopRun | null>(null)
 const connectionState = ref<ConnectionState>('disconnected')
 const customComponents = ref<Record<string, Component>>({})
@@ -132,7 +133,7 @@ function handleMessage(_msg: Message) {
   isSending.value = false
 }
 
-function handleMessageUpdating(data: { id: string; text: string; loop?: import('../../core').AgentLoopRun }) {
+function handleMessageUpdating(data: { id: string; text: string; timeline?: AssistantTimelineEntry[]; loop?: import('../../core').AgentLoopRun }) {
   // AgentLoop 事件可能晚于首个正文 delta；先给用户一个可持续更新的思考状态。
   const loop = data.loop || pendingLoop.value || pendingMessage.value?.loop || {
     id: `pending-${data.id}`,

@@ -90,6 +90,69 @@ def _content_text(content: Any) -> str:
     )
 
 
+def _thinking_text(chunk: Any) -> str:
+    """从模型流式块中提取思考/推理文本，与正文严格分离。
+
+    兼容两类来源：
+    - OpenAI 兼容 Chat Completions 的块级 ``additional_kwargs["reasoning_content"]``
+      （DeepSeek reasoner 等思考模型，由 ProviderThinkingChatOpenAI 从原始响应
+      补回 additional_kwargs）。
+    - 内容块列表中的 thinking/reasoning 类型块（OpenAI Responses API 风格）。
+    普通模型不返回思考内容时返回空字符串。
+    """
+    parts: list[str] = []
+    extra = getattr(chunk, "additional_kwargs", None) or {}
+    for key in ("reasoning_content", "reasoning", "reasoning_details"):
+        reasoning = extra.get(key)
+        if isinstance(reasoning, str):
+            if reasoning:
+                parts.append(reasoning)
+        elif isinstance(reasoning, list):
+            text = "".join(
+                (
+                    item.get("text") or item.get("content") or ""
+                    if isinstance(item, dict)
+                    else str(item)
+                )
+                for item in reasoning
+            )
+            if text:
+                parts.append(text)
+    content = getattr(chunk, "content", None)
+    if isinstance(content, list):
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") in {"thinking", "reasoning"}:
+                thinking = item.get("thinking") or item.get("reasoning")
+                if isinstance(thinking, str) and thinking:
+                    parts.append(thinking)
+    return "".join(parts)
+
+
+def _summarize_json(value: Any, *, limit: int) -> str:
+    """把工具参数或结果转换为截断后的 JSON/文本摘要，避免超长或敏感内容直接外发。"""
+    if isinstance(value, str):
+        text = value
+    else:
+        try:
+            text = json.dumps(
+                value, ensure_ascii=False, default=str, separators=(",", ":")
+            )
+        except (TypeError, ValueError):
+            text = str(value)
+    return text[:limit]
+
+
+def _tool_result_summary(outcome) -> str:
+    """提取工具结果的展示摘要，空结果返回空字符串。"""
+    return (
+        _summarize_json(getattr(outcome, "result", None), limit=500)
+        if getattr(outcome, "result", None) is not None
+        else ""
+    )
+
+
 def tool_step_values(tool_event: dict, sequence: int) -> dict:
     """把工具事件转换为 Loop 步骤落库字段。"""
     outcome = tool_event["outcome"]
@@ -99,6 +162,7 @@ def tool_step_values(tool_event: dict, sequence: int) -> dict:
         "failed": "failed",
         "error": "failed",
     }.get(outcome_status, "succeeded")
+    result_detail = _tool_result_summary(outcome)
     return {
         "sequence": sequence,
         "step_type": tool_event.get("tool_type", "host_tool"),
@@ -108,7 +172,10 @@ def tool_step_values(tool_event: dict, sequence: int) -> dict:
         "output_summary": (
             "等待用户确认"
             if status == "waiting_confirmation"
-            else f"工具执行{'失败' if status == 'failed' else '完成'}"
+            else (
+                f"工具执行{'失败' if status == 'failed' else '完成'}"
+                + (f"：{result_detail}" if result_detail else "")
+            )
         ),
         "tool_name": tool_event["tool"],
         "skill_name": tool_event.get("skill_name"),
@@ -183,6 +250,7 @@ class GraphResult:
     content: str
     citations: list[dict[str, Any]]
     knowledge_grounded: bool
+    thinking_text: str | None = None
     pending_confirmation_id: int | None = None
     tool_events: list[dict[str, Any]] | None = None
     usage: dict[str, int] | None = None
@@ -372,6 +440,7 @@ async def _stream_graph(
             HumanMessage(content=user_message),
         ]
         content_parts: list[str] = []
+        thinking_parts: list[str] = []
         tool_events: list[dict[str, Any]] = []
         usage = None
 
@@ -380,6 +449,11 @@ async def _stream_graph(
             async for chunk in bound_model.astream(messages):
                 usage = merge_token_usage(usage, extract_token_usage(chunk))
                 response = chunk if response is None else response + chunk
+
+                thinking = _thinking_text(chunk)
+                if thinking:
+                    thinking_parts.append(thinking)
+                    yield {"type": "thinking_delta", "content": thinking}
 
                 content = _content_text(chunk.content)
                 if content:
@@ -411,7 +485,7 @@ async def _stream_graph(
                     "tool": tool.name,
                     "tool_type": classify_tool_type(tool),
                     "tool_call_id": call.get("id", tool.name),
-                    "input_summary": f"收到 {len(call.get('args', {}))} 个参数",
+                    "input_summary": _summarize_json(call.get("args", {}), limit=300),
                     "skill_name": getattr(tool, "skill_name", None),
                     "skill_version": getattr(tool, "skill_version", None),
                 }
@@ -439,6 +513,7 @@ async def _stream_graph(
                             content="".join(content_parts),
                             citations=citations or [],
                             knowledge_grounded=bool(citations),
+                            thinking_text="".join(thinking_parts),
                             pending_confirmation_id=outcome.confirmation_id,
                             tool_events=tool_events,
                             usage=usage,
@@ -462,6 +537,7 @@ async def _stream_graph(
                 content="".join(content_parts),
                 citations=citations or [],
                 knowledge_grounded=bool(citations),
+                thinking_text="".join(thinking_parts),
                 tool_events=tool_events,
                 usage=usage,
             ),
@@ -490,6 +566,7 @@ async def _stream_graph(
         bool(tools),
     )
     content_parts = []
+    thinking_parts = []
     usage = None
 
     # 流式迭代模型输出，每个 chunk 包含增量内容
@@ -501,6 +578,11 @@ async def _stream_graph(
     ):
         # 累积 Token 使用量统计
         usage = merge_token_usage(usage, extract_token_usage(chunk))
+
+        thinking = _thinking_text(chunk)
+        if thinking:
+            thinking_parts.append(thinking)
+            yield {"type": "thinking_delta", "content": thinking}
 
         # 处理 chunk 内容：兼容纯字符串和多模态列表两种格式
         content = _content_text(chunk.content)
@@ -522,6 +604,7 @@ async def _stream_graph(
             content="".join(content_parts),
             citations=citations or [],
             knowledge_grounded=bool(citations),
+            thinking_text="".join(thinking_parts),
             usage=usage,
         ),
     }
@@ -621,6 +704,8 @@ async def run_graph(
         )
 
     # 步骤2：定义图中的 answer 节点，执行模型推理
+    thinking_parts: list[str] = []
+
     async def answer_node(state: ChatState):
         try:
             response = await bound_model.ainvoke(state["messages"])
@@ -629,6 +714,9 @@ async def run_graph(
             raise
 
         content = _content_text(response.content)
+        thinking = _thinking_text(response)
+        if thinking:
+            thinking_parts.append(thinking)
         return {"content": content, "messages": [response]}
 
     # 步骤3：构建线性状态图（START → answer → END）
@@ -671,7 +759,7 @@ async def run_graph(
                 "tool": tool.name,
                 "tool_type": classify_tool_type(tool),
                 "tool_call_id": call.get("id", tool.name),
-                "input_summary": f"收到 {len(call.get('args', {}))} 个参数",
+                "input_summary": _summarize_json(call.get("args", {}), limit=300),
                 "skill_name": getattr(tool, "skill_name", None),
                 "skill_version": getattr(tool, "skill_version", None),
             }
@@ -701,6 +789,7 @@ async def run_graph(
                     content="",
                     citations=citation_items,
                     knowledge_grounded=bool(citation_items),
+                    thinking_text="".join(thinking_parts),
                     pending_confirmation_id=pending_confirmation_id,
                     tool_events=tool_events,
                     usage=usage,
@@ -727,6 +816,7 @@ async def run_graph(
         content=result.get("content", ""),
         citations=citation_items,
         knowledge_grounded=bool(citation_items),
+        thinking_text="".join(thinking_parts),
         pending_confirmation_id=pending_confirmation_id,
         tool_events=tool_events,
         usage=usage,
@@ -882,7 +972,10 @@ def build_system_prompt(
     """
     sections = [version.system_prompt]
     if caller_system_prompt and caller_system_prompt.strip():
-        sections.append("调用方补充的系统提示词（不得覆盖平台安全与工具约束）：\n" + caller_system_prompt.strip())
+        sections.append(
+            "调用方补充的系统提示词（不得覆盖平台安全与工具约束）：\n"
+            + caller_system_prompt.strip()
+        )
 
     # 追加技能指令段落
     if skill_instructions:

@@ -209,3 +209,49 @@ git diff --check
 ### 审批判断
 
 - 本次仅调整现有 SDK UI 的条件渲染和折叠交互，不修改 API、数据库、权限或架构边界，无需新增人工确认。
+
+## 2026-08-13 增量计划：回答过程按时间顺序内联展示并补充引用/工具明细
+
+### 变更文件
+
+- `apps/backend/app/modules/knowledge/schemas.py`：`Citation` 兼容性新增可选 `knowledge_base`（KnowledgeBaseRef：id/name/slug）。
+- `apps/backend/app/modules/knowledge/services.py`：`build_citations` 透传 `knowledge_base`。
+- `apps/backend/app/modules/conversation/models.py`：`AgentLoopStep` 新增 `thinking_text` Text 字段（含中文 comment）。
+- `apps/backend/migrations/versions/20260813_0021_agent_loop_step_thinking.py`：新增迁移，为 `agent_loop_steps` 增加 `thinking_text`。
+- `apps/backend/app/modules/conversation/services.py`：`retrieve_citations` 按知识库归属为引用附加 `knowledgeBase`；工具步骤 `agent_step_started` payload 增加 `inputSummary`。
+- `apps/backend/app/modules/conversation/runtime.py`：新增参数/结果摘要 helper；`stream_graph`/`run_graph` 工具事件填充真实参数摘要；`tool_step_values` 输出真实结果摘要。
+- `apps/backend/app/modules/conversation/runtime.py`：新增思考文本提取 helper，`stream_graph` 逐块提取 `reasoning_content` / thinking 内容块并输出 `thinking_delta` 事件。
+- `apps/backend/app/modules/gateway/runtime.py`：`_step_payload` 增加 `with_input` 输出 `inputSummary`。
+- `apps/backend/app/modules/gateway/router.py` 与 `apps/backend/app/modules/gateway/schemas.py`：`agent_step_delta` 事件类型透传与协议声明。
+- `apps/ai-sdk/src/core/types.ts`：`AgentLoopStep` 新增 `inputSummary`；`citationRefs` 使用 `KnowledgeCitation`（含 `knowledgeBase`、`text`）；`Message` 新增可选 `timeline`。
+- `apps/ai-sdk/src/core/protocol.ts`：`ProtocolEventType` 新增 `agent_step_delta`。
+- `apps/ai-sdk/src/core/client.ts`：pending assistant 维护按序 `timeline`，`message_delta` 追加正文片段、`agent_step_*` 追加/更新步骤；`agent_step_delta` 把思考内容追加到对应步骤；`message_completed` 将时间线挂到消息；`mergeLoopStep` 映射 `inputSummary`。
+- `apps/ai-sdk/src/ui/components/ChatMessage.vue`：有 `timeline` 时按序渲染正文片段与步骤卡片，无时间线时降级为“过程在上、正文在下”。
+- `apps/ai-sdk/src/ui/components/AgentLoopPanel.vue` / 新增 `AgentLoopStepCard.vue`：抽离步骤卡片，展示知识库名 + 段落摘要、工具参数/结果可折叠摘要。
+- `apps/ai-sdk/src/ui/components/ChatWidget.vue`、`ChatMessageList.vue`：pending 消息透传 `timeline`。
+- `apps/ai-sdk/src/ui/message-presentation.ts`：新增引用/工具展示纯函数（知识库名、段落摘要、参数/结果摘要判定）。
+- 测试：后端 `tests/knowledge/test_knowledge_services.py`、`tests/conversation/test_runtime.py`；SDK `client.test.ts`、`message-presentation.test.ts`。
+
+### 实施步骤
+
+1. 后端先补充字段与摘要 helper：`Citation.knowledge_base`、`build_citations` 透传、`retrieve_citations` 按库归属、工具参数/结果摘要函数，并补充对应单元测试。
+2. 后端事件 payload：`agent_step_started` 输出 `inputSummary`，`outputSummary` 输出结果摘要；标准 SSE 与 WebSocket 网关两条路径同步修改。
+3. 后端思考流：`stream_graph` 逐块提取思考文本并输出 `thinking_delta`；services/gateway 把它转换为 `agent_step_delta`（携带生成步骤 `stepId`、`field: "thinking"`）；两条事件路径与协议声明同步修改。
+4. 后端思考落库：`GraphResult` 携带累计 `thinking_text`；`_finish_stream_chat` / `_finish_embed_chat` 与 `execute_chat` 写入生成步骤 `thinking_text`；`build_loop_payload` 与 embed 步骤序列化输出 `thinkingText`；补充迁移与模型字段测试。
+5. SDK 类型与状态：新增 `KnowledgeCitation`、`AgentLoopStep.inputSummary`/`thinkingText`、`Message.timeline`；`mergeLoopStep` 映射新字段。
+6. SDK 时间线：pending assistant 按事件到达顺序维护 `timeline`（text 片段 / step 引用），`message_updating` 与完成消息携带时间线。
+7. SDK 思考展示：`agent_step_delta` 追加步骤 `thinkingText`，思考卡片流式展示并支持折叠与超长截断；历史步骤带 `thinkingText` 时直接恢复；无思考内容时保持占位文案。
+8. SDK 渲染：抽取 `AgentLoopStepCard`，工具卡片展示参数/结果可折叠摘要，引用卡片展示知识库名与段落；`ChatMessage` 按时间线渲染，无时间线降级布局。
+9. 验证：后端定向测试、SDK 单测/类型检查/构建、`git diff --check`；回填 `verify.md` 与 `acceptance.md`。
+
+### 回滚说明
+
+- 后端可单独回滚字段与摘要逻辑，不影响既有事件消费；新增字段均为可选，旧 SDK 不受影响。
+- SDK 时间线渲染可独立回滚到“过程在上、正文在下”布局，不影响消息协议与历史数据。
+
+### 审批判断
+
+- 涉及 API 契约变化：是。新增 `agent_step_delta` 事件类型，步骤事件与引用对象为兼容性新增可选字段（`inputSummary`、`knowledgeBase`、`outputSummary` 语义扩展），不改变既有字段含义与解析。
+- 涉及数据模型变化：是（已确认）。`agent_loop_steps` 新增 `thinking_text` 字段并新增迁移，用于落库模型思考内容。
+- 涉及鉴权或权限变化：否。
+- 结论：用户已于 2026-08-13 确认（思考内容落库 + 实时展示 + 引用/工具明细 + 时间线），审批通过，进入实现。

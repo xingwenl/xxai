@@ -104,6 +104,7 @@ class AgentLoopStep(BaseModel, TimeModel):
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="queued", server_default="queued", comment="步骤状态")
     input_summary: Mapped[str | None] = mapped_column(Text, nullable=True, comment="脱敏后的输入摘要")
     output_summary: Mapped[str | None] = mapped_column(Text, nullable=True, comment="脱敏后的输出摘要")
+    thinking_text: Mapped[str | None] = mapped_column(Text, nullable=True, comment="模型思考内容（reasoning/thinking），流式累计后落库，普通模型为 NULL")
     tool_name: Mapped[str | None] = mapped_column(String(255), nullable=True, comment="工具名称")
     skill_name: Mapped[str | None] = mapped_column(String(255), nullable=True, comment="技能名称")
     skill_version: Mapped[str | None] = mapped_column(String(80), nullable=True, comment="技能版本")

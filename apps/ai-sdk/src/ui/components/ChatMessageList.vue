@@ -18,12 +18,12 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick } from 'vue'
 import ChatMessage from './ChatMessage.vue'
-import type { Message, AgentLoopRun } from '../../core'
+import type { AssistantTimelineEntry, Message, AgentLoopRun } from '../../core'
 import { isNearScrollBottom } from '../chat-scroll'
 
 interface Props {
   messages: Message[]
-  pendingMessage?: { id: string; text: string; loop?: import('../../core').AgentLoopRun } | null
+  pendingMessage?: { id: string; text: string; timeline?: AssistantTimelineEntry[]; loop?: import('../../core').AgentLoopRun } | null
 }
 
 const props = defineProps<Props>()
@@ -45,6 +45,7 @@ const pendingAsMessage = computed<Message>(() => ({
     text: props.pendingMessage?.text || '',
     status: 'streaming'
   }],
+  timeline: props.pendingMessage?.timeline,
   loop: props.pendingMessage?.loop as AgentLoopRun | undefined,
   timestamp: new Date()
 }))

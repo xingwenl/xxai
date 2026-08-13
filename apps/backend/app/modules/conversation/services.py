@@ -48,6 +48,7 @@ async def build_loop_payload(
                 "title": step.title,
                 "status": step.status,
                 "outputSummary": step.output_summary,
+                "thinkingText": step.thinking_text,
                 "toolName": step.tool_name,
                 "skillName": step.skill_name,
                 "skillVersion": step.skill_version,
@@ -185,6 +186,7 @@ async def _finish_stream_chat(
         }
     generation_step.sequence = next_step_sequence
     generation_step.output_summary = f"生成 {len(result.content)} 字符"
+    generation_step.thinking_text = result.thinking_text
     loop.assistant_message_id = assistant.id
     loop.status = "completed"
     loop.summary = "已完成回答"
@@ -204,6 +206,7 @@ async def _finish_stream_chat(
             "title": generation_step.title,
             "status": generation_step.status,
             "outputSummary": generation_step.output_summary,
+            "thinkingText": generation_step.thinking_text,
         },
     }
     yield {
@@ -255,7 +258,7 @@ async def retrieve_citations(knowledge_repo, knowledge_bases, query: str):
             getattr(base, "active_index_version", None),
         )
         accepted = [
-            (chunk, similarity)
+            (chunk, similarity, base)
             for chunk, similarity in matches
             if similarity >= float(getattr(base, "retrieval_threshold", 0.5))
         ][: int(getattr(base, "retrieval_top_k", 5))]
@@ -271,7 +274,7 @@ async def retrieve_citations(knowledge_repo, knowledge_bases, query: str):
     seen = set()
     total_chars = 0
     max_context_chars = get_settings().knowledge_context_max_chars
-    for chunk, similarity in chunks:
+    for chunk, similarity, base in chunks:
         key = (chunk.document_id, chunk.content.strip())
         if key in seen:
             continue
@@ -283,15 +286,24 @@ async def retrieve_citations(knowledge_repo, knowledge_bases, query: str):
             continue
         seen.add(key)
         total_chars += len(text)
-        deduped.append((chunk, similarity, text))
+        deduped.append((chunk, similarity, text, base))
     citations = build_citations(
         [
             {
                 "title": chunk.source_metadata.get("title", ""),
                 "source_url": chunk.source_metadata.get("source_url"),
                 "content": text,
+                "knowledge_base": (
+                    {
+                        "id": getattr(base, "id", None),
+                        "name": getattr(base, "name", None),
+                        "slug": getattr(base, "slug", None),
+                    }
+                    if getattr(base, "id", None) is not None
+                    else None
+                ),
             }
-            for chunk, _similarity, text in deduped
+            for chunk, _similarity, text, base in deduped
         ]
     )
     logger.info(
@@ -386,6 +398,7 @@ async def execute_chat(
         title="生成回答",
         status="succeeded",
         output_summary=f"生成 {len(result.content)} 字符",
+        thinking_text=result.thinking_text,
     )
     loop.assistant_message_id = assistant.id
     loop.status = "completed"
@@ -541,6 +554,22 @@ async def stream_chat(
     ):
         if item["type"] == "message_delta":
             yield {"type": "message_delta", "conversation": conversation, **item}
+            continue
+        if item["type"] == "thinking_delta":
+            yield {
+                "type": "agent_step_delta",
+                "conversation": conversation,
+                "loop_id": loop.id,
+                "step_id": generation_step.id,
+                "payload": {
+                    "loopRunId": str(loop.id),
+                    "stepId": str(generation_step.id),
+                    "sequence": generation_step.sequence,
+                    "stepType": "model_generation",
+                    "field": "thinking",
+                    "content": item["content"],
+                },
+            }
             continue
         if item["type"] == "tool_started":
             call_id = str(item["tool_call_id"])
