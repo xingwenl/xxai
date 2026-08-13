@@ -167,6 +167,20 @@ export interface UIOptions {
   theme?: 'light' | 'dark' | 'auto'
   container?: HTMLElement
   colors?: UIColors
+  /**
+   * 悬浮窗拖拽与缩放配置。默认宽高 430×680，最小 320×480，
+   * 最大不超过视口减去四周留白；所有值均为 CSS 像素。
+   */
+  window?: UIWindowBounds
+}
+
+export interface UIWindowBounds {
+  width?: number
+  height?: number
+  minWidth?: number
+  minHeight?: number
+  maxWidth?: number
+  maxHeight?: number
 }
 
 export interface UIColors {

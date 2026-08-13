@@ -111,6 +111,7 @@ function handleAction(value: string) {
 .xxai-timeline-entry {
   display: grid;
   gap: 6px;
+  min-width: 0;
 }
 .xxai-timeline-entry + .xxai-timeline-entry {
   margin-top: 8px;

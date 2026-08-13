@@ -10,7 +10,8 @@ import type {
   ToolSideEffect,
   ToolType,
   UIOptions,
-  UIColors
+  UIColors,
+  UIWindowBounds
 } from './core'
 
 export function createAgentClient(options: AgentClientOptions) {
@@ -21,7 +22,8 @@ export function createAgentClient(options: AgentClientOptions) {
       position: options.ui?.position,
       theme: options.ui?.theme,
       colors: options.ui?.colors,
-      container: options.ui?.container
+      container: options.ui?.container,
+      window: options.ui?.window
     })
   }
 
@@ -38,7 +40,8 @@ export type {
   ToolSideEffect,
   ToolType,
   UIOptions,
-  UIColors
+  UIColors,
+  UIWindowBounds
 }
 
 export type { PageElement, PageSnapshot, PageToolsOptions } from './core'

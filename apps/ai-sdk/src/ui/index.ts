@@ -1,7 +1,7 @@
 import { createApp, type App } from 'vue'
 import ChatWidget from './components/ChatWidget.vue'
 import type { AgentClient } from '../core'
-import type { UIColors } from '../core'
+import type { UIColors, UIWindowBounds } from '../core'
 export { registerCustomComponent } from './registry'
 
 export function createChatUI(agent: AgentClient, options?: {
@@ -10,6 +10,7 @@ export function createChatUI(agent: AgentClient, options?: {
   title?: string
   colors?: UIColors
   container?: HTMLElement
+  window?: UIWindowBounds
 }): {
   app: App
   destroy: () => void
@@ -23,7 +24,8 @@ export function createChatUI(agent: AgentClient, options?: {
     position: options?.position || 'right',
     theme: options?.theme || 'auto',
     title: options?.title || 'AI Assistant',
-    colors: options?.colors
+    colors: options?.colors,
+    window: options?.window
   })
 
   app.mount(mountPoint)

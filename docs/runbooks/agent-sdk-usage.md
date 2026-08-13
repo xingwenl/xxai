@@ -107,7 +107,17 @@ const agent = createAgentClient({
     mode: 'floating',
     position: 'right',
     theme: 'auto',
-    locale: 'zh-CN'
+    locale: 'zh-CN',
+    // 可选：悬浮窗拖拽/缩放范围（CSS 像素），省略时使用默认值。
+    // 默认 430×680，最小 320×480，最大不超过视口留白。
+    window: {
+      width: 480,
+      height: 720,
+      minWidth: 340,
+      minHeight: 500,
+      maxWidth: 720,
+      maxHeight: 900
+    }
   }
 })
 

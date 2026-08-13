@@ -41,7 +41,7 @@ export class AgentClient {
   private pendingConfirmations = new Set<string>()
   private pendingHostCalls = new Map<string, { name: string; arguments: unknown }>()
   private pendingLoop: AgentLoopRun | null = null
-  private readonly storageKey: string
+  readonly storageKey: string
 
   constructor(options: AgentClientOptions) {
     this.options = {

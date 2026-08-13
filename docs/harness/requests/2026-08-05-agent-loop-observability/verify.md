@@ -51,6 +51,22 @@ git diff --check
 - `cd apps/ai-sdk && npm run type-check`：通过。
 - `cd apps/ai-sdk && npm run build`：通过。
 - `git diff --check`：通过。
+
+## 2026-08-13 增量验证：清除聊天记录按钮
+
+用户需求：聊天窗口提供“清除聊天记录”按钮。
+
+实现（`ChatWidget.vue` + `styles/index.css`）：
+
+- 头部新增垃圾桶按钮：首次点击变为“确认？”（红色，3 秒未再点自动恢复），再次点击调用已有的 `agent.clearLocalHistory()`（清空内存消息、移除 localStorage 消息、重置会话与待确认状态，并触发 `history_cleared` 事件）。
+- `ChatWidget` 监听 `history_cleared` 事件同步清空消息列表与 pending 状态；组件卸载时清理确认定时器与事件监听。
+- 按钮 hover 红色提示，避免误触删除。
+
+验证：
+
+- `cd apps/ai-sdk && npx vitest run`：`73 passed`。
+- `cd apps/ai-sdk && npm run type-check`、`npm run build`：通过。
+- `git diff --check`：通过。
 - 新增回归证据：502 被映射为 `agent_upstream_unavailable`；标准 SSE/Embed 流只发终止 `error`，不发 `message_completed`；Embed Loop 和生成步骤为 `failed`；SDK 生成失败助手消息并清理 pending request。
 - 错误路径复审后补充 SDK 传输层收口：请求已发送但尚未收到 `message_started` 时若 WebSocket/token/协议连接失败，也会生成失败助手消息并清理 active request。SDK 定向测试为 `8 passed`，全量复测为 `29 passed`。
 
@@ -110,6 +126,75 @@ git diff --check
 - `cd apps/ai-sdk && npx vitest run`：`51 passed`（含新增 4 个 client 时间线/思考增量测试与 3 个展示纯函数测试）。
 - `cd apps/ai-sdk && npm run type-check`：通过。
 - `cd apps/ai-sdk && npm run build`：通过，生成 ESM/UMD/CSS/类型声明产物。
+- `git diff --check`：通过。
+
+## 2026-08-13 增量验证：技能组展开宽度修复
+
+用户实测反馈“调用技能点开后，内部宽度变得很宽”。根因：`AgentLoopSkillGroup` 的 `<details>` 展开后，技能详情文本使用 `white-space: nowrap`，且容器链（`.xxai-timeline-entry` / `.xxai-loop-skill-group` / `.xxai-loop-skill-item`）缺少 `min-width: 0`，长文本（技能输出摘要 JSON）把卡片按 min-content 撑宽，超出消息容器。
+
+修复（仅样式）：
+
+- `AgentLoopSkillGroup.vue`：组卡片加 `min-width: 0` / `width: 100%` / `max-width: 100%` / `box-sizing: border-box`；列表与行加 `min-width: 0`；详情文本去掉 `nowrap` 与 `ellipsis`，改为 `overflow-wrap: anywhere` + `word-break: break-word`，长文本在卡片内换行。
+- `ChatMessage.vue`（`.xxai-timeline-entry`）、`AgentLoopPanel.vue`（`.xxai-loop-details`）、`AgentLoopStepCard.vue`（`.xxai-loop-card`）同步补 `min-width: 0` / `max-width: 100%`，防止其他步骤卡片被长内容撑宽。
+
+验证：
+
+- `cd apps/ai-sdk && npx vitest run`：`60 passed`。
+- `cd apps/ai-sdk && npm run type-check`：通过。
+- `cd apps/ai-sdk && npm run build`：通过。
+- `git diff --check`：通过。
+- 截图验证曾尝试通过 headless Chrome 渲染 SSR 预览页，但沙箱环境中 Chrome 持续 SIGABRT 崩溃且自动审核服务不可用，无法产出截图；改用标准 CSS 规则（min-width: 0 + 允许换行）与 SSR 结构断言验证，待用户在真实浏览器确认视觉效果。
+
+## 2026-08-13 增量验证：悬浮窗拖拽与缩放
+
+用户需求：ai-sdk 聊天窗支持上下左右拖拽与放大缩小（带最大最小范围）。纯 UI 交互，无协议/数据模型变化；`UIOptions` 仅新增可选字段，向后兼容，无需重新审批。
+
+实现：
+
+- `types.ts` 新增 `UIWindowBounds`（width/height/minWidth/minHeight/maxWidth/maxHeight），挂到 `UIOptions.window` 可选配置；默认 430×680，最小 320×480，最大不超过视口四周 8px 留白。
+- 新增 `ui/window-layout.ts` 布局纯函数：`resolveWindowBounds`（尺寸归一、min/max 与视口封顶）、`defaultWindowRect`（按 position 定位右下/左下）、`dragWindowRect`（位置平移并 clamp 在视口内）、`resizeWindowRect`（锚定左上角向右下扩展，受用户 min/max 与视口右/下边界约束）、`clampWindowRect`。
+- `ChatWidget.vue`：标题栏作为拖拽手柄（Pointer Events 统一鼠标/触摸，按钮区不触发拖拽），右下角新增缩放手柄；窗口打开时按视口计算初始位置，视口 resize 时重新 clamp；`onUnmounted` 完整清理拖拽/缩放监听。
+- `styles/index.css`：拖拽区 `cursor: grab` + `touch-action: none` + `user-select: none`；缩放手柄右下角 `nwse-resize`，hover 高亮；`.xxai-chat-window` 改为内联 left/top/width/height 定位。
+- 配置透传链：`src/index.ts` → `ui/index.ts` → `ChatWidget`；`UIWindowBounds` 从包入口导出；`docs/runbooks/agent-sdk-usage.md` 补充 `window` 配置示例。
+
+验证：
+
+- `cd apps/ai-sdk && npx vitest run`：`70 passed`（新增 10 个 window-layout 边界测试：默认尺寸/位置、左右定位、拖拽视口 clamp、缩放 min/max 与视口约束、小视口兼容）。
+- `cd apps/ai-sdk && npm run type-check`：通过。
+- `cd apps/ai-sdk && npm run build`：通过。
+- `git diff --check`：通过。
+- 拖拽/缩放手感需用户在真实浏览器验证（本环境 headless Chrome 持续崩溃，无法截图）。
+
+## 2026-08-13 增量修复：缩放手柄被输入条遮挡导致缩放不可用
+
+用户实测：拖拽正常，但找不到/无法使用放大缩小。根因：`.xxai-chat-input-wrapper` 为 `position: absolute; bottom: 0; z-index: 2` 铺满窗口底部，右下角缩放手柄未设置 z-index（默认 auto），被输入条完全盖住，既不可见也不可点击。
+
+修复（`styles/index.css`）：
+
+- `.xxai-window-resize-handle` 提升 `z-index: 10`（高于输入条 2），并加浅色背景、放大点击区到 28×28、默认透明度 0.6、hover 高亮，保证可见且可点。
+- 发送按钮右下角与手柄有约 14×18px 的重叠（按钮中心区域不受影响），符合常见聊天浮窗右下角缩放手柄的交互。
+
+验证：
+
+- `cd apps/ai-sdk && npx vitest run`：`70 passed`。
+- `cd apps/ai-sdk && npm run type-check`、`npm run build`：通过，产物已包含 `z-index:10` 手柄样式。
+- `git diff --check`：通过。
+- 用户需重新加载使用本地构建的页面（`npm run build` 后刷新，或重新 `npm link`）；若 `apps/front` 依赖 npm 包则需发布新版本后升级依赖。
+
+## 2026-08-13 增量验证：拖拽位置与缩放大小本地持久化
+
+用户反馈：缩放大小与拖拽位置需要保存到本地，刷新后恢复，否则窗口位置/尺寸丢失。
+
+实现：
+
+- `core/client.ts`：`AgentClient.storageKey` 由私有改为公开只读，供 UI 复用同一实例的持久化命名空间（消息存储与窗口布局共用前缀、不同 key，互不冲突；`AgentClientOptions.storageKey` 可自定义前缀）。
+- 新增 `ui/window-storage.ts`：`serializeWindowRect` / `parseWindowRect` 纯函数，解析时校验 JSON 结构、有限数值与正尺寸，损坏数据回退默认布局。
+- `ChatWidget.vue`：窗口 key 为 `` `${agent.storageKey}:window` ``；`onMounted` 时先读取本地布局并 clamp 到当前视口再应用；拖拽/缩放结束（`pointerup`）与视口 resize 重新 clamp 后写入 `localStorage`；读取/写入均 try/catch，隐私模式等受限环境静默降级。
+
+验证：
+
+- `cd apps/ai-sdk && npx vitest run`：`73 passed`（新增 3 个 window-storage 序列化/解析测试）。
+- `cd apps/ai-sdk && npm run type-check`、`npm run build`：通过，产物已包含 localStorage 持久化逻辑。
 - `git diff --check`：通过。
 - 迁移：新增 `20260813_0021_agent_loop_step_thinking`（`agent_loop_steps.thinking_text`），语法解析通过；数据库实例迁移由用户在有库环境执行 `poetry run alembic upgrade head`。
 

@@ -53,8 +53,8 @@
         <span class="xxai-reference-icon" aria-hidden="true">▤</span>
         <span class="xxai-reference-body">
           <strong>{{ citationTitle(citation, index) }}</strong>
-          <small v-if="knowledgeBaseName" class="xxai-reference-kb">{{ knowledgeBaseName }}</small>
-          <small v-if="passage" class="xxai-reference-passage">{{ passage }}</small>
+          <small v-if="knowledgeBaseName" class="xxai-reference-kb">{{ knowledgeBaseName(citation) }}</small>
+          <small v-if="passage" class="xxai-reference-passage">{{ passage(citation) }}</small>
           <small v-if="!passage" class="xxai-reference-source">{{ citationSourceText(citation) }}</small>
         </span>
       </div>
@@ -148,6 +148,9 @@ function passage(citation: KnowledgeCitation): string {
 
 <style scoped>
 .xxai-loop-card {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 10px 12px;
   border: 1px solid;
   border-left-width: 3px;

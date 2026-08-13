@@ -232,6 +232,7 @@ function kindFor(step: AgentLoopStep) {
   display: grid;
   gap: 6px;
   padding-top: 6px;
+  min-width: 0;
 }
 @keyframes xxai-loop-typing-bounce {
   0%,

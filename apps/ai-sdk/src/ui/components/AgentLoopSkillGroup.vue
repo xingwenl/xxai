@@ -91,6 +91,10 @@ function statusIcon(status: AgentLoopStepStatus): string {
 
 <style scoped>
 .xxai-loop-skill-group {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 10px 12px;
   border: 1px solid #a7f3d0;
   border-left: 3px solid #10b981;
@@ -132,6 +136,7 @@ function statusIcon(status: AgentLoopStepStatus): string {
   transform: rotate(180deg);
 }
 .xxai-loop-skill-list {
+  min-width: 0;
   display: grid;
   gap: 4px;
   margin: 8px 0 0;
@@ -139,6 +144,7 @@ function statusIcon(status: AgentLoopStepStatus): string {
   list-style: none;
 }
 .xxai-loop-skill-item {
+  min-width: 0;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -173,9 +179,8 @@ function statusIcon(status: AgentLoopStepStatus): string {
   min-width: 0;
   flex: 1 1 100%;
   opacity: 0.8;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .xxai-loop-typing-dots {
   display: inline-flex;

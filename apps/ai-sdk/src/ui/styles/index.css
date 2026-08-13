@@ -80,11 +80,9 @@
   --agent-knowledge-accent: #F59E0B;
   --agent-knowledge-text: #B45309;
   position: fixed;
-  right: 16px;
-  bottom: 16px;
+  left: 0;
+  top: 0;
   z-index: 9998;
-  width: min(430px, calc(100vw - 24px));
-  height: min(680px, calc(100vh - 32px));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -96,9 +94,43 @@
   animation: xxai-slide-in 0.3s ease;
 }
 
-.xxai-chat-window.left {
-  right: auto;
-  left: 16px;
+.xxai-chat-window-drag {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.xxai-chat-window-drag:active {
+  cursor: grabbing;
+}
+
+.xxai-window-resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 0 0 22px 0;
+  color: var(--agent-muted-foreground);
+  background: rgba(255, 255, 255, 0.35);
+  cursor: nwse-resize;
+  touch-action: none;
+  opacity: 0.6;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.xxai-window-resize-handle svg {
+  width: 14px;
+  height: 14px;
+}
+
+.xxai-window-resize-handle:hover {
+  opacity: 1;
+  color: var(--agent-primary);
 }
 
 .xxai-chat-header {
@@ -133,6 +165,28 @@
 .xxai-header-icon-btn:hover {
   background: rgba(255, 255, 255, 0.75);
   transform: translateY(-1px);
+}
+
+.xxai-header-clear-btn {
+  color: var(--agent-muted-foreground);
+  transition:
+    transform 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.xxai-header-clear-btn:hover {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(254, 226, 226, 0.75);
+  color: #dc2626;
+}
+
+.xxai-header-clear-btn .xxai-clear-confirm {
+  font-size: 12px;
+  font-weight: 600;
+  color: #dc2626;
+  white-space: nowrap;
 }
 
 .xxai-header-icon-btn svg {
