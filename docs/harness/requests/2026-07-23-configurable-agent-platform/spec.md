@@ -53,6 +53,14 @@
 
 ## 变更记录
 
+### fix：URL 知识库索引 embedding 批次超限
+
+- 时间：2026-08-12
+- 变更原因：通过 URL 新增知识库并异步建立索引时，`knowledge.ingest_document` 调用 embedding 接口返回 400 `batch size is invalid, it should not be larger than 10`。
+- 变更内容：`OpenAIEmbedding` 默认 `embed_batch_size=100`，超过部分 OpenAI 兼容服务（Gemini 风格网关）单次 `input.contents` 上限 10；新增配置项 `EMBEDDING_BATCH_SIZE`（默认 `10`）并在 `build_embedding_model` 中传入，使 llama-index 内部按上限分片。
+- 影响章节：任务 6 知识库异步解析/切片/embedding 流程。
+- 是否触发人工确认：否，属 bugfix，未改变数据模型、API 契约或鉴权行为。
+
 ### 初始版本
 
 - 时间：2026-07-24

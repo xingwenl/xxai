@@ -51,24 +51,3 @@ def validate_incoming_message(raw: str) -> dict:
         if isinstance(text, str) and len(text.encode("utf-8")) > MAX_TEXT_BYTES:
             raise ValueError("text_too_large")
     return message
-
-
-class RequestLimiter:
-    """保留单连接请求互斥状态的轻量工具。
-
-    当前网关主循环使用 ``active_task`` 做实际调度，这个类保留给需要在
-    其他传输实现中复用的 begin/end 场景，核心语义是同一连接只允许一个
-    活跃请求。
-    """
-
-    def __init__(self) -> None:
-        self.active = False
-
-    def begin(self) -> bool:
-        if self.active:
-            return False
-        self.active = True
-        return True
-
-    def end(self) -> None:
-        self.active = False

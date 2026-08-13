@@ -1,5 +1,8 @@
 # Changelog
 
+## - 2026-08-13
+- ♻️ refactor：抽取运行时工具分发器并修复 embedding 批次超限 `🧑‍💻 lixingwen`
+
 ## - 2026-08-11
 - ✨ feat：完善接入文档与本地工具演示 `🧑‍💻 lixingwen`
 - ✨ feat：支持系统提示词与本地会话续聊 `🧑‍💻 lixingwen`

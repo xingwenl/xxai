@@ -35,22 +35,6 @@ def check_client_compatibility(
     return CompatibilityResult(True)
 
 
-def validate_handshake(
-    origin: str | None, allowed_origins: list[str], subprotocols: list[str]
-) -> bool:
-    """校验握手阶段的来源和子协议。
-
-    WebSocket 握手发生在 HTTP 鉴权之前，因此这里只做最早期的协议门禁：
-    页面必须来自后台允许的 Origin，并且声明当前 SDK 支持的子协议。
-    真正的身份、Agent 和 token 撤销校验由 ``authenticate_embed_token`` 完成。
-    """
-    return bool(
-        origin
-        and origin.rstrip("/") in allowed_origins
-        and PROTOCOL_SUBPROTOCOL in subprotocols
-    )
-
-
 async def authenticate_embed_token(
     token: str,
     *,

@@ -54,6 +54,7 @@ class Settings:
     agent_file_storage_path: str
     agent_max_upload_bytes: int
     agent_fetch_timeout_seconds: int
+    embedding_batch_size: int
     agent_master_key: str
     builtin_http_get_timeout_seconds: float
     builtin_http_get_text_max_bytes: int
@@ -136,6 +137,7 @@ def get_settings() -> Settings:
             os.getenv("AGENT_MAX_UPLOAD_BYTES", str(25 * 1024 * 1024))
         ),
         agent_fetch_timeout_seconds=int(os.getenv("AGENT_FETCH_TIMEOUT_SECONDS", "15")),
+        embedding_batch_size=int(os.getenv("EMBEDDING_BATCH_SIZE", "10")),
         agent_master_key=os.getenv(
             "AGENT_MASTER_KEY", "dev-agent-master-key-change-me"
         ),

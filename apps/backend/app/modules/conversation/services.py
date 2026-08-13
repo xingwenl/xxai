@@ -7,6 +7,7 @@ from app.modules.conversation.runtime import (
     build_system_prompt,
     run_graph,
     stream_graph,
+    tool_step_values,
 )
 from app.modules.knowledge.runtime import build_embedding_model
 from app.modules.knowledge.services import build_citations, validate_embedding_dimension
@@ -55,37 +56,6 @@ async def build_loop_payload(
             }
             for step in steps
         ],
-    }
-
-
-def _tool_step_values(tool_event: dict, sequence: int) -> dict:
-    outcome = tool_event["outcome"]
-    outcome_status = getattr(outcome, "status", "succeeded")
-    status = {
-        "confirmation_required": "waiting_confirmation",
-        "failed": "failed",
-        "error": "failed",
-    }.get(outcome_status, "succeeded")
-    return {
-        "sequence": sequence,
-        "step_type": tool_event.get("tool_type", "host_tool"),
-        "title": f"调用工具：{tool_event['tool']}",
-        "status": status,
-        "input_summary": tool_event.get("input_summary"),
-        "output_summary": (
-            "等待用户确认"
-            if status == "waiting_confirmation"
-            else f"工具执行{'失败' if status == 'failed' else '完成'}"
-        ),
-        "tool_name": tool_event["tool"],
-        "skill_name": tool_event.get("skill_name"),
-        "skill_version": tool_event.get("skill_version"),
-        "tool_call_id": str(tool_event.get("tool_call_id", tool_event["tool"])),
-        "error": (
-            {"code": "tool_failed", "message": "工具执行失败"}
-            if status == "failed"
-            else None
-        ),
     }
 
 
@@ -145,6 +115,122 @@ async def _load_history(repo: ConversationRepository, conversation_id: int):
     window = get_settings().conversation_history_window_seconds
     since = datetime.now(timezone.utc) - timedelta(seconds=window)
     return await repo.list_recent_context_messages(conversation_id, since=since)
+
+
+async def _resolve_conversation(
+    repo: ConversationRepository,
+    context,
+    *,
+    platform_id: int,
+    user_id: int,
+    message: str,
+    conversation_id: int | None,
+):
+    conversation = None
+    if conversation_id is not None:
+        conversation = await repo.get(conversation_id, platform_id, user_id)
+        if conversation is None or conversation.agent_id != context.agent.id:
+            raise NotFoundException("conversation not found")
+    if conversation is None:
+        conversation = await repo.create(
+            platform_id, context.agent.id, user_id, message
+        )
+    context.conversation_id = conversation.id
+    return conversation
+
+
+async def _finish_stream_chat(
+    repo: ConversationRepository,
+    conversation,
+    loop,
+    generation_step,
+    *,
+    tool_steps: dict,
+    next_step_sequence: int,
+    result,
+):
+    """保存助手消息与剩余工具步骤，输出流式收尾事件。"""
+    assistant = await repo.create_message(
+        conversation.id,
+        role="assistant",
+        content=result.content,
+        content_blocks=_content_blocks(result.content),
+        citations=result.citations,
+        knowledge_grounded=result.knowledge_grounded,
+    )
+    generation_step.status = "succeeded"
+    for offset, tool_event in enumerate(result.tool_events or [], start=2):
+        if str(tool_event.get("tool_call_id", tool_event["tool"])) in tool_steps:
+            continue
+        tool_step = await repo.create_loop_step(
+            loop.id, **tool_step_values(tool_event, offset)
+        )
+        await repo.save_loop(loop)
+        yield {
+            "type": "agent_step_completed",
+            "conversation": conversation,
+            "assistant": assistant,
+            "loop_id": loop.id,
+            "step_id": tool_step.id,
+            "payload": {
+                "loopRunId": str(loop.id),
+                "stepId": str(tool_step.id),
+                "sequence": tool_step.sequence,
+                "stepType": tool_step.step_type,
+                "title": tool_step.title,
+                "status": tool_step.status,
+                "outputSummary": tool_step.output_summary,
+                "toolName": tool_step.tool_name,
+            },
+        }
+    generation_step.sequence = next_step_sequence
+    generation_step.output_summary = f"生成 {len(result.content)} 字符"
+    loop.assistant_message_id = assistant.id
+    loop.status = "completed"
+    loop.summary = "已完成回答"
+    await repo.save_loop(loop)
+    result.loop_id = loop.id
+    yield {
+        "type": "agent_step_completed",
+        "conversation": conversation,
+        "assistant": assistant,
+        "loop_id": loop.id,
+        "step_id": generation_step.id,
+        "payload": {
+            "loopRunId": str(loop.id),
+            "stepId": str(generation_step.id),
+            "sequence": 2,
+            "stepType": "model_generation",
+            "title": generation_step.title,
+            "status": generation_step.status,
+            "outputSummary": generation_step.output_summary,
+        },
+    }
+    yield {
+        "type": "agent_loop_completed",
+        "conversation": conversation,
+        "assistant": assistant,
+        "loop_id": loop.id,
+        "payload": {
+            "loopRunId": str(loop.id),
+            "status": loop.status,
+            "summary": loop.summary,
+        },
+    }
+    logger.info(
+        "Conversation stream chat completed conversation_id=%s assistant_id=%s knowledge_grounded=%s citation_count=%s usage=%s",
+        conversation.id,
+        assistant.id,
+        result.knowledge_grounded,
+        len(result.citations),
+        result.usage,
+    )
+    yield {
+        "type": "completed",
+        "conversation": conversation,
+        "assistant": assistant,
+        "result": result,
+    }
 
 
 async def retrieve_citations(knowledge_repo, knowledge_bases, query: str):
@@ -238,16 +324,14 @@ async def execute_chat(
         len(message),
         len(citations),
     )
-    conversation = None
-    if conversation_id is not None:
-        conversation = await repo.get(conversation_id, platform_id, user_id)
-        if conversation is None or conversation.agent_id != context.agent.id:
-            raise NotFoundException("conversation not found")
-    if conversation is None:
-        conversation = await repo.create(
-            platform_id, context.agent.id, user_id, message
-        )
-    context.conversation_id = conversation.id
+    conversation = await _resolve_conversation(
+        repo,
+        context,
+        platform_id=platform_id,
+        user_id=user_id,
+        message=message,
+        conversation_id=conversation_id,
+    )
     history = await _load_history(repo, conversation.id)
     user_message = await repo.create_message(
         conversation.id,
@@ -294,7 +378,7 @@ async def execute_chat(
     )
     tool_start = 2 + len(skill_steps)
     for offset, tool_event in enumerate(result.tool_events or [], start=tool_start):
-        await repo.create_loop_step(loop.id, **_tool_step_values(tool_event, offset))
+        await repo.create_loop_step(loop.id, **tool_step_values(tool_event, offset))
     await repo.create_loop_step(
         loop.id,
         sequence=tool_start + len(result.tool_events or []),
@@ -502,7 +586,7 @@ async def stream_chat(
             call_id = str(item["tool_call_id"])
             tool_step = tool_steps.get(call_id)
             if tool_step is not None:
-                values = _tool_step_values(item, tool_step.sequence)
+                values = tool_step_values(item, tool_step.sequence)
                 tool_step.status = values["status"]
                 tool_step.output_summary = values["output_summary"]
                 tool_step.error = values["error"]
@@ -552,84 +636,13 @@ async def stream_chat(
             }
             return
         result = item["result"]
-        assistant = await repo.create_message(
-            conversation.id,
-            role="assistant",
-            content=result.content,
-            content_blocks=_content_blocks(result.content),
-            citations=result.citations,
-            knowledge_grounded=result.knowledge_grounded,
-        )
-        generation_step.status = "succeeded"
-        for offset, tool_event in enumerate(result.tool_events or [], start=2):
-            if str(tool_event.get("tool_call_id", tool_event["tool"])) in tool_steps:
-                continue
-            tool_step = await repo.create_loop_step(
-                loop.id, **_tool_step_values(tool_event, offset)
-            )
-            await repo.save_loop(loop)
-            yield {
-                "type": "agent_step_completed",
-                "conversation": conversation,
-                "assistant": assistant,
-                "loop_id": loop.id,
-                "step_id": tool_step.id,
-                "payload": {
-                    "loopRunId": str(loop.id),
-                    "stepId": str(tool_step.id),
-                    "sequence": tool_step.sequence,
-                    "stepType": tool_step.step_type,
-                    "title": tool_step.title,
-                    "status": tool_step.status,
-                    "outputSummary": tool_step.output_summary,
-                    "toolName": tool_step.tool_name,
-                },
-            }
-        generation_step.sequence = next_step_sequence
-        generation_step.output_summary = f"生成 {len(result.content)} 字符"
-        loop.assistant_message_id = assistant.id
-        loop.status = "completed"
-        loop.summary = "已完成回答"
-        await repo.save_loop(loop)
-        result.loop_id = loop.id
-        yield {
-            "type": "agent_step_completed",
-            "conversation": conversation,
-            "assistant": assistant,
-            "loop_id": loop.id,
-            "step_id": generation_step.id,
-            "payload": {
-                "loopRunId": str(loop.id),
-                "stepId": str(generation_step.id),
-                "sequence": 2,
-                "stepType": "model_generation",
-                "title": generation_step.title,
-                "status": generation_step.status,
-                "outputSummary": generation_step.output_summary,
-            },
-        }
-        yield {
-            "type": "agent_loop_completed",
-            "conversation": conversation,
-            "assistant": assistant,
-            "loop_id": loop.id,
-            "payload": {
-                "loopRunId": str(loop.id),
-                "status": loop.status,
-                "summary": loop.summary,
-            },
-        }
-        logger.info(
-            "Conversation stream chat completed conversation_id=%s assistant_id=%s knowledge_grounded=%s citation_count=%s usage=%s",
-            conversation.id,
-            assistant.id,
-            result.knowledge_grounded,
-            len(result.citations),
-            result.usage,
-        )
-        yield {
-            "type": "completed",
-            "conversation": conversation,
-            "assistant": assistant,
-            "result": result,
-        }
+        async for event in _finish_stream_chat(
+            repo,
+            conversation,
+            loop,
+            generation_step,
+            tool_steps=tool_steps,
+            next_step_sequence=next_step_sequence,
+            result=result,
+        ):
+            yield event

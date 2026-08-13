@@ -166,6 +166,50 @@ def test_build_embedding_model_keeps_openai_model_enum_behavior() -> None:
     assert model._text_engine == "text-embedding-3-small"
 
 
+def test_build_embedding_model_uses_configured_batch_size() -> None:
+    from app.core.config import get_settings
+    from app.modules.knowledge.runtime import build_embedding_model
+
+    model = build_embedding_model(
+        FakeBase(
+            embedding_base_url="http://ollama:11434/v1",
+            embedding_model="embeddinggemma",
+        )
+    )
+
+    assert model.embed_batch_size == get_settings().embedding_batch_size
+
+
+def test_embedding_batches_never_exceed_provider_limit() -> None:
+    from app.core.config import get_settings
+    from app.modules.knowledge.runtime import build_embedding_model
+
+    model = build_embedding_model(
+        FakeBase(
+            embedding_base_url="http://ollama:11434/v1",
+            embedding_model="embeddinggemma",
+        )
+    )
+    batch_sizes: list[int] = []
+
+    async def fake_aget_text_embeddings(texts):
+        batch_sizes.append(len(texts))
+        return [[0.0] * 768 for _ in texts]
+
+    model._aget_text_embeddings = fake_aget_text_embeddings
+
+    async def run() -> None:
+        embeddings = await model.aget_text_embedding_batch(
+            [f"chunk-{index}" for index in range(25)]
+        )
+        assert len(embeddings) == 25
+
+    asyncio.run(run())
+
+    assert batch_sizes
+    assert max(batch_sizes) <= get_settings().embedding_batch_size
+
+
 def test_resolve_storage_path_rebases_host_storage_path_for_worker() -> None:
     resolved = resolve_storage_path(
         "/Users/dev/project/apps/backend/storage/3/manual.md",

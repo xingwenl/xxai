@@ -6,6 +6,10 @@
 
 ## 已执行
 
+- fix（2026-08-12）：`EMBEDDING_BATCH_SIZE=10` 默认批次上限；`build_embedding_model` 将批次大小传入 `OpenAIEmbedding`，修复 URL 知识库索引时 embedding 批次超过服务上限 10 的 400 错误。
+- 定向测试：`pytest tests/knowledge -q`，通过，`28 passed`；新增用例覆盖批次配置生效与单批不超过 10 条。
+- `ruff check` 变更文件：通过；Black 仅剩仓库既有的无关格式化问题，未改动无关文件。
+
 - 已确认持久化 worktree 路径和分支。
 - 已恢复 research、spec、plan 文档。
 - `poetry lock`：通过，成功写入新的依赖锁文件。

@@ -68,6 +68,60 @@ def _tool_result_content(tool, outcome) -> str:
     return str(outcome.result)[:limit]
 
 
+def classify_tool_type(tool) -> str:
+    """按工具来源归类协议展示用的工具类型。"""
+    if hasattr(tool, "server_id"):
+        return "mcp_tool"
+    kind = getattr(tool, "kind", None)
+    if kind in {"skill_script", "skill_instruction"}:
+        return "skill_tool"
+    if kind == "builtin":
+        return "builtin_tool"
+    return "host_tool"
+
+
+def _content_text(content: Any) -> str:
+    """把模型 chunk 内容统一为纯文本，兼容字符串和多模态列表。"""
+    if isinstance(content, str):
+        return content
+    return "".join(
+        item.get("text", "") if isinstance(item, dict) else str(item)
+        for item in content
+    )
+
+
+def tool_step_values(tool_event: dict, sequence: int) -> dict:
+    """把工具事件转换为 Loop 步骤落库字段。"""
+    outcome = tool_event["outcome"]
+    outcome_status = getattr(outcome, "status", "succeeded")
+    status = {
+        "confirmation_required": "waiting_confirmation",
+        "failed": "failed",
+        "error": "failed",
+    }.get(outcome_status, "succeeded")
+    return {
+        "sequence": sequence,
+        "step_type": tool_event.get("tool_type", "host_tool"),
+        "title": f"调用工具：{tool_event['tool']}",
+        "status": status,
+        "input_summary": tool_event.get("input_summary"),
+        "output_summary": (
+            "等待用户确认"
+            if status == "waiting_confirmation"
+            else f"工具执行{'失败' if status == 'failed' else '完成'}"
+        ),
+        "tool_name": tool_event["tool"],
+        "skill_name": tool_event.get("skill_name"),
+        "skill_version": tool_event.get("skill_version"),
+        "tool_call_id": str(tool_event.get("tool_call_id", tool_event["tool"])),
+        "error": (
+            {"code": "tool_failed", "message": "工具执行失败"}
+            if status == "failed"
+            else None
+        ),
+    }
+
+
 def build_agent_error_payload(error: BaseException) -> dict[str, Any]:
     """将模型/Agent 异常转换为可安全展示且可重试判断的错误事件。"""
     raw_message = str(error).strip() or type(error).__name__
@@ -106,22 +160,6 @@ def build_agent_error_payload(error: BaseException) -> dict[str, Any]:
             "exceptionType": type(error).__name__,
         },
     }
-
-
-@dataclass
-class RetrievedContext:
-    """
-    检索到的上下文信息
-
-    用于封装从知识库检索到的引用内容及其相关元数据。
-
-    Attributes:
-        citations: 引用来源列表，每个引用包含标题、正文等字段
-        grounded: 是否已基于知识库进行了 grounding（知识增强）
-    """
-
-    citations: list[dict[str, Any]]
-    grounded: bool
 
 
 @dataclass
@@ -343,12 +381,7 @@ async def _stream_graph(
                 usage = merge_token_usage(usage, extract_token_usage(chunk))
                 response = chunk if response is None else response + chunk
 
-                content = chunk.content
-                if not isinstance(content, str):
-                    content = "".join(
-                        item.get("text", "") if isinstance(item, dict) else str(item)
-                        for item in content
-                    )
+                content = _content_text(chunk.content)
                 if content:
                     content_parts.append(content)
                     yield {"type": "message_delta", "content": content}
@@ -376,20 +409,7 @@ async def _stream_graph(
                 executed_tool = True
                 tool_event = {
                     "tool": tool.name,
-                    "tool_type": (
-                        "mcp_tool"
-                        if hasattr(tool, "server_id")
-                        else (
-                            "skill_tool"
-                            if getattr(tool, "kind", None)
-                            in {"skill_script", "skill_instruction"}
-                            else (
-                                "builtin_tool"
-                                if getattr(tool, "kind", None) == "builtin"
-                                else "host_tool"
-                            )
-                        )
-                    ),
+                    "tool_type": classify_tool_type(tool),
                     "tool_call_id": call.get("id", tool.name),
                     "input_summary": f"收到 {len(call.get('args', {}))} 个参数",
                     "skill_name": getattr(tool, "skill_name", None),
@@ -483,13 +503,7 @@ async def _stream_graph(
         usage = merge_token_usage(usage, extract_token_usage(chunk))
 
         # 处理 chunk 内容：兼容纯字符串和多模态列表两种格式
-        content = chunk.content
-        if not isinstance(content, str):
-            # 多模态场景：从内容块中提取文本
-            content = "".join(
-                item.get("text", "") if isinstance(item, dict) else str(item)
-                for item in content
-            )
+        content = _content_text(chunk.content)
         if content:
             content_parts.append(content)
             yield {"type": "message_delta", "content": content}
@@ -614,13 +628,7 @@ async def run_graph(
             logger.exception("Model invocation failed: %s", type(e).__name__)
             raise
 
-        content = response.content
-        # 兼容多模态内容格式：将列表形式的内容块拼接为纯文本
-        if not isinstance(content, str):
-            content = "".join(
-                item.get("text", "") if isinstance(item, dict) else str(item)
-                for item in content
-            )
+        content = _content_text(response.content)
         return {"content": content, "messages": [response]}
 
     # 步骤3：构建线性状态图（START → answer → END）
@@ -661,19 +669,7 @@ async def run_graph(
 
             tool_event = {
                 "tool": tool.name,
-                "tool_type": (
-                    "mcp_tool"
-                    if hasattr(tool, "server_id")
-                    else (
-                        "skill_tool"
-                        if getattr(tool, "kind", None) == "skill_script"
-                        else (
-                            "builtin_tool"
-                            if getattr(tool, "kind", None) == "builtin"
-                            else "host_tool"
-                        )
-                    )
-                ),
+                "tool_type": classify_tool_type(tool),
                 "tool_call_id": call.get("id", tool.name),
                 "input_summary": f"收到 {len(call.get('args', {}))} 个参数",
                 "skill_name": getattr(tool, "skill_name", None),

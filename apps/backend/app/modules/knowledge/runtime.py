@@ -96,6 +96,10 @@ def build_embedding_model(base) -> OpenAIEmbedding:
         if base.embedding_api_key_encrypted
         else "ollama" if _is_local_embedding_endpoint(base.embedding_base_url) else None
     )
+    # OpenAIEmbedding 默认 embed_batch_size=100，而部分 OpenAI 兼容服务
+    # （如 Gemini 风格网关）单次请求最多接受 10 条 input.contents，
+    # 超过会返回 400 批次超限错误；这里统一收口为可配置的批次上限。
+    embed_batch_size = get_settings().embedding_batch_size
     logger.info(
         "Using embedding model config model=%s base_url=%s has_api_key=%s",
         base.embedding_model,
@@ -111,11 +115,13 @@ def build_embedding_model(base) -> OpenAIEmbedding:
             model_name=base.embedding_model,
             api_base=base.embedding_base_url,
             api_key=api_key,
+            embed_batch_size=embed_batch_size,
         )
     return OpenAIEmbedding(
         model=base.embedding_model,
         api_base=base.embedding_base_url,
         api_key=api_key,
+        embed_batch_size=embed_batch_size,
     )
 
 

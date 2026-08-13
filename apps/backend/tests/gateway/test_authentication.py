@@ -8,7 +8,6 @@ from app.core.config import get_settings
 from app.modules.embed.security import create_embed_token
 from app.modules.gateway.auth import (
     authenticate_embed_token,
-    validate_handshake,
 )
 from app.shared.exceptions import UnauthorizedException
 
@@ -23,18 +22,6 @@ def _token(*, agent_id=11, origin="https://app.acme.test"):
         expires_in=600,
     )
     return token
-
-
-def test_handshake_requires_exact_origin_and_protocol_subprotocol():
-    assert validate_handshake(
-        "https://app.acme.test", ["https://app.acme.test"], ["ai-agent.v1"]
-    )
-    assert not validate_handshake(
-        "https://evil.acme.test", ["https://app.acme.test"], ["ai-agent.v1"]
-    )
-    assert not validate_handshake(
-        "https://app.acme.test", ["https://app.acme.test"], []
-    )
 
 
 def test_authentication_rejects_agent_or_origin_mismatch():
