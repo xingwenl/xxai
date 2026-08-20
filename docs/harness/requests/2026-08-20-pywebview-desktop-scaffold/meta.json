@@ -1,0 +1,46 @@
+{
+  "id": "2026-08-20-pywebview-desktop-scaffold",
+  "title": "pywebview + FastAPI 桌面应用脚手架",
+  "scope": "desktop",
+  "phase": "acceptance",
+  "status": "done",
+  "riskLevel": "medium",
+  "changeTypes": [
+    "desktop",
+    "docs"
+  ],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "https://pywebview.flowrl.com/3.7/guide/api.html",
+      "https://pywebview.flowrl.com/guide/freezing.html",
+      "https://fastapi.tiangolo.com/tutorial/static-files/",
+      "https://pyinstaller.org/en/stable/runtime-information.html",
+      "https://stackoverflow.com/questions/61577643/how-to-run-fastapi-application-inside-another-thread"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": [
+    "新增独立桌面应用子项目，属于架构边界变化"
+  ],
+  "approvalRecords": [
+    {
+      "date": "2026-08-20",
+      "by": "user",
+      "items": [
+        "确认方案 A（自带静态页）+ 方案 C（完整打包+资源路径兼容）",
+        "确认与现有 backend/front 完全解耦、内置 FastAPI 服务、加载 HTML 即可"
+      ]
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-08-20",
+  "updatedAt": "2026-08-20",
+  "relatedPaths": [
+    "apps/desktop"
+  ],
+  "notes": "实现、测试、打包、人工 GUI 验证均已完成并记录于 verify.md/acceptance.md；待用户确认后可在根仓库提交。"
+}

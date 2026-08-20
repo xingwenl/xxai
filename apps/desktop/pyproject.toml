@@ -1,0 +1,38 @@
+[project]
+name = "desktop-app"
+version = "0.1.0"
+description = "pywebview + FastAPI 桌面应用脚手架"
+authors = [
+    {name = "lixingwen", email = "121380608@qq.com"}
+]
+requires-python = ">=3.12,<4.0"
+dependencies = [
+    "pywebview (>=6.2.1,<7.0.0)",
+    "fastapi (>=0.139.2,<0.140.0)",
+    "uvicorn (>=0.51.0,<0.52.0)"
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+package-mode = false
+
+[dependency-groups]
+dev = [
+    "pytest (>=9.1.1,<10.0.0)",
+    "ruff (>=0.15.22,<0.16.0)",
+    "httpx (>=0.28.1,<1.0.0)",
+    # pyinstaller 最新版本要求 Python <3.16，用 marker 声明其适用区间，
+    # 避免与项目 requires-python (>=3.12,<4.0) 产生求解冲突
+    "pyinstaller (>=6.10.0,<7.0.0); python_version < '3.16'"
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"

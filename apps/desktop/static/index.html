@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Desktop App</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #0f172a;
+        --card: #1e293b;
+        --accent: #38bdf8;
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+        background: radial-gradient(1200px 600px at 20% 0%, #1e293b 0%, var(--bg) 60%);
+        color: var(--text);
+      }
+      .card {
+        width: min(560px, calc(100vw - 48px));
+        padding: 40px;
+        border-radius: 20px;
+        background: var(--card);
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 26px;
+        letter-spacing: 0.5px;
+      }
+      p {
+        color: var(--muted);
+        line-height: 1.7;
+      }
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 4px;
+        padding: 6px 14px;
+        border-radius: 999px;
+        font-size: 14px;
+        background: rgba(56, 189, 248, 0.12);
+        color: var(--accent);
+      }
+      .status::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: currentColor;
+        animation: pulse 1.6s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        50% {
+          opacity: 0.35;
+        }
+      }
+      pre {
+        margin: 16px 0 0;
+        padding: 14px;
+        border-radius: 12px;
+        background: #0b1220;
+        font-size: 13px;
+        overflow-x: auto;
+      }
+      button {
+        margin-top: 18px;
+        padding: 10px 20px;
+        border: 0;
+        border-radius: 10px;
+        font-size: 14px;
+        font-weight: 600;
+        color: #0f172a;
+        background: var(--accent);
+        cursor: pointer;
+      }
+      button:hover {
+        filter: brightness(1.1);
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>Desktop App</h1>
+      <p>pywebview + FastAPI 脚手架已启动，页面由内嵌 FastAPI 服务托管。</p>
+      <span class="status" id="health">正在检查服务状态…</span>
+      <pre id="output"></pre>
+      <button id="js-api-btn">调用 Python（js_api）</button>
+    </main>
+    <script>
+      const output = document.getElementById("output");
+      const append = (text) => {
+        output.textContent = text;
+      };
+
+      // 1) 验证内嵌 FastAPI 服务可用
+      fetch("/api/health")
+        .then((res) => res.json())
+        .then((data) => {
+          document.getElementById("health").textContent = `服务正常 · ${data.service} v${data.version}`;
+          append(JSON.stringify(data, null, 2));
+        })
+        .catch((err) => {
+          document.getElementById("health").textContent = "服务异常";
+          append(String(err));
+        });
+
+      // 2) 演示 js_api：调用 Python 侧方法（返回 Promise）
+      document.getElementById("js-api-btn").addEventListener("click", async () => {
+        try {
+          const info = await window.pywebview.api.app_info();
+          append(JSON.stringify(info, null, 2));
+        } catch (err) {
+          append("js_api 调用失败：" + err);
+        }
+      });
+    </script>
+  </body>
+</html>

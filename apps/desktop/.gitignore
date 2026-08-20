@@ -1,0 +1,6 @@
+# 根 .gitignore 的 build/ 规则会忽略本目录下的打包产物目录，
+# 这里保留打包配置源码，同时继续忽略 PyInstaller 的中间产物
+!build/
+build/*
+!build/desktop.spec
+!build/build.py
