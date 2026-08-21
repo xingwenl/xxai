@@ -194,6 +194,17 @@ pnpm --dir apps/desktop/front dev          # 终端 B：Vite dev server（8443�
 - `DESKTOP_DEV_FRONT=1 DESKTOP_DEBUG=1 poetry run python -m desktop_app`：真窗口加载 HMR 前端，右键 → 检查元素打开 Web Inspector。
 - 端口监听与 Inspector 打开依赖本机 GUI，沙箱内未执行，属本地人工验证项。
 
+### 2026-08-21 轻量变更验证（应用卡片组件抽离）
+
+```bash
+cd apps/desktop/front
+./node_modules/.bin/tsc --noEmit      # 通过
+pnpm --dir apps/desktop/front build   # 通过（26 modules，产物正常输出）
+```
+
+- 类型检查与生产构建均通过；`AppCard` / `AppItem` / `StarIcon` 已从 `App.tsx` 移除，无残留引用。
+- 卡片视觉（毛玻璃、主题色跟随、hover 光晕、键盘焦点）依赖 GUI 渲染，留待本地人工确认。
+
 ## 未验证项与例外
 
 - 真实 HTTP 服务与 GUI 窗口验证未在当前会话执行：沙箱禁止监听本地端口/启动浏览器，且审批服务暂时不可用（503），无法运行 `python -m desktop_app` 与 curl/无头浏览器端到端验证。接口行为已由 `TestClient`（进程内 ASGI）覆盖。

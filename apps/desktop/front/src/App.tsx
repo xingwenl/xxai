@@ -5,6 +5,7 @@ import PluginView from './components/plugin-view'
 import Settings from './components/settings'
 import ReactAppView from './components/react-app-view'
 import PageHeader from './components/page-header'
+import { AppCard, type AppItem } from './components/app-card'
 
 // ── themes ────────────────────────────────────────────────────────────────────
 
@@ -196,19 +197,6 @@ function loadPinned(): string[] {
   }
 }
 
-interface AppItem {
-  id: string
-  name: string
-  desc: string
-  category: string
-  tag: string
-  color: string
-  icon?: () => React.ReactElement
-  iconUrl?: string
-  hot?: boolean
-  new?: boolean
-}
-
 // 插件 → 应用卡片数据（icon 改为图标 URL，其余字段沿用 Figma 卡片结构）
 function toAppItem(p: Plugin): AppItem {
   return {
@@ -217,7 +205,7 @@ function toAppItem(p: Plugin): AppItem {
     desc: p.description || '暂无描述',
     category: 'all',
     tag: (p.version || 'APP').toUpperCase(),
-    color: colorForId(p.id),
+    // color: colorForId(p.id),
     iconUrl: p.iconUrl || undefined,
   }
 }
@@ -310,13 +298,6 @@ function SearchIcon() {
     </svg>
   )
 }
-function StarIcon({ filled }: { filled?: boolean }) {
-  return (
-    <svg viewBox="0 0 20 20" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.6" className="w-4 h-4">
-      <path d="M10 2l2.4 5 5.6.8-4 3.9 1 5.5L10 14.5l-5 2.7 1-5.5L2 7.8l5.6-.8z" strokeLinejoin="round" />
-    </svg>
-  )
-}
 function GearIcon() {
   return (
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-4.5 h-4.5">
@@ -356,113 +337,6 @@ function PinIcon() {
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-3.5 h-3.5">
       <path d="M10 2l1.5 5h5L13 10l1.5 5L10 12l-4.5 3L7 10 3.5 7h5z" strokeLinejoin="round" />
     </svg>
-  )
-}
-
-// ── components ────────────────────────────────────────────────────────────────
-
-function AppCard({ app, pinned, onClick, onTogglePinned }: {
-  app: AppItem
-  pinned?: boolean
-  onClick?: () => void
-  onTogglePinned?: () => void
-}) {
-  const [hovered, setHovered] = useState(false)
-  const starred = !!pinned
-
-  const Icon = app.icon
-
-  return (
-    <div
-      className="group relative bg-white rounded-2xl border transition-all duration-200 cursor-pointer overflow-hidden flex flex-col"
-      style={{
-        borderColor: hovered ? app.color + '50' : 'var(--border)',
-        boxShadow: hovered
-          ? `0 8px 30px ${app.color}18, 0 2px 8px ${app.color}12`
-          : '0 1px 3px rgba(var(--primary-rgb) / 0.06)',
-        transform: hovered ? 'translateY(-2px)' : 'none',
-      }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onClick={onClick}
-    >
-      {/* top accent stripe */}
-      <div
-        className="h-1 w-full transition-all duration-300"
-        style={{
-          background: `linear-gradient(90deg, ${app.color}, ${app.color}80)`,
-          opacity: hovered ? 1 : 0.5,
-        }}
-      />
-
-      <div className="p-5 flex flex-col flex-1 gap-3">
-        {/* header row */}
-        <div className="flex items-start justify-between">
-          <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-transform duration-200"
-            style={{
-              background: app.color + '15',
-              color: app.color,
-              transform: hovered ? 'scale(1.08)' : 'scale(1)',
-            }}
-          >
-            {Icon ? <Icon /> : app.iconUrl ? (
-              <img src={app.iconUrl} alt={app.name} className="w-5 h-5" draggable={false} />
-            ) : (
-              <GridIcon />
-            )}
-          </div>
-          <div className="flex items-center gap-1.5">
-            {(app.hot || app.new || pinned) && (
-              <span
-                className="font-mono text-[10px] font-500 px-1.5 py-0.5 rounded-md leading-none"
-                style={{
-                  fontFamily: "'DM Mono', monospace",
-                  background: pinned ? 'var(--secondary)' : app.new ? '#f0fdf4' : '#fff7ed',
-                  color: pinned ? '#0891b2' : app.new ? '#15803d' : '#c2410c',
-                }}
-              >
-                {pinned ? 'PIN' : app.new ? 'NEW' : 'HOT'}
-              </span>
-            )}
-            <button
-              className="p-1 rounded-lg transition-colors duration-150"
-              style={{ color: starred ? '#f59e0b' : '#9bb8c3' }}
-              onClick={(e) => { e.stopPropagation(); onTogglePinned?.() }}
-            >
-              <StarIcon filled={starred} />
-            </button>
-          </div>
-        </div>
-
-        {/* name + desc */}
-        <div className="flex flex-col gap-1 flex-1">
-          <h3 className="font-600 text-[15px] leading-tight" style={{ color: 'var(--foreground)' }}>
-            {app.name}
-          </h3>
-          <p className="text-[13px] leading-relaxed" style={{ color: 'var(--muted-foreground)' }}>
-            {app.desc}
-          </p>
-        </div>
-
-        {/* tag */}
-        <div className="flex items-center justify-between mt-auto pt-1">
-          <span
-            className="text-[11px] px-2 py-0.5 rounded-md leading-none tracking-wide"
-            style={{
-              fontFamily: "'DM Mono', monospace",
-              background: app.color + '12',
-              color: app.color,
-            }}
-          >
-            {app.tag}
-          </span>
-          <span className="text-[12px] transition-all duration-150 flex items-center gap-1" style={{ color: hovered ? app.color : 'transparent' }}>
-            打开 →
-          </span>
-        </div>
-      </div>
-    </div>
   )
 }
 

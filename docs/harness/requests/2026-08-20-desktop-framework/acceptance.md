@@ -68,3 +68,7 @@
 ## 下一步
 
 - 用户在本地完成 GUI 人工验证后，本 request 可流转为 `done`；如有问题按 `/fix` 记录增量修复。
+
+### 2026-08-21 轻量变更结论（应用卡片组件抽离）
+
+- 应用卡片已抽离为 `front/src/components/app-card.tsx`，样式与宿主壳毛玻璃语言统一、颜色跟随主题与卡片强调色；`tsc --noEmit` 与 `vite build` 均通过，待本地 GUI 目视确认。
