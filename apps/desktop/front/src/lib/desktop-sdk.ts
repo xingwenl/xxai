@@ -11,7 +11,7 @@ export interface DesktopSdk {
   ready: Promise<boolean>
   pluginId: string
   pluginName: string
-  appInfo(): { name: string; version: string; plugin: { id: string; name: string; version: string } }
+  appInfo(): Promise<{ name: string; version: string; plugin: { id: string; name: string; version: string } }>
   getApps(): Promise<Plugin[]>
   navigate(path: string): void
   openApp(id: string): void
@@ -60,10 +60,11 @@ export function createPluginSdk(plugin: Plugin): DesktopSdk {
     pluginId: plugin.id,
     pluginName: plugin.name,
 
-    appInfo() {
+    async appInfo() {
+      const settings = await getDesktopSettings()
       return {
-        name: 'Desktop App',
-        version: '0.2.0',
+        name: settings.name,
+        version: settings.version,
         plugin: { id: plugin.id, name: plugin.name, version: plugin.version },
       }
     },

@@ -21,3 +21,8 @@
 
 - 2026-08-20，用户人工确认：桌面应用可正常打开，能看到正常响应（页面加载与 `js_api` 互调正常）。
 - 2026-08-20，用户在进入实现前已确认方案 A + 方案 C + 与现有 backend/front 完全解耦的设计（记录于 `meta.json` 审批字段）。
+
+## 轻量变更结论（2026-08-21）
+
+- 统一配置落地：`desktop_app/app_config.py` 为名称（WW）/ 版本（0.2.0）/ Bundle ID / Logo 的单一来源，窗口、内嵌服务、前端 SDK、设置页、打包产物与 macOS `Info.plist` 全部接入，验证证据见 `verify.md`。
+- 剩余风险：Windows 打包未实测（`EXE` 图标已按 `win32` 分支接线）；更换 Logo 需重新运行 `scripts/make_icons.py` 并重新打包；`WW.app` 的 GUI 实机运行仍建议用户补跑一次确认。

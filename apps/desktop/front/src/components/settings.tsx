@@ -214,6 +214,7 @@ export default function Settings({
         {info ? (
           <div className="flex flex-col gap-2">
             {[
+              ['名称', info.name],
               ['版本', info.version],
               ['内置插件目录', info.pluginsDir],
               ['用户数据目录', info.userDataDir],

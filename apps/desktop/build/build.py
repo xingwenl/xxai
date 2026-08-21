@@ -12,6 +12,9 @@ SPEC_FILE = Path(__file__).resolve().parent / "desktop.spec"
 DIST_DIR = PROJECT_ROOT / "dist"
 WORK_DIR = PROJECT_ROOT / "build" / "pyinstaller"
 
+sys.path.insert(0, str(PROJECT_ROOT))
+from desktop_app.app_config import APP_NAME  # noqa: E402
+
 
 def main() -> None:
     """执行打包并输出产物路径。"""
@@ -38,11 +41,11 @@ def main() -> None:
         shutil.rmtree(spec_build)
 
     print("\n打包完成，产物位于:")
-    for child in sorted(dist_dir.glob("desktop-app*")):
+    for child in sorted(dist_dir.glob(f"{APP_NAME}*")):
         print(f"  - {child}")
     print("\n运行方式（macOS/Windows/Linux 通用）:")
-    print(f"  {dist_dir / 'desktop-app' / 'desktop-app'}")
-    print(f"  # macOS 应用包: {dist_dir / 'desktop-app.app'}")
+    print(f"  {dist_dir / APP_NAME / APP_NAME}")
+    print(f"  # macOS 应用包: {dist_dir / f'{APP_NAME}.app'}")
 
 
 if __name__ == "__main__":

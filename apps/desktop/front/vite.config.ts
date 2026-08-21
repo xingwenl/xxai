@@ -9,6 +9,8 @@ const devApiTarget = `http://127.0.0.1:${process.env.DESKTOP_API_PORT || '8765'}
 
 export default defineConfig({
   base: '/',
+  // 共享品牌资源目录（apps/desktop/assets）：/icon.png 在开发与构建后均可直接引用
+  publicDir: path.resolve(__dirname, '../assets'),
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {

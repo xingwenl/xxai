@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from conftest import make_zip
 import desktop_app.server as server
+from desktop_app.app_config import APP_NAME
 from desktop_app import paths
 from desktop_app.manager import PluginManager
 from desktop_app.server import create_app
@@ -34,14 +35,14 @@ def test_health(plugin_env: dict) -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "ok"
-    assert data["service"] == "desktop-app"
+    assert data["service"] == APP_NAME
 
 
 @requires_front_dist
 def test_index_page_is_react_host(plugin_env: dict) -> None:
     resp = _client(plugin_env).get("/")
     assert resp.status_code == 200
-    assert "Desktop App" in resp.text
+    assert "WW" in resp.text
     assert '<div id="root">' in resp.text
     assert "/assets/" in resp.text
 
@@ -136,6 +137,7 @@ def test_settings_endpoint(plugin_env: dict) -> None:
     resp = _client(plugin_env).get("/api/desktop/settings")
     assert resp.status_code == 200
     data = resp.json()
+    assert data["name"] == APP_NAME
     assert data["version"]
     assert data["userDataDir"]
 

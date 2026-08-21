@@ -45,3 +45,10 @@
 ## 人工确认点
 
 - 架构边界变化（新增独立桌面应用子项目）：用户在 2026-08-20 对话中已确认「可以」，同意方案 A + 方案 C + 与现有 backend/front 完全解耦，此处作为已确认记录。
+
+## 轻量变更补充（2026-08-21：统一应用元信息配置）
+
+- 变更文件：新增 `desktop_app/app_config.py`、`assets/`、`scripts/make_icons.py`；修改 `__init__.py`、`main.py`、`server.py`、`host_api.py`、`build/desktop.spec`、`build/build.py`、`front/`（vite.config、index.html、api.ts、desktop-sdk.ts、App.tsx、settings.tsx、package.json）、`pyproject.toml`、`tests/test_server.py`、`README.md`。
+- 实施步骤：在 `app_config.py` 定义元信息 → 接入 Python 侧与打包 spec → 前端经 Vite `publicDir` 引用 `assets/` → 生成图标 → 验证。
+- 测试步骤：`pytest tests/`（54 passed）、`pnpm --dir apps/desktop/front build`、`python scripts/make_icons.py`、PyInstaller 打包后校验 `Info.plist`。
+- 回滚说明：删除 `app_config.py` 与 `assets/` 并恢复各文件硬编码值即可；用户数据目录仍为 `~/.desktop-app`，不受影响。

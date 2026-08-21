@@ -12,6 +12,8 @@
 - 新增目录 `apps/desktop/`，包含：
   - `pyproject.toml`：Poetry 工程配置（pywebview、fastapi、uvicorn 运行依赖；pytest、ruff、pyinstaller 开发依赖）
   - `desktop_app/`：包代码（入口、窗口与线程编排、FastAPI 应用工厂、资源路径解析）
+  - `desktop_app/app_config.py`：应用元信息统一配置（名称 / 版本 / Bundle ID / Logo 路径）
+  - `assets/`：品牌资源（`icon.png` 源图与生成的 `icon.icns` / `icon.ico`）
   - `static/index.html`：最小示例页面（展示服务状态，并可选演示 `js_api` 互调）
   - `build/desktop.spec` + `build/build.py`：PyInstaller 打包配置与跨平台打包脚本
   - `tests/test_server.py`：FastAPI 路由与静态页测试
@@ -46,6 +48,7 @@
 - `python build/build.py` 可产出 PyInstaller 打包产物；产物运行后可加载页面，开发与打包两种形态的资源路径均正确。
 - `pytest tests/` 通过，覆盖 `/api/health` 与静态首页渲染。
 - 交付中文 `README.md`，说明开发运行、测试、打包、产物运行四个环节。
+- 应用名称（WW）、版本号与 Logo 通过 `desktop_app/app_config.py` + `assets/` 统一管理，窗口标题、设置页框架信息、`/api/health`、前端 SDK、macOS Info.plist 与打包产物名全部跟随。
 - Harness 文档齐全：`research.md`、`spec.md`、`plan.md`、`verify.md`、`acceptance.md`、`meta.json`。
 
 ## 变更记录
@@ -57,3 +60,19 @@
 - 变更内容：建立 pywebview + FastAPI 桌面脚手架任务的初始设计说明
 - 影响章节：全部
 - 是否触发人工确认：是（架构边界变化；用户口头确认「可以」，详见停点判断）
+
+### 2026-08-21 第 1 次变更
+
+- 变更原因：统一应用品牌信息（名称 / Logo / 版本号），集中管理便于后续替换
+- 变更内容：新增 `desktop_app/app_config.py` 集中维护 `APP_NAME=WW`、`APP_VERSION=0.2.0`、`APP_BUNDLE_ID` 与 Logo 路径；新增 `assets/`（icon.png 源图 + 生成的 icns/ico）与 `scripts/make_icons.py`；窗口标题、内嵌 FastAPI 标题、`/api/health`、`/api/desktop/settings`（新增 `name` 字段）、前端 SDK 与设置页、PyInstaller 打包（产物名 / 图标 / Info.plist）全部改为从统一配置读取
+- 影响章节：范围、验收标准
+- 是否触发人工确认：否（均为内部增量：`/api/desktop/settings` 新增 `name` 为向后兼容扩展，SDK `appInfo()` 改为异步且当前无调用方，均不构成对外契约破坏）
+- 关联计划更新：已同步更新 `plan.md`
+
+### 2026-08-21 fix：macOS 图标空白
+
+- 变更原因：用户反馈 Logo 显示为空白
+- 变更内容：`make_icons.py` 剥离 PNG 附加分块（sRGB/eXIf/pHYs）避免 macOS 图标渲染空白；`main.py` 通过 `webview.start(icon=...)` 在开发模式运行时设置 Dock 图标；`desktop.spec` datas 携带 `assets/` 目录
+- 影响章节：验收标准（图标在开发与打包形态均可见）
+- 是否触发人工确认：否
+- 关联计划更新：已同步更新 `verify.md`

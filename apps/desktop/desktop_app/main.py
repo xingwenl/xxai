@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import threading
 import time
 
 import uvicorn
 import webview
 
+from desktop_app.app_config import APP_NAME, ICON_PNG
 from desktop_app.host_api import HostApi
 from desktop_app.manager import PluginManager
 from desktop_app.server import create_app
@@ -76,7 +78,7 @@ def run() -> None:
     logger.info("内嵌服务已就绪: %s", url)
 
     window = webview.create_window(
-        "Desktop App",
+        APP_NAME,
         url=url,
         js_api=HostApi(manager),
         width=1100,
@@ -90,4 +92,7 @@ def run() -> None:
         debug=os.environ.get("DESKTOP_DEBUG") == "1",
         # 关闭隐私模式：保留 localStorage，主题 / 星标 / 插件设置与存储跨重启保持
         private_mode=False,
+        # macOS 运行时设置 Dock/应用图标：开发模式没有 .app 包也能显示 Logo
+        # （pywebview Cocoa 后端调用 setApplicationIconImage_；GTK/QT 同样生效）
+        icon=str(ICON_PNG) if sys.platform == "darwin" and ICON_PNG.is_file() else None,
     )

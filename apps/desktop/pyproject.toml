@@ -1,6 +1,6 @@
 [project]
 name = "desktop-app"
-version = "0.1.0"
+version = "0.2.0"
 description = "pywebview + FastAPI 桌面应用脚手架"
 authors = [
     {name = "lixingwen", email = "121380608@qq.com"}

@@ -1,4 +1,4 @@
-# Desktop App 脚手架（pywebview + FastAPI）
+# WW 桌面应用（pywebview + FastAPI 脚手架）
 
 基于 **pywebview + FastAPI** 的基础桌面应用脚手架：单进程内嵌 FastAPI 服务，pywebview 窗口加载服务托管的 HTML 页面。可独立打包为桌面应用，与 `apps/backend`、`apps/front` 完全解耦。
 
@@ -14,6 +14,7 @@ apps/desktop/
     src/lib/              # api.ts、desktop-sdk.ts、toast.ts
     dist/                 # 构建产物（由内嵌 FastAPI 托管）
   desktop_app/
+    app_config.py         # 应用元信息统一配置（名称 / 版本 / Bundle ID / Logo 路径）
     __main__.py           # python -m desktop_app 入口
     main.py               # 窗口与后台服务线程编排
     server.py             # FastAPI 应用工厂（/api/desktop/* + /apps + 前端托管）
@@ -23,13 +24,37 @@ apps/desktop/
     security.py           # zip 安全解压
     host_api.py           # pywebview js_api 桥
     paths.py              # 开发/打包双模式资源路径解析
+  assets/                 # 品牌资源（icon.png 源图 + 生成的 icns/ico）
   static/css/tailwind.css # 插件共享样式（编译产物）
   plugins/hello-world/    # 内置示例插件
-  scripts/                # make_plugin_zip.py、build_css.mjs
+  scripts/                # make_plugin_zip.py、make_icons.py、build_css.mjs
   build/desktop.spec      # PyInstaller 打包配置（onedir）
   build/build.py          # 跨平台打包脚本
   tests/                  # 服务层与插件体系测试
 ```
+
+## 应用名称 / Logo / 版本号（统一配置）
+
+应用品牌信息只维护两处，改完重新构建即可全局生效：
+
+1. **名称、版本号、Bundle ID**：编辑 `desktop_app/app_config.py`（`APP_NAME`、`APP_VERSION`、`APP_BUNDLE_ID`）。
+   窗口标题、设置页「框架信息」、`/api/health`、前端 SDK、macOS `Info.plist` 与打包产物名都会自动跟随。
+2. **Logo**：替换 `assets/icon.png`（建议 1024×1024 透明底 PNG），然后运行：
+
+   ```bash
+   cd apps/desktop
+   python scripts/make_icons.py   # 重新生成 assets/icon.icns 与 assets/icon.ico
+   ```
+
+   macOS 应用图标使用 `icon.icns`，Windows 可执行文件图标使用 `icon.ico`，
+   前端侧栏 Logo 直接引用 `assets/icon.png`（经 Vite `publicDir` 输出）。
+
+> 图标兼容性说明：`make_icons.py` 会剥离 PNG 的附加分块（sRGB / eXIf / pHYs），
+> 否则部分 macOS 图标渲染路径会把 Dock/应用图标显示成空白。
+
+开发模式（`poetry run python -m desktop_app`）下没有 `.app` 包，macOS 的
+Dock/应用图标由 `main.py` 中的 `webview.start(icon=...)` 运行时设置
+（读取 `assets/icon.png`）；打包后则由 `.app` 的 `icon.icns` 提供。
 
 ## 环境准备
 
@@ -114,15 +139,15 @@ pnpm --dir apps/desktop/front build   # 打包前必须构建宿主前端
 poetry run python build/build.py
 ```
 
-产物输出到 `apps/desktop/dist/`：
+产物输出到 `apps/desktop/dist/`（产物名为 `APP_NAME`，默认 `WW`）：
 
-- macOS：`dist/desktop-app.app`（应用包）与 `dist/desktop-app/`（目录产物）
-- Windows / Linux：`dist/desktop-app/` 目录产物
+- macOS：`dist/WW.app`（应用包）与 `dist/WW/`（目录产物）
+- Windows / Linux：`dist/WW/` 目录产物
 
 运行打包产物（目录产物）：
 
 ```bash
-./dist/desktop-app/desktop-app
+./dist/WW/WW
 ```
 
 ## 基础框架：应用页 / 设置页 + 插件化应用体系
