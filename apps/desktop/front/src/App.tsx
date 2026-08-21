@@ -3,6 +3,7 @@ import { getPlugins, type Plugin } from './lib/api'
 import { toast } from './lib/toast'
 import PluginView from './components/plugin-view'
 import Settings from './components/settings'
+import ReactAppView from './components/react-app-view'
 import PageHeader from './components/page-header'
 
 // ── themes ────────────────────────────────────────────────────────────────────
@@ -633,15 +634,13 @@ function Sidebar({
     >
       {/* logo */}
       <div
-        className="w-9 h-9 rounded-2xl flex items-center justify-center mb-1 flex-shrink-0"
+        className="w-9 h-9 rounded-2xl flex items-center justify-center mb-1 flex-shrink-0 overflow-hidden"
         style={{
           background: `linear-gradient(135deg, ${g[0]}, ${g[1]})`,
           boxShadow: `0 3px 10px ${p}55`,
         }}
       >
-        <svg viewBox="0 0 20 20" fill="white" className="w-4.5 h-4.5">
-          <path d="M4 2h12a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V4a2 2 0 012-2zm0 2v12h12V4H4zm2 2h8v2H6V6zm0 4h5v2H6v-2z" />
-        </svg>
+        <img src="/icon.png" alt="WW" draggable={false} className="w-full h-full object-cover" />
       </div>
 
       {/* divider */}
@@ -677,6 +676,32 @@ function Sidebar({
 
       {/* divider */}
       <div className="w-7 h-px my-0.5 rounded-full" style={{ background: `${p}28` }} />
+
+      {/* bookmarks button */}
+      <div className="relative flex items-center">
+        <button
+          onClick={() => onSelect('bookmarks')}
+          onMouseEnter={() => setHoveredId('bookmarks')}
+          onMouseLeave={() => setHoveredId(null)}
+          className="w-10 h-10 rounded-2xl flex items-center justify-center transition-all duration-200"
+          style={{
+            background: active === 'bookmarks'
+              ? `linear-gradient(135deg, ${g[0]}, ${g[1]})`
+              : hoveredId === 'bookmarks'
+              ? `${p}1e`
+              : 'transparent',
+            color: active === 'bookmarks' ? '#fff' : hoveredId === 'bookmarks' ? p : theme.mid,
+            boxShadow: active === 'bookmarks' ? `0 3px 10px ${p}4d` : 'none',
+            transform: hoveredId === 'bookmarks' && active !== 'bookmarks' ? 'scale(1.08)' : 'scale(1)',
+          }}
+        >
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-4.5 h-4.5">
+            <path d="M3 4.5h14v11H3z" strokeLinejoin="round" />
+            <path d="M3 7.5h14" strokeLinecap="round" />
+          </svg>
+        </button>
+        {hoveredId === 'bookmarks' && <Tooltip label="书签整理" />}
+      </div>
 
       {/* theme picker button */}
       <div className="relative flex items-center">
@@ -843,6 +868,7 @@ export default function App() {
         setPage('settings')
         setOpenApp(null)
         setFullscreen(false)
+        return
       }
     }
     window.addEventListener('hashchange', onHash)
@@ -923,11 +949,12 @@ export default function App() {
       style={{ background: theme.muted, ...Object.fromEntries(Object.entries(themeVars(theme))) as React.CSSProperties }}
     >
       <Sidebar
-        active={page === 'settings' ? 'settings' : openApp ? 'all' : activeCategory}
+        active={page === 'settings' ? 'settings' : openApp === 'bookmarks-organizer' ? 'bookmarks' : openApp ? 'all' : activeCategory}
         onSelect={(id) => {
           setOpenApp(null)
           exitFullscreen()
           if (id === 'settings') setPage('settings')
+          else if (id === 'bookmarks') navigateTo('bookmarks-organizer')
           else { setPage('apps'); setActiveCategory(id) }
         }}
         theme={theme}
@@ -980,7 +1007,9 @@ export default function App() {
                 {bar}
               </div>
               <div className="flex-1 min-h-0 pb-6 mt-4">
-                <PluginView plugin={plugin} />
+                {plugin.type === 'react'
+                  ? <ReactAppView appId={plugin.id} theme={theme} />
+                  : <PluginView plugin={plugin} />}
               </div>
             </div>
           )
@@ -1204,7 +1233,9 @@ export default function App() {
           <div className="fixed inset-0 z-50" style={{ background: theme.muted }}>
             {/* iframe 铺满整个窗口 */}
             <div className="absolute inset-0">
-              <PluginView plugin={plugin} fullscreen />
+              {plugin.type === 'react'
+                ? <ReactAppView appId={plugin.id} theme={theme} />
+                : <PluginView plugin={plugin} fullscreen />}
             </div>
             {/* 顶部毛玻璃横条把手：hover / 点击展开头部 */}
             {!fsHeaderVisible && (
@@ -1255,11 +1286,12 @@ export default function App() {
             )}
             {/* 左侧悬浮导航（应用 / 设置 / 主题 / 头像）：默认隐藏，左边缘竖条把手展开 */}
             <Sidebar
-              active={page === 'settings' ? 'settings' : activeCategory}
+              active={page === 'settings' ? 'settings' : openApp === 'bookmarks-organizer' ? 'bookmarks' : activeCategory}
               onSelect={(id) => {
                 setOpenApp(null)
                 exitFullscreen()
                 if (id === 'settings') setPage('settings')
+                else if (id === 'bookmarks') navigateTo('bookmarks-organizer')
                 else { setPage('apps'); setActiveCategory(id) }
               }}
               theme={theme}

@@ -20,6 +20,7 @@ class PluginInfo:
     description: str
     icon: str
     entry: str
+    type: str
     permissions: list[str]
     dir: Path
     builtin: bool
@@ -35,6 +36,7 @@ class PluginInfo:
             "description": self.description,
             "icon": self.icon,
             "entry": self.entry,
+            "type": self.type,
             "permissions": self.permissions,
             "builtin": self.builtin,
             "enabled": self.enabled,
@@ -76,7 +78,8 @@ class PluginRegistry:
             return None, f"manifest 解析失败: {exc}"
         if require_dir_match and manifest.id != plugin_dir.name:
             return None, f"manifest.id（{manifest.id}）与目录名（{plugin_dir.name}）不一致"
-        if not (plugin_dir / manifest.entry).is_file():
+        # react 类型子应用由宿主 React 组件渲染，不需要 iframe 入口页面
+        if manifest.type == "iframe" and not (plugin_dir / manifest.entry).is_file():
             return None, f"入口文件缺失: {manifest.entry}"
         return manifest, None
 
@@ -96,6 +99,7 @@ class PluginRegistry:
                 description=manifest.description,
                 icon=manifest.icon,
                 entry=manifest.entry,
+                type=manifest.type,
                 permissions=manifest.permissions,
                 dir=plugin_dir,
                 builtin=True,
@@ -112,6 +116,7 @@ class PluginRegistry:
                     description="",
                     icon="",
                     entry="",
+                    type="",
                     permissions=[],
                     dir=plugin_dir,
                     builtin=False,
@@ -130,6 +135,7 @@ class PluginRegistry:
                 description=manifest.description,
                 icon=manifest.icon,
                 entry=manifest.entry,
+                type=manifest.type,
                 permissions=manifest.permissions,
                 dir=plugin_dir,
                 builtin=False,

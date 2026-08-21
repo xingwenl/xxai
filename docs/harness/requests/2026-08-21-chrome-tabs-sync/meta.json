@@ -1,0 +1,60 @@
+{
+  "id": "2026-08-21-chrome-tabs-sync",
+  "title": "读取 Chrome 标签并在应用内整理汇总",
+  "scope": "desktop + backend",
+  "phase": "verify",
+  "status": "active",
+  "riskLevel": "medium",
+  "changeTypes": [
+    "docs",
+    "feature",
+    "api"
+  ],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "https://developer.chrome.com/docs/extensions/reference/api/tabs",
+      "https://developer.chrome.com/blog/remote-debugging-port",
+      "https://f-loat.github.io/panerelay/zh-CN/compare/",
+      "https://github.com/Tencent/BrowserSkill",
+      "https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging",
+      "https://superuser.com/questions/1009213/"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": [
+    "架构边界变化：新增浏览器扩展集成面",
+    "API 契约变化：新增标签上报与整理接口",
+    "数据模型变化：可能新增标签快照落库"
+  ],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-08-21",
+      "scope": "方案 A（Chrome 扩展 + 上报到应用本地 API）",
+      "note": "用户确认按方案 A 实施，并确认 spec 中展示载体（宿主页面）、交互（手动一键整理）、MVP 不含 AI 摘要三项设计假设"
+    },
+    {
+      "by": "user",
+      "at": "2026-08-21",
+      "scope": "数据源调整：从 chrome.tabs 改为 chrome.bookmarks（用户收藏的书签）",
+      "note": "用户明确指示整理对象为「收藏的标签（书签）」；扩展权限、接口、前端文案与实现同步替换，原 tabs 功能移除"
+    },
+    {
+      "by": "user",
+      "at": "2026-08-21",
+      "scope": "分组维度调整：按用户书签文件夹分类（folderPath），替代按域名分组",
+      "note": "用户要求「按照我的分类来」；快照 groups 字段由 domain 改为 folderPath，空路径归入「未分类」"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-08-21",
+  "updatedAt": "2026-08-21",
+  "relatedPaths": [
+    "docs/harness/requests/2026-08-21-chrome-tabs-sync/research.md"
+  ],
+  "notes": "实现完成（第 3 次变更：搜索/分类导航/复制/全部打开；第 4 次 fix：链接打开；第 5 次变更：插件 type 区分；第 6 次 fix：书签应用头部布局），自动化验证 61 用例全部通过；人工联调待用户执行，验收未标记 done。"
+}

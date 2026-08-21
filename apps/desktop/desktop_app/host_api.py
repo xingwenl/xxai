@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import webbrowser
+
 import webview
 
+from desktop_app.app_config import APP_NAME, APP_VERSION
 from desktop_app.manager import PluginManager
-from desktop_app.server import APP_VERSION
 
 
 class HostApi:
@@ -16,7 +18,7 @@ class HostApi:
 
     def app_info(self) -> dict[str, str]:
         """返回应用基本信息。"""
-        return {"name": "Desktop App", "version": APP_VERSION}
+        return {"name": APP_NAME, "version": APP_VERSION}
 
     def plugins_summary(self) -> list[dict]:
         """返回插件列表摘要（宿主壳页面可直接复用）。"""
@@ -31,3 +33,17 @@ class HostApi:
             file_types=("Zip 插件包 (*.zip)", "所有文件 (*.*)"),
         )
         return result[0] if result else None
+
+    def open_urls(self, urls: list[str]) -> dict[str, int]:
+        """在系统默认浏览器中批量打开书签 URL（仅允许 http/https，避免协议注入）。"""
+        opened = 0
+        failed = 0
+        for url in urls:
+            if isinstance(url, str) and url.lower().startswith(("http://", "https://")):
+                try:
+                    webbrowser.open(url, new=2)
+                    opened += 1
+                except Exception:
+                    # 单个链接打开失败不影响其余链接
+                    failed += 1
+        return {"opened": opened, "failed": failed}

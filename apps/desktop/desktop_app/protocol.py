@@ -25,6 +25,7 @@ class PluginManifest(BaseModel):
     description: str = Field(default="", description="插件描述")
     icon: str = Field(default="icon.svg", description="图标文件（包内相对路径）")
     entry: str = Field(default="index.html", description="入口页面（包内相对路径）")
+    type: str = Field(default="iframe", description="子应用类型：iframe（三方 zip 应用）/ react（本项目原生应用）")
     permissions: list[str] = Field(default_factory=list, description="声明所需的宿主能力")
 
     @field_validator("id")
@@ -43,6 +44,13 @@ class PluginManifest(BaseModel):
         pure = PurePosixPath(value.replace("\\", "/"))
         if pure.is_absolute() or ".." in pure.parts:
             raise ValueError("路径必须是包内相对路径，禁止绝对路径与 .. 穿越")
+        return value
+
+    @field_validator("type")
+    @classmethod
+    def _validate_type(cls, value: str) -> str:
+        if value not in {"iframe", "react"}:
+            raise ValueError("type 仅支持 iframe 或 react")
         return value
 
     def unknown_permissions(self) -> list[str]:

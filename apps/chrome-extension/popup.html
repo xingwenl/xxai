@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <div class="logo">🔖</div>
+        <div class="title">
+        <h1>书签整理助手</h1>
+        <p>读取收藏的书签并整理到 ai-base 桌面应用</p>
+        </div>
+      </header>
+
+      <button id="collectBtn" class="primary">整理书签</button>
+      <div id="status" class="status hidden"></div>
+
+      <div id="result" class="result hidden">
+        <div class="row">
+          <span>全部书签</span>
+          <b id="total">-</b>
+        </div>
+        <div class="row">
+          <span>去重后</span>
+          <b id="unique">-</b>
+        </div>
+        <div class="row">
+          <span>文件夹分类</span>
+          <b id="groups">-</b>
+        </div>
+      </div>
+
+      <footer>需先启动 ai-base 桌面应用，再点击「整理书签」</footer>
+    </div>
+    <script src="popup.js"></script>
+  </body>
+</html>

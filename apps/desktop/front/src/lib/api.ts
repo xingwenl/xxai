@@ -7,6 +7,7 @@ export interface Plugin {
   description: string
   icon: string
   entry: string
+  type: 'iframe' | 'react'
   permissions: string[]
   builtin: boolean
   enabled: boolean
@@ -17,9 +18,31 @@ export interface Plugin {
 }
 
 export interface DesktopSettings {
+  name: string
   version: string
   pluginsDir: string
   userDataDir: string
+}
+
+export interface BookmarkItem {
+  id: string
+  title: string
+  url: string
+  folderPath: string
+}
+
+export interface BookmarkGroup {
+  folderPath: string
+  count: number
+  items: BookmarkItem[]
+}
+
+export interface BookmarkSummary {
+  collectedAt: string
+  total: number
+  unique: number
+  filtered: number
+  groups: BookmarkGroup[]
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -37,6 +60,16 @@ export function getPlugins(): Promise<{ items: Plugin[] }> {
 
 export function getDesktopSettings(): Promise<DesktopSettings> {
   return request('/api/desktop/settings')
+}
+
+/** 获取最近一次整理的书签快照；尚无快照时后端返回 404（调用方需区分处理）。 */
+export async function getBookmarkSummary(): Promise<BookmarkSummary | null> {
+  try {
+    return await request('/api/desktop/bookmarks/summary')
+  } catch (e) {
+    if (e instanceof Error && e.message.includes('尚未整理')) return null
+    throw e
+  }
 }
 
 export function setPluginEnabled(id: string, enabled: boolean): Promise<{ plugin: Plugin }> {

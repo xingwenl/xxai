@@ -25,6 +25,19 @@ def test_valid_manifest() -> None:
     manifest = PluginManifest.model_validate(_manifest())
     assert manifest.id == "hello-world"
     assert manifest.unknown_permissions() == []
+    # type 默认 iframe，向后兼容三方 zip 应用
+    assert manifest.type == "iframe"
+
+
+def test_react_type_accepted() -> None:
+    manifest = PluginManifest.model_validate(_manifest(type="react"))
+    assert manifest.type == "react"
+
+
+@pytest.mark.parametrize("bad_type", ["native", "webview", ""])
+def test_invalid_type_rejected(bad_type: str) -> None:
+    with pytest.raises(ValidationError):
+        PluginManifest.model_validate(_manifest(type=bad_type))
 
 
 @pytest.mark.parametrize(

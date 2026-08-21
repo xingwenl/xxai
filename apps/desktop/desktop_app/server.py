@@ -14,10 +14,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from desktop_app import paths
+from desktop_app import bookmarks
+from desktop_app.app_config import APP_NAME, APP_VERSION
+from desktop_app.bookmarks import MAX_BOOKMARKS_PER_REPORT, BookmarkItem
 from desktop_app.manager import PluginError, PluginExistsError, PluginManager, PluginNotFoundError
 from desktop_app.security import MAX_ZIP_SIZE
-
-APP_VERSION = "0.2.0"
 
 
 class ProxyRequest(BaseModel):
@@ -35,15 +36,26 @@ class SetEnabledRequest(BaseModel):
     enabled: bool
 
 
-def create_app(manager: PluginManager | None = None) -> FastAPI:
-    """构建内嵌 FastAPI 应用；可传入共享 PluginManager（默认自建）。"""
+class CollectBookmarksRequest(BaseModel):
+    """Chrome 扩展书签上报请求体。"""
+
+    bookmarks: list[BookmarkItem] = Field(description="扩展读取的书签列表")
+    source: str = Field(default="chrome-extension", description="上报来源标识")
+
+
+def create_app(
+    manager: PluginManager | None = None,
+    bookmarks_snapshot_path: Path | None = None,
+) -> FastAPI:
+    """构建内嵌 FastAPI 应用；可传入共享 PluginManager 与书签快照路径（默认自建）。"""
     manager = manager or PluginManager()
-    app = FastAPI(title="Desktop App", version=APP_VERSION)
+    snapshot_path = bookmarks_snapshot_path or bookmarks.snapshot_path()
+    app = FastAPI(title=APP_NAME, version=APP_VERSION)
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
         """健康检查：供页面与外部探测确认内嵌服务已就绪。"""
-        return {"status": "ok", "service": "desktop-app", "version": APP_VERSION}
+        return {"status": "ok", "service": APP_NAME, "version": APP_VERSION}
 
     # ---------- 桌面管理接口 ----------
 
@@ -101,10 +113,30 @@ def create_app(manager: PluginManager | None = None) -> FastAPI:
     def desktop_settings() -> dict[str, str]:
         """返回框架信息（版本与关键目录）。"""
         return {
+            "name": APP_NAME,
             "version": APP_VERSION,
             "pluginsDir": str(paths.builtin_plugins_dir()),
             "userDataDir": str(paths.user_data_dir()),
         }
+
+    # ---------- Chrome 书签整理接口 ----------
+
+    @app.post("/api/desktop/bookmarks/collect")
+    def collect_bookmarks(req: CollectBookmarksRequest) -> dict:
+        """接收扩展上报的书签并整理：过滤、去重、按域名分组，保存快照。"""
+        if len(req.bookmarks) > MAX_BOOKMARKS_PER_REPORT:
+            raise HTTPException(400, f"单次上报书签数量超过上限（{MAX_BOOKMARKS_PER_REPORT}）")
+        snapshot = bookmarks.organize_bookmarks(req.bookmarks)
+        bookmarks.save_snapshot(snapshot, snapshot_path)
+        return snapshot
+
+    @app.get("/api/desktop/bookmarks/summary")
+    def bookmarks_summary() -> dict:
+        """返回最近一次整理的书签快照；尚无快照时返回 404。"""
+        snapshot = bookmarks.load_snapshot(snapshot_path)
+        if snapshot is None:
+            raise HTTPException(404, "尚未整理过书签，请先在 Chrome 扩展中点击「整理书签」")
+        return snapshot
 
     @app.post("/api/desktop/proxy")
     def proxy(req: ProxyRequest) -> Response:

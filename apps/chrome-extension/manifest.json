@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "书签整理助手",
+  "version": "0.1.0",
+  "description": "读取 Chrome 收藏的书签，一键整理汇总到 ai-base 桌面应用",
+  "permissions": [
+    "bookmarks"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:8765/*",
+    "http://localhost:8765/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "书签整理助手"
+  }
+}
