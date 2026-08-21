@@ -16,6 +16,8 @@ from app.modules.conversation.runtime import (
     stream_graph,
     _thinking_text,
     _summarize_json,
+    _is_budget_exceeded_outcome,
+    _PAGE_TOOL_BUDGET_EXCEEDED_MESSAGE,
     tool_step_values,
 )
 from app.modules.conversation.schemas import sanitize_content_blocks
@@ -683,6 +685,383 @@ def test_side_effect_tool_stops_with_confirmation():
     assert result.pending_confirmation_id == 8
     assert result.content == ""
     assert len(executed) == 1
+
+
+class InfiniteToolCallingModel:
+    """前 tool_rounds 次调用始终请求工具，后续返回普通回答（含收尾调用）。"""
+
+    def __init__(
+        self,
+        tool_rounds: int,
+        final_response: str = "已达上限，基于已有信息总结。",
+        tool_name: str = "lookup",
+    ):
+        self.calls = 0
+        self.tool_rounds = tool_rounds
+        self.final_response = final_response
+        self.tool_name = tool_name
+
+    def bind_tools(self, tools):
+        return self
+
+    async def ainvoke(self, messages):
+        self.calls += 1
+        if self.calls <= self.tool_rounds:
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": self.tool_name,
+                        "args": {"query": "退款"},
+                        "id": f"call-{self.calls}",
+                    }
+                ],
+            )
+        return AIMessage(content=self.final_response)
+
+
+class WrapUpFailingModel(InfiniteToolCallingModel):
+    """收尾调用（tool_rounds 之后的第一次调用）抛异常。"""
+
+    async def ainvoke(self, messages):
+        self.calls += 1
+        if self.calls <= self.tool_rounds:
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": self.tool_name,
+                        "args": {"query": "退款"},
+                        "id": f"call-{self.calls}",
+                    }
+                ],
+            )
+        raise RuntimeError("wrap-up failed")
+
+
+class InfiniteStreamingToolCallingModel:
+    """前 tool_rounds 次流式输出工具调用，后续输出普通文本（含收尾调用）。"""
+
+    def __init__(self, tool_rounds: int, final_response: str = "已达上限总结"):
+        self.calls = 0
+        self.tool_rounds = tool_rounds
+        self.final_response = final_response
+
+    def bind_tools(self, tools):
+        return self
+
+    async def astream(self, messages):
+        self.calls += 1
+        if self.calls <= self.tool_rounds:
+            yield AIMessageChunk(
+                content="",
+                tool_call_chunks=[
+                    {"name": "lookup", "args": '{"query":"退', "id": "call-1", "index": 0}
+                ],
+            )
+            yield AIMessageChunk(
+                content="",
+                tool_call_chunks=[
+                    {"name": None, "args": '款"}', "id": None, "index": 0}
+                ],
+            )
+            return
+        yield AIMessageChunk(content=self.final_response)
+
+
+class WrapUpFailingStreamingModel(InfiniteStreamingToolCallingModel):
+    """收尾调用（tool_rounds 之后的一次调用）抛异常。"""
+
+    async def astream(self, messages):
+        self.calls += 1
+        if self.calls <= self.tool_rounds:
+            yield AIMessageChunk(
+                content="",
+                tool_call_chunks=[
+                    {"name": "lookup", "args": '{"query":"退', "id": "call-1", "index": 0}
+                ],
+            )
+            yield AIMessageChunk(
+                content="",
+                tool_call_chunks=[
+                    {"name": None, "args": '款"}', "id": None, "index": 0}
+                ],
+            )
+            return
+        raise RuntimeError("wrap-up failed")
+
+
+def test_run_graph_stops_tools_and_wraps_up_after_max_iterations():
+    tool = SimpleNamespace(
+        name="lookup",
+        description="查询",
+        input_schema={"type": "object"},
+        server_id=9,
+    )
+    invocations = []
+
+    async def invoke_tool_fn(**kwargs):
+        invocations.append(kwargs)
+        return ToolInvocationOutcome(status="completed", audit_id=1, result="结果")
+
+    model = InfiniteToolCallingModel(
+        tool_rounds=2, final_response="已达上限，基于已有信息总结。"
+    )
+    result = asyncio.run(
+        run_graph(
+            model,
+            system_prompt="回答问题",
+            user_message="查询天气",
+            tools=[tool],
+            invoke_tool_fn=invoke_tool_fn,
+            max_iterations=2,
+        )
+    )
+
+    assert model.calls == 3
+    assert len(invocations) == 1
+    assert result.content == "已达上限，基于已有信息总结。"
+    assert len(result.tool_events) == 1
+
+
+def test_stream_graph_stops_tools_and_wraps_up_after_max_iterations():
+    tool = SimpleNamespace(
+        name="lookup",
+        description="查询",
+        input_schema={"type": "object"},
+        server_id=9,
+    )
+    invocations = []
+
+    async def invoke_tool_fn(**kwargs):
+        invocations.append(kwargs)
+        return ToolInvocationOutcome(status="completed", audit_id=1, result="结果")
+
+    async def collect():
+        events = []
+        async for item in stream_graph(
+            InfiniteStreamingToolCallingModel(tool_rounds=2),
+            system_prompt="回答问题",
+            user_message="查询天气",
+            tools=[tool],
+            invoke_tool_fn=invoke_tool_fn,
+            max_iterations=2,
+        ):
+            events.append(item)
+        return events
+
+    events = asyncio.run(collect())
+
+    assert [item["type"] for item in events] == [
+        "tool_started",
+        "tool_completed",
+        "message_delta",
+        "completed",
+    ]
+    assert events[-1]["result"].content == "已达上限总结"
+    assert len(invocations) == 1
+
+
+def test_run_graph_unlimited_when_max_iterations_is_zero():
+    tool = SimpleNamespace(
+        name="lookup",
+        description="查询",
+        input_schema={"type": "object"},
+        server_id=9,
+    )
+    invocations = []
+
+    async def invoke_tool_fn(**kwargs):
+        invocations.append(kwargs)
+        return ToolInvocationOutcome(status="completed", audit_id=1, result="结果")
+
+    model = InfiniteToolCallingModel(tool_rounds=2, final_response="完成")
+    result = asyncio.run(
+        run_graph(
+            model,
+            system_prompt="回答问题",
+            user_message="查询天气",
+            tools=[tool],
+            invoke_tool_fn=invoke_tool_fn,
+            max_iterations=0,
+        )
+    )
+
+    assert model.calls == 3
+    assert len(invocations) == 2
+    assert result.content == "完成"
+
+
+def test_run_graph_falls_back_to_fixed_text_when_wrap_up_fails():
+    tool = SimpleNamespace(
+        name="lookup",
+        description="查询",
+        input_schema={"type": "object"},
+        server_id=9,
+    )
+    invocations = []
+
+    async def invoke_tool_fn(**kwargs):
+        invocations.append(kwargs)
+        return ToolInvocationOutcome(status="completed", audit_id=1, result="结果")
+
+    result = asyncio.run(
+        run_graph(
+            WrapUpFailingModel(tool_rounds=1),
+            system_prompt="回答问题",
+            user_message="查询天气",
+            tools=[tool],
+            invoke_tool_fn=invoke_tool_fn,
+            max_iterations=1,
+        )
+    )
+
+    assert result.content == "已达执行上限，本次回答可能不完整。"
+    assert len(invocations) == 0
+
+
+def test_stream_graph_falls_back_to_fixed_text_when_wrap_up_fails():
+    tool = SimpleNamespace(
+        name="lookup",
+        description="查询",
+        input_schema={"type": "object"},
+        server_id=9,
+    )
+    invocations = []
+
+    async def invoke_tool_fn(**kwargs):
+        invocations.append(kwargs)
+        return ToolInvocationOutcome(status="completed", audit_id=1, result="结果")
+
+    async def collect():
+        events = []
+        async for item in stream_graph(
+            WrapUpFailingStreamingModel(tool_rounds=1),
+            system_prompt="回答问题",
+            user_message="查询天气",
+            tools=[tool],
+            invoke_tool_fn=invoke_tool_fn,
+            max_iterations=1,
+        ):
+            events.append(item)
+        return events
+
+    events = asyncio.run(collect())
+
+    assert [item["type"] for item in events] == ["message_delta", "completed"]
+    assert events[0]["content"] == "已达执行上限，本次回答可能不完整。"
+    assert events[-1]["result"].content == "已达执行上限，本次回答可能不完整。"
+    assert len(invocations) == 0
+
+
+def test_is_budget_exceeded_outcome_detects_page_tool_error():
+    assert (
+        _is_budget_exceeded_outcome(
+            SimpleNamespace(
+                result={
+                    "error": "host_tool_failed",
+                    "code": "host_tool_execution_failed",
+                    "message": "page_tool_budget_exceeded",
+                }
+            )
+        )
+        is True
+    )
+    assert (
+        _is_budget_exceeded_outcome(
+            SimpleNamespace(result={"error": "page_tool_budget_exceeded"})
+        )
+        is True
+    )
+    assert (
+        _is_budget_exceeded_outcome(
+            SimpleNamespace(result={"error": "host_tool_failed"})
+        )
+        is False
+    )
+    assert _is_budget_exceeded_outcome(SimpleNamespace(result="文本")) is False
+
+
+def test_run_graph_stops_when_page_tool_budget_exceeded():
+    tool = SimpleNamespace(
+        name="lookup",
+        description="查询",
+        input_schema={"type": "object"},
+        server_id=9,
+    )
+    invocations = []
+
+    async def invoke_tool_fn(**kwargs):
+        invocations.append(kwargs)
+        return ToolInvocationOutcome(
+            status="failed",
+            audit_id=1,
+            result={
+                "error": "host_tool_failed",
+                "code": "host_tool_execution_failed",
+                "message": "page_tool_budget_exceeded",
+            },
+        )
+
+    model = InfiniteToolCallingModel(tool_rounds=3)
+    result = asyncio.run(
+        run_graph(
+            model,
+            system_prompt="回答问题",
+            user_message="查询天气",
+            tools=[tool],
+            invoke_tool_fn=invoke_tool_fn,
+        )
+    )
+
+    assert model.calls == 1
+    assert len(invocations) == 1
+    assert result.content == _PAGE_TOOL_BUDGET_EXCEEDED_MESSAGE
+
+
+def test_stream_graph_stops_when_page_tool_budget_exceeded():
+    tool = SimpleNamespace(
+        name="lookup",
+        description="查询",
+        input_schema={"type": "object"},
+        server_id=9,
+    )
+    invocations = []
+
+    async def invoke_tool_fn(**kwargs):
+        invocations.append(kwargs)
+        return ToolInvocationOutcome(
+            status="failed",
+            audit_id=1,
+            result={
+                "error": "host_tool_failed",
+                "code": "host_tool_execution_failed",
+                "message": "page_tool_budget_exceeded",
+            },
+        )
+
+    async def collect():
+        events = []
+        async for item in stream_graph(
+            InfiniteStreamingToolCallingModel(tool_rounds=3),
+            system_prompt="回答问题",
+            user_message="查询天气",
+            tools=[tool],
+            invoke_tool_fn=invoke_tool_fn,
+        ):
+            events.append(item)
+        return events
+
+    events = asyncio.run(collect())
+
+    assert [item["type"] for item in events] == [
+        "tool_started",
+        "tool_completed",
+        "message_delta",
+        "completed",
+    ]
+    assert events[-1]["result"].content == _PAGE_TOOL_BUDGET_EXCEEDED_MESSAGE
+    assert len(invocations) == 1
 
 
 def test_sse_event_has_stable_envelope_and_event_name():

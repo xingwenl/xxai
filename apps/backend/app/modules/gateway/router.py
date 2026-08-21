@@ -303,16 +303,20 @@ async def _handle_host_tool_result(
             if future is not None and not future.done():
                 future.set_result(result)
     else:
+        code = str(message.get("payload", {}).get("code", "host_tool_failed"))
+        message_text = str(
+            message.get("payload", {}).get("message", "host tool failed")
+        )
         await host_tool_repo.transition_call(
             audit,
             "failed",
-            error=str(
-                message.get("payload", {}).get("message", "host tool failed")
-            ),
+            error=message_text,
         )
         future = pending_host_results.get(call_id)
         if future is not None and not future.done():
-            future.set_result({"error": "host_tool_failed"})
+            future.set_result(
+                {"error": "host_tool_failed", "code": code, "message": message_text}
+            )
 
 
 async def _handle_message_send(

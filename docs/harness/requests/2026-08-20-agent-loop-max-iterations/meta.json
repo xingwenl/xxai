@@ -1,0 +1,32 @@
+{
+  "id": "2026-08-20-agent-loop-max-iterations",
+  "title": "后端 Agent 单次任务最大迭代轮数守卫",
+  "scope": "backend",
+  "phase": "verify",
+  "status": "active",
+  "riskLevel": "medium",
+  "changeTypes": ["configuration", "runtime", "tests", "docs"],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "OpenAI Agents SDK max_turns",
+      "LangChain LangGraph recursionLimit",
+      "smolagents max_steps"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": false,
+  "approvalGranted": false,
+  "approvalReasons": [],
+  "approvalRecords": [],
+  "owner": "ai",
+  "createdAt": "2026-08-20",
+  "updatedAt": "2026-08-20",
+  "relatedPaths": [
+    "apps/backend/app/core/config.py",
+    "apps/backend/app/modules/conversation/runtime.py",
+    "apps/backend/tests/conversation"
+  ],
+  "notes": "全局配置文件上限（AGENT_MAX_ITERATIONS 默认 20）+ 两条循环统一守卫 + 超限优雅收尾 + 增量：检测到 page_tool_budget_exceeded 立即停止并提示用户；不涉及架构边界、数据模型、外部 API 契约与权限行为变化。验证：conversation+gateway 72 passed、跳过既有收集冲突后全量 242 passed、ruff 通过；验收结论待用户确认。"
+}

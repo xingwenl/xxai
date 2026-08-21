@@ -26,6 +26,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
+from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.modules.agent.services import build_chat_model
 from app.modules.skill.services import build_runtime_skill_metadata
@@ -36,6 +37,35 @@ from app.modules.skill_runner.tools import (
 from app.modules.conversation.schemas import RuntimeContext
 
 logger = get_logger(__name__)
+
+_MAX_ITERATIONS_WRAPUP_PROMPT = (
+    "你已达到本次任务的最大执行轮数，请停止调用任何工具，"
+    "直接基于已有信息给出最终回答；如果信息不足，请明确说明。"
+)
+
+
+def _resolve_max_iterations(max_iterations: int | None) -> int | None:
+    """解析 Agent 循环迭代上限；0 或负值视为不设限。"""
+    value = (
+        max_iterations
+        if max_iterations is not None
+        else get_settings().agent_max_iterations
+    )
+    return value if value and value > 0 else None
+
+
+_PAGE_TOOL_BUDGET_EXCEEDED_MESSAGE = "已达到页面工具使用限制（次数/时长），本次执行已停止。"
+
+
+def _is_budget_exceeded_outcome(outcome) -> bool:
+    """判断工具结果是否表示页面工具预算耗尽（page_tool_budget_exceeded）。"""
+    result = getattr(outcome, "result", None)
+    if not isinstance(result, dict):
+        return False
+    error = result.get("error") or ""
+    code = result.get("code") or ""
+    message = result.get("message") or ""
+    return "page_tool_budget_exceeded" in {error, code, message}
 
 
 def build_history_messages(history: list[Any] | None = None) -> list[Any]:
@@ -369,6 +399,7 @@ async def _stream_graph(
     citations: list[dict[str, Any]] | None = None,
     tools: list[Any] | None = None,
     invoke_tool_fn=None,
+    max_iterations: int | None = None,
 ):
     """
     流式执行对话图，通过 SSE 逐步输出模型回复
@@ -443,8 +474,13 @@ async def _stream_graph(
         thinking_parts: list[str] = []
         tool_events: list[dict[str, Any]] = []
         usage = None
+        limit = _resolve_max_iterations(max_iterations)
+        iteration_count = 0
+        wrap_up = False
+        budget_exceeded = False
 
         while True:
+            iteration_count += 1
             response = None
             async for chunk in bound_model.astream(messages):
                 usage = merge_token_usage(usage, extract_token_usage(chunk))
@@ -470,6 +506,15 @@ async def _stream_graph(
                 logger.warning(
                     "Model requested tools but no tool invoker is configured"
                 )
+                break
+
+            if limit is not None and iteration_count >= limit:
+                logger.warning(
+                    "Agent reached max iterations limit=%s tools_requested=%s; wrapping up without executing tools",
+                    limit,
+                    [call.get("name") for call in tool_calls],
+                )
+                wrap_up = True
                 break
 
             messages.append(response)
@@ -521,6 +566,13 @@ async def _stream_graph(
                     }
                     return
 
+                if _is_budget_exceeded_outcome(outcome):
+                    logger.warning(
+                        "Page tool budget exceeded; stopping agent loop"
+                    )
+                    budget_exceeded = True
+                    break
+
                 messages.append(
                     ToolMessage(
                         content=_tool_result_content(tool, outcome),
@@ -528,8 +580,40 @@ async def _stream_graph(
                     )
                 )
 
+            if budget_exceeded:
+                break
             if not executed_tool:
                 break
+
+        if budget_exceeded:
+            content_parts.append(_PAGE_TOOL_BUDGET_EXCEEDED_MESSAGE)
+            yield {
+                "type": "message_delta",
+                "content": _PAGE_TOOL_BUDGET_EXCEEDED_MESSAGE,
+            }
+        elif wrap_up:
+            wrap_messages = [
+                SystemMessage(content=_MAX_ITERATIONS_WRAPUP_PROMPT),
+                *messages,
+            ]
+            try:
+                async for chunk in model.astream(wrap_messages):
+                    usage = merge_token_usage(usage, extract_token_usage(chunk))
+                    thinking = _thinking_text(chunk)
+                    if thinking:
+                        thinking_parts.append(thinking)
+                        yield {"type": "thinking_delta", "content": thinking}
+                    content = _content_text(chunk.content)
+                    if content:
+                        content_parts.append(content)
+                        yield {"type": "message_delta", "content": content}
+            except Exception as error:
+                logger.exception(
+                    "Agent wrap-up stream failed: %s", type(error).__name__
+                )
+                fallback = "已达执行上限，本次回答可能不完整。"
+                content_parts.append(fallback)
+                yield {"type": "message_delta", "content": fallback}
 
         yield {
             "type": "completed",
@@ -619,6 +703,7 @@ async def stream_graph(
     citations: list[dict[str, Any]] | None = None,
     tools: list[Any] | None = None,
     invoke_tool_fn=None,
+    max_iterations: int | None = None,
 ):
     """执行流式图，并将上游异常转换为终止 error 事件。"""
     try:
@@ -630,6 +715,7 @@ async def stream_graph(
             citations=citations,
             tools=tools,
             invoke_tool_fn=invoke_tool_fn,
+            max_iterations=max_iterations,
         ):
             yield event
     except asyncio.CancelledError:
@@ -649,6 +735,7 @@ async def run_graph(
     tools: list[Any] | None = None,
     invoke_tool_fn=None,
     on_event=None,
+    max_iterations: int | None = None,
 ) -> GraphResult:
     """
     非流式执行对话图，支持工具调用循环
@@ -741,10 +828,22 @@ async def run_graph(
     tool_calls = getattr(response, "tool_calls", []) or []
     tool_events = []
     pending_confirmation_id = None
+    limit = _resolve_max_iterations(max_iterations)
+    iteration_count = 1
+    wrap_up = False
+    budget_exceeded = False
 
     # 步骤5：工具调用循环 —— 模型请求工具时执行工具并回填结果
     while tool_calls:
         if invoke_tool_fn is None:
+            break
+        if limit is not None and iteration_count >= limit:
+            logger.warning(
+                "Agent reached max iterations limit=%s tools_requested=%s; wrapping up without executing tools",
+                limit,
+                [call.get("name") for call in tool_calls],
+            )
+            wrap_up = True
             break
 
         for call in tool_calls:
@@ -795,6 +894,11 @@ async def run_graph(
                     usage=usage,
                 )
 
+            if _is_budget_exceeded_outcome(outcome):
+                logger.warning("Page tool budget exceeded; stopping agent loop")
+                budget_exceeded = True
+                break
+
             # 将 AI 回复和工具执行结果追加到消息列表，供下一轮推理使用
             state["messages"].append(response)
             state["messages"].append(
@@ -804,12 +908,36 @@ async def run_graph(
                 )
             )
 
+        if budget_exceeded:
+            break
+
         # 步骤6：在追加工具结果后，再次调用模型继续推理
         result = await graph.compile().ainvoke(state)
         response = result["messages"][-1]
         usage = merge_token_usage(usage, extract_token_usage(response))
         # 检查模型是否还需要调用更多工具
         tool_calls = getattr(response, "tool_calls", []) or []
+        iteration_count += 1
+
+    # 步骤6.5：达到迭代上限后追加一次不带工具的收尾调用
+    if budget_exceeded:
+        result = {"content": _PAGE_TOOL_BUDGET_EXCEEDED_MESSAGE, "messages": []}
+    elif wrap_up:
+        wrap_messages = [
+            SystemMessage(content=_MAX_ITERATIONS_WRAPUP_PROMPT),
+            *state["messages"],
+        ]
+        try:
+            response = await model.ainvoke(wrap_messages)
+        except Exception as error:
+            logger.exception("Agent wrap-up call failed: %s", type(error).__name__)
+            response = AIMessage(content="已达执行上限，本次回答可能不完整。")
+        content = _content_text(response.content)
+        thinking = _thinking_text(response)
+        if thinking:
+            thinking_parts.append(thinking)
+        usage = merge_token_usage(usage, extract_token_usage(response))
+        result = {"content": content, "messages": [response]}
 
     # 步骤7：组装最终结果
     graph_result = GraphResult(

@@ -1,5 +1,8 @@
 # Changelog
 
+## - 2026-08-21
+- ✨ feat：增加 Agent 迭代轮数上限并在页面工具预算耗尽时停止 `🧑‍💻 lixingwen`
+
 ## - 2026-08-20
 - ✨ feat：新增 pywebview + FastAPI 桌面应用脚手架 `🧑‍💻 lixingwen`
 
