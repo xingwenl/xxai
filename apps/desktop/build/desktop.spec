@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller 打包配置：onedir 模式，收集 static 资源并补充 uvicorn 隐式导入。"""
+"""PyInstaller 打包配置：onedir 模式，收集 front 产物、static 与 plugins 资源并补充 uvicorn 隐式导入。"""
 
 import sys
 from pathlib import Path
@@ -9,6 +9,8 @@ import PyInstaller.utils.hooks as hooks
 # SPECPATH 为 spec 文件所在目录（apps/desktop/build），其上一级即项目根
 project_root = Path(SPECPATH).resolve().parent
 static_src = project_root / "static"
+plugins_src = project_root / "plugins"
+front_dist_src = project_root / "front" / "dist"
 
 hiddenimports = hooks.collect_submodules("uvicorn")
 
@@ -16,7 +18,11 @@ a = Analysis(
     [str(project_root / "desktop_app" / "__main__.py")],
     pathex=[str(project_root)],
     binaries=[],
-    datas=[(str(static_src), "static")],
+    datas=[
+        (str(static_src), "static"),
+        (str(plugins_src), "plugins"),
+        (str(front_dist_src), "front_dist"),
+    ],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

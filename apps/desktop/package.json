@@ -1,0 +1,13 @@
+{
+  "name": "desktop-shell",
+  "private": true,
+  "version": "0.2.0",
+  "description": "Desktop 宿主壳静态资源构建（Tailwind CSS 编译，运行时零构建）",
+  "scripts": {
+    "css": "node scripts/build_css.mjs",
+    "css:watch": "node scripts/build_css.mjs --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.2.0"
+  }
+}

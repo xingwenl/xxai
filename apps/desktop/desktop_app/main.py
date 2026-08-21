@@ -3,41 +3,34 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 
 import uvicorn
 import webview
 
+from desktop_app.host_api import HostApi
+from desktop_app.manager import PluginManager
 from desktop_app.server import create_app
 
 logger = logging.getLogger(__name__)
 
 
-class Api:
-    """通过 js_api 暴露给前端 JS 的 Python 对象。
-
-    注意：pywebview 要求暴露的方法名不能以下划线开头。
-    """
-
-    def app_info(self) -> dict[str, str]:
-        """返回应用基本信息，供页面展示。"""
-        return {"name": "Desktop App", "version": "0.1.0"}
-
-
 class EmbeddedServer:
     """在后台线程运行内嵌 uvicorn/FastAPI 服务。"""
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 0) -> None:
+    def __init__(self, host: str = "127.0.0.1", port: int = 0, app=None) -> None:
         self.host = host
         self.port = port
         self._server: uvicorn.Server | None = None
         self._thread: threading.Thread | None = None
+        self._app = app or create_app()
 
     def start(self) -> int:
         """启动服务并返回实际监听端口（port=0 时由系统分配）。"""
         config = uvicorn.Config(
-            create_app(),
+            self._app,
             host=self.host,
             port=self.port,
             log_level="warning",
@@ -68,19 +61,33 @@ class EmbeddedServer:
 
 def run() -> None:
     """应用入口：先启动内嵌服务，再创建 pywebview 窗口加载页面。"""
-    server = EmbeddedServer()
+    manager = PluginManager()
+    # 开发模式：DESKTOP_DEV_FRONT=1 时窗口加载 Vite dev server（HMR），
+    # 内嵌 API 服务固定在 8765 供 Vite 代理（与 front/vite.config.ts 保持一致）
+    dev_front = os.environ.get("DESKTOP_DEV_FRONT") == "1"
+    api_port = int(os.environ.get("DESKTOP_API_PORT") or (8765 if dev_front else 0))
+    server = EmbeddedServer(port=api_port, app=create_app(manager))
     port = server.start()
-    url = f"http://{server.host}:{port}"
+    if dev_front:
+        url = "http://127.0.0.1:8443"
+        logger.info("开发模式：窗口加载 Vite dev server %s（需先执行 pnpm --dir apps/desktop/front dev）", url)
+    else:
+        url = f"http://{server.host}:{port}"
     logger.info("内嵌服务已就绪: %s", url)
 
     window = webview.create_window(
         "Desktop App",
         url=url,
-        js_api=Api(),
+        js_api=HostApi(manager),
         width=1100,
         height=760,
         min_size=(800, 600),
     )
     # 窗口关闭时同步停止内嵌服务，避免残留进程
     window.events.closed += server.stop
-    webview.start()
+    webview.start(
+        # DESKTOP_DEBUG=1 时启用 Web Inspector（macOS 可右键 → 检查元素）
+        debug=os.environ.get("DESKTOP_DEBUG") == "1",
+        # 关闭隐私模式：保留 localStorage，主题 / 星标 / 插件设置与存储跨重启保持
+        private_mode=False,
+    )

@@ -1,0 +1,89 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+@import 'tailwindcss';
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 4px);
+}
+
+:root {
+  --background: #f4fbfd;
+  --foreground: #0d1f26;
+  --card: #ffffff;
+  --card-foreground: #0d1f26;
+  --primary: #06b6d4;
+  --primary-foreground: #ffffff;
+  --secondary: #e0f7fa;
+  --secondary-foreground: #0e7490;
+  --muted: #eaf6f9;
+  --muted-foreground: #5b8fa0;
+  --accent: #22d3ee;
+  --accent-foreground: #083344;
+  --border: #cce9f0;
+  --ring: #06b6d4;
+  --radius: 10px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Outfit', sans-serif;
+  background-color: var(--background);
+  color: var(--foreground);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Hide scrollbars until hover */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cce9f0; border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: #06b6d4; }
+
+/* 插件 iframe：load 并注入 SDK 前保持透明，就绪后淡入，避免打开子应用时白屏闪动 */
+.plugin-frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 20px;
+  background: #ffffff;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.plugin-frame.is-ready {
+  opacity: 1;
+}
+
+/* 全屏展示：iframe 铺满窗口，去掉圆角 */
+.plugin-frame--fullscreen {
+  border-radius: 0;
+}
+
+/* 全屏头部展开动画 */
+@keyframes headerIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}

@@ -1,0 +1,63 @@
+{
+  "id": "2026-08-20-desktop-framework",
+  "title": "Desktop 基础框架：应用页 / 设置页 + 插件化应用体系",
+  "scope": "desktop",
+  "phase": "verify",
+  "status": "active",
+  "riskLevel": "high",
+  "changeTypes": [
+    "desktop",
+    "docs"
+  ],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "https://vscode-docs.readthedocs.io/en/stable/extensions/our-approach/",
+      "https://mintlify.wiki/microsoft/vscode/concepts/extension-system",
+      "https://raw.githubusercontent.com/obsidianmd/obsidian-api/master/README.md",
+      "https://pywebview.flowrl.com/guide/api.html",
+      "https://deepwiki.com/r0x0r/pywebview/2-core-architecture",
+      "https://github.com/ILoveBingLu/CipherTalk/blob/main/PLUGIN_SYSTEM_PLAN.md",
+      "https://tanstack.com/router/v1/docs/routing/routing-concepts"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": [
+    "架构边界变化：新增桌面插件协议、宿主 SDK 契约与权限模型"
+  ],
+  "approvalRecords": [
+    {
+      "date": "2026-08-20",
+      "by": "user",
+      "items": [
+        "确认按推荐方案实施：state 导航 / 剥离 Figma 插件与 .figma / 删除内置工具页示例 / 保留 Google Fonts 离线回退"
+      ]
+    },
+    {
+      "date": "2026-08-20",
+      "by": "user",
+      "items": [
+        "提出使用 apps/desktop/front（React 启动器 UI）作为宿主主项目"
+      ]
+    },
+    {
+      "date": "2026-08-20",
+      "by": "user",
+      "items": [
+        "确认插件页面采用 iframe 沙箱",
+        "确认宿主前端采用纯静态 JS + Tailwind CSS",
+        "确认应用安装直接做 zip 导入"
+      ]
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-08-20",
+  "updatedAt": "2026-08-20",
+  "relatedPaths": [
+    "apps/desktop"
+  ],
+  "notes": "宿主前端已迁移到 apps/desktop/front（React 主项目）并恢复 Figma 原版样式基线、接入真实插件数据；已提供浏览器/pywebview 开发调试模式（HMR + Web Inspector）并修复 localStorage 持久化；47 项测试通过、pnpm build / tsc 通过；真实 HTTP/GUI 验证待用户本地执行（见 verify.md）。"
+}

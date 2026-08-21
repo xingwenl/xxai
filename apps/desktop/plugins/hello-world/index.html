@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>你好世界</title>
+    <style>
+      /* 防闪白：tailwind.css 加载完成前先落到深色底 */
+      html,
+      body {
+        background: #020617;
+      }
+    </style>
+    <link rel="stylesheet" href="/css/tailwind.css" />
+  </head>
+  <body class="bg-slate-950 text-slate-100">
+    <div class="mx-auto max-w-2xl px-6 py-8">
+      <header class="flex items-center gap-3">
+        <img src="icon.svg" alt="" class="h-12 w-12 rounded-xl" />
+        <div>
+          <h1 class="text-xl font-bold">你好世界</h1>
+          <p class="text-sm text-slate-400">宿主 SDK 能力演示 · 请从应用页打开以获得 SDK</p>
+        </div>
+      </header>
+
+      <div class="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <button data-act="notify" class="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-left transition hover:border-sky-500/60 hover:bg-slate-800">
+          <div class="font-semibold">desktop.notify</div>
+          <div class="mt-1 text-xs text-slate-400">发送宿主 toast 通知</div>
+        </button>
+        <button data-act="settings-write" class="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-left transition hover:border-sky-500/60 hover:bg-slate-800">
+          <div class="font-semibold">desktop.settings.set</div>
+          <div class="mt-1 text-xs text-slate-400">写入配置（lastVisit=now）</div>
+        </button>
+        <button data-act="settings-read" class="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-left transition hover:border-sky-500/60 hover:bg-slate-800">
+          <div class="font-semibold">desktop.settings.get</div>
+          <div class="mt-1 text-xs text-slate-400">读取配置并输出</div>
+        </button>
+        <button data-act="storage-write" class="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-left transition hover:border-sky-500/60 hover:bg-slate-800">
+          <div class="font-semibold">desktop.storage.set</div>
+          <div class="mt-1 text-xs text-slate-400">写入数据（count+=1）</div>
+        </button>
+        <button data-act="storage-read" class="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-left transition hover:border-sky-500/60 hover:bg-slate-800">
+          <div class="font-semibold">desktop.storage.get</div>
+          <div class="mt-1 text-xs text-slate-400">读取数据并输出</div>
+        </button>
+        <button data-act="event-emit" class="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-left transition hover:border-sky-500/60 hover:bg-slate-800">
+          <div class="font-semibold">desktop.events.emit</div>
+          <div class="mt-1 text-xs text-slate-400">广播 hello:ping 事件（含自身）</div>
+        </button>
+        <button data-act="http" class="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-left transition hover:border-sky-500/60 hover:bg-slate-800">
+          <div class="font-semibold">desktop.http.get</div>
+          <div class="mt-1 text-xs text-slate-400">经代理请求 /api/health</div>
+        </button>
+        <button data-act="platform" class="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-left transition hover:border-sky-500/60 hover:bg-slate-800">
+          <div class="font-semibold">desktop.platform.info</div>
+          <div class="mt-1 text-xs text-slate-400">输出平台与目录信息</div>
+        </button>
+      </div>
+
+      <section class="mt-6">
+        <h2 class="text-sm font-semibold text-slate-300">事件日志</h2>
+        <pre id="log" class="mt-2 h-64 overflow-y-auto rounded-xl border border-slate-800 bg-slate-900 p-3 font-mono text-xs leading-relaxed text-emerald-300"></pre>
+      </section>
+    </div>
+
+    <script>
+      (async () => {
+        const logEl = document.getElementById("log");
+        const out = (line) => {
+          logEl.textContent += line + "\n";
+          logEl.scrollTop = logEl.scrollHeight;
+        };
+        // 宿主在 iframe load 完成后注入 SDK 并触发 desktop-ready 事件
+        await new Promise((resolve) => {
+          if (window.desktop) return resolve();
+          window.addEventListener("desktop-ready", () => resolve(), { once: true });
+        });
+        const d = window.desktop;
+        out("SDK 就绪 · plugin=" + d.pluginId);
+        d.log.info("hello-world 启动完成");
+
+        let eventCount = 0;
+        d.events.on("hello:ping", (payload, meta) => {
+          eventCount += 1;
+          out("[事件] hello:ping #" + eventCount + " 来自 " + meta.source + " payload=" + JSON.stringify(payload));
+        });
+
+        document.querySelectorAll("[data-act]").forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            try {
+              switch (btn.dataset.act) {
+                case "notify":
+                  d.notify({ title: "你好世界", body: "这是一条来自插件的宿主通知" });
+                  out("已发送通知");
+                  break;
+                case "settings-write":
+                  d.settings.set("lastVisit", new Date().toISOString());
+                  out("settings.lastVisit 已写入");
+                  break;
+                case "settings-read":
+                  out("settings.lastVisit = " + JSON.stringify(d.settings.get("lastVisit")));
+                  break;
+                case "storage-write": {
+                  const count = (d.storage.get("count") || 0) + 1;
+                  d.storage.set("count", count);
+                  out("storage.count = " + count);
+                  break;
+                }
+                case "storage-read":
+                  out("storage.count = " + JSON.stringify(d.storage.get("count")));
+                  break;
+                case "event-emit":
+                  d.events.emit("hello:ping", { from: d.pluginId, at: Date.now() });
+                  out("已广播 hello:ping");
+                  break;
+                case "http":
+                  out("http 响应 = " + JSON.stringify(await d.http.get("/api/health")));
+                  break;
+                case "platform":
+                  out("platform = " + JSON.stringify(await d.platform.info()));
+                  break;
+              }
+            } catch (err) {
+              out("错误：" + err.message);
+              d.log.error(err);
+            }
+          });
+        });
+      })();
+    </script>
+  </body>
+</html>
