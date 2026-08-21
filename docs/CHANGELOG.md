@@ -6,6 +6,7 @@
 - ✨ feat：新增书签整理内置 React 子应用并支持插件类型区分 `🧑‍💻 lixingwen`
 - ✨ feat：统一应用品牌配置并接入桌面图标 `🧑‍💻 lixingwen`
 - ♻️ refactor：应用卡片抽离组件并统一毛玻璃样式 `🧑‍💻 lixingwen`
+- ✨ feat：支持从 URL 添加远程壳插件 `🧑‍💻 lixingwen`
 
 ## - 2026-08-20
 - ✨ feat：新增 pywebview + FastAPI 桌面应用脚手架 `🧑‍💻 lixingwen`

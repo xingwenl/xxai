@@ -34,6 +34,27 @@ def test_react_type_accepted() -> None:
     assert manifest.type == "react"
 
 
+def test_remote_type_requires_http_url() -> None:
+    manifest = PluginManifest.model_validate(_manifest(type="remote", url="https://example.com/"))
+    assert manifest.type == "remote"
+    assert manifest.url == "https://example.com/"
+
+
+def test_remote_type_rejects_missing_url() -> None:
+    with pytest.raises(ValidationError, match="url"):
+        PluginManifest.model_validate(_manifest(type="remote"))
+
+
+def test_remote_type_rejects_non_http_url() -> None:
+    with pytest.raises(ValidationError, match="http"):
+        PluginManifest.model_validate(_manifest(type="remote", url="ftp://example.com/"))
+
+
+def test_local_type_rejects_url() -> None:
+    with pytest.raises(ValidationError, match="remote"):
+        PluginManifest.model_validate(_manifest(type="iframe", url="https://example.com/"))
+
+
 @pytest.mark.parametrize("bad_type", ["native", "webview", ""])
 def test_invalid_type_rejected(bad_type: str) -> None:
     with pytest.raises(ValidationError):

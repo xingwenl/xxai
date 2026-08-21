@@ -13,8 +13,9 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from desktop_app import paths
 from desktop_app import bookmarks
+from desktop_app import metadata
+from desktop_app import paths
 from desktop_app.app_config import APP_NAME, APP_VERSION
 from desktop_app.bookmarks import MAX_BOOKMARKS_PER_REPORT, BookmarkItem
 from desktop_app.manager import PluginError, PluginExistsError, PluginManager, PluginNotFoundError
@@ -30,10 +31,22 @@ class ProxyRequest(BaseModel):
     body: str | None = Field(default=None, description="POST 请求体")
 
 
-class SetEnabledRequest(BaseModel):
-    """启停请求体。"""
+class PluginPatchRequest(BaseModel):
+    """插件更新请求体：启停（enabled）与 remote 插件元数据编辑（name/description/iconUrl）。"""
 
-    enabled: bool
+    enabled: bool | None = None
+    name: str | None = None
+    description: str | None = None
+    iconUrl: str | None = None
+
+
+class InstallFromUrlRequest(BaseModel):
+    """从 URL 安装远程壳插件请求体；name/description/iconUrl 为空时使用自动抓取结果。"""
+
+    url: str
+    name: str | None = None
+    description: str | None = None
+    iconUrl: str | None = None
 
 
 class CollectBookmarksRequest(BaseModel):
@@ -89,13 +102,58 @@ def create_app(
         finally:
             tmp_path.unlink(missing_ok=True)
 
-    @app.patch("/api/desktop/plugins/{plugin_id}")
-    def set_enabled(plugin_id: str, req: SetEnabledRequest) -> dict:
-        """启用/禁用插件。"""
+    @app.post("/api/desktop/plugins/install-from-url")
+    def install_from_url(req: InstallFromUrlRequest) -> dict:
+        """从公网 URL 安装远程壳插件：自动抓取元数据并落盘，返回插件与可嵌入性预检。"""
         try:
-            plugin = manager.set_enabled(plugin_id, req.enabled)
+            plugin = manager.install_from_url(
+                req.url,
+                name=req.name,
+                description=req.description,
+                icon_url=req.iconUrl,
+            )
+        except PluginExistsError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except PluginError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        frameable: bool | None = None
+        try:
+            frameable = metadata.preflight_frameable(req.url)
+        except metadata.MetadataError:
+            pass
+        return {"plugin": plugin.to_dict(), "frameable": frameable}
+
+    @app.patch("/api/desktop/plugins/{plugin_id}")
+    def patch_plugin(plugin_id: str, req: PluginPatchRequest) -> dict:
+        """更新插件：启停（所有插件）与 remote 插件元数据编辑（URL 保持不变）。"""
+        try:
+            plugin = None
+            if req.enabled is not None:
+                plugin = manager.set_enabled(plugin_id, req.enabled)
+            if req.name is not None or req.description is not None or req.iconUrl is not None:
+                plugin = manager.update_metadata(
+                    plugin_id,
+                    name=req.name,
+                    description=req.description,
+                    icon_url=req.iconUrl,
+                )
+            if plugin is None:
+                raise HTTPException(400, "请求体为空，请提供 enabled 或元数据字段")
         except PluginNotFoundError as exc:
             raise HTTPException(404, str(exc)) from exc
+        except PluginError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"plugin": plugin.to_dict()}
+
+    @app.post("/api/desktop/plugins/{plugin_id}/refresh-metadata")
+    def refresh_metadata(plugin_id: str) -> dict:
+        """重新抓取 remote 插件元数据（名称/描述/图标），id 与 url 保持不变。"""
+        try:
+            plugin = manager.refresh_metadata(plugin_id)
+        except PluginNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except PluginError as exc:
+            raise HTTPException(400, str(exc)) from exc
         return {"plugin": plugin.to_dict()}
 
     @app.delete("/api/desktop/plugins/{plugin_id}")

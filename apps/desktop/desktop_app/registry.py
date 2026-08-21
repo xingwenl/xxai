@@ -27,6 +27,7 @@ class PluginInfo:
     enabled: bool = True
     installed_at: str | None = None
     error: str | None = None
+    url: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -38,12 +39,13 @@ class PluginInfo:
             "entry": self.entry,
             "type": self.type,
             "permissions": self.permissions,
+            "url": self.url,
             "builtin": self.builtin,
             "enabled": self.enabled,
             "installedAt": self.installed_at,
             "error": self.error,
             "iconUrl": f"/apps/{self.id}/{self.icon}" if self.icon else None,
-            "entryUrl": f"/apps/{self.id}/{self.entry}",
+            "entryUrl": self.url if self.type == "remote" and self.url else f"/apps/{self.id}/{self.entry}",
         }
 
 
@@ -92,6 +94,7 @@ class PluginRegistry:
                 # 内置插件包随应用分发，非法时静默跳过，避免宿主壳报错
                 continue
             state_entry = self._state.get("plugins", {}).get(manifest.id, {})
+            # remote 插件是纯壳：无论 manifest 声明什么都强制零权限，不向宿主申请能力
             plugins[manifest.id] = PluginInfo(
                 id=manifest.id,
                 name=manifest.name,
@@ -100,7 +103,8 @@ class PluginRegistry:
                 icon=manifest.icon,
                 entry=manifest.entry,
                 type=manifest.type,
-                permissions=manifest.permissions,
+                permissions=[] if manifest.type == "remote" else manifest.permissions,
+                url=manifest.url,
                 dir=plugin_dir,
                 builtin=True,
                 enabled=bool(state_entry.get("enabled", True)),
@@ -136,7 +140,8 @@ class PluginRegistry:
                 icon=manifest.icon,
                 entry=manifest.entry,
                 type=manifest.type,
-                permissions=manifest.permissions,
+                permissions=[] if manifest.type == "remote" else manifest.permissions,
+                url=manifest.url,
                 dir=plugin_dir,
                 builtin=False,
                 enabled=bool(state_entry.get("enabled", True)),

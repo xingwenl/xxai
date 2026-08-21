@@ -7,8 +7,9 @@ export interface Plugin {
   description: string
   icon: string
   entry: string
-  type: 'iframe' | 'react'
+  type: 'iframe' | 'react' | 'remote'
   permissions: string[]
+  url: string | null
   builtin: boolean
   enabled: boolean
   installedAt: string | null
@@ -89,6 +90,39 @@ export function installPlugin(file: File): Promise<{ plugin: Plugin }> {
     method: 'POST',
     headers: { 'Content-Type': 'application/zip' },
     body: file,
+  })
+}
+
+/** 从公网 URL 安装远程壳插件；frameable 为空表示无法预判嵌入性。 */
+export function installFromUrl(body: {
+  url: string
+  name?: string
+  description?: string
+  iconUrl?: string
+}): Promise<{ plugin: Plugin; frameable: boolean | null }> {
+  return request('/api/desktop/plugins/install-from-url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+/** 编辑 remote 插件元数据（名称 / 描述 / 图标 URL，URL 保持不变）。 */
+export function updatePluginMetadata(
+  id: string,
+  body: { name?: string; description?: string; iconUrl?: string },
+): Promise<{ plugin: Plugin }> {
+  return request(`/api/desktop/plugins/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+/** 重新抓取 remote 插件元数据（名称 / 描述 / 图标）。 */
+export function refreshMetadata(id: string): Promise<{ plugin: Plugin }> {
+  return request(`/api/desktop/plugins/${encodeURIComponent(id)}/refresh-metadata`, {
+    method: 'POST',
   })
 }
 

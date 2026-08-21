@@ -5,8 +5,11 @@ import {
   getDesktopSettings,
   getPlugins,
   installPlugin,
+  installFromUrl,
+  refreshMetadata,
   setPluginEnabled,
   uninstallPlugin,
+  updatePluginMetadata,
   type DesktopSettings,
   type Plugin,
 } from '../lib/api'
@@ -33,6 +36,13 @@ export default function Settings({
   const [info, setInfo] = useState<DesktopSettings | null>(null)
   const [busy, setBusy] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const [urlInput, setUrlInput] = useState('')
+  const [urlBusy, setUrlBusy] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editDesc, setEditDesc] = useState('')
+  const [editIconUrl, setEditIconUrl] = useState('')
+  const [refreshBusy, setRefreshBusy] = useState(false)
 
   const load = useCallback(() => {
     getPlugins()
@@ -82,6 +92,68 @@ export default function Settings({
     }
   }
 
+  const handleInstallFromUrl = async () => {
+    const url = urlInput.trim()
+    if (!url) {
+      toast('提示', '请输入要添加的网址', 'error')
+      return
+    }
+    setUrlBusy(true)
+    try {
+      const { plugin, frameable } = await installFromUrl({ url })
+      toast('添加成功', `${plugin.name} 已添加到应用页`, 'success')
+      if (frameable === false) {
+        toast('提示', '该站点可能拒绝内嵌，打开时可用「在系统浏览器打开」', 'info')
+      }
+      setUrlInput('')
+      load()
+      onChanged()
+    } catch (e) {
+      toast('添加失败', String((e as Error).message || e), 'error')
+    } finally {
+      setUrlBusy(false)
+    }
+  }
+
+  const startEdit = (plugin: Plugin) => {
+    setEditingId(plugin.id)
+    setEditName(plugin.name)
+    setEditDesc(plugin.description)
+    setEditIconUrl('')
+  }
+
+  const saveEdit = async (plugin: Plugin) => {
+    try {
+      await updatePluginMetadata(plugin.id, {
+        name: editName,
+        description: editDesc,
+        iconUrl: editIconUrl.trim() || undefined,
+      })
+      toast('已保存', plugin.name, 'success')
+      setEditingId(null)
+      load()
+    } catch (e) {
+      toast('保存失败', String((e as Error).message || e), 'error')
+    }
+  }
+
+  const handleRefresh = async (plugin: Plugin) => {
+    setRefreshBusy(true)
+    try {
+      const { plugin: updated } = await refreshMetadata(plugin.id)
+      toast('已更新', `${updated.name} 元数据已重新抓取`, 'success')
+      if (editingId === plugin.id) {
+        setEditName(updated.name)
+        setEditDesc(updated.description)
+      }
+      load()
+    } catch (e) {
+      toast('更新失败', String((e as Error).message || e), 'error')
+    } finally {
+      setRefreshBusy(false)
+    }
+  }
+
   const p = theme.primary
   const glass = {
     borderRadius: 20,
@@ -111,6 +183,32 @@ export default function Settings({
       {/* 应用管理 */}
       <section style={glass} className="p-5 mt-4">
         <h2 className="font-600 text-[15px] mb-3" style={{ color: 'var(--foreground)' }}>应用管理</h2>
+
+        {/* 从 URL 添加远程壳插件 */}
+        <div
+          className="flex flex-wrap items-center gap-3 rounded-xl p-4 mb-3"
+          style={{ background: 'rgba(255,255,255,0.4)', border: `1px dashed ${p}50` }}
+        >
+          <input
+            value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleInstallFromUrl() }}
+            placeholder="https://example.com"
+            className="flex-1 min-w-[220px] px-3 py-2 rounded-xl text-[13px] outline-none"
+            style={{ background: 'rgba(255,255,255,0.7)', border: `1px solid ${p}30`, color: 'var(--foreground)' }}
+          />
+          <button
+            disabled={urlBusy}
+            onClick={handleInstallFromUrl}
+            className="px-4 py-2 rounded-xl text-[13px] font-600 text-white disabled:opacity-50"
+            style={{ background: `linear-gradient(135deg, ${theme.gradient[0]}, ${theme.gradient[1]})` }}
+          >
+            {urlBusy ? '抓取中…' : '添加应用'}
+          </button>
+          <span className="text-[12px] w-full" style={{ color: 'var(--color-mid)' }}>
+            输入 http/https 网址（支持公网、localhost 与本机局域网地址），自动抓取名称 / 描述 / 图标安装为远程插件；可安装后编辑或重新抓取
+          </span>
+        </div>
 
         <div
           className="flex flex-wrap items-center gap-3 rounded-xl p-4"
@@ -143,61 +241,142 @@ export default function Settings({
           {plugins.map((plugin) => (
             <div
               key={plugin.id}
-              className="flex items-center gap-4 rounded-xl px-4 py-3"
+              className="rounded-xl"
               style={{ background: 'rgba(255,255,255,0.45)', border: `1px solid ${p}18` }}
             >
-              <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden"
-                style={{ background: `${p}15`, color: p }}
-              >
-                {plugin.iconUrl && !plugin.error ? (
-                  <img src={plugin.iconUrl} alt="" className="w-10 h-10 object-cover" />
-                ) : (
-                  <span className="font-700 text-[14px]">{(plugin.name || '?').slice(0, 1)}</span>
+              <div className="flex items-center gap-4 px-4 py-3">
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden"
+                  style={{ background: `${p}15`, color: p }}
+                >
+                  {plugin.iconUrl && !plugin.error ? (
+                    <img src={plugin.iconUrl} alt="" className="w-10 h-10 object-cover" />
+                  ) : (
+                    <span className="font-700 text-[14px]">{(plugin.name || '?').slice(0, 1)}</span>
+                  )}
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-600 text-[14px]" style={{ color: 'var(--foreground)' }}>{plugin.name}</span>
+                    {plugin.builtin && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-md font-mono" style={{ background: `${p}15`, color: p }}>
+                        内置
+                      </span>
+                    )}
+                    {plugin.type === 'remote' && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-md font-mono" style={{ background: `${p}12`, color: p }}>
+                        URL
+                      </span>
+                    )}
+                    {plugin.error && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-md font-mono" style={{ background: '#f43f5e18', color: '#f43f5e' }}>
+                        异常
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[12px] truncate mt-0.5" style={{ color: 'var(--color-mid)' }}>
+                    {plugin.error || `${plugin.id} · v${plugin.version}`}
+                  </div>
+                </div>
+
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="peer sr-only"
+                    checked={plugin.enabled}
+                    onChange={(e) => handleToggle(plugin, e.target.checked)}
+                  />
+                  <span
+                    className="peer w-9 h-5 rounded-full relative transition-colors after:absolute after:left-0.5 after:top-0.5 after:w-4 after:h-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4"
+                    style={{ background: plugin.enabled ? p : '#cbd5e1' }}
+                  />
+                </label>
+
+                {plugin.type === 'remote' && (
+                  <button
+                    onClick={() => editingId === plugin.id ? setEditingId(null) : startEdit(plugin)}
+                    className="px-3 py-1.5 rounded-lg text-[12px] font-500"
+                    style={{ background: `${p}12`, color: p }}
+                  >
+                    编辑
+                  </button>
                 )}
+
+                <button
+                  disabled={plugin.builtin}
+                  onClick={() => handleUninstall(plugin)}
+                  title={plugin.builtin ? '内置插件不可卸载' : '卸载'}
+                  className="px-3 py-1.5 rounded-lg text-[12px] font-500 disabled:opacity-40"
+                  style={{ background: '#f43f5e12', color: plugin.builtin ? 'var(--color-mid)' : '#f43f5e' }}
+                >
+                  卸载
+                </button>
               </div>
 
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-600 text-[14px]" style={{ color: 'var(--foreground)' }}>{plugin.name}</span>
-                  {plugin.builtin && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-md font-mono" style={{ background: `${p}15`, color: p }}>
-                      内置
-                    </span>
-                  )}
-                  {plugin.error && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-md font-mono" style={{ background: '#f43f5e18', color: '#f43f5e' }}>
-                      异常
-                    </span>
-                  )}
+              {/* remote 插件编辑面板：名称 / 描述 / 图标 URL + 重新抓取 */}
+              {editingId === plugin.id && plugin.type === 'remote' && (
+                <div
+                  className="mx-4 mb-4 p-4 rounded-xl flex flex-col gap-3"
+                  style={{ background: 'rgba(255,255,255,0.5)', border: `1px solid ${p}22` }}
+                >
+                  <div className="flex items-center gap-3">
+                    {plugin.iconUrl && (
+                      <img src={plugin.iconUrl} alt="" className="w-12 h-12 rounded-xl object-cover flex-shrink-0" />
+                    )}
+                    <div className="flex-1 flex flex-col gap-2">
+                      <input
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        placeholder="名称"
+                        className="px-3 py-2 rounded-xl text-[13px] outline-none"
+                        style={{ background: 'rgba(255,255,255,0.8)', border: `1px solid ${p}30`, color: 'var(--foreground)' }}
+                      />
+                      <input
+                        value={editIconUrl}
+                        onChange={(e) => setEditIconUrl(e.target.value)}
+                        placeholder="图标 URL（留空保持不变）"
+                        className="px-3 py-2 rounded-xl text-[13px] outline-none"
+                        style={{ background: 'rgba(255,255,255,0.8)', border: `1px solid ${p}30`, color: 'var(--foreground)' }}
+                      />
+                    </div>
+                  </div>
+                  <textarea
+                    value={editDesc}
+                    onChange={(e) => setEditDesc(e.target.value)}
+                    placeholder="描述"
+                    rows={2}
+                    className="px-3 py-2 rounded-xl text-[13px] outline-none resize-none"
+                    style={{ background: 'rgba(255,255,255,0.8)', border: `1px solid ${p}30`, color: 'var(--foreground)' }}
+                  />
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      disabled={refreshBusy}
+                      onClick={() => handleRefresh(plugin)}
+                      className="px-3 py-1.5 rounded-lg text-[12px] font-500 disabled:opacity-50"
+                      style={{ background: `${p}10`, color: p }}
+                    >
+                      {refreshBusy ? '抓取中…' : '重新抓取元数据'}
+                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setEditingId(null)}
+                        className="px-3 py-1.5 rounded-lg text-[12px] font-500"
+                        style={{ background: 'rgba(255,255,255,0.6)', color: 'var(--color-mid)' }}
+                      >
+                        取消
+                      </button>
+                      <button
+                        onClick={() => saveEdit(plugin)}
+                        className="px-3 py-1.5 rounded-lg text-[12px] font-600 text-white"
+                        style={{ background: `linear-gradient(135deg, ${theme.gradient[0]}, ${theme.gradient[1]})` }}
+                      >
+                        保存
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-[12px] truncate mt-0.5" style={{ color: 'var(--color-mid)' }}>
-                  {plugin.error || `${plugin.id} · v${plugin.version}`}
-                </div>
-              </div>
-
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="peer sr-only"
-                  checked={plugin.enabled}
-                  onChange={(e) => handleToggle(plugin, e.target.checked)}
-                />
-                <span
-                  className="peer w-9 h-5 rounded-full relative transition-colors after:absolute after:left-0.5 after:top-0.5 after:w-4 after:h-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4"
-                  style={{ background: plugin.enabled ? p : '#cbd5e1' }}
-                />
-              </label>
-
-              <button
-                disabled={plugin.builtin}
-                onClick={() => handleUninstall(plugin)}
-                title={plugin.builtin ? '内置插件不可卸载' : '卸载'}
-                className="px-3 py-1.5 rounded-lg text-[12px] font-500 disabled:opacity-40"
-                style={{ background: '#f43f5e12', color: plugin.builtin ? 'var(--color-mid)' : '#f43f5e' }}
-              >
-                卸载
-              </button>
+              )}
             </div>
           ))}
           {plugins.length === 0 && (

@@ -6,6 +6,7 @@ import re
 from pathlib import PurePosixPath
 
 from pydantic import BaseModel, Field, field_validator
+from pydantic import model_validator
 
 # 插件 id 命名规则：小写字母/数字开头，仅允许字母、数字、下划线、连字符
 PLUGIN_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -25,8 +26,15 @@ class PluginManifest(BaseModel):
     description: str = Field(default="", description="插件描述")
     icon: str = Field(default="icon.svg", description="图标文件（包内相对路径）")
     entry: str = Field(default="index.html", description="入口页面（包内相对路径）")
-    type: str = Field(default="iframe", description="子应用类型：iframe（三方 zip 应用）/ react（本项目原生应用）")
+    type: str = Field(
+        default="iframe",
+        description="子应用类型：iframe（三方 zip 应用）/ react（本项目原生应用）/ remote（从 URL 安装的远程壳插件）",
+    )
     permissions: list[str] = Field(default_factory=list, description="声明所需的宿主能力")
+    url: str | None = Field(
+        default=None,
+        description="远程插件目标地址（type=remote 时必填，仅允许 http/https）",
+    )
 
     @field_validator("id")
     @classmethod
@@ -49,9 +57,21 @@ class PluginManifest(BaseModel):
     @field_validator("type")
     @classmethod
     def _validate_type(cls, value: str) -> str:
-        if value not in {"iframe", "react"}:
-            raise ValueError("type 仅支持 iframe 或 react")
+        if value not in {"iframe", "react", "remote"}:
+            raise ValueError("type 仅支持 iframe、react 或 remote")
         return value
+
+    @model_validator(mode="after")
+    def _validate_remote(self) -> "PluginManifest":
+        """remote 类型必须声明公网 http/https 的 url；本地类型不允许携带 url。"""
+        if self.type == "remote":
+            if not self.url:
+                raise ValueError("type=remote 时必须提供 url 字段")
+            if not self.url.lower().startswith(("http://", "https://")):
+                raise ValueError("remote 插件的 url 仅支持 http/https")
+        elif self.url is not None:
+            raise ValueError("仅 type=remote 插件允许声明 url 字段")
+        return self
 
     def unknown_permissions(self) -> list[str]:
         """返回不在宿主白名单中的能力名（安装时警告但允许，保证向后兼容）。"""

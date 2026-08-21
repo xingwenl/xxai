@@ -1,0 +1,51 @@
+{
+  "id": "2026-08-21-desktop-url-plugin",
+  "title": "桌面应用：从 URL 添加远程壳插件",
+  "scope": "desktop",
+  "phase": "verify",
+  "status": "active",
+  "riskLevel": "medium",
+  "changeTypes": [
+    "desktop",
+    "frontend",
+    "docs"
+  ],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "https://www.w3.org/TR/appmanifest/",
+      "https://ogp.me/",
+      "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Frame-Options",
+      "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/frame-ancestors",
+      "https://developer.mozilla.org/en-US/docs/Web/HTML/Element/iframe",
+      "https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html",
+      "https://html.spec.whatwg.org/multipage/semantics.html#rel-icon"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": [
+    "新增 remote 插件类型，扩展 manifest 数据模型与宿主 API 契约，属于数据模型 / API 契约 / 权限行为变化"
+  ],
+  "approvalRecords": [
+    {
+      "date": "2026-08-21",
+      "by": "user",
+      "items": [
+        "确认方案 A2（iframe 内嵌 + 系统浏览器降级）",
+        "确认纯壳：remote 插件不注入宿主 SDK、零权限",
+        "确认元数据抓取链与手动编辑 + 重新抓取按钮",
+        "确认支持本地 URL（localhost / 127.0.0.1 / 局域网地址），放开回环与私有网段，仍拒绝链路本地等地址"
+      ]
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-08-21",
+  "updatedAt": "2026-08-21",
+  "relatedPaths": [
+    "apps/desktop"
+  ],
+  "notes": "实现已完成：后端（协议/注册表/抓取器/管理/接口）+ 前端（设置页/remote 视图）。本地 URL 支持已按用户要求放开回环与私有网段。自动化验证 114 pytest + ruff + 前端构建 + tsc 通过；真实站点与 GUI 回归待用户本机执行，验收后更新 acceptance.md。"
+}
