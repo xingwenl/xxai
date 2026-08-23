@@ -31,6 +31,8 @@ venv/
 *.log
 apps/backend/logs/
 apps/backend/storage/
+# 微信机器人登录凭证与运行状态（含 bot_token，禁止提交）
+apps/backend/data/wechat_bot/
 
 /tmp
 # Build artifacts

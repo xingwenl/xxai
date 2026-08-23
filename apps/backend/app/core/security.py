@@ -143,7 +143,54 @@ async def get_current_user(
     return user
 
 
+async def get_current_user_or_wechat_service(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+    session=Depends(get_db_session),
+):
+    """优先解析用户 JWT；否则按微信助手服务 token 解析为绑定用户。
+
+    微信 worker 持绑定记录签发的长期服务 token 调用对话接口时使用：
+    token 命中 wechat_bot_bindings.api_token_hash 后，以绑定记录的 user_id
+    作为当前用户，后续权限校验（如 get_published_agent_for_user）沿用原链路。
+    """
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise UnauthorizedException("not authenticated")
+
+    token = credentials.credentials
+    try:
+        payload = decode_access_token(token)
+        subject = payload.get("sub")
+        if isinstance(subject, str) and subject.isdigit():
+            repo = UserRepository(session)
+            user = await repo.get_by_id(int(subject))
+            if user is not None:
+                return user
+    except UnauthorizedException:
+        pass
+
+    from app.modules.wechat_bot.repositories import WeChatBotBindingRepository
+    from app.modules.wechat_bot.services import hash_api_token
+
+    binding = await WeChatBotBindingRepository(session).get_by_api_token_hash(
+        hash_api_token(token)
+    )
+    if binding is not None:
+        user = await UserRepository(session).get_by_id(binding.user_id)
+        if user is not None:
+            return user
+
+    raise UnauthorizedException("not authenticated")
+
+
 async def require_current_active_user(current_user=Depends(get_current_user)):
+    if not current_user.is_active:
+        raise UnauthorizedException("user is inactive")
+    return current_user
+
+
+async def require_current_active_user_or_wechat_service(
+    current_user=Depends(get_current_user_or_wechat_service),
+):
     if not current_user.is_active:
         raise UnauthorizedException("user is inactive")
     return current_user

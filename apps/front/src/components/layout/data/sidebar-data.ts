@@ -8,6 +8,7 @@ import {
   Link2,
   Monitor,
   Server,
+  Smartphone,
   Palette,
   Settings,
   Shield,
@@ -82,6 +83,11 @@ export const sidebarData: SidebarData = {
           title: 'Embed Client',
           url: '/ai/embed-clients',
           icon: KeyRound,
+        },
+        {
+          title: '微信助手',
+          url: '/ai/wechat-bots',
+          icon: Smartphone,
         },
         {
           title: '宿主工具策略',

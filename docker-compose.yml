@@ -114,6 +114,35 @@ services:
       redis:
         condition: service_healthy
 
+  wechat-bot-worker:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile.wechat-bot
+    command: python -m app.modules.wechat_bot.worker
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      <<: *backend-environment
+      WECHAT_BOT_ENABLED: ${WECHAT_BOT_ENABLED:-false}
+      WECHAT_BOT_SYSTEM_PROMPT: ${WECHAT_BOT_SYSTEM_PROMPT:-你是「ai-base」的微信 AI 助手。用简洁、准确的中文回答用户问题，不要输出 Markdown 格式符号，尽量直接给出答案。}
+      WECHAT_BOT_MAX_REPLY_CHARS: ${WECHAT_BOT_MAX_REPLY_CHARS:-4000}
+      # 对话经后台 chat 接口转发（api 容器内地址）；单容器并发实例上限
+      WECHAT_BOT_API_BASE_URL: ${WECHAT_BOT_API_BASE_URL:-http://api:8000}
+      WECHAT_BOT_MAX_INSTANCES: ${WECHAT_BOT_MAX_INSTANCES:-20}
+      # 登录凭据与长轮询游标持久化目录（挂载到宿主机，重启容器后免扫码）
+      WECHAT_BOT_STATE_DIR: /app/data/wechat_bot
+      # 容器内无法直接访问宿主机的 127.0.0.1，模型网关默认经 host.docker.internal 访问
+      OPENAI_BASE_URL: ${WECHAT_BOT_OPENAI_BASE_URL:-http://host.docker.internal:8800/v1}
+    volumes:
+      - ./apps/backend/logs:/app/logs
+      - ./apps/backend/storage:/app/storage
+      - ./apps/backend/data/wechat_bot:/app/data/wechat_bot
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_started
+
   skill-runner:
     build:
       context: ./apps/backend

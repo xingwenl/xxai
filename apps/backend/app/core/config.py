@@ -77,6 +77,12 @@ class Settings:
     quota_message_limit: int
     quota_model_tokens_limit: int
     sdk_minimum_version: str
+    wechat_bot_enabled: bool
+    wechat_bot_system_prompt: str
+    wechat_bot_max_reply_chars: int
+    wechat_bot_state_dir: str
+    wechat_bot_api_base_url: str
+    wechat_bot_max_instances: int
 
 
 def _build_database_url() -> str:
@@ -125,7 +131,7 @@ def get_settings() -> Settings:
         embed_client_secret=os.getenv("EMBED_CLIENT_SECRET", ""),
         embed_agent_id=int(os.getenv("EMBED_AGENT_ID", "0")),
         embed_origin=os.getenv("EMBED_ORIGIN", ""),
-        model_default_name=os.getenv("MODEL_DEFAULT_NAME", "gpt-4o-mini"),
+        model_default_name=os.getenv("MODEL_DEFAULT_NAME", "deepseek-v4-flash"),
         model_default_base_url=os.getenv("MODEL_DEFAULT_BASE_URL") or None,
         model_request_timeout_seconds=float(
             os.getenv("MODEL_REQUEST_TIMEOUT_SECONDS", "60")
@@ -190,6 +196,25 @@ def get_settings() -> Settings:
         quota_token_issue_limit=int(os.getenv("QUOTA_TOKEN_ISSUE_LIMIT", "60")),
         quota_connection_limit=int(os.getenv("QUOTA_CONNECTION_LIMIT", "10")),
         quota_message_limit=int(os.getenv("QUOTA_MESSAGE_LIMIT", "60")),
-        quota_model_tokens_limit=int(os.getenv("QUOTA_MODEL_TOKENS_LIMIT", "100000")),
+        quota_model_tokens_limit=int(os.getenv("QUOTA_MODEL_TOKENS_LIMIT", "1000000")),
         sdk_minimum_version=os.getenv("SDK_MINIMUM_VERSION", "0.1.0"),
+        wechat_bot_enabled=_get_bool("WECHAT_BOT_ENABLED", default=False),
+        wechat_bot_system_prompt=os.getenv(
+            "WECHAT_BOT_SYSTEM_PROMPT",
+            "你是「ai-base」的微信 AI 助手。用简洁、准确的中文回答用户问题，"
+            "不要输出 Markdown 格式符号，尽量直接给出答案。",
+        ),
+        wechat_bot_max_reply_chars=max(
+            200, int(os.getenv("WECHAT_BOT_MAX_REPLY_CHARS", "4000"))
+        ),
+        wechat_bot_state_dir=os.getenv(
+            "WECHAT_BOT_STATE_DIR",
+            str(BASE_DIR / "data" / "wechat_bot"),
+        ),
+        wechat_bot_api_base_url=os.getenv(
+            "WECHAT_BOT_API_BASE_URL", "http://api:8000"
+        ),
+        wechat_bot_max_instances=max(
+            1, int(os.getenv("WECHAT_BOT_MAX_INSTANCES", "20"))
+        ),
     )

@@ -43,6 +43,7 @@ import { Route as AuthenticatedSettingsDisplayRouteImport } from './routes/_auth
 import { Route as AuthenticatedSettingsAppearanceRouteImport } from './routes/_authenticated/settings/appearance'
 import { Route as AuthenticatedSettingsAccountRouteImport } from './routes/_authenticated/settings/account'
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
+import { Route as AuthenticatedAiWechatBotsRouteImport } from './routes/_authenticated/ai/wechat-bots'
 import { Route as AuthenticatedAiSkillsRouteImport } from './routes/_authenticated/ai/skills'
 import { Route as AuthenticatedAiPlatformsRouteImport } from './routes/_authenticated/ai/platforms'
 import { Route as AuthenticatedAiModelUsageRouteImport } from './routes/_authenticated/ai/model-usage'
@@ -232,6 +233,12 @@ const AuthenticatedErrorsErrorRoute =
     path: '/errors/$error',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAiWechatBotsRoute =
+  AuthenticatedAiWechatBotsRouteImport.update({
+    id: '/ai/wechat-bots',
+    path: '/ai/wechat-bots',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAiSkillsRoute = AuthenticatedAiSkillsRouteImport.update({
   id: '/ai/skills',
   path: '/ai/skills',
@@ -300,6 +307,7 @@ export interface FileRoutesByFullPath {
   '/ai/model-usage': typeof AuthenticatedAiModelUsageRoute
   '/ai/platforms': typeof AuthenticatedAiPlatformsRoute
   '/ai/skills': typeof AuthenticatedAiSkillsRoute
+  '/ai/wechat-bots': typeof AuthenticatedAiWechatBotsRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/settings/account': typeof AuthenticatedSettingsAccountRoute
   '/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
@@ -340,6 +348,7 @@ export interface FileRoutesByTo {
   '/ai/model-usage': typeof AuthenticatedAiModelUsageRoute
   '/ai/platforms': typeof AuthenticatedAiPlatformsRoute
   '/ai/skills': typeof AuthenticatedAiSkillsRoute
+  '/ai/wechat-bots': typeof AuthenticatedAiWechatBotsRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/settings/account': typeof AuthenticatedSettingsAccountRoute
   '/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
@@ -385,6 +394,7 @@ export interface FileRoutesById {
   '/_authenticated/ai/model-usage': typeof AuthenticatedAiModelUsageRoute
   '/_authenticated/ai/platforms': typeof AuthenticatedAiPlatformsRoute
   '/_authenticated/ai/skills': typeof AuthenticatedAiSkillsRoute
+  '/_authenticated/ai/wechat-bots': typeof AuthenticatedAiWechatBotsRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/_authenticated/settings/account': typeof AuthenticatedSettingsAccountRoute
   '/_authenticated/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
@@ -428,6 +438,7 @@ export interface FileRouteTypes {
     | '/ai/model-usage'
     | '/ai/platforms'
     | '/ai/skills'
+    | '/ai/wechat-bots'
     | '/errors/$error'
     | '/settings/account'
     | '/settings/appearance'
@@ -468,6 +479,7 @@ export interface FileRouteTypes {
     | '/ai/model-usage'
     | '/ai/platforms'
     | '/ai/skills'
+    | '/ai/wechat-bots'
     | '/errors/$error'
     | '/settings/account'
     | '/settings/appearance'
@@ -512,6 +524,7 @@ export interface FileRouteTypes {
     | '/_authenticated/ai/model-usage'
     | '/_authenticated/ai/platforms'
     | '/_authenticated/ai/skills'
+    | '/_authenticated/ai/wechat-bots'
     | '/_authenticated/errors/$error'
     | '/_authenticated/settings/account'
     | '/_authenticated/settings/appearance'
@@ -789,6 +802,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedErrorsErrorRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/ai/wechat-bots': {
+      id: '/_authenticated/ai/wechat-bots'
+      path: '/ai/wechat-bots'
+      fullPath: '/ai/wechat-bots'
+      preLoaderRoute: typeof AuthenticatedAiWechatBotsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/ai/skills': {
       id: '/_authenticated/ai/skills'
       path: '/ai/skills'
@@ -880,6 +900,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAiModelUsageRoute: typeof AuthenticatedAiModelUsageRoute
   AuthenticatedAiPlatformsRoute: typeof AuthenticatedAiPlatformsRoute
   AuthenticatedAiSkillsRoute: typeof AuthenticatedAiSkillsRoute
+  AuthenticatedAiWechatBotsRoute: typeof AuthenticatedAiWechatBotsRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
   AuthenticatedSystemAiHtmlPagesRoute: typeof AuthenticatedSystemAiHtmlPagesRoute
   AuthenticatedSystemMcpServersRoute: typeof AuthenticatedSystemMcpServersRoute
@@ -903,6 +924,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAiModelUsageRoute: AuthenticatedAiModelUsageRoute,
   AuthenticatedAiPlatformsRoute: AuthenticatedAiPlatformsRoute,
   AuthenticatedAiSkillsRoute: AuthenticatedAiSkillsRoute,
+  AuthenticatedAiWechatBotsRoute: AuthenticatedAiWechatBotsRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
   AuthenticatedSystemAiHtmlPagesRoute: AuthenticatedSystemAiHtmlPagesRoute,
   AuthenticatedSystemMcpServersRoute: AuthenticatedSystemMcpServersRoute,

@@ -20,6 +20,7 @@ from app.modules.platform import models as platform_models  # noqa: F401
 from app.modules.user import models as user_models  # noqa: F401
 from app.modules.builtin_tool import models as builtin_tool_models  # noqa: F401
 from app.modules.asset import models as asset_models  # noqa: F401
+from app.modules.wechat_bot import models as wechat_bot_models  # noqa: F401
 from app.shared.base_model import BaseModel
 
 config = context.config

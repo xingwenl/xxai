@@ -4634,6 +4634,25 @@ files = [
 ]
 
 [[package]]
+name = "wechatbot-sdk"
+version = "0.3.0"
+description = "WeChat iLink Bot SDK for Python — async, typed, production-grade"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "wechatbot_sdk-0.3.0-py3-none-any.whl", hash = "sha256:717ce38c5a7b0c207f2bef1f6e203ca18064fefc589c638d8890ade49cb742fb"},
+    {file = "wechatbot_sdk-0.3.0.tar.gz", hash = "sha256:65ecec0ef835391e8f7ce0035a2fc924ebf645e0d82ec9bdfd7f19bd27cccf98"},
+]
+
+[package.dependencies]
+aiohttp = ">=3.9"
+cryptography = ">=42.0"
+
+[package.extras]
+dev = ["pytest (>=8.0)", "pytest-asyncio (>=0.23)"]
+
+[[package]]
 name = "wrapt"
 version = "2.2.2"
 description = "Module for decorators, wrappers and monkey patching."
@@ -5167,4 +5186,4 @@ cffi = ["cffi (>=1.17,<2.0) ; platform_python_implementation != \"PyPy\" and pyt
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<4.0"
-content-hash = "8be55e75877fbc3260943e857373f67feadbd0704b5b32e45f51a32232729f5e"
+content-hash = "2a431340954539be28442f249d4972de17db8e25381d1262942eec3dcb78585b"

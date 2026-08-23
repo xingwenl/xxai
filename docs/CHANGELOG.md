@@ -1,5 +1,8 @@
 # Changelog
 
+## - 2026-08-23
+- ✨ feat：后台可管理的微信助手并支持对话上下文复用 `🧑‍💻 lixingwen`
+
 ## - 2026-08-21
 - ✨ feat：增加 Agent 迭代轮数上限并在页面工具预算耗尽时停止 `🧑‍💻 lixingwen`
 - ✨ feat：搭建插件化应用框架与 React 宿主壳（zip 安装、宿主 SDK、全屏沉浸） `🧑‍💻 lixingwen`

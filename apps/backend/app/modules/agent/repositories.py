@@ -27,6 +27,19 @@ class AgentRepository(BaseRepository[Agent]):
         )
         return result.scalar_one_or_none()
 
+    async def get_default_agent(self, platform_id: int) -> Agent | None:
+        """获取平台默认智能体（微信绑定未指定 agent_id 时使用）。"""
+        result = await self.session.execute(
+            select(Agent)
+            .options(selectinload(Agent.default_version))
+            .where(
+                Agent.platform_id == platform_id,
+                Agent.is_default.is_(True),
+                Agent.default_version_id.is_not(None),
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def get_agent_detail(self, agent_id: int, platform_id: int) -> Agent | None:
         result = await self.session.execute(
             select(Agent)
@@ -78,6 +91,25 @@ class AgentRepository(BaseRepository[Agent]):
             .where(
                 Agent.id == agent_id,
                 Agent.platform_id == platform_id,
+                Agent.default_version_id.is_not(None),
+            )
+        )
+        agent = result.scalar_one_or_none()
+        if agent is None or agent.default_version is None:
+            return None
+        return agent if agent.default_version.published_at is not None else None
+
+    async def get_published_agent_by_id(self, agent_id: int) -> Agent | None:
+        """按 ID 加载已发布智能体（服务端内部使用，不限定平台）。
+
+        微信机器人等内部调用方只持有 agent_id，不归属某个平台用户，
+        因此直接按全局唯一主键查询，不附加 platform_id 过滤。
+        """
+        result = await self.session.execute(
+            select(Agent)
+            .options(selectinload(Agent.default_version))
+            .where(
+                Agent.id == agent_id,
                 Agent.default_version_id.is_not(None),
             )
         )

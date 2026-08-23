@@ -1,0 +1,54 @@
+{
+  "id": "2026-08-23-wechat-bot-integration",
+  "title": "集成微信 ClawBot（iLink）机器人服务到 ai-base 后端",
+  "scope": "backend",
+  "phase": "verify",
+  "status": "active",
+  "riskLevel": "medium",
+  "changeTypes": [
+    "docs",
+    "feature"
+  ],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "https://www.wechatbot.dev/zh/protocol",
+      "https://www.wechatbot.dev/zh/python",
+      "https://github.com/hao-ji-xing/openclaw-weixin/blob/main/weixin-bot-api.md",
+      "https://github.com/corespeed-io/wechatbot",
+      "https://global.v2ex.co/t/1200832"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": [
+    "架构边界变化：新增微信外部集成模块与独立 worker 进程",
+    "鉴权变化：引入 bot_token / context_token / 登录状态管理",
+    "数据模型变化：若微信消息与会话落库将新增表结构"
+  ],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-08-23",
+      "scope": "方案 A（wechatbot-sdk + 独立 worker）+ 4 项边界",
+      "note": "用户确认按推荐方案实施：转发到默认 Agent 对话（MVP 用默认模型直连实现）、单账号、不落库、docker-compose 单实例，先跑通再做复杂功能"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-08-23",
+  "updatedAt": "2026-08-23",
+  "relatedPaths": [
+    "docs/harness/requests/2026-08-23-wechat-bot-integration/research.md",
+    "docs/harness/requests/2026-08-23-wechat-bot-integration/spec.md",
+    "docs/harness/requests/2026-08-23-wechat-bot-integration/plan.md",
+    "docs/harness/requests/2026-08-23-wechat-bot-integration/verify.md",
+    "docs/harness/requests/2026-08-23-wechat-bot-integration/acceptance.md",
+    "apps/backend/app/modules/wechat_bot/agent_bridge.py",
+    "apps/backend/app/modules/wechat_bot/worker.py",
+    "apps/backend/app/core/config.py",
+    "docker-compose.yml"
+  ],
+  "notes": "MVP 实现与自动验证完成；第 1 次 fix：修复容器内模型网关访问（host.docker.internal）；第 2 次变更：登录状态持久化（bot_token 免扫码 + 长轮询游标写盘）；第 3 次变更：支持 WECHAT_BOT_AGENT_ID 绑定后台智能体（复用发布版本的模型与人设）。自动验证通过，待用户启动 worker 确认免扫码、智能体人设与端到端回复后验收（phase=verify）。"
+}

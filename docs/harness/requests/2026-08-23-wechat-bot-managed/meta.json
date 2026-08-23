@@ -1,0 +1,44 @@
+{
+  "id": "2026-08-23-wechat-bot-managed",
+  "title": "后台可管理的微信助手（绑定/解绑 + 用户级鉴权）",
+  "scope": "backend",
+  "phase": "verify",
+  "status": "active",
+  "riskLevel": "high",
+  "changeTypes": [
+    "data-model",
+    "api",
+    "auth",
+    "feature"
+  ],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "代码内调研：app/modules/embed、app/modules/conversation、app/modules/agent、app/core/security",
+      "wechatbot-sdk auth.py / protocol.py 源码（扫码登录原语）"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": [
+    "数据模型变化：新增 wechat_bot_bindings 表",
+    "API 契约变化：新增 /platforms/{platform_id}/wechat-bots 系列接口",
+    "鉴权变化：后台用户管理自己的微信助手、worker 以绑定用户身份对话",
+    "架构边界变化：worker 单账号升级为多账号实例管理"
+  ],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-08-23",
+      "scope": "MVP2 微信助手方案：绑定表 + 服务 token 调 chat 接口 + 每用户 1 个微信号 + 对话落库",
+      "note": "6 个决策点全部确认：每用户 1 个微信号；服务 token 存绑定表并扩展 chat 接口认证；接受落库；本轮不做前端；可指定 agent_id；实例上限 20"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-08-23",
+  "updatedAt": "2026-08-23",
+  "relatedPaths": [],
+  "notes": "实现完成：绑定表 + 管理 API + chat 接口服务 token 认证 + worker 多实例 + 前端管理台。fix：pending 重建/配对码/IDC 重定向/轮询超时重试；第 5 次变更新增 http_post 内置工具（解决掘金等 POST API 场景）。自动验证通过（88 用例 + alembic head 20260823_0024 + 前端 tsc/eslint）。待人工联调：扫码绑定、端到端回复（可测掘金问题）、解绑停实例（phase=verify）。"
+}

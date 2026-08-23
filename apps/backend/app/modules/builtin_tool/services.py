@@ -7,6 +7,7 @@ from jsonschema import ValidationError, validate
 from app.core.config import get_settings
 from app.modules.asset.services import persist_asset
 from app.modules.builtin_tool.http_get import HttpGetError, fetch_http_get
+from app.modules.builtin_tool.http_post import fetch_http_post
 from app.modules.builtin_tool.registry import get_builtin_tool
 from app.modules.builtin_tool.schemas import BuiltinToolOutcome
 
@@ -45,14 +46,25 @@ async def invoke_builtin_tool(
     settings = get_settings()
     temp_dir = Path(settings.agent_file_storage_path) / "assets" / ".tmp"
     try:
-        fetched = await fetch_http_get(
-            arguments["url"],
-            temp_dir=temp_dir,
-            total_timeout_seconds=settings.builtin_http_get_timeout_seconds,
-            text_max_bytes=settings.builtin_http_get_text_max_bytes,
-            text_max_chars=settings.builtin_http_get_text_max_chars,
-            file_max_bytes=settings.builtin_http_get_file_max_bytes,
-        )
+        if tool.name == "http_post":
+            fetched = await fetch_http_post(
+                arguments["url"],
+                body=arguments.get("body") or None,
+                temp_dir=temp_dir,
+                total_timeout_seconds=settings.builtin_http_get_timeout_seconds,
+                text_max_bytes=settings.builtin_http_get_text_max_bytes,
+                text_max_chars=settings.builtin_http_get_text_max_chars,
+                file_max_bytes=settings.builtin_http_get_file_max_bytes,
+            )
+        else:
+            fetched = await fetch_http_get(
+                arguments["url"],
+                temp_dir=temp_dir,
+                total_timeout_seconds=settings.builtin_http_get_timeout_seconds,
+                text_max_bytes=settings.builtin_http_get_text_max_bytes,
+                text_max_chars=settings.builtin_http_get_text_max_chars,
+                file_max_bytes=settings.builtin_http_get_file_max_bytes,
+            )
         asset_data = None
         if fetched.temp_path is not None:
             try:

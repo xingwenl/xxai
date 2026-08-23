@@ -5,7 +5,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db_session
-from app.core.security import require_current_active_user
+from app.core.security import require_current_active_user_or_wechat_service
 from app.modules.agent.repositories import AgentRepository
 from app.modules.agent.services import build_chat_model
 from app.modules.conversation.repositories import ConversationRepository
@@ -144,7 +144,7 @@ async def _execute(
 async def chat_endpoint(
     agent_id: int,
     payload: ChatRequest,
-    current_user=Depends(require_current_active_user),
+    current_user=Depends(require_current_active_user_or_wechat_service),
     session: AsyncSession = Depends(get_db_session),
 ):
     if not payload.stream:
