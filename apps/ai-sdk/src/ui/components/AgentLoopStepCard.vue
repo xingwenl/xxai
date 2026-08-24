@@ -123,7 +123,9 @@ function stateIcon(status: AgentLoopStepStatus) {
     ? '!'
     : status === 'waiting_confirmation'
       ? '?'
-      : '✓';
+      : status === 'waiting_question'
+        ? '?'
+        : '✓';
 }
 
 function stepStatusText(status: AgentLoopStepStatus) {
@@ -134,6 +136,7 @@ function stepStatusText(status: AgentLoopStepStatus) {
     failed: '失败',
     cancelled: '取消',
     waiting_confirmation: '待确认',
+    waiting_question: '待选择',
   }[status];
 }
 

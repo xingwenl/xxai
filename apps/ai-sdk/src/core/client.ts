@@ -4,9 +4,12 @@ import type {
   ConnectionState,
   AgentLoopRun,
   AgentLoopStep,
+  AgentQuestion,
   AssistantTimelineEntry,
   Message,
   OutgoingMessage,
+  QuestionAnswer,
+  QuestionOption,
   ToolDefinition,
   ToolConfirmation,
   WebSocketMessage
@@ -39,6 +42,7 @@ export class AgentClient {
   private uiMounted = false
   private uiContainer: HTMLElement | null = null
   private pendingConfirmations = new Set<string>()
+  private pendingQuestions = new Set<string>()
   private pendingHostCalls = new Map<string, { name: string; arguments: unknown }>()
   private pendingLoop: AgentLoopRun | null = null
   readonly storageKey: string
@@ -260,6 +264,31 @@ export class AgentClient {
         this._callbacks.onConfirmationRequired?.(confirmation)
         this.eventEmitter.emit('confirmation_required', confirmation)
         break
+      case 'question_required':
+        this.pendingQuestions.add(String(msg.payload.questionId))
+        const question: AgentQuestion = {
+          questionId: String(msg.payload.questionId),
+          question: String(msg.payload.question || ''),
+          description:
+            typeof msg.payload.description === 'string'
+              ? msg.payload.description
+              : undefined,
+          options: Array.isArray(msg.payload.options)
+            ? (msg.payload.options as QuestionOption[])
+            : [],
+          allowFreeText: msg.payload.allowFreeText !== false,
+          requireSelection:
+            typeof msg.payload.requireSelection === 'boolean'
+              ? msg.payload.requireSelection
+              : true,
+          expiresAt:
+            typeof msg.payload.expiresAt === 'string'
+              ? msg.payload.expiresAt
+              : undefined,
+        }
+        this._callbacks.onQuestionRequired?.(question)
+        this.eventEmitter.emit('question_required', question)
+        break
       case 'message_completed':
         if (this.pendingAssistantMessage) {
           const finalText = (msg.payload.content as string) || this.pendingAssistantMessage.text
@@ -431,6 +460,7 @@ export class AgentClient {
   disconnect(): void {
     this.transport.disconnect()
     this.clearPendingConfirmations()
+    this.clearPendingQuestions()
   }
 
   get connectionState(): ConnectionState {
@@ -595,12 +625,29 @@ export class AgentClient {
     this.eventEmitter.emit('confirmation_resolved', { callId, approved })
   }
 
+  answerQuestion(questionId: string, answer: QuestionAnswer): boolean {
+    if (!this.pendingQuestions.has(questionId)) return false
+    this.pendingQuestions.delete(questionId)
+    if (this.transport instanceof WebSocketTransport) {
+      this.transport.sendQuestionAnswer(questionId, answer)
+    }
+    this.eventEmitter.emit('question_resolved', { questionId, answer })
+    return true
+  }
+
   private clearPendingConfirmations(): void {
     for (const callId of this.pendingConfirmations) {
       this.eventEmitter.emit('confirmation_resolved', { callId, approved: false })
     }
     this.pendingConfirmations.clear()
     this.pendingHostCalls.clear()
+  }
+
+  private clearPendingQuestions(): void {
+    for (const questionId of this.pendingQuestions) {
+      this.eventEmitter.emit('question_resolved', { questionId })
+    }
+    this.pendingQuestions.clear()
   }
 
   private async executeHostTool(msg: WebSocketMessage): Promise<void> {

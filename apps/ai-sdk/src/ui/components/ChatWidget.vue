@@ -46,6 +46,12 @@
         :agent="agent"
         :confirmation="pendingConfirmation"
       />
+      <QuestionCard
+        v-if="pendingQuestion && !hasCustomQuestionHandler"
+        :key="pendingQuestion.questionId"
+        :agent="agent"
+        :question="pendingQuestion"
+      />
       <ChatInput :is-sending="isSending" @send="handleSend" @stop="handleStop" />
       <div
         class="xxai-window-resize-handle"
@@ -66,8 +72,10 @@ import FloatingButton from './FloatingButton.vue'
 import ChatMessageList from './ChatMessageList.vue'
 import ChatInput from './ChatInput.vue'
 import ToolConfirmation from './ToolConfirmation.vue'
+import QuestionCard from './QuestionCard.vue'
 import type {
   AgentClient,
+  AgentQuestion,
   AssistantTimelineEntry,
   ConnectionState,
   UIOptions,
@@ -109,6 +117,7 @@ const pendingLoop = ref<import('../../core').AgentLoopRun | null>(null)
 const connectionState = ref<ConnectionState>('disconnected')
 const customComponents = ref<Record<string, Component>>({})
 const pendingConfirmation = ref<ToolConfirmationData | null>(null)
+const pendingQuestion = ref<AgentQuestion | null>(null)
 const viewport = ref({ width: 0, height: 0 })
 const windowRect = ref<WindowRect>({ x: 0, y: 0, width: 430, height: 680 })
 const confirmClear = ref(false)
@@ -116,6 +125,7 @@ let clearTimer: ReturnType<typeof setTimeout> | null = null
 
 const agent = props.agent
 const hasCustomConfirmationHandler = computed(() => Boolean(agent.callbacks.onConfirmationRequired))
+const hasCustomQuestionHandler = computed(() => Boolean(agent.callbacks.onQuestionRequired))
 const colorStyle = computed(() => ({
   '--xxai-primary': props.colors?.primary || '#0EA5E9',
   '--xxai-primary-foreground': props.colors?.primaryForeground || '#FFFFFF',
@@ -290,6 +300,7 @@ function handleHistoryCleared() {
   pendingMessage.value = null
   pendingLoop.value = null
   pendingConfirmation.value = null
+  pendingQuestion.value = null
   isSending.value = false
 }
 
@@ -333,6 +344,7 @@ function handleConnectionStateChange(state: ConnectionState) {
   connectionState.value = state
   if (state === 'disconnected' || state === 'error') {
     pendingConfirmation.value = null
+    pendingQuestion.value = null
   }
 }
 
@@ -344,6 +356,17 @@ function handleConfirmationRequired(value: ToolConfirmationData) {
 function handleConfirmationResolved(value: { callId: string }) {
   if (pendingConfirmation.value?.callId === value.callId) {
     pendingConfirmation.value = null
+  }
+}
+
+function handleQuestionRequired(value: AgentQuestion) {
+  if (hasCustomQuestionHandler.value) return
+  pendingQuestion.value = value
+}
+
+function handleQuestionResolved(value: { questionId: string }) {
+  if (pendingQuestion.value?.questionId === value.questionId) {
+    pendingQuestion.value = null
   }
 }
 
@@ -362,6 +385,8 @@ onMounted(() => {
   agent.on('connection_state', handleConnectionStateChange)
   agent.on('confirmation_required', handleConfirmationRequired)
   agent.on('confirmation_resolved', handleConfirmationResolved)
+  agent.on('question_required', handleQuestionRequired)
+  agent.on('question_resolved', handleQuestionResolved)
   agent.on('ui_open', open)
   agent.on('ui_close', close)
   agent.on('ui_toggle', () => {
@@ -385,7 +410,10 @@ onUnmounted(() => {
   agent.off('connection_state', handleConnectionStateChange)
   agent.off('confirmation_required', handleConfirmationRequired)
   agent.off('confirmation_resolved', handleConfirmationResolved)
+  agent.off('question_required', handleQuestionRequired)
+  agent.off('question_resolved', handleQuestionResolved)
   pendingConfirmation.value = null
+  pendingQuestion.value = null
   agent.disconnect()
 })
 

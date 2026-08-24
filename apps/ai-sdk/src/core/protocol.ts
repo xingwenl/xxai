@@ -11,6 +11,7 @@ export type ProtocolEventType =
   | 'tool_result'
   | 'host_tool_call'
   | 'confirmation_required'
+  | 'question_required'
   | 'error'
   | 'pong'
   | 'agent_loop_started'
@@ -39,6 +40,15 @@ export type ProtocolPayload =
       toolType?: 'mcp_tool' | 'host_tool'
       sideEffect?: 'none' | 'navigation' | 'write' | 'financial' | 'external'
       summary?: Record<string, unknown>
+      expiresAt?: string
+    }
+  | {
+      questionId: string
+      question: string
+      description?: string
+      options: { id: string; label: string }[]
+      allowFreeText: boolean
+      requireSelection?: boolean
       expiresAt?: string
     }
   | ErrorPayload
@@ -89,6 +99,7 @@ export function parseProtocolEvent(input: unknown): ProtocolEvent {
     'tool_result',
     'host_tool_call',
     'confirmation_required',
+    'question_required',
     'error',
     'pong',
     'agent_loop_started',

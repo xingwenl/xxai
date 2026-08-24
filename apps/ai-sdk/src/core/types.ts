@@ -62,7 +62,7 @@ export type AgentLoopStepType =
   | 'guardrail'
 
 export type AgentLoopStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 'waiting_confirmation'
-export type AgentLoopStepStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'waiting_confirmation'
+export type AgentLoopStepStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'waiting_confirmation' | 'waiting_question'
 
 export interface AgentLoopStep {
   id: string
@@ -199,6 +199,7 @@ export interface AgentCallbacks {
   onToolResult?: (name: string, result: unknown) => void
   onError?: (error: Error) => void
   onConfirmationRequired?: (confirmation: ToolConfirmation) => void
+  onQuestionRequired?: (question: AgentQuestion) => void
 }
 
 export type HostToolStatus =
@@ -225,6 +226,26 @@ export interface ToolConfirmation {
 
 /** @deprecated Use ToolConfirmation. Kept for SDK consumers on 0.1.x. */
 export type HostToolConfirmation = ToolConfirmation
+
+export interface QuestionOption {
+  id: string
+  label: string
+}
+
+export interface AgentQuestion {
+  questionId: string
+  question: string
+  description?: string
+  options: QuestionOption[]
+  allowFreeText: boolean
+  requireSelection?: boolean
+  expiresAt?: string
+}
+
+export interface QuestionAnswer {
+  selectedOptionId?: string
+  freeText?: string
+}
 
 export interface TokenProviderContext {
   platformId: string

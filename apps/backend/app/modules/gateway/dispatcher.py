@@ -4,8 +4,11 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
+from jsonschema import ValidationError, validate
+
 from app.modules.asset.repositories import AssetRepository
 from app.modules.builtin_tool.repositories import BuiltinToolRepository
+from app.modules.builtin_tool.registry import get_builtin_tool
 from app.modules.builtin_tool.services import invoke_builtin_tool
 from app.modules.host_tool.repositories import HostToolRepository
 from app.modules.host_tool.services import (
@@ -24,6 +27,11 @@ from app.modules.skill.repositories import SkillRepository
 from app.modules.skill.services import load_bound_skill_instruction
 from app.modules.skill_runner.client import SkillRunnerClient
 from app.modules.skill_runner.services import execute_skill_script
+
+# 单次请求允许模型提问的次数上限，防止模型滥用提问替代正常回复。
+MAX_QUESTIONS_PER_REQUEST = 3
+# 问题等待用户回答的超时时间（秒），超时后注入结果让模型自行收尾。
+QUESTION_TIMEOUT_SECONDS = 600.0
 
 
 class RuntimeToolDispatcher:
@@ -47,6 +55,7 @@ class RuntimeToolDispatcher:
         event_queue: asyncio.Queue,
         pending_mcp_confirmations: dict[str, asyncio.Future],
         pending_host_results: dict[str, asyncio.Future],
+        pending_questions: dict[str, asyncio.Future],
         host_tool_repo: HostToolRepository,
     ) -> None:
         self.session = session
@@ -58,6 +67,7 @@ class RuntimeToolDispatcher:
         self.event_queue = event_queue
         self.pending_mcp_confirmations = pending_mcp_confirmations
         self.pending_host_results = pending_host_results
+        self.pending_questions = pending_questions
         self.host_tool_repo = host_tool_repo
         self.mcp_repo = McpRepository(session)
         self.skill_repo = SkillRepository(session)
@@ -67,6 +77,7 @@ class RuntimeToolDispatcher:
         }
         self.loaded_skill_cache: dict[str, object] = {}
         self.mcp_call_sequence = 0
+        self.question_sequence = 0
 
     async def invoke(
         self,
@@ -89,6 +100,8 @@ class RuntimeToolDispatcher:
             raise ValueError("runtime tool context is missing")
         if hasattr(tool, "server_id"):
             return await self._invoke_mcp_tool(tool, call)
+        if tool.name == "ask_user":
+            return await self._invoke_question_tool(tool, call)
         if getattr(tool, "kind", None) == "builtin":
             return await invoke_builtin_tool(
                 self.builtin_tool_repo,
@@ -125,6 +138,82 @@ class RuntimeToolDispatcher:
                 self.loaded_skill_cache[slug] = outcome
             return outcome
         return await self._invoke_host_tool(tool, call)
+
+    async def _invoke_question_tool(self, tool, call):
+        """执行询问工具：发送 question_required 事件并等待用户选择后恢复。"""
+        if self.question_sequence >= MAX_QUESTIONS_PER_REQUEST:
+            return SimpleNamespace(
+                status="completed",
+                result={
+                    "status": "unavailable",
+                    "message": (
+                        "已超出单次任务提问上限（3 次），"
+                        "请基于现有信息继续，不要再次提问。"
+                    ),
+                },
+            )
+        call_id = str(
+            call.get("id") or f"{self.request_id}_question_{self.question_sequence}"
+        )
+        arguments = call.get("args", {})
+        definition = get_builtin_tool(tool.name)
+        if definition is None:
+            return SimpleNamespace(
+                status="failed", result={"error": {"code": "tool_not_available"}}
+            )
+        try:
+            validate(instance=arguments, schema=definition.input_schema)
+        except ValidationError:
+            return SimpleNamespace(
+                status="failed", result={"error": {"code": "invalid_arguments"}}
+            )
+
+        self.question_sequence += 1
+        question_id = call_id
+        options = [
+            {"id": str(item["id"]), "label": str(item["label"])}
+            for item in arguments.get("options") or []
+        ]
+        expires_at = datetime.now(UTC) + timedelta(seconds=QUESTION_TIMEOUT_SECONDS)
+        decision = asyncio.get_running_loop().create_future()
+        self.pending_questions[question_id] = decision
+        # 事件入队后等待 WebSocket 连接层回传用户答案；模型 Task 暂停期间
+        # 连接主循环仍可接收 question_answer 并设置 Future，避免死锁。
+        await self.event_queue.put(
+            {
+                "type": "question_required",
+                "conversation": None,
+                "request_id": self.request_id,
+                "question_id": question_id,
+                "question": str(arguments["question"]),
+                "description": (
+                    str(arguments["description"])
+                    if arguments.get("description")
+                    else None
+                ),
+                "options": options,
+                "allow_free_text": bool(arguments.get("allowFreeText", True)),
+                "require_selection": bool(
+                    arguments.get("requireSelection", True)
+                ),
+                "expires_at": expires_at.isoformat(),
+            }
+        )
+        try:
+            answer = await asyncio.wait_for(
+                decision, timeout=QUESTION_TIMEOUT_SECONDS
+            )
+        except asyncio.TimeoutError:
+            answer = {
+                "status": "expired",
+                "message": "问题等待超时，用户未在时限内回答。",
+            }
+        finally:
+            self.pending_questions.pop(question_id, None)
+        return SimpleNamespace(
+            status="completed",
+            result={"question": str(arguments["question"]), "answer": answer},
+        )
 
     async def _invoke_mcp_tool(self, tool, call):
         """执行 MCP 工具；需要用户确认时先发确认事件并等待连接层结果。"""

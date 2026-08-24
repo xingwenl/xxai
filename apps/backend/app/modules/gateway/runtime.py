@@ -505,7 +505,7 @@ async def stream_embed_chat(
                 sequence=next_step_sequence,
                 step_type=item["tool_type"],
                 title=f"调用工具：{item['tool']}",
-                status="running",
+                status=item.get("waiting_status") or "running",
                 input_summary=item.get("input_summary"),
                 tool_name=item["tool"],
                 tool_call_id=call_id,

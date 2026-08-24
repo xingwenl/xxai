@@ -63,9 +63,71 @@ HTTP_POST_TOOL = BuiltinToolDefinition(
     executor="http_post",
 )
 
+ASK_USER_TOOL = BuiltinToolDefinition(
+    name="ask_user",
+    description=(
+        "向用户提出一个需要其决策的问题，并提供 2-4 个候选选项"
+        "（可允许用户输入自定义答案）。"
+        "仅在任务范围模糊、需要在方案之间选择或行动前缺少关键信息时调用；"
+        "一次只问一个问题；不要用提问替代正常的信息回复。"
+        "用户回答后，根据答案继续执行原任务。"
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "question": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "description": "要问用户的问题",
+            },
+            "description": {
+                "type": "string",
+                "maxLength": 1000,
+                "description": "问题的补充说明或背景（可选）",
+            },
+            "options": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 4,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64,
+                        },
+                        "label": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200,
+                        },
+                    },
+                    "required": ["id", "label"],
+                    "additionalProperties": False,
+                },
+                "description": "2-4 个候选选项",
+            },
+            "allowFreeText": {
+                "type": "boolean",
+                "description": "是否允许用户输入自定义答案，默认 true",
+            },
+            "requireSelection": {
+                "type": "boolean",
+                "description": "用户是否必须选择一个选项，默认 true",
+            },
+        },
+        "required": ["question", "options"],
+        "additionalProperties": False,
+    },
+    executor="ask_user",
+)
+
 BUILTIN_TOOL_REGISTRY = {
     HTTP_GET_TOOL.name: HTTP_GET_TOOL,
     HTTP_POST_TOOL.name: HTTP_POST_TOOL,
+    ASK_USER_TOOL.name: ASK_USER_TOOL,
 }
 
 

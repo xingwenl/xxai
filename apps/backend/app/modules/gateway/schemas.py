@@ -54,6 +54,21 @@ class ConfirmationRequiredPayload(_WireModel):
     summary: dict | None = None
 
 
+class QuestionOption(_WireModel):
+    id: str
+    label: str
+
+
+class QuestionRequiredPayload(_WireModel):
+    question_id: str
+    question: str
+    description: str | None = None
+    options: list[QuestionOption]
+    allow_free_text: bool = True
+    require_selection: bool = True
+    expires_at: str | None = None
+
+
 class ErrorPayload(_WireModel):
     """客户端可消费的稳定错误结构，避免暴露内部异常堆栈。"""
 
@@ -70,6 +85,7 @@ ProtocolPayload = Annotated[
     | ToolStatePayload
     | HostToolCallPayload
     | ConfirmationRequiredPayload
+    | QuestionRequiredPayload
     | ErrorPayload,
     Field(discriminator=None),
 ]
@@ -85,6 +101,7 @@ ProtocolEventType = Literal[
     "tool_result",
     "host_tool_call",
     "confirmation_required",
+    "question_required",
     "error",
     "pong",
     "agent_loop_started",

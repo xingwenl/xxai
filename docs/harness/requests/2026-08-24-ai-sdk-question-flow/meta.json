@@ -1,0 +1,46 @@
+{
+  "id": "2026-08-24-ai-sdk-question-flow",
+  "title": "ai-sdk 对话流程新增结构化询问能力（ask_user）",
+  "scope": "fullstack",
+  "phase": "verify",
+  "status": "active",
+  "riskLevel": "high",
+  "changeTypes": ["api", "runtime", "sdk", "tests", "docs"],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "Claude Code Agent SDK AskUserQuestion",
+      "LangGraph interrupts / Command(resume)",
+      "Vercel Academy Structured Questions (askUser)",
+      "Spring AI AskUserQuestionTool"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": ["api_contract_change"],
+  "approvalRecords": [
+    {
+      "date": "2026-08-24",
+      "grantedBy": "user",
+      "scope": "API 契约变化：新增 question_required 出站事件与 question_answer 入站消息，auth 上报 capabilities",
+      "notes": "用户在方案确认（方案 1、多选 + 自由文本）后审阅 spec.md 与 plan.md，明确批准进入实现"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-08-24",
+  "updatedAt": "2026-08-24",
+  "relatedPaths": [
+    "apps/backend/app/modules/builtin_tool/registry.py",
+    "apps/backend/app/modules/gateway/dispatcher.py",
+    "apps/backend/app/modules/gateway/router.py",
+    "apps/backend/app/modules/conversation/runtime.py",
+    "apps/ai-sdk/src/core/protocol.ts",
+    "apps/ai-sdk/src/core/types.ts",
+    "apps/ai-sdk/src/core/client.ts",
+    "apps/ai-sdk/src/core/websocket.ts",
+    "apps/ai-sdk/src/ui/components/QuestionCard.vue"
+  ],
+  "notes": "实现完成：ask_user 内置工具 + question_required/question_answer 协议 + dispatcher 挂起恢复 + QuestionCard UI + 单测。启用模型按用户要求改为后台绑定（普通内置工具语义，移除无条件/能力门控注入）；REST 路径过滤 ask_user（无实时问答通道）。验证：后端 gateway/conversation/builtin_tool 101 通过、全量 287 通过（跳过 3 个既有收集冲突文件）、ruff 通过；SDK 76 测试通过、type-check 与 build 通过。待验收。"
+}

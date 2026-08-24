@@ -184,6 +184,18 @@ def test_tool_step_values_keep_confirmation_status_without_result():
     assert values["output_summary"] == "等待用户确认"
 
 
+def test_tool_step_values_keep_waiting_question_status():
+    outcome = SimpleNamespace(status="waiting_question")
+
+    values = tool_step_values(
+        {"tool": "ask_user", "tool_type": "builtin_tool", "outcome": outcome},
+        sequence=5,
+    )
+
+    assert values["status"] == "waiting_question"
+    assert values["output_summary"] == "等待用户选择"
+
+
 def test_summarize_json_truncates_long_values():
     assert _summarize_json({"city": "上海"}, limit=9) == '{"city":"'
     assert _summarize_json("纯文本结果", limit=3) == "纯文本"
@@ -264,6 +276,31 @@ def test_system_prompt_explains_available_host_tools():
     assert "navigate_to_page" in prompt
     assert "打开后台已有页面" in prompt
     assert "用户询问可用工具时" in prompt
+
+
+def test_system_prompt_adds_ask_user_guidance_only_when_tool_visible():
+    with_tool = build_system_prompt(
+        SimpleNamespace(system_prompt="base prompt"),
+        [],
+        [],
+        host_tools=[SimpleNamespace(name="ask_user", description="向用户提问")],
+    )
+    assert "可以调用 ask_user 工具向用户提问" in with_tool
+
+    without_tool = build_system_prompt(
+        SimpleNamespace(system_prompt="base prompt"), [], []
+    )
+    assert "可以调用 ask_user 工具向用户提问" not in without_tool
+
+
+def test_rest_tool_lists_exclude_ask_user_even_when_db_bound():
+    """REST 路径组装工具时剔除 ask_user，避免模型调用后无执行器。"""
+    from app.modules.conversation.services import _rest_runtime_tools
+
+    bound = SimpleNamespace(name="ask_user", kind="builtin")
+    other = SimpleNamespace(name="http_get", kind="builtin")
+    tools = _rest_runtime_tools(bound, other)
+    assert [tool.name for tool in tools] == ["http_get"]
 
 
 def test_system_prompt_includes_caller_prompt_without_replacing_base_prompt():

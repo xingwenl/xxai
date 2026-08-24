@@ -28,6 +28,17 @@ def _content_blocks(content: str) -> list[dict]:
     )
 
 
+def _rest_runtime_tools(*builtin_tools) -> list:
+    """REST 路径可用的内置工具列表。
+
+    ask_user 只在 embed WebSocket 链路可用（网关按客户端能力注入）；
+    REST 路径即使后台绑定了该工具也不暴露，避免模型调用后无执行器。
+    """
+    return [
+        tool for tool in builtin_tools if getattr(tool, "name", None) != "ask_user"
+    ]
+
+
 async def build_loop_payload(
     repo: ConversationRepository, loop_id: int, conversation_id: int
 ) -> dict | None:
@@ -369,7 +380,7 @@ async def execute_chat(
         history=history,
         citations=citations,
         tools=[
-            *context.builtin_tools,
+            *_rest_runtime_tools(*context.builtin_tools),
             *context.mcp_tools,
             *context.skill_script_tools,
             *(
@@ -541,7 +552,7 @@ async def stream_chat(
         history=history,
         citations=citations,
         tools=[
-            *context.builtin_tools,
+            *_rest_runtime_tools(*context.builtin_tools),
             *context.mcp_tools,
             *context.skill_script_tools,
             *(
@@ -578,7 +589,7 @@ async def stream_chat(
                 sequence=next_step_sequence,
                 step_type=item["tool_type"],
                 title=f"调用工具：{item['tool']}",
-                status="running",
+                status=item.get("waiting_status") or "running",
                 input_summary=item.get("input_summary"),
                 tool_name=item["tool"],
                 tool_call_id=call_id,

@@ -3,7 +3,10 @@ import { createChatUI, registerCustomComponent } from './ui'
 import type {
   AgentClientOptions,
   AgentCallbacks,
+  AgentQuestion,
   Message,
+  QuestionAnswer,
+  QuestionOption,
   TokenProviderContext,
   ToolConfirmation,
   ToolDefinition,
@@ -33,7 +36,10 @@ export function createAgentClient(options: AgentClientOptions) {
 export type {
   AgentClientOptions,
   AgentCallbacks,
+  AgentQuestion,
   Message,
+  QuestionAnswer,
+  QuestionOption,
   TokenProviderContext,
   ToolConfirmation,
   ToolDefinition,

@@ -39,9 +39,34 @@ describe('WebSocketTransport', () => {
       type: 'auth',
       payload: { token: 'secret-token', platformId: 'platform-1', agentId: '7' }
     })
+    expect(JSON.parse(sockets[0].sent[0]).payload.capabilities).toContain('questions')
     sockets[0].receive(event(1, 'session_ready', { sessionId: 'session-1', recovered: true }))
     await connecting
     expect(transport.state).toBe('connected')
+  })
+
+  it('sends question answers after the session is ready', async () => {
+    const socket = new FakeWebSocket('wss://agent.test/ws')
+    const transport = new WebSocketTransport({
+      endpoint: socket.url,
+      getToken: vi.fn().mockResolvedValue('token'),
+      platformId: 'p',
+      agentId: 'a',
+      websocketFactory: () => socket
+    })
+    const connecting = transport.connect()
+    socket.open()
+    await Promise.resolve()
+    socket.receive(event(1, 'session_ready', {}))
+    await connecting
+
+    transport.sendQuestionAnswer('q_1', { freeText: '自定义答案' })
+
+    const sent = JSON.parse(socket.sent[socket.sent.length - 1])
+    expect(sent).toMatchObject({
+      type: 'question_answer',
+      payload: { questionId: 'q_1', freeText: '自定义答案' }
+    })
   })
 
   it('passes the token provider connection context', async () => {

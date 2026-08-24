@@ -189,6 +189,7 @@ def tool_step_values(tool_event: dict, sequence: int) -> dict:
     outcome_status = getattr(outcome, "status", "succeeded")
     status = {
         "confirmation_required": "waiting_confirmation",
+        "waiting_question": "waiting_question",
         "failed": "failed",
         "error": "failed",
     }.get(outcome_status, "succeeded")
@@ -202,6 +203,8 @@ def tool_step_values(tool_event: dict, sequence: int) -> dict:
         "output_summary": (
             "等待用户确认"
             if status == "waiting_confirmation"
+            else "等待用户选择"
+            if status == "waiting_question"
             else (
                 f"工具执行{'失败' if status == 'failed' else '完成'}"
                 + (f"：{result_detail}" if result_detail else "")
@@ -533,6 +536,11 @@ async def _stream_graph(
                     "input_summary": _summarize_json(call.get("args", {}), limit=300),
                     "skill_name": getattr(tool, "skill_name", None),
                     "skill_version": getattr(tool, "skill_version", None),
+                    # 询问工具在等待用户选择期间，把 loop step 标记为等待状态，
+                    # 前端可据此展示"等待用户选择"而非"运行中"。
+                    "waiting_status": (
+                        "waiting_question" if tool.name == "ask_user" else None
+                    ),
                 }
 
                 # 上游消费并完成 Loop step 落库后才会恢复生成器并执行工具，
@@ -1131,6 +1139,14 @@ def build_system_prompt(
             "用户请求与工具能力匹配的操作时，应调用对应工具，"
             "不能只描述应该怎么做，也不能编造未列出的工具。"
         )
+        # 仅在 ask_user 工具可见时提示提问策略，避免 REST 路径误导模型。
+        if any(getattr(tool, "name", None) == "ask_user" for tool in host_tools):
+            sections.append(
+                "当任务存在歧义、需要在方案之间做出选择或行动前缺少关键信息时，"
+                "可以调用 ask_user 工具向用户提问。问题应一次一个，提供 2-4 个选项；"
+                "只有确实需要用户决策时才提问，不要用提问替代普通的信息回复。"
+                "用户回答后，根据答案继续执行原任务。"
+            )
 
     # 使用双换行符拼接所有非空段落
     prompt = "\n\n".join(section for section in sections if section)

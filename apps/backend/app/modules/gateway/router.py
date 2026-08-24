@@ -96,6 +96,16 @@ def _event_to_protocol_payload(event_type: str, event: dict) -> dict:
             "summary": {"arguments": redact_sensitive(event["arguments"])},
             "expiresAt": event.get("expires_at"),
         }
+    if event_type == "question_required":
+        return {
+            "questionId": event["question_id"],
+            "question": event["question"],
+            "description": event.get("description"),
+            "options": event["options"],
+            "allowFreeText": event["allow_free_text"],
+            "requireSelection": event["require_selection"],
+            "expiresAt": event.get("expires_at"),
+        }
     if event_type in {
         "agent_loop_started",
         "agent_step_started",
@@ -267,6 +277,31 @@ async def _handle_confirmation_resolve(
                 future.set_result({"error": "host_tool_rejected"})
 
 
+async def _handle_question_answer(
+    *,
+    message: dict,
+    pending_questions: dict[str, asyncio.Future],
+) -> None:
+    """处理用户对 AI 问题的答复，唤醒对应挂起的模型循环。"""
+    question_id = message.get("payload", {}).get("questionId")
+    if not isinstance(question_id, str):
+        return
+    future = pending_questions.get(question_id)
+    if future is None or future.done():
+        return
+    # 只接受选项 ID 与自由文本两类答案；两者都缺时视为无效答复。
+    answer: dict[str, str] = {}
+    selected_option_id = message.get("payload", {}).get("selectedOptionId")
+    free_text = message.get("payload", {}).get("freeText")
+    if isinstance(selected_option_id, str):
+        answer["selectedOptionId"] = selected_option_id
+    if isinstance(free_text, str):
+        answer["freeText"] = free_text
+    if not answer:
+        return
+    future.set_result(answer)
+
+
 async def _handle_host_tool_result(
     *,
     message: dict,
@@ -334,6 +369,7 @@ async def _handle_message_send(
     event_queue: asyncio.Queue,
     pending_mcp_confirmations: dict[str, asyncio.Future],
     pending_host_results: dict[str, asyncio.Future],
+    pending_questions: dict[str, asyncio.Future],
     host_tool_repo: HostToolRepository,
     registered_host_tools: set[str],
     registered_host_policies: dict[str, object],
@@ -444,6 +480,37 @@ async def _handle_message_send(
                 )
             )
             return active_request, active_task
+        model_tokens_decision = await quota_service.peek(
+            "model_tokens",
+            QuotaDimensions(
+                platform_id=str(payload["platform_id"]),
+                client_id=str(payload["client_id"]),
+                agent_id=str(agent_id),
+                end_user_id=str(payload["sub"]),
+            ),
+        )
+        if not model_tokens_decision.allowed:
+            record_quota_rejection("model_tokens", model_tokens_decision.code)
+            await websocket.send_text(
+                envelope(
+                    "error",
+                    {
+                        "code": model_tokens_decision.code,
+                        "message": (
+                            "model token quota unavailable"
+                            if model_tokens_decision.code == "quota_unavailable"
+                            else "model token quota exceeded"
+                        ),
+                        "retryable": model_tokens_decision.retryable,
+                        "details": {
+                            "retryAfterSeconds": str(
+                                model_tokens_decision.retry_after_seconds or 0
+                            )
+                        },
+                    },
+                )
+            )
+            return active_request, active_task
     new_task = asyncio.create_task(
         produce_embed_request(
             request_id=request_id,
@@ -453,6 +520,7 @@ async def _handle_message_send(
             event_queue=event_queue,
             pending_mcp_confirmations=pending_mcp_confirmations,
             pending_host_results=pending_host_results,
+            pending_questions=pending_questions,
             host_tool_repo=host_tool_repo,
             registered_host_tools=registered_host_tools,
             registered_host_policies=registered_host_policies,
@@ -471,6 +539,7 @@ async def produce_embed_request(
     event_queue: asyncio.Queue,
     pending_mcp_confirmations: dict[str, asyncio.Future],
     pending_host_results: dict[str, asyncio.Future],
+    pending_questions: dict[str, asyncio.Future],
     host_tool_repo: HostToolRepository,
     registered_host_tools: set[str],
     registered_host_policies: dict[str, object],
@@ -509,6 +578,7 @@ async def produce_embed_request(
                 event_queue=event_queue,
                 pending_mcp_confirmations=pending_mcp_confirmations,
                 pending_host_results=pending_host_results,
+                pending_questions=pending_questions,
                 host_tool_repo=host_tool_repo,
             )
 
@@ -658,6 +728,7 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
         registered_host_policies: dict[str, object] = {}
         pending_host_results: dict[str, asyncio.Future] = {}
         pending_mcp_confirmations: dict[str, asyncio.Future] = {}
+        pending_questions: dict[str, asyncio.Future] = {}
         sequence = 1
 
         def envelope(
@@ -730,7 +801,7 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                         usage = getattr(event.get("result"), "usage", None) or {}
                         total_tokens = usage.get("total_tokens")
                         if isinstance(total_tokens, int) and total_tokens > 0:
-                            model_decision = await quota_service.check(
+                            consume = await quota_service.consume_capped(
                                 "model_tokens",
                                 QuotaDimensions(
                                     platform_id=str(payload["platform_id"]),
@@ -740,16 +811,22 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                                 ),
                                 amount=total_tokens,
                             )
-                            if not model_decision.allowed:
-                                record_quota_rejection(
-                                    "model_tokens", model_decision.code
+                            if not consume.available:
+                                logger.warning(
+                                    "model token quota accounting unavailable request_id=%s",
+                                    event.get("request_id"),
                                 )
-                                event_type = "error"
-                                event["payload"] = {
-                                    "code": model_decision.code,
-                                    "message": "model token quota exceeded",
-                                    "retryable": model_decision.retryable,
-                                }
+                            elif consume.exceeded:
+                                record_quota_rejection(
+                                    "model_tokens", "quota_exceeded"
+                                )
+                                logger.warning(
+                                    "model token quota exceeded request_id=%s amount=%s current=%s limit=%s",
+                                    event.get("request_id"),
+                                    total_tokens,
+                                    consume.current,
+                                    consume.limit,
+                                )
                     event_payload = _event_to_protocol_payload(event_type, event)
                     conversation_id = getattr(event.get("conversation"), "id", None)
                     request_id = event.get("request_id")
@@ -803,6 +880,7 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                         event_queue=event_queue,
                         pending_mcp_confirmations=pending_mcp_confirmations,
                         pending_host_results=pending_host_results,
+                        pending_questions=pending_questions,
                         host_tool_repo=host_tool_repo,
                         registered_host_tools=registered_host_tools,
                         registered_host_policies=registered_host_policies,
@@ -826,6 +904,11 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                         host_tool_repo=host_tool_repo,
                         pending_mcp_confirmations=pending_mcp_confirmations,
                         pending_host_results=pending_host_results,
+                    )
+                elif message_type == "question_answer":
+                    await _handle_question_answer(
+                        message=message,
+                        pending_questions=pending_questions,
                     )
                 elif message_type in {"host_tool_result", "host_tool_error"}:
                     await _handle_host_tool_result(
@@ -852,6 +935,9 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
             active.cancel()
             await asyncio.gather(active, return_exceptions=True)
         for future in locals().get("pending_mcp_confirmations", {}).values():
+            if not future.done():
+                future.cancel()
+        for future in locals().get("pending_questions", {}).values():
             if not future.done():
                 future.cancel()
         host_session = locals().get("host_tool_session")

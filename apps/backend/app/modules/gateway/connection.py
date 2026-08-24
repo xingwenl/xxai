@@ -44,6 +44,7 @@ def validate_incoming_message(raw: str) -> dict:
         "host_tool_result",
         "host_tool_error",
         "confirmation_resolve",
+        "question_answer",
     } and not isinstance(message.get("payload"), dict):
         raise ValueError("invalid_host_tool_payload")
     if message.get("type") == "message_send":

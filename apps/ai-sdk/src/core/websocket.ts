@@ -3,6 +3,7 @@ import { parseProtocolEvent, SDK_VERSION } from './protocol';
 import type {
   ConnectionState,
   OutgoingMessage,
+  QuestionAnswer,
   TokenProviderContext,
   WebSocketMessage,
 } from './types';
@@ -175,6 +176,8 @@ export class WebSocketTransport extends EventEmitter implements Transport {
             sdkVersion: SDK_VERSION,
             conversationId: this._conversationId,
             lastSequence: this._lastSequence || undefined,
+            // 声明客户端支持结构化询问的协议能力；启用与否由后台绑定决定。
+            capabilities: ['questions'],
           },
         }),
       );
@@ -275,6 +278,14 @@ export class WebSocketTransport extends EventEmitter implements Transport {
       type: 'confirmation_resolve',
       requestId: callId,
       payload: { callId, approved },
+    });
+  }
+
+  sendQuestionAnswer(questionId: string, answer: QuestionAnswer): void {
+    this.send({
+      type: 'question_answer',
+      requestId: questionId,
+      payload: { questionId, ...answer },
     });
   }
 

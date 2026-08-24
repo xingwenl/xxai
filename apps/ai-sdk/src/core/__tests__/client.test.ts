@@ -284,6 +284,39 @@ describe('AgentClient protocol events', () => {
     expect(sent).toEqual([{ callId: 'mcp-call-1', approved: true }])
   })
 
+  it('dispatches structured questions and answers each question once', () => {
+    const questions: any[] = []
+    const events: any[] = []
+    const resolved: any[] = []
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token',
+      callbacks: { onQuestionRequired: (value) => questions.push(value) }
+    })
+    const transport = (client as any).transport
+    const sent: any[] = []
+    transport.sendQuestionAnswer = (questionId: string, answer: unknown) =>
+      sent.push({ questionId, answer })
+    client.on('question_required', (value) => events.push(value))
+    client.on('question_resolved', (value) => resolved.push(value))
+
+    transport.emit('message', {
+      id: 'q', type: 'question_required', protocolVersion: 1, sequence: 1,
+      timestamp: new Date().toISOString(), payload: {
+        questionId: 'q_1', question: '如何处理重复订单？',
+        options: [{ id: 'skip', label: '跳过' }, { id: 'merge', label: '合并' }],
+        allowFreeText: true
+      }
+    })
+
+    expect(questions[0]).toMatchObject({ questionId: 'q_1', question: '如何处理重复订单？', allowFreeText: true })
+    expect(events[0]).toMatchObject({ questionId: 'q_1', options: [{ id: 'skip', label: '跳过' }, { id: 'merge', label: '合并' }] })
+
+    expect(client.answerQuestion('q_1', { selectedOptionId: 'merge' })).toBe(true)
+    expect(client.answerQuestion('q_1', { selectedOptionId: 'merge' })).toBe(false)
+    expect(sent).toEqual([{ questionId: 'q_1', answer: { selectedOptionId: 'merge' } }])
+    expect(resolved[0]).toMatchObject({ questionId: 'q_1', answer: { selectedOptionId: 'merge' } })
+  })
+
   it('maps inputSummary and thinkingText from step payloads', () => {
     const updates: any[] = []
     const client = new AgentClient({ endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token' })

@@ -100,4 +100,37 @@ describe('protocol v1', () => {
 
     expect(event.type).toBe('unknown')
   })
+
+  it('parses structured questions with options and free text flag', () => {
+    const event = parseProtocolEvent({
+      id: 'evt_q',
+      type: 'question_required',
+      protocolVersion: 1,
+      sequence: 7,
+      timestamp: new Date().toISOString(),
+      payload: {
+        questionId: 'q_1',
+        question: '如何处理重复订单？',
+        description: '发现两条相同订单',
+        options: [
+          { id: 'skip', label: '跳过' },
+          { id: 'merge', label: '合并' }
+        ],
+        allowFreeText: true,
+        requireSelection: true,
+        expiresAt: '2026-08-24T12:00:00Z'
+      }
+    })
+
+    expect(event.type).toBe('question_required')
+    expect(event.payload).toMatchObject({
+      questionId: 'q_1',
+      question: '如何处理重复订单？',
+      options: [
+        { id: 'skip', label: '跳过' },
+        { id: 'merge', label: '合并' }
+      ],
+      allowFreeText: true
+    })
+  })
 })
