@@ -9,6 +9,9 @@
 - `apps/backend/app/modules/conversation/runtime.py`：读取并标准化模型 usage。
 - `apps/backend/app/modules/conversation/runtime.py`、`services.py`、`apps/backend/app/modules/gateway/runtime.py`、`apps/backend/app/modules/knowledge/runtime.py`：补充分阶段聊天日志并移除 embedding API Key 明文输出。
 - `apps/backend/app/modules/conversation/models.py`、`repositories.py`：新增 `model_usage_records` 独立用量明细表和写入方法。
+- `apps/backend/app/modules/quota/service.py`：新增 `model_tokens` 封顶扣减（`consume_capped`）与只读探查（`peek`）原语。
+- `apps/backend/app/modules/gateway/router.py`：完成事件改走封顶扣减并保留 `message_completed`；发送前新增 `model_tokens` 探查硬拦截。
+- `apps/backend/tests/quota/test_service.py`、`apps/backend/tests/gateway/test_quota_gateway.py`：补充封顶扣减、探查与发送前拦截测试。
 - `apps/backend/migrations/versions/20260730_0012_model_usage_records.py`：新增模型用量明细表迁移。
 - `apps/ai-sdk/src/core/`：发送 SDK 版本、保存 server capabilities、暴露 `metadata.usage`。
 - `apps/ai-sdk/scripts/verify-package.mjs`：验证 ESM/UMD/types 入口和敏感内容。
@@ -26,6 +29,9 @@
 6. 调整 SDK 发布包入口，补充 package 验证脚本。
 7. 以失败测试复现 tarball 类型缺失和 CommonJS 空导出，修正 UMD 扩展名、完整类型发布、CSS 子路径和 `prepublishOnly`。
 8. 补齐中文兼容矩阵、运行手册、verify 和 acceptance。
+9. 先补配额服务封顶扣减与探查的失败测试，再实现 `RedisQuotaStore` 的 `check_and_increment_capped`、`peek` 和 `QuotaService.consume_capped`、`peek`。
+10. 网关 `message_completed` 分支改用 `consume_capped`：超限只记录 `quota_exceeded` 指标与结构化日志，事件仍按 `message_completed` 发送。
+11. 网关 `message_send` 分支在消息配额通过后新增 `model_tokens` 探查：窗口已达上限时返回 `quota_exceeded`（`retryable=true` + `retryAfterSeconds`），不创建生成任务。
 
 ## 测试步骤
 
@@ -38,6 +44,7 @@
 - `npm run test -- --run scripts/verify-package.test.mjs`，预期覆盖真实 tarball 的 ESM、CommonJS、类型和 CSS 入口。
 - 真实 Redis 验证 replay、message quota 和 token_issue quota 第一次允许、第二次超限。
 - `poetry run pytest tests/gateway/test_chat_flow.py tests/conversation/test_usage_records.py -q`，预期模型 usage 明细运行时和 Repository 写入测试通过。
+- `poetry run pytest tests/quota/test_service.py tests/gateway/test_quota_gateway.py -q`，预期封顶扣减、探查和发送前拦截测试通过。
 - `apps/backend/.venv/bin/pytest apps/backend/tests/conversation/test_runtime.py apps/backend/tests/knowledge/test_knowledge_services.py -q`，预期聊天阶段日志与 embedding 密钥脱敏回归通过。
 - `poetry run alembic upgrade head`，预期 PostgreSQL 升级到 `20260730_0012`。
 
@@ -50,6 +57,13 @@
 用户已确认 Phase 2C 生产核心范围，并于 2026-07-30 确认采用独立 `model_usage_records` 用量明细表。若后续新增计费事实表、余额扣减或后台配额管理 API，需要另行创建 request 并重新确认。
 
 ## 变更记录
+
+### 2026-08-24 增量：model_tokens 超限不吞答案、发送前硬拦截
+
+- 变更原因：用户反馈完成事件被配额 error 替换导致已生成答案丢失。
+- 变更内容：完成事件封顶扣减并保留 `message_completed`；发送前新增 `model_tokens` 探查硬拦截；新增配额服务原语与网关拦截测试。
+- 影响章节：变更文件、实施步骤、测试步骤。
+- 是否触发人工确认：是；用户选择 B 方案。
 
 ### 2026-08-04 增量：聊天过程日志与密钥脱敏
 

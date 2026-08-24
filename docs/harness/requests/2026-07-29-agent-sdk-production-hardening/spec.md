@@ -8,6 +8,7 @@
 
 - 新增后端独立 quota store，按平台、Embed Client、Agent、平台最终用户维度隔离连接、消息、token 签发和模型消费限制；本阶段默认值由环境配置提供。
 - 在 token exchange、WebSocket 连接和消息生命周期接入配额检查，返回稳定错误并记录拒绝原因。
+- 调整 `model_tokens` 配额语义：模型完成事件做封顶扣减且不替换 `message_completed`，已生成答案照常送达；`message_send` 阶段新增 `model_tokens` 探查，当前窗口已达上限时在生成前拒绝。
 - 新增 Prometheus metrics 暴露与结构化关联日志，覆盖连接、认证、重连/恢复、消息延迟、工具耗时、错误和配额拒绝。
 - 扩展 auth/session_ready 的 SDK 与后端版本/能力字段，增加主版本不兼容拒绝和同主版本向后兼容测试。
 - 调整 SDK 包入口和 Vite 构建校验，产出 ESM 与 UMD，验证 `exports`、类型入口、npm 包内容和 CDN script 加载。
@@ -23,6 +24,7 @@
 ## 风险
 
 - Redis 故障会阻止受保护操作；必须返回 `quota_unavailable`，不静默放开限制。
+- 模型完成后的封顶扣减不因 Redis 异常而吞掉已生成答案；Redis 异常时发送前探查返回 `quota_unavailable`，保持失败关闭。
 - 指标不能使用 requestId、conversationId 或最终用户 ID 作为高基数标签；这些只进入脱敏结构化日志。
 - 当前运行时可能无法稳定取得模型 token usage；缺失时不伪造 token 消费量，也不写入 `model_usage_records` 明细。
 - 老 SDK 只发送既有 auth 字段时必须保持协议主版本 1 的兼容；不支持的主版本要在认证前稳定拒绝。
@@ -36,6 +38,7 @@
 - 是否涉及 API 契约变化：是，增加 auth/session_ready 版本和能力字段，并新增 `/metrics`。
 - 是否涉及鉴权或权限行为变化：是，连接、消息和 token exchange 增加配额门禁。
 - 结论：已于 2026-07-29 获得人工确认，允许进入 spec 和 plan；实现前沿用本确认，不扩大到后台配置或计费语义。
+- 2026-08-24 增量确认：`model_tokens` 从“完成时硬拒绝”调整为“完成时封顶扣减 + 发送前硬拦截”，属于配额行为/事件语义变化；用户已选择 B 方案，允许进入实现。
 
 ## 验收标准
 
@@ -47,9 +50,18 @@
 - SDK 构建产生 ESM、UMD 和类型入口，`package.json exports` 与 `npm pack --dry-run` 结果一致，UMD 可由最小 HTML script 加载。
 - SDK 发布 tarball 必须包含所有被公共类型入口引用的声明文件；Node.js 的 ESM 和 CommonJS 消费者都必须获得公共导出，CSS 必须通过稳定包子路径访问；发布命令必须先重建并执行包验证。
 - 模型返回 usage 时，后端写入独立 `model_usage_records` 明细，字段覆盖平台、Agent、AgentVersion、Embed Client、最终用户、conversation、assistant message、requestId、模型名和 `prompt_tokens/completion_tokens/total_tokens`。
+- `model_tokens` 超限时已生成的回答仍以 `message_completed` 送达并记录用量；超限后同一窗口内新消息在发送前返回 `quota_exceeded`（`retryable=true` + `retryAfterSeconds`），不再进入生成流程。
 - 后端定向测试、全量 pytest、Ruff、Black 检查、Poetry check，以及 SDK type-check/test/build 全部通过；真实命令和结果写入 `verify.md`。
 
 ## 变更记录
+
+### 2026-08-24 修复：model_tokens 超限不再吞掉已生成回答
+
+- 变更原因：用户反馈模型已生成完整回答，但网关在 `message_completed` 时因 `model_tokens` 配额超限把完成事件替换成 error，导致答案丢失。
+- 变更内容：完成事件改为封顶扣减（`consume_capped`），超限仍照常发送 `message_completed`，仅记录拒绝指标与结构化日志；`message_send` 阶段新增 `model_tokens` 探查（`peek`），窗口已达上限时在生成前返回 `quota_exceeded`。
+- 影响章节：范围、风险、验收标准。
+- 是否触发人工确认：是；2026-08-24 用户明确选择 B 方案（软消费 + 发送前硬拦截），不选纯软限制或完全取消限制。
+- 关联计划更新：已同步更新 `plan.md`。
 
 ### 2026-08-04 修复：聊天过程日志与 embedding 密钥脱敏
 

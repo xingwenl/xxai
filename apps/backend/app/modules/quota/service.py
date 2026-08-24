@@ -29,10 +29,31 @@ class QuotaDecision:
     retryable: bool = False
 
 
+@dataclass(frozen=True)
+class CappedConsumeResult:
+    """模型完成后的封顶扣减结果。
+
+    已生成的回答永远不会因为配额被丢弃：超出上限时计数器封顶在 limit，
+    由发送前的 ``peek`` 拦截后续请求；``available=False`` 表示 Redis 不可用，
+    本次消费未记录，但同样不阻塞回答送达。
+    """
+
+    exceeded: bool
+    current: int = 0
+    limit: int = 0
+    available: bool = True
+
+
 class QuotaCounter(Protocol):
     async def check_and_increment(
         self, key: str, limit: int, amount: int, window_seconds: int
     ) -> tuple[bool, int, int]: ...
+
+    async def check_and_increment_capped(
+        self, key: str, limit: int, amount: int, window_seconds: int
+    ) -> tuple[int, int, int]: ...
+
+    async def peek(self, key: str) -> int: ...
 
 
 class RedisQuotaStore:
@@ -53,9 +74,33 @@ class RedisQuotaStore:
     return {1, updated, window}
     """
 
+    _CAP_SCRIPT = """
+    local current = tonumber(redis.call('GET', KEYS[1]) or '0')
+    local limit = tonumber(ARGV[1])
+    local amount = tonumber(ARGV[2])
+    local window = tonumber(ARGV[3])
+    local updated = current + amount
+    local exceeded = 0
+    if updated > limit then
+      updated = limit
+      exceeded = 1
+    end
+    redis.call('SET', KEYS[1], updated)
+    if current == 0 then
+      redis.call('EXPIRE', KEYS[1], window)
+    end
+    return {updated, window, exceeded}
+    """
+
+    _PEEK_SCRIPT = """
+    return {tonumber(redis.call('GET', KEYS[1]) or '0')}
+    """
+
     def __init__(self, redis: Redis) -> None:
         self.redis = redis
         self._script = redis.register_script(self._SCRIPT)
+        self._cap_script = redis.register_script(self._CAP_SCRIPT)
+        self._peek_script = redis.register_script(self._PEEK_SCRIPT)
 
     async def check_and_increment(
         self, key: str, limit: int, amount: int, window_seconds: int
@@ -64,6 +109,18 @@ class RedisQuotaStore:
             keys=[key], args=[limit, amount, window_seconds]
         )
         return bool(result[0]), int(result[1]), int(result[2])
+
+    async def check_and_increment_capped(
+        self, key: str, limit: int, amount: int, window_seconds: int
+    ) -> tuple[int, int, int]:
+        result = await self._cap_script(
+            keys=[key], args=[limit, amount, window_seconds]
+        )
+        return int(result[0]), int(result[1]), int(result[2])
+
+    async def peek(self, key: str) -> int:
+        result = await self._peek_script(keys=[key])
+        return int(result[0])
 
 
 class QuotaService:
@@ -117,6 +174,75 @@ class QuotaService:
                 retryable=True,
             )
         if not allowed:
+            return QuotaDecision(
+                allowed=False,
+                code="quota_exceeded",
+                current=current,
+                limit=limit,
+                retry_after_seconds=retry_after,
+                retryable=True,
+            )
+        return QuotaDecision(
+            allowed=True,
+            code="allowed",
+            current=current,
+            limit=limit,
+            retry_after_seconds=retry_after,
+        )
+
+    async def consume_capped(
+        self,
+        resource: QuotaResource,
+        dimensions: QuotaDimensions,
+        *,
+        amount: int,
+    ) -> CappedConsumeResult:
+        """模型完成后的软扣减：超出上限时封顶计数，绝不拒绝已完成回答。"""
+        limit = self.limits.get(resource)
+        window_seconds = self.window_seconds.get(resource)
+        if limit is None or window_seconds is None or limit < 0 or amount <= 0:
+            raise ValueError(f"quota configuration is invalid for {resource}")
+        window = int(self.clock() // window_seconds)
+        try:
+            current, _, exceeded = await self.counter.check_and_increment_capped(
+                self.key(resource, dimensions, window),
+                limit,
+                amount,
+                window_seconds,
+            )
+        except Exception:
+            return CappedConsumeResult(
+                exceeded=False, current=0, limit=limit, available=False
+            )
+        return CappedConsumeResult(
+            exceeded=bool(exceeded), current=current, limit=limit
+        )
+
+    async def peek(
+        self,
+        resource: QuotaResource,
+        dimensions: QuotaDimensions,
+    ) -> QuotaDecision:
+        """发送前探查当前窗口用量：已达上限则返回 ``quota_exceeded``。"""
+        limit = self.limits.get(resource)
+        window_seconds = self.window_seconds.get(resource)
+        if limit is None or window_seconds is None or limit < 0:
+            raise ValueError(f"quota configuration is invalid for {resource}")
+        now = int(self.clock())
+        window = now // window_seconds
+        try:
+            current = await self.counter.peek(
+                self.key(resource, dimensions, window)
+            )
+        except Exception:
+            return QuotaDecision(
+                allowed=False,
+                code="quota_unavailable",
+                limit=limit,
+                retryable=True,
+            )
+        retry_after = window_seconds - (now % window_seconds)
+        if current >= limit:
             return QuotaDecision(
                 allowed=False,
                 code="quota_exceeded",

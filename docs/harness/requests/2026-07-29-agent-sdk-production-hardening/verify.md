@@ -4,6 +4,15 @@
 
 已完成 research、spec、plan、implement 和 verify；2026-07-31 完成 npm 发布契约修复增量。
 
+## 2026-08-24 增量验证
+
+- 定向配额测试：`.venv/bin/pytest tests/quota tests/gateway/test_quota_gateway.py -q`，`10 passed`。
+- 网关回归：`.venv/bin/pytest tests/gateway -q`，`41 passed, 1 skipped`。
+- 静态检查：`.venv/bin/ruff check app/modules/quota/service.py app/modules/gateway/router.py tests/quota/test_service.py tests/gateway/test_quota_gateway.py`，通过。
+- 后端全量：`.venv/bin/pytest -q --import-mode=importlib`，`304 passed, 1 skipped`。
+- 覆盖点：`consume_capped` 封顶不拒绝已生成回答、`peek` 达到上限返回 `quota_exceeded`、Redis 异常时完成事件不吞答案、发送前拦截返回 `retryable` 与 `retryAfterSeconds`、未超限时正常进入生成流程。
+- 例外：默认 `pytest -q` 收集阶段报 “import file mismatch”（`tests/embed/test_models.py` 与 `tests/builtin_tool/test_models.py`、`tests/user/test_routes.py` 等同名文件冲突），为仓库既有问题，与本次改动无关；全量改用 `--import-mode=importlib` 完成。
+
 ## 2026-08-04 增量验证
 
 - `apps/backend/.venv/bin/pytest apps/backend/tests/conversation/test_runtime.py apps/backend/tests/knowledge/test_knowledge_services.py -q`，`33 passed`。

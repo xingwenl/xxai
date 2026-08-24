@@ -27,10 +27,16 @@
       "at": "2026-07-30",
       "scope": "新增独立 model_usage_records 模型用量明细表，记录真实模型返回的 prompt_tokens、completion_tokens 和 total_tokens。",
       "note": "用户明确要求按独立用量明细表方案推进。"
+    },
+    {
+      "by": "user",
+      "at": "2026-08-24",
+      "scope": "model_tokens 配额行为调整：完成事件封顶扣减且不吞已生成回答，发送前新增 model_tokens 硬拦截。",
+      "note": "用户明确选择 B 方案（软消费 + 发送前硬拦截），允许进入实现。"
     }
   ],
   "owner": "ai",
   "createdAt": "2026-07-29",
-  "updatedAt": "2026-08-04",
+  "updatedAt": "2026-08-24",
   "relatedPaths": ["apps/backend", "apps/ai-sdk", "docs/design/agent-sdk-phase-2-requirements.md", "docs/harness/requests/2026-07-29-agent-sdk-production-hardening"]
 }
