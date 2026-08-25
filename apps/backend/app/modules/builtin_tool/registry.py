@@ -124,10 +124,83 @@ ASK_USER_TOOL = BuiltinToolDefinition(
     executor="ask_user",
 )
 
+IMAGE_GENERATE_TOOL = BuiltinToolDefinition(
+    name="image_generate",
+    description="使用后端配置的 OpenAI Images API 生成图片，并返回可展示的受保护图片资源。",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "prompt": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4000,
+                "description": "图片生成提示词",
+            },
+            "model": {
+                "type": "string",
+                "enum": ["gpt-image-1", "dall-e-3"],
+                "description": "图片模型，可选",
+            },
+            "size": {
+                "type": "string",
+                "enum": [
+                    "1024x1024",
+                    "1536x1024",
+                    "1024x1536",
+                    "1792x1024",
+                    "1024x1792",
+                ],
+                "description": "图片尺寸，可选",
+            },
+            "quality": {
+                "type": "string",
+                "enum": ["auto", "low", "medium", "high", "standard"],
+                "description": "图片质量，可选",
+            },
+            "n": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 4,
+                "description": "生成数量，可选",
+            },
+        },
+        "required": ["prompt"],
+        "additionalProperties": False,
+    },
+    executor="image_generate",
+)
+
+IMAGE_READ_TOOL = BuiltinToolDefinition(
+    name="image_read",
+    description="读取公开图片 URL 或当前会话已有图片资源，返回可展示的受保护图片资源。",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "description": "公开 HTTPS 图片地址",
+            },
+            "asset_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "description": "当前会话图片资源标识",
+            },
+        },
+        "oneOf": [{"required": ["url"]}, {"required": ["asset_id"]}],
+        "additionalProperties": False,
+    },
+    executor="image_read",
+)
+
 BUILTIN_TOOL_REGISTRY = {
     HTTP_GET_TOOL.name: HTTP_GET_TOOL,
     HTTP_POST_TOOL.name: HTTP_POST_TOOL,
     ASK_USER_TOOL.name: ASK_USER_TOOL,
+    IMAGE_GENERATE_TOOL.name: IMAGE_GENERATE_TOOL,
+    IMAGE_READ_TOOL.name: IMAGE_READ_TOOL,
 }
 
 

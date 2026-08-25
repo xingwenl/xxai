@@ -477,6 +477,17 @@
   color: #0284C7;
 }
 
+.xxai-markdown-content img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+  border: var(--agent-glass-border);
+  border-radius: 8px;
+  cursor: zoom-in;
+}
+
 .xxai-markdown-content table {
   display: block;
   width: max-content;
@@ -500,6 +511,12 @@
   max-width: 280px;
   border: var(--agent-glass-border);
   border-radius: 12px;
+}
+
+@media (max-width: 640px) {
+  .xxai-markdown-content img {
+    max-height: 280px;
+  }
 }
 
 .xxai-file-content a {

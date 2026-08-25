@@ -15,7 +15,7 @@ from app.modules.conversation.schemas import sanitize_content_blocks
 from app.shared.exceptions import NotFoundException
 
 
-def _content_blocks(content: str) -> list[dict]:
+def _content_blocks(content: str, extra_blocks: list[dict] | None = None) -> list[dict]:
     return sanitize_content_blocks(
         [
             {
@@ -25,6 +25,7 @@ def _content_blocks(content: str) -> list[dict]:
                 "status": "completed",
             }
         ]
+        + (extra_blocks or [])
     )
 
 
@@ -166,7 +167,7 @@ async def _finish_stream_chat(
         conversation.id,
         role="assistant",
         content=result.content,
-        content_blocks=_content_blocks(result.content),
+        content_blocks=_content_blocks(result.content, result.content_blocks),
         citations=result.citations,
         knowledge_grounded=result.knowledge_grounded,
     )
@@ -395,7 +396,7 @@ async def execute_chat(
         conversation.id,
         role="assistant",
         content=result.content,
-        content_blocks=_content_blocks(result.content),
+        content_blocks=_content_blocks(result.content, result.content_blocks),
         citations=result.citations,
         knowledge_grounded=result.knowledge_grounded,
     )

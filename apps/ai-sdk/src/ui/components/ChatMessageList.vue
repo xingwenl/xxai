@@ -14,11 +14,13 @@
       v-for="msg in messages"
       :key="msg.id"
       :message="msg"
+      :agent="props.agent"
       @button-click="handleButtonClick"
     />
     <ChatMessage
       v-if="pendingMessage"
       :message="pendingAsMessage"
+      :agent="props.agent"
       pending
       @button-click="handleButtonClick"
     />
@@ -28,7 +30,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick } from 'vue'
 import ChatMessage from './ChatMessage.vue'
-import type { AssistantTimelineEntry, Message, AgentLoopRun } from '../../core'
+import type { AgentClient, AssistantTimelineEntry, Message, AgentLoopRun } from '../../core'
 import { isNearScrollBottom } from '../chat-scroll'
 
 interface Props {
@@ -36,6 +38,7 @@ interface Props {
   pendingMessage?: { id: string; text: string; timeline?: AssistantTimelineEntry[]; loop?: import('../../core').AgentLoopRun } | null
   agentName?: string
   agentDescription?: string
+  agent?: AgentClient
 }
 
 const props = defineProps<Props>()

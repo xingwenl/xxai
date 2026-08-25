@@ -17,7 +17,7 @@
 """
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import re
 from typing import Any
@@ -62,10 +62,14 @@ def _is_budget_exceeded_outcome(outcome) -> bool:
     result = getattr(outcome, "result", None)
     if not isinstance(result, dict):
         return False
-    error = result.get("error") or ""
-    code = result.get("code") or ""
-    message = result.get("message") or ""
-    return "page_tool_budget_exceeded" in {error, code, message}
+    error = result.get("error")
+    error_code = error.get("code") if isinstance(error, dict) else error
+    values = {
+        value
+        for value in (error_code, result.get("code"), result.get("message"))
+        if isinstance(value, str)
+    }
+    return "page_tool_budget_exceeded" in values
 
 
 def build_history_messages(history: list[Any] | None = None) -> list[Any]:
@@ -222,6 +226,36 @@ def tool_step_values(tool_event: dict, sequence: int) -> dict:
     }
 
 
+def image_content_blocks(tool_events: list[dict] | None) -> list[dict]:
+    """把图片工具结果转换为消息内容块，避免把 base64 写入消息。"""
+    blocks: list[dict] = []
+    for event in tool_events or []:
+        outcome = event.get("outcome")
+        result = getattr(outcome, "result", None)
+        if not isinstance(result, dict) or result.get("kind") != "image":
+            continue
+        assets = result.get("assets") or (
+            [result["asset"]] if result.get("asset") else []
+        )
+        for index, asset in enumerate(assets):
+            if not isinstance(asset, dict) or not asset.get("asset_id"):
+                continue
+            asset_id = str(asset["asset_id"])
+            blocks.append(
+                {
+                    "id": f"image_{asset_id}_{index}",
+                    "type": "image",
+                    "status": "completed",
+                    "asset_id": asset_id,
+                    "url": asset.get("download_url"),
+                    "mime_type": asset.get("content_type", "image/png"),
+                    "size": asset.get("size_bytes"),
+                    "alt": "图片工具输出",
+                }
+            )
+    return blocks
+
+
 def build_agent_error_payload(error: BaseException) -> dict[str, Any]:
     """将模型/Agent 异常转换为可安全展示且可重试判断的错误事件。"""
     raw_message = str(error).strip() or type(error).__name__
@@ -288,6 +322,7 @@ class GraphResult:
     tool_events: list[dict[str, Any]] | None = None
     usage: dict[str, int] | None = None
     loop_id: int | None = None
+    content_blocks: list[dict] = field(default_factory=list)
 
 
 class ChatState(TypedDict, total=False):
@@ -956,6 +991,7 @@ async def run_graph(
         pending_confirmation_id=pending_confirmation_id,
         tool_events=tool_events,
         usage=usage,
+        content_blocks=image_content_blocks(tool_events),
     )
     logger.info(
         "Chat graph completed content_chars=%s citations=%s knowledge_grounded=%s usage=%s pending_confirmation_id=%s",

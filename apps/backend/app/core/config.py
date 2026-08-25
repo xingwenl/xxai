@@ -49,6 +49,12 @@ class Settings:
     embed_origin: str
     model_default_name: str
     model_default_base_url: str | None
+    openai_api_key: str | None
+    openai_base_url: str | None
+    openai_image_model: str
+    image_generation_timeout_seconds: float
+    image_max_bytes: int
+    image_max_count: int
     model_request_timeout_seconds: float
     model_max_retries: int
     agent_file_storage_path: str
@@ -133,6 +139,14 @@ def get_settings() -> Settings:
         embed_origin=os.getenv("EMBED_ORIGIN", ""),
         model_default_name=os.getenv("MODEL_DEFAULT_NAME", "deepseek-v4-flash"),
         model_default_base_url=os.getenv("MODEL_DEFAULT_BASE_URL") or None,
+        openai_api_key=os.getenv("OPENAI_API_KEY") or None,
+        openai_base_url=os.getenv("OPENAI_BASE_URL") or None,
+        openai_image_model=os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1"),
+        image_generation_timeout_seconds=float(
+            os.getenv("IMAGE_GENERATION_TIMEOUT_SECONDS", "120")
+        ),
+        image_max_bytes=int(os.getenv("IMAGE_MAX_BYTES", str(25 * 1024 * 1024))),
+        image_max_count=max(1, int(os.getenv("IMAGE_MAX_COUNT", "4"))),
         model_request_timeout_seconds=float(
             os.getenv("MODEL_REQUEST_TIMEOUT_SECONDS", "60")
         ),
@@ -196,7 +210,7 @@ def get_settings() -> Settings:
         quota_token_issue_limit=int(os.getenv("QUOTA_TOKEN_ISSUE_LIMIT", "60")),
         quota_connection_limit=int(os.getenv("QUOTA_CONNECTION_LIMIT", "10")),
         quota_message_limit=int(os.getenv("QUOTA_MESSAGE_LIMIT", "60")),
-        quota_model_tokens_limit=int(os.getenv("QUOTA_MODEL_TOKENS_LIMIT", "1000000")),
+        quota_model_tokens_limit=int(os.getenv("QUOTA_MODEL_TOKENS_LIMIT", "10000000")),
         sdk_minimum_version=os.getenv("SDK_MINIMUM_VERSION", "0.1.0"),
         wechat_bot_enabled=_get_bool("WECHAT_BOT_ENABLED", default=False),
         wechat_bot_system_prompt=os.getenv(

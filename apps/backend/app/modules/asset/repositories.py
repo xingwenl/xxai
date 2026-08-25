@@ -27,6 +27,17 @@ class AssetRepository:
             )
         )
 
+    async def get_for_user_conversation(
+        self, asset_id: str, user_id: int, conversation_id: int
+    ) -> ConversationAsset | None:
+        return await self.session.scalar(
+            select(ConversationAsset).where(
+                ConversationAsset.asset_id == asset_id,
+                ConversationAsset.user_id == user_id,
+                ConversationAsset.conversation_id == conversation_id,
+            )
+        )
+
     async def get_for_embed(
         self,
         asset_id: str,
@@ -41,5 +52,24 @@ class AssetRepository:
                 ConversationAsset.platform_id == platform_id,
                 ConversationAsset.agent_id == agent_id,
                 ConversationAsset.platform_end_user_id == end_user_id,
+            )
+        )
+
+    async def get_for_embed_conversation(
+        self,
+        asset_id: str,
+        *,
+        platform_id: int,
+        agent_id: int,
+        end_user_id: int,
+        conversation_id: int,
+    ) -> ConversationAsset | None:
+        return await self.session.scalar(
+            select(ConversationAsset).where(
+                ConversationAsset.asset_id == asset_id,
+                ConversationAsset.platform_id == platform_id,
+                ConversationAsset.agent_id == agent_id,
+                ConversationAsset.platform_end_user_id == end_user_id,
+                ConversationAsset.conversation_id == conversation_id,
             )
         )

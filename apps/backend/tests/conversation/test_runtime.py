@@ -19,9 +19,11 @@ from app.modules.conversation.runtime import (
     _is_budget_exceeded_outcome,
     _PAGE_TOOL_BUDGET_EXCEEDED_MESSAGE,
     tool_step_values,
+    image_content_blocks,
 )
 from app.modules.conversation.schemas import sanitize_content_blocks
 from app.modules.conversation.services import build_loop_payload
+from app.modules.builtin_tool.schemas import BuiltinToolOutcome
 
 
 def test_content_blocks_keep_supported_custom_blocks_and_reject_unsafe_values():
@@ -43,6 +45,32 @@ def test_content_blocks_keep_supported_custom_blocks_and_reject_unsafe_values():
     assert blocks[1]["type"] == "error"
     assert blocks[2]["type"] == "markdown"
     assert len(blocks[2]["text"]) == 100_000
+
+
+def test_image_tool_outcome_becomes_renderable_content_block():
+    blocks = image_content_blocks(
+        [
+            {
+                "outcome": BuiltinToolOutcome(
+                    status="completed",
+                    result={
+                        "kind": "image",
+                        "assets": [
+                            {
+                                "asset_id": "asset-123",
+                                "download_url": "/api/v1/assets/asset-123",
+                                "content_type": "image/png",
+                                "size_bytes": 12,
+                            }
+                        ],
+                    },
+                )
+            }
+        ]
+    )
+    assert blocks[0]["type"] == "image"
+    assert blocks[0]["asset_id"] == "asset-123"
+    assert blocks[0]["url"] == "/api/v1/assets/asset-123"
 
 
 def test_agent_upstream_502_is_mapped_to_safe_terminal_error():
@@ -505,12 +533,7 @@ class StreamingToolCallingModel:
             yield AIMessageChunk(
                 content="",
                 tool_call_chunks=[
-                    {
-                        "name": "lookup",
-                        "args": '{"query":"退',
-                        "id": "call-1",
-                        "index": 0,
-                    }
+                    {"name": "lookup", "args": '{"query":"退', "id": "call-1", "index": 0}
                 ],
             )
             yield AIMessageChunk(
@@ -815,7 +838,12 @@ class WrapUpFailingStreamingModel(InfiniteStreamingToolCallingModel):
             yield AIMessageChunk(
                 content="",
                 tool_call_chunks=[
-                    {"name": "lookup", "args": '{"query":"退', "id": "call-1", "index": 0}
+                    {
+                        "name": "lookup",
+                        "args": '{"query":"退',
+                        "id": "call-1",
+                        "index": 0,
+                    }
                 ],
             )
             yield AIMessageChunk(
@@ -1017,6 +1045,21 @@ def test_is_budget_exceeded_outcome_detects_page_tool_error():
         is False
     )
     assert _is_budget_exceeded_outcome(SimpleNamespace(result="文本")) is False
+
+
+def test_is_budget_exceeded_outcome_handles_nested_error_object():
+    assert (
+        _is_budget_exceeded_outcome(
+            SimpleNamespace(result={"error": {"code": "image_generation_failed"}})
+        )
+        is False
+    )
+    assert (
+        _is_budget_exceeded_outcome(
+            SimpleNamespace(result={"error": {"code": "page_tool_budget_exceeded"}})
+        )
+        is True
+    )
 
 
 def test_run_graph_stops_when_page_tool_budget_exceeded():

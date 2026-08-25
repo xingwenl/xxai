@@ -24,9 +24,12 @@ export interface MessageContentBlock {
   status?: ContentBlockStatus
   text?: string
   assetId?: string
+  asset_id?: string
+  url?: string
   alt?: string
   fileName?: string
   mimeType?: string
+  mime_type?: string
   size?: number
   componentName?: string
   props?: Record<string, unknown>

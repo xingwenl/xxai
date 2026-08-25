@@ -46,6 +46,7 @@
         :pending-message="pendingMessage"
         :agent-name="agentName"
         :agent-description="agentDescription"
+        :agent="agent"
         @button-click="handleButtonClick"
       />
       <ToolConfirmation

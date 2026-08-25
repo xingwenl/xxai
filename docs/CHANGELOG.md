@@ -1,5 +1,8 @@
 # Changelog
 
+## - 2026-08-25
+- ✨ feat：增加图片生成读取与鉴权展示 `🧑‍💻 lixingwen`
+
 ## - 2026-08-24
 - ✨ feat：ai-sdk 对话新增结构化询问能力（ask_user） `🧑‍💻 lixingwen`
 - 🐛 fix：model_tokens 超限不再吞掉已生成回答 `🧑‍💻 lixingwen`

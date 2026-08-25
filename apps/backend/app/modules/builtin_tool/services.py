@@ -8,6 +8,11 @@ from app.core.config import get_settings
 from app.modules.asset.services import persist_asset
 from app.modules.builtin_tool.http_get import HttpGetError, fetch_http_get
 from app.modules.builtin_tool.http_post import fetch_http_post
+from app.modules.builtin_tool.image_generate import (
+    ImageGenerationError,
+    generate_images,
+)
+from app.modules.builtin_tool.image_read import ImageReadError, read_image
 from app.modules.builtin_tool.registry import get_builtin_tool
 from app.modules.builtin_tool.schemas import BuiltinToolOutcome
 
@@ -46,6 +51,30 @@ async def invoke_builtin_tool(
     settings = get_settings()
     temp_dir = Path(settings.agent_file_storage_path) / "assets" / ".tmp"
     try:
+        if tool.name == "image_generate":
+            assets = await generate_images(
+                arguments,
+                asset_repo=asset_repo,
+                platform_id=platform_id,
+                agent_id=agent_id,
+                conversation_id=conversation_id,
+                user_id=user_id,
+                platform_end_user_id=platform_end_user_id,
+            )
+            return BuiltinToolOutcome(
+                status="completed", result={"kind": "image", "assets": assets}
+            )
+        if tool.name == "image_read":
+            result = await read_image(
+                arguments,
+                asset_repo=asset_repo,
+                platform_id=platform_id,
+                agent_id=agent_id,
+                conversation_id=conversation_id,
+                user_id=user_id,
+                platform_end_user_id=platform_end_user_id,
+            )
+            return BuiltinToolOutcome(status="completed", result=result)
         if tool.name == "http_post":
             fetched = await fetch_http_post(
                 arguments["url"],
@@ -104,6 +133,8 @@ async def invoke_builtin_tool(
                 "asset": asset_data,
             },
         )
+    except (ImageGenerationError, ImageReadError) as exc:
+        return BuiltinToolOutcome(status="failed", result={"error": {"code": exc.code}})
     except HttpGetError as exc:
         error = {"code": exc.code}
         if exc.status_code is not None:

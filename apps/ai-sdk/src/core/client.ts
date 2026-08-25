@@ -104,6 +104,23 @@ export class AgentClient {
     this.persistState()
   }
 
+  /** 获取受保护的会话资源，返回仅在当前页面有效的 Blob URL。 */
+  async loadAsset(url: string): Promise<string> {
+    const endpoint = this.options.endpoint.replace(/^ws(s?):\/\//, 'http$1://')
+    console.log('url', endpoint, url)
+    const resourceUrl = new URL(url, endpoint).toString()
+    const token = await this.options.getToken({
+      platformId: this.options.platformId,
+      agentId: this.options.agentId,
+      user: this.options.user
+    })
+    const response = await fetch(resourceUrl, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (!response.ok) throw new Error(`asset request failed: ${response.status}`)
+    return URL.createObjectURL(await response.blob())
+  }
+
   private setupTransportListeners(): void {
     if (this.transport instanceof WebSocketTransport) {
       this.transport.on('state', (state: ConnectionState) => {

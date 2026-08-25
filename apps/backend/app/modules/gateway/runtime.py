@@ -11,6 +11,7 @@ from app.modules.conversation.runtime import (
     build_system_prompt,
     stream_graph,
     tool_step_values,
+    image_content_blocks,
 )
 from app.modules.conversation.schemas import sanitize_content_blocks
 from app.shared.exceptions import NotFoundException
@@ -174,6 +175,7 @@ async def _finish_embed_chat(
                 "status": "completed",
             }
         ]
+        + image_content_blocks(result.tool_events)
     )
     assistant = await repo.create_message(
         conversation.id,

@@ -1,0 +1,38 @@
+{
+  "id": "2026-08-25-image-tools",
+  "title": "后端图片生成读取工具与 AI SDK 展示",
+  "scope": "backend-and-ai-sdk",
+  "phase": "acceptance",
+  "status": "done",
+  "riskLevel": "high",
+  "changeTypes": ["api_contract", "configuration", "frontend"],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "https://platform.openai.com/docs/api-reference/images/create",
+      "https://github.com/openai/openai-python/tree/main/src/openai/resources/images"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": ["新增 builtin tool 和消息内容块 API 契约"],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-08-25",
+      "scope": "直接接入 OpenAI Images API，并采用持久化 assetId + SDK 鉴权加载",
+      "note": "用户确认设计后继续实现"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-08-25",
+  "updatedAt": "2026-08-25",
+  "relatedPaths": [
+    "apps/backend/app/modules/builtin_tool",
+    "apps/backend/app/modules/asset",
+    "apps/ai-sdk/src/ui/components/ImageContent.vue"
+  ],
+  "notes": "已完成实现、验证和验收；2026-08-25 追加修复嵌套错误对象导致的运行时异常。"
+}

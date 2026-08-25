@@ -1,7 +1,7 @@
 <template>
   <article class="xxai-chat-message" :class="message.role">
     <div v-if="message.role === 'user'" class="xxai-user-message">
-      <MessageContent :blocks="contentBlocks" @action="handleAction" />
+      <MessageContent :blocks="contentBlocks" :agent="props.agent" @action="handleAction" />
     </div>
     <div v-else class="xxai-assistant-message">
       <div class="xxai-assistant-row">
@@ -16,6 +16,7 @@
               <MessageContent
                 v-if="entry.kind === 'text'"
                 :blocks="[textBlock(entry.text)]"
+                :agent="props.agent"
                 @action="handleAction"
               />
               <AgentLoopSkillGroup v-else-if="entry.kind === 'group'" :steps="entry.steps" />
@@ -27,6 +28,7 @@
             <MessageContent
               v-else-if="hasRenderableContent"
               :blocks="contentBlocks"
+              :agent="props.agent"
               @action="handleAction"
             />
             <AgentLoopPanel :message="message" />
@@ -39,7 +41,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { AgentLoopStep, Message, MessageContentBlock } from '../../core'
+import type { AgentClient, AgentLoopStep, Message, MessageContentBlock } from '../../core'
 import AgentLoopPanel from './AgentLoopPanel.vue'
 import AgentLoopSkillGroup from './AgentLoopSkillGroup.vue'
 import AgentLoopStepCard from './AgentLoopStepCard.vue'
@@ -50,6 +52,7 @@ import { hasRenderableMessageContent, leadingSkillSteps } from '../message-prese
 const props = defineProps<{
   message: Message
   pending?: boolean
+  agent?: AgentClient
 }>()
 const emit = defineEmits<{ buttonClick: [value: string] }>()
 type TimelineRenderEntry =
