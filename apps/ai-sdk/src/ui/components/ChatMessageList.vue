@@ -1,5 +1,15 @@
 <template>
   <div class="xxai-chat-messages" ref="messagesRef" @scroll.passive="handleScroll">
+    <div
+      v-if="messages.length === 0 && !pendingMessage"
+      class="xxai-empty-state"
+    >
+      <div class="xxai-empty-avatar" aria-hidden="true">✦</div>
+      <div v-if="agentName" class="xxai-empty-name">{{ agentName }}</div>
+      <div v-if="agentDescription" class="xxai-empty-description">
+        {{ agentDescription }}
+      </div>
+    </div>
     <ChatMessage
       v-for="msg in messages"
       :key="msg.id"
@@ -24,6 +34,8 @@ import { isNearScrollBottom } from '../chat-scroll'
 interface Props {
   messages: Message[]
   pendingMessage?: { id: string; text: string; timeline?: AssistantTimelineEntry[]; loop?: import('../../core').AgentLoopRun } | null
+  agentName?: string
+  agentDescription?: string
 }
 
 const props = defineProps<Props>()

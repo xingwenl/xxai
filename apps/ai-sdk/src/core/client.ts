@@ -1,7 +1,9 @@
 import type {
   AgentCallbacks,
   AgentClientOptions,
+  AgentInfo,
   ConnectionState,
+  EmbedClientInfo,
   AgentLoopRun,
   AgentLoopStep,
   AgentQuestion,
@@ -10,6 +12,7 @@ import type {
   OutgoingMessage,
   QuestionAnswer,
   QuestionOption,
+  QuotaUsage,
   ToolDefinition,
   ToolConfirmation,
   WebSocketMessage
@@ -24,6 +27,12 @@ import { createPageTools } from './page/tools'
 let messageId = 0
 function generateId(): string {
   return `msg_${++messageId}_${Date.now()}`
+}
+
+function parseOptionalObject(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined
 }
 
 export class AgentClient {
@@ -45,6 +54,9 @@ export class AgentClient {
   private pendingQuestions = new Set<string>()
   private pendingHostCalls = new Map<string, { name: string; arguments: unknown }>()
   private pendingLoop: AgentLoopRun | null = null
+  private _clientInfo: EmbedClientInfo | undefined
+  private _agentInfo: AgentInfo | undefined
+  private _quota: QuotaUsage | undefined
   readonly storageKey: string
 
   constructor(options: AgentClientOptions) {
@@ -148,6 +160,20 @@ export class AgentClient {
           this.conversationId = msg.payload.sessionId
           this.persistState()
         }
+        // 网关在认证成功后下发 embed client/agent 基本信息与配额快照；
+        // 旧网关没有这些字段时保持 undefined，由 UI 回退到默认标题。
+        this._clientInfo = parseOptionalObject(msg.payload.client) as
+          | EmbedClientInfo
+          | undefined
+        this._agentInfo = parseOptionalObject(msg.payload.agent) as
+          | AgentInfo
+          | undefined
+        this._quota = parseOptionalObject(msg.payload.quota) as QuotaUsage | undefined
+        this.eventEmitter.emit('client_info', {
+          client: this._clientInfo,
+          agent: this._agentInfo,
+          quota: this._quota
+        })
         break
       case 'message_started':
         this.currentRequestId = msg.requestId
@@ -745,6 +771,21 @@ export class AgentClient {
 
   getSystemPrompt(): string | undefined {
     return this._systemPrompt
+  }
+
+  /** embed client 基本信息（name/clientId/限额等）；旧网关未下发时为 undefined。 */
+  get clientInfo(): EmbedClientInfo | undefined {
+    return this._clientInfo
+  }
+
+  /** agent 基本信息（name/slug/description 等）；旧网关未下发时为 undefined。 */
+  get agentInfo(): AgentInfo | undefined {
+    return this._agentInfo
+  }
+
+  /** 当前时间窗口的配额快照；配额关闭或旧网关未下发时为 undefined。 */
+  get quota(): QuotaUsage | undefined {
+    return this._quota
   }
 
   get callbacks(): AgentCallbacks {

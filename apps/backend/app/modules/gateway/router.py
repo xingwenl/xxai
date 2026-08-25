@@ -23,6 +23,7 @@ from app.modules.conversation.runtime import (
     load_runtime_context,
 )
 from app.modules.conversation.services import retrieve_citations
+from app.modules.embed.repositories import EmbedRepository
 from app.modules.gateway.runtime import (
     RequestRegistry,
     filter_conflicting_runtime_tools,
@@ -641,6 +642,113 @@ async def produce_embed_request(
         await event_queue.put(None)
 
 
+async def build_session_info(
+    payload: dict,
+    *,
+    agent_id: int,
+    settings,
+    quota_service: QuotaService | None,
+    session_factory=get_session_factory,
+) -> dict:
+    """组装 ``session_ready`` 的 client/agent/quota 快照。
+
+    token 认证已验证 client 与 agent 的作用域，这里只做信息读取；任何一段
+    读取失败都降级为 ``null``，绝不阻塞连接建立。quota 是当前时间窗口的
+    快照，仅供 SDK 展示使用，不参与网关拦截逻辑。
+    """
+    info: dict = {"client": None, "agent": None, "quota": None}
+    try:
+        async with session_factory()() as session:
+            embed_repo = EmbedRepository(session)
+            client = await embed_repo.get_client(
+                int(payload["platform_id"]), str(payload["client_id"])
+            )
+            agent = await AgentRepository(session).get_agent(
+                agent_id, int(payload["platform_id"])
+            )
+            if client is not None:
+                info["client"] = {
+                    "clientId": client.client_id,
+                    "name": client.name,
+                    "tokenTtlSeconds": client.token_ttl_seconds,
+                    "maxTokensPerMinute": client.max_tokens_per_minute,
+                    "maxConnections": client.max_connections,
+                }
+            if agent is not None:
+                info["agent"] = {
+                    "agentId": agent.id,
+                    "name": agent.name,
+                    "slug": agent.slug,
+                    "description": agent.description,
+                }
+            if client is not None and quota_service is not None:
+                info["quota"] = await _build_quota_snapshot(
+                    client,
+                    payload=payload,
+                    agent_id=agent_id,
+                    settings=settings,
+                    quota_service=quota_service,
+                )
+    except Exception:
+        # 只读快照失败不影响连接；详细堆栈写服务端日志便于排查。
+        logger.exception("Failed to build session info for agent %s", agent_id)
+    return info
+
+
+async def _build_quota_snapshot(
+    client,
+    *,
+    payload: dict,
+    agent_id: int,
+    settings,
+    quota_service: QuotaService,
+) -> dict | None:
+    """读取当前时间窗口四个资源的 limit/current；Redis 不可用时返回 None。"""
+    dimensions = QuotaDimensions(
+        platform_id=str(payload["platform_id"]),
+        client_id=str(payload["client_id"]),
+        agent_id=str(agent_id),
+        end_user_id=str(payload["sub"]),
+    )
+    resources: dict = {}
+    for resource in ("connection", "message", "model_tokens"):
+        decision = await quota_service.peek(resource, dimensions)
+        if decision.code == "quota_unavailable":
+            return None
+        resources[resource] = {"limit": decision.limit, "current": decision.current}
+    # token_issue 的 limit 与签发逻辑一致（见 embed/services.build_token_quota_service），
+    # current 用与签发时相同的维度（不含 end_user）探查同一窗口计数器。
+    token_issue_limit = (
+        client.max_tokens_per_minute
+        if client.max_tokens_per_minute is not None
+        else settings.quota_token_issue_limit
+    )
+    token_service = QuotaService(
+        quota_service.counter,
+        limits={"token_issue": token_issue_limit},
+        window_seconds={"token_issue": settings.quota_window_seconds},
+        clock=quota_service.clock,
+    )
+    token_decision = await token_service.peek(
+        "token_issue",
+        QuotaDimensions(
+            platform_id=str(payload["platform_id"]),
+            client_id=str(payload["client_id"]),
+            agent_id=str(agent_id),
+        ),
+    )
+    if token_decision.code == "quota_unavailable":
+        return None
+    resources["token_issue"] = {
+        "limit": token_decision.limit,
+        "current": token_decision.current,
+    }
+    return {
+        "windowSeconds": settings.quota_window_seconds,
+        "resources": resources,
+    }
+
+
 @router.websocket("/ws/agents/{agent_id}")
 async def agent_websocket(websocket: WebSocket, agent_id: int):
     """处理一个完整的 Embed WebSocket 连接。
@@ -755,6 +863,12 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
             sequence += 1
             return json.dumps(value)
 
+        session_info = await build_session_info(
+            payload,
+            agent_id=agent_id,
+            settings=settings,
+            quota_service=quota_service,
+        )
         await websocket.send_text(
             envelope(
                 "session_ready",
@@ -767,6 +881,9 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                     "latestSequence": (
                         replay_result.latest_sequence if replay_result else None
                     ),
+                    "client": session_info["client"],
+                    "agent": session_info["agent"],
+                    "quota": session_info["quota"],
                 },
             )
         )

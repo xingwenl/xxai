@@ -11,13 +11,19 @@
         <div class="xxai-header-center">
           <div class="xxai-agent-avatar" aria-hidden="true">✦</div>
           <div class="xxai-header-info">
-            <div class="xxai-header-name">{{ title }}</div>
+            <div class="xxai-header-name">{{ headerName }}</div>
             <div class="xxai-header-status">
               <span class="xxai-status-dot"></span>
               <span>{{ statusText }}</span>
             </div>
           </div>
         </div>
+        <!-- <QuotaRing
+          class="xxai-header-quota"
+          :current="messageQuota?.current"
+          :limit="messageQuota?.limit"
+          :window-seconds="agent.quota?.windowSeconds"
+        /> -->
         <button
           class="xxai-header-icon-btn xxai-header-clear-btn"
           type="button"
@@ -38,6 +44,8 @@
       <ChatMessageList
         :messages="messages"
         :pending-message="pendingMessage"
+        :agent-name="agentName"
+        :agent-description="agentDescription"
         @button-click="handleButtonClick"
       />
       <ToolConfirmation
@@ -73,6 +81,7 @@ import ChatMessageList from './ChatMessageList.vue'
 import ChatInput from './ChatInput.vue'
 import ToolConfirmation from './ToolConfirmation.vue'
 import QuestionCard from './QuestionCard.vue'
+import QuotaRing from './QuotaRing.vue'
 import type {
   AgentClient,
   AgentQuestion,
@@ -92,6 +101,7 @@ import {
   resolveWindowBounds,
   type WindowRect,
 } from '../window-layout'
+import { resolveHeaderName } from '../header-name'
 import { parseWindowRect, serializeWindowRect } from '../window-storage'
 
 interface Props {
@@ -159,6 +169,10 @@ const statusText = computed(() => {
   }
   return stateMap[connectionState.value]
 })
+const headerName = computed(() => resolveHeaderName(agent.clientInfo?.name, props.title))
+const messageQuota = computed(() => agent.quota?.resources?.message)
+const agentName = computed(() => agent.agentInfo?.name || props.title)
+const agentDescription = computed(() => agent.agentInfo?.description || undefined)
 
 function open() {
   isOpen.value = true

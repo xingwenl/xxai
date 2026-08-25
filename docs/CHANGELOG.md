@@ -3,6 +3,7 @@
 ## - 2026-08-24
 - ✨ feat：ai-sdk 对话新增结构化询问能力（ask_user） `🧑‍💻 lixingwen`
 - 🐛 fix：model_tokens 超限不再吞掉已生成回答 `🧑‍💻 lixingwen`
+- ✨ feat：ai-sdk 认证后下发 client/agent 信息与配额快照并展示 client 名称 `🧑‍💻 lixingwen`
 
 ## - 2026-08-23
 - ✨ feat：后台可管理的微信助手并支持对话上下文复用 `🧑‍💻 lixingwen`

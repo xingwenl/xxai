@@ -386,4 +386,57 @@ describe('AgentClient protocol events', () => {
     ])
     expect(messages[0].loop.steps[0]).toMatchObject({ thinkingText: '思考全文' })
   })
+
+  it('解析 session_ready 下发的 client/agent/quota 并触发 client_info 事件', () => {
+    const events: any[] = []
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token'
+    })
+    client.on('client_info', (info) => events.push(info))
+    const transport = (client as any).transport
+
+    transport.emit('message', {
+      id: '1', type: 'session_ready', protocolVersion: 1, sequence: 1,
+      timestamp: new Date().toISOString(), payload: {
+        sessionId: 's',
+        client: { clientId: 'client_1', name: 'ToolVerse', tokenTtlSeconds: 600, maxTokensPerMinute: 120, maxConnections: 50 },
+        agent: { agentId: 11, name: '客服助手', slug: 'support-bot', description: '负责售后问题' },
+        quota: {
+          windowSeconds: 60,
+          resources: {
+            connection: { limit: 10, current: 2 },
+            message: { limit: 60, current: 12 },
+            model_tokens: { limit: 10000000, current: 123456 },
+            token_issue: { limit: 120, current: 3 }
+          }
+        }
+      }
+    })
+
+    expect(client.clientInfo).toEqual({ clientId: 'client_1', name: 'ToolVerse', tokenTtlSeconds: 600, maxTokensPerMinute: 120, maxConnections: 50 })
+    expect(client.agentInfo).toEqual({ agentId: 11, name: '客服助手', slug: 'support-bot', description: '负责售后问题' })
+    expect(client.quota?.resources?.model_tokens).toEqual({ limit: 10000000, current: 123456 })
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      client: { name: 'ToolVerse' },
+      agent: { name: '客服助手' },
+      quota: { windowSeconds: 60 }
+    })
+  })
+
+  it('旧网关 session_ready 无新字段时 getter 保持 undefined', () => {
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token'
+    })
+    const transport = (client as any).transport
+
+    transport.emit('message', {
+      id: '1', type: 'session_ready', protocolVersion: 1, sequence: 1,
+      timestamp: new Date().toISOString(), payload: { sessionId: 's' }
+    })
+
+    expect(client.clientInfo).toBeUndefined()
+    expect(client.agentInfo).toBeUndefined()
+    expect(client.quota).toBeUndefined()
+  })
 })

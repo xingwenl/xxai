@@ -1,0 +1,52 @@
+{
+  "id": "2026-08-24-ai-sdk-session-info",
+  "title": "ai-sdk 认证成功后下发 embed client/agent 基本信息并展示 client 名称",
+  "scope": "fullstack",
+  "phase": "verify",
+  "status": "active",
+  "riskLevel": "high",
+  "changeTypes": ["api", "runtime", "sdk", "tests", "docs"],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "Claude Code Agent SDK session metadata / RateLimitStatus",
+      "Vercel AI SDK 5.0 usage information",
+      "OpenAI Runs API usage 字段",
+      "LangGraph usage_metadata on AIMessage"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": ["api_contract_change"],
+  "approvalRecords": [
+    {
+      "date": "2026-08-24",
+      "grantedBy": "user",
+      "scope": "API 契约变化：session_ready 出站事件新增 client/agent/quota 字段（含配额禁用与查询失败降级为 null、头部名称回退 title）",
+      "notes": "用户审阅 spec.md 后明确批准（“可以，开始吧”），进入实现"
+    },
+    {
+      "date": "2026-08-24",
+      "grantedBy": "user",
+      "scope": "方案确认：采用方案 A（扩展 session_ready payload），payload 结构含 client/agent/quota 三段；配额窗口为时间窗口而非会话",
+      "notes": "用户在方案确认环节批准设计稿；spec 定稿后仍需用户明确批准 API 契约变化（session_ready 新增字段）才进入实现"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-08-24",
+  "updatedAt": "2026-08-24",
+  "relatedPaths": [
+    "apps/backend/app/modules/gateway/router.py",
+    "apps/backend/tests/gateway/test_session_info.py",
+    "apps/ai-sdk/src/core/types.ts",
+    "apps/ai-sdk/src/core/client.ts",
+    "apps/ai-sdk/src/ui/header-name.ts",
+    "apps/ai-sdk/src/ui/quota-ring.ts",
+    "apps/ai-sdk/src/ui/components/QuotaRing.vue",
+    "apps/ai-sdk/src/ui/components/ChatWidget.vue",
+    "apps/ai-sdk/src/ui/components/ChatMessageList.vue"
+  ],
+  "notes": "API 契约变化已获用户批准并实现；增量：空状态 agent 名称/描述（2026-08-24 第 1 次变更）；QuotaRing 圆形进度条展示由用户注释停用（2026-08-24 第 2 次变更，组件与单测保留可恢复）。"
+}

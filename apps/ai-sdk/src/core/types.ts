@@ -247,6 +247,40 @@ export interface QuestionAnswer {
   freeText?: string
 }
 
+/** embed client 基本信息，由网关在 session_ready 事件中下发。 */
+export interface EmbedClientInfo {
+  clientId?: string
+  name?: string
+  tokenTtlSeconds?: number
+  maxTokensPerMinute?: number | null
+  maxConnections?: number | null
+}
+
+/** agent 基本信息，由网关在 session_ready 事件中下发。 */
+export interface AgentInfo {
+  agentId?: number
+  name?: string
+  slug?: string
+  description?: string | null
+}
+
+/** 单个配额资源当前时间窗口的限额与用量快照。 */
+export interface QuotaResourceUsage {
+  limit: number
+  current: number
+}
+
+/** 当前时间窗口的配额快照（窗口是时间维度，非会话）。 */
+export interface QuotaUsage {
+  windowSeconds?: number
+  resources?: {
+    connection?: QuotaResourceUsage
+    message?: QuotaResourceUsage
+    model_tokens?: QuotaResourceUsage
+    token_issue?: QuotaResourceUsage
+  }
+}
+
 export interface TokenProviderContext {
   platformId: string
   agentId: string
