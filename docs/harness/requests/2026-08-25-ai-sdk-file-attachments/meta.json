@@ -1,0 +1,57 @@
+{
+  "id": "2026-08-25-ai-sdk-file-attachments",
+  "title": "AI SDK 文件附件与当前会话缓存",
+  "scope": "full-stack",
+  "phase": "plan",
+  "status": "active",
+  "riskLevel": "high",
+  "changeTypes": [
+    "architecture",
+    "data_model",
+    "api_contract",
+    "permission",
+    "docs"
+  ],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "https://platform.openai.com/docs/guides/pdf-files",
+      "https://platform.openai.com/docs/guides/embeddings",
+      "https://help.aliyun.com/zh/model-studio/user-guide/qwen-vl-plus",
+      "https://api-docs.deepseek.com/api/create-chat-completion",
+      "https://docs.llamaindex.ai/en/stable/module_guides/loading/ingestion_pipeline/",
+      "https://github.com/pgvector/pgvector"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": [
+    "新增会话级文件处理、chunk 和 embedding 数据模型",
+    "新增上传/状态 API 并扩展 message_send 附件协议",
+    "新增 Worker 与 provider adapter 架构边界",
+    "新增当前会话资源权限校验"
+  ],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-08-25",
+      "scope": "仅当前会话缓存，支持分期实现，兼容 OpenAI-compatible、通义/Qwen 和 DeepSeek",
+      "note": "用户确认按统一附件、解析切块缓存、可选 embedding 向量检索方案继续制定计划"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-08-25",
+  "updatedAt": "2026-08-25",
+  "relatedPaths": [
+    "apps/ai-sdk",
+    "apps/backend/app/modules/asset",
+    "apps/backend/app/modules/conversation",
+    "apps/backend/app/modules/knowledge",
+    "docs/harness/requests/2026-08-25-ai-sdk-file-attachments/research.md",
+    "docs/harness/requests/2026-08-25-ai-sdk-file-attachments/spec.md",
+    "docs/harness/requests/2026-08-25-ai-sdk-file-attachments/plan.md"
+  ],
+  "notes": "当前阶段仅完成 research/spec/plan 文档，尚未修改业务代码。"
+}
