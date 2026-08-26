@@ -54,7 +54,9 @@ def _resolve_max_iterations(max_iterations: int | None) -> int | None:
     return value if value and value > 0 else None
 
 
-_PAGE_TOOL_BUDGET_EXCEEDED_MESSAGE = "已达到页面工具使用限制（次数/时长），本次执行已停止。"
+_PAGE_TOOL_BUDGET_EXCEEDED_MESSAGE = (
+    "已达到页面工具使用限制（次数/时长），本次执行已停止。"
+)
 
 
 def _is_budget_exceeded_outcome(outcome) -> bool:
@@ -124,11 +126,19 @@ def _content_text(content: Any) -> str:
     )
 
 
-def build_user_content(user_message: str, image_parts: list[dict] | None = None):
-    """仅在存在图片时构造多模态内容，保持纯文本模型调用兼容。"""
-    if not image_parts:
+def build_user_content(
+    user_message: str,
+    image_parts: list[dict] | None = None,
+    document_text_parts: list[dict] | None = None,
+):
+    """仅在存在图片/文档内容时构造多模态内容，保持纯文本模型调用兼容。"""
+    if not image_parts and not document_text_parts:
         return user_message
-    return [{"type": "text", "text": user_message}, *image_parts]
+    return [
+        {"type": "text", "text": user_message},
+        *(document_text_parts or []),
+        *(image_parts or []),
+    ]
 
 
 def _is_text_only_image_error(error: Exception) -> bool:
@@ -137,7 +147,13 @@ def _is_text_only_image_error(error: Exception) -> bool:
     return "messages.content.type" in text and "text" in text
 
 
-async def _astream_with_image_fallback(model, messages: list[Any], user_message: str, image_parts):
+async def _astream_with_image_fallback(
+    model,
+    messages: list[Any],
+    user_message: str,
+    image_parts,
+    document_text_parts=None,
+):
     """视觉输入被上游拒绝时，自动以文字重试一次。"""
     try:
         async for chunk in model.astream(messages):
@@ -148,7 +164,9 @@ async def _astream_with_image_fallback(model, messages: list[Any], user_message:
         logger.warning("Model does not support image input; retrying text-only request")
         fallback_messages = [
             *messages[:-1],
-            HumanMessage(content=user_message),
+            HumanMessage(
+                content=build_user_content(user_message, [], document_text_parts)
+            ),
         ]
         async for chunk in model.astream(fallback_messages):
             yield chunk
@@ -469,6 +487,7 @@ async def _stream_graph(
     invoke_tool_fn=None,
     max_iterations: int | None = None,
     image_parts: list[dict] | None = None,
+    document_text_parts: list[dict] | None = None,
 ):
     """
     流式执行对话图，通过 SSE 逐步输出模型回复
@@ -529,6 +548,7 @@ async def _stream_graph(
                 tools=tools,
                 invoke_tool_fn=invoke_tool_fn,
                 image_parts=image_parts,
+                document_text_parts=document_text_parts,
             )
             if result.content:
                 yield {"type": "message_delta", "content": result.content}
@@ -538,7 +558,11 @@ async def _stream_graph(
         messages = [
             SystemMessage(content=system_prompt),
             *build_history_messages(history),
-            HumanMessage(content=build_user_content(user_message, image_parts)),
+            HumanMessage(
+                content=build_user_content(
+                    user_message, image_parts, document_text_parts
+                )
+            ),
         ]
         content_parts: list[str] = []
         thinking_parts: list[str] = []
@@ -552,7 +576,9 @@ async def _stream_graph(
         while True:
             iteration_count += 1
             response = None
-            async for chunk in _astream_with_image_fallback(bound_model, messages, user_message, image_parts):
+            async for chunk in _astream_with_image_fallback(
+                bound_model, messages, user_message, image_parts, document_text_parts
+            ):
                 usage = merge_token_usage(usage, extract_token_usage(chunk))
                 response = chunk if response is None else response + chunk
 
@@ -642,9 +668,7 @@ async def _stream_graph(
                     return
 
                 if _is_budget_exceeded_outcome(outcome):
-                    logger.warning(
-                        "Page tool budget exceeded; stopping agent loop"
-                    )
+                    logger.warning("Page tool budget exceeded; stopping agent loop")
                     budget_exceeded = True
                     break
 
@@ -732,9 +756,17 @@ async def _stream_graph(
     # 流式迭代模型输出，每个 chunk 包含增量内容
     async for chunk in _astream_with_image_fallback(
         model,
-        [SystemMessage(content=system_prompt), HumanMessage(content=build_user_content(user_message, image_parts))],
+        [
+            SystemMessage(content=system_prompt),
+            HumanMessage(
+                content=build_user_content(
+                    user_message, image_parts, document_text_parts
+                )
+            ),
+        ],
         user_message,
         image_parts,
+        document_text_parts,
     ):
         # 累积 Token 使用量统计
         usage = merge_token_usage(usage, extract_token_usage(chunk))
@@ -781,6 +813,7 @@ async def stream_graph(
     invoke_tool_fn=None,
     max_iterations: int | None = None,
     image_parts: list[dict] | None = None,
+    document_text_parts: list[dict] | None = None,
 ):
     """执行流式图，并将上游异常转换为终止 error 事件。"""
     try:
@@ -794,6 +827,7 @@ async def stream_graph(
             invoke_tool_fn=invoke_tool_fn,
             max_iterations=max_iterations,
             image_parts=image_parts,
+            document_text_parts=document_text_parts,
         ):
             yield event
     except asyncio.CancelledError:
@@ -815,6 +849,7 @@ async def run_graph(
     on_event=None,
     max_iterations: int | None = None,
     image_parts: list[dict] | None = None,
+    document_text_parts: list[dict] | None = None,
 ) -> GraphResult:
     """
     非流式执行对话图，支持工具调用循环
@@ -896,7 +931,11 @@ async def run_graph(
         "messages": [
             SystemMessage(content=system_prompt),
             *build_history_messages(history),
-            HumanMessage(content=build_user_content(user_message, image_parts)),
+            HumanMessage(
+                content=build_user_content(
+                    user_message, image_parts, document_text_parts
+                )
+            ),
         ]
     }
 

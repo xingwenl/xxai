@@ -55,5 +55,5 @@
     "docs/harness/requests/2026-08-25-ai-sdk-file-attachments/spec.md",
     "docs/harness/requests/2026-08-25-ai-sdk-file-attachments/plan.md"
   ],
-  "notes": "Phase 1 实现完成并通过提交前全量验证：后端 132 测试通过、ruff 0 错误、SDK 96/96、type-check/build 通过、Alembic 处于 head、路由注册无重复。验证中修复路由遮蔽与 baseUrl 双前缀两个 bug。提交后补齐 Word/Excel 解析运行依赖（docx2txt/openpyxl）并新增真实样例解析测试（tests/asset/test_load_file_text.py），附件范围 138 测试通过。待 Phase 2 provider 适配和向量检索。"
+  "notes": "Phase 1 实现完成并通过提交前全量验证：后端 132 测试通过、ruff 0 错误、SDK 96/96、type-check/build 通过、Alembic 处于 head、路由注册无重复。验证中修复路由遮蔽与 baseUrl 双前缀两个 bug。提交后补齐 Word/Excel 解析运行依赖（docx2txt/openpyxl）与真实样例解析测试，并实现文档附件文本注入模型（file 内容块持久化、图片降级重试保留文档文本），附件范围 144 测试通过。待 Phase 2 provider 适配和向量检索。"
 }

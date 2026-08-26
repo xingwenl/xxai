@@ -1,5 +1,22 @@
 # 验证记录
 
+## 2026-08-26 文档附件文本注入模型
+
+网关在发送消息时把已解析的 PDF/Word/Excel 文本以 text 内容块注入模型，并持久化 `file` 内容块；图片降级重试保留文档文本。
+
+| 项目 | 命令 | 结果 |
+| --- | --- | --- |
+| 附件处理全量 | `cd apps/backend && poetry run pytest tests/asset tests/gateway tests/conversation -q` | 通过，144 个通过、1 个条件跳过 |
+| 新增文档注入测试 | `cd apps/backend && poetry run pytest tests/conversation/test_runtime.py tests/gateway/test_attachment_parts.py -q` | 通过，48/48 |
+| 静态检查 | `cd apps/backend && poetry run ruff check app tests` | 通过 |
+| 差异格式检查 | `git diff --check` | 通过 |
+
+验证说明：
+
+- `tests/conversation/test_runtime.py` 新增 2 个用例：文档文本内容块按 text → 文档 → 图片顺序传入模型；纯文本模型拒绝图片时重试请求保留文档文本、仅移除图片内容块。
+- 新增 `tests/gateway/test_attachment_parts.py`（4 个用例）：文档附件读取抽取文本并生成 `file` 内容块；处理未完成时返回 `asset_not_ready`；图片附件仍转换为 data URL；无附件返回空。
+- 已知限制：文档注入的是解析文本而非向量检索结果；第二期接入 embedding/pgvector 后可切换为 Top-K 检索注入。
+
 ## 2026-08-26 Word/Excel 解析依赖补齐
 
 新增 `docx2txt`、`openpyxl` 运行时依赖，`SimpleDirectoryReader` 对 PDF/DOCX/XLSX 统一解析并抽取文本；新增真实样例测试覆盖三种格式与 Excel 多 sheet 场景。

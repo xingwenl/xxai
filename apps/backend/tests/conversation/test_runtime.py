@@ -482,14 +482,54 @@ def test_graph_passes_image_parts_to_model_as_multimodal_user_content():
         )
     )
 
-    assert captured == [[
-        {"type": "text", "text": "这是什么"},
-        {
-            "type": "image_url",
-            "image_url": {"url": "data:image/jpeg;base64,YQ=="},
-        },
-    ]]
+    assert captured == [
+        [
+            {"type": "text", "text": "这是什么"},
+            {
+                "type": "image_url",
+                "image_url": {"url": "data:image/jpeg;base64,YQ=="},
+            },
+        ]
+    ]
     assert result.content == "图片是一张测试图"
+
+
+def test_graph_passes_document_text_parts_before_image_parts():
+    captured = []
+
+    class Model:
+        async def ainvoke(self, messages):
+            captured.append(messages[-1].content)
+            return AIMessage(content="已读取附件")
+
+    result = asyncio.run(
+        run_graph(
+            Model(),
+            system_prompt="分析附件",
+            user_message="请总结",
+            document_text_parts=[
+                {"type": "text", "text": "附件 report.pdf 内容如下：\n季度营收增长 30%"}
+            ],
+            image_parts=[
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/jpeg;base64,YQ=="},
+                }
+            ],
+        )
+    )
+
+    assert captured == [
+        [
+            {"type": "text", "text": "请总结"},
+            {"type": "text", "text": "附件 report.pdf 内容如下：\n季度营收增长 30%"},
+            {
+                "type": "image_url",
+                "image_url": {"url": "data:image/jpeg;base64,YQ=="},
+            },
+        ]
+    ]
+    assert result.content == "已读取附件"
 
 
 def test_stream_graph_retries_text_only_when_model_rejects_image_input():
@@ -504,18 +544,66 @@ def test_stream_graph_retries_text_only_when_model_rejects_image_input():
             yield AIMessageChunk(content="已按文字请求处理")
 
     model = TextOnlyModel()
+
     async def collect():
-        return [item async for item in stream_graph(
-            model,
-            system_prompt="识别图片",
-            user_message="这是什么",
-            image_parts=[{"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,YQ=="}}],
-        )]
+        return [
+            item
+            async for item in stream_graph(
+                model,
+                system_prompt="识别图片",
+                user_message="这是什么",
+                image_parts=[
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/jpeg;base64,YQ=="},
+                    }
+                ],
+            )
+        ]
 
     events = asyncio.run(collect())
     assert events[-1].get("result").content == "已按文字请求处理"
     assert isinstance(model.calls[0], list)
     assert model.calls[1] == "这是什么"
+
+
+def test_stream_graph_image_retry_keeps_document_text_parts():
+    class TextOnlyModel:
+        def __init__(self):
+            self.calls = []
+
+        async def astream(self, messages):
+            self.calls.append(messages[-1].content)
+            if len(self.calls) == 1:
+                raise ValueError("messages.content.type 参数非法，取值范围 ['text']")
+            yield AIMessageChunk(content="已按文字请求处理")
+
+    model = TextOnlyModel()
+    document_parts = [{"type": "text", "text": "附件 sales.xlsx 内容如下：\n金额: 100"}]
+
+    async def collect():
+        return [
+            item
+            async for item in stream_graph(
+                model,
+                system_prompt="分析附件",
+                user_message="请总结",
+                image_parts=[
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/jpeg;base64,YQ=="},
+                    }
+                ],
+                document_text_parts=document_parts,
+            )
+        ]
+
+    events = asyncio.run(collect())
+    assert events[-1].get("result").content == "已按文字请求处理"
+    assert model.calls[1] == [
+        {"type": "text", "text": "请总结"},
+        {"type": "text", "text": "附件 sales.xlsx 内容如下：\n金额: 100"},
+    ]
 
 
 def test_graph_injects_persisted_history_before_current_message():
@@ -591,7 +679,12 @@ class StreamingToolCallingModel:
             yield AIMessageChunk(
                 content="",
                 tool_call_chunks=[
-                    {"name": "lookup", "args": '{"query":"退', "id": "call-1", "index": 0}
+                    {
+                        "name": "lookup",
+                        "args": '{"query":"退',
+                        "id": "call-1",
+                        "index": 0,
+                    }
                 ],
             )
             yield AIMessageChunk(
@@ -874,7 +967,12 @@ class InfiniteStreamingToolCallingModel:
             yield AIMessageChunk(
                 content="",
                 tool_call_chunks=[
-                    {"name": "lookup", "args": '{"query":"退', "id": "call-1", "index": 0}
+                    {
+                        "name": "lookup",
+                        "args": '{"query":"退',
+                        "id": "call-1",
+                        "index": 0,
+                    }
                 ],
             )
             yield AIMessageChunk(
