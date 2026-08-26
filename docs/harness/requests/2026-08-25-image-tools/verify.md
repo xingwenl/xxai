@@ -87,3 +87,17 @@ pnpm run build
 - `poetry run pytest -q` 全量收集受仓库已有同名测试模块影响：`test_models`、`test_routes`、`test_services` 出现 import file mismatch；因此使用按目录/文件的目标测试完成回归，未修改无关测试收集结构。
 - 未调用真实 OpenAI 账号，图片生成使用 fake client 验证；上线前需在已配置 `OPENAI_API_KEY` 的环境做一次联调。
 - 未执行浏览器端人工截图回归；SDK 构建和组件类型检查已通过。
+
+### 2026-08-26 执行分发轻量重构验证
+
+本次为行为保持型重构，仅调整 `invoke_builtin_tool` 的分发方式，工具契约、错误码与返回结构不变。
+
+命令：
+
+```bash
+cd apps/backend
+poetry run ruff check app/modules/builtin_tool/services.py
+poetry run pytest tests/builtin_tool tests/conversation/test_runtime.py -q
+```
+
+结果：ruff 通过；63 个目标测试全部通过，覆盖 `http_get`、`http_post`、`image_generate`、`image_read` 执行与运行时集成。

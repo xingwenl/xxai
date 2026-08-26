@@ -97,3 +97,9 @@
 - 已确认：使用 OpenAI Images API。
 - 已确认：使用 `b64_json` 并持久化 assetId，而不是依赖临时 URL。
 - 已确认：AI SDK 通过带 token 的请求展示受保护资源。
+
+### 2026-08-26 轻量重构增量
+
+- 变更内容：`services.py` 执行分发由 if/else 改为 `BuiltinToolContext` + handler 注册表（`_TOOL_HANDLERS` 按 registry executor 查找）。
+- 影响：不改变工具契约、错误码与返回结构；新增内置工具只需注册 handler 与 registry 条目。
+- 验证：`tests/builtin_tool` 与 `tests/conversation/test_runtime.py` 回归 + ruff 检查。
