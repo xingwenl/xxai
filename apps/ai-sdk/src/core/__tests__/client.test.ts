@@ -2,6 +2,95 @@ import { describe, expect, it, vi } from 'vitest'
 import { AgentClient } from '../client'
 
 describe('AgentClient protocol events', () => {
+  it('uses explicit baseUrl for HTTP asset uploads instead of the WebSocket endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: { assetId: 'asset-1', filename: 'a.txt', mimeType: 'text/plain', size: 1, status: 'uploaded' } })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new AgentClient({
+      endpoint: 'ws://127.0.0.1:8000/api/v1/ws/agents/1',
+      baseUrl: 'http://127.0.0.1:8000/api/v1',
+      platformId: 'p',
+      agentId: '1',
+      getToken: async () => 'token'
+    })
+
+    await client.uploadAsset(new File(['a'], 'a.txt', { type: 'text/plain' }))
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/api/v1/embed/assets',
+      expect.objectContaining({ method: 'POST' })
+    )
+    vi.unstubAllGlobals()
+  })
+
+  it('derives the legacy HTTP base URL from an agent WebSocket endpoint when baseUrl is omitted', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: { assetId: 'asset-1', filename: 'a.txt', mimeType: 'text/plain', size: 1, status: 'uploaded' } })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new AgentClient({
+      endpoint: 'ws://127.0.0.1:8000/api/v1/ws/agents/1',
+      platformId: 'p',
+      agentId: '1',
+      getToken: async () => 'token'
+    })
+
+    await client.uploadAsset(new File(['a'], 'a.txt', { type: 'text/plain' }))
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/api/v1/embed/assets',
+      expect.objectContaining({ method: 'POST' })
+    )
+    vi.unstubAllGlobals()
+  })
+
+  it('uploads into the current conversation when conversationId already exists', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: { assetId: 'asset-2', filename: 'b.jpg', mimeType: 'image/jpeg', size: 1, status: 'ready' } })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new AgentClient({
+      endpoint: 'ws://127.0.0.1:8000/api/v1/ws/agents/1',
+      baseUrl: 'http://127.0.0.1:8000/api/v1',
+      platformId: 'p', agentId: '1', getToken: async () => 'token'
+    })
+    ;(client as any).conversationId = '232'
+
+    await client.uploadAsset(new File(['b'], 'b.jpg', { type: 'image/jpeg' }))
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/api/v1/embed/conversations/232/assets',
+      expect.objectContaining({ method: 'POST' })
+    )
+    vi.unstubAllGlobals()
+  })
+
+  it('synchronizes the auto-created conversation with the WebSocket transport', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: {
+        assetId: 'asset-first', filename: 'first.jpg', mimeType: 'image/jpeg',
+        size: 1, status: 'ready', conversationId: 232
+      } })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new AgentClient({
+      endpoint: 'ws://127.0.0.1:8000/api/v1/ws/agents/1',
+      baseUrl: 'http://127.0.0.1:8000/api/v1',
+      platformId: 'p', agentId: '1', getToken: async () => 'token'
+    })
+
+    await client.uploadAsset(new File(['a'], 'first.jpg', { type: 'image/jpeg' }))
+
+    expect((client as any).conversationId).toBe('232')
+    expect((client as any).transport._conversationId).toBe('232')
+    vi.unstubAllGlobals()
+  })
+
   it('恢复并持久化本地消息和会话，并可清空开启新会话', () => {
     const storage = new Map<string, string>()
     vi.stubGlobal('localStorage', {
@@ -34,6 +123,34 @@ describe('AgentClient protocol events', () => {
     ;(client as any).transport.send = (message: any) => sent.push(message)
     await client.sendMessage('测试')
     expect(sent[0].payload).toMatchObject({ text: '测试', systemPrompt: '用中文回答' })
+  })
+
+  it('发送带附件的消息时在用户消息中保留图片引用', async () => {
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws',
+      baseUrl: 'https://api.test/api/v1',
+      platformId: 'p', agentId: 'a', getToken: async () => 'token'
+    })
+    const sent: any[] = []
+    ;(client as any).transport.send = (message: any) => sent.push(message)
+
+    await client.sendMessage('看下这个图片', {
+      attachments: [{
+        assetId: 'asset-1', filename: 'photo.jpg', mimeType: 'image/jpeg', size: 12,
+        previewUrl: 'blob:https://app.test/preview-1'
+      }]
+    })
+
+    expect(client.getMessages()[0].contentBlocks).toEqual([
+      expect.objectContaining({ type: 'markdown', text: '看下这个图片' }),
+      expect.objectContaining({
+        type: 'image', assetId: 'asset-1', asset_id: 'asset-1',
+        url: '/api/v1/assets/asset-1', previewUrl: 'blob:https://app.test/preview-1', alt: 'photo.jpg'
+      })
+    ])
+    expect(sent[0].payload.attachments).toEqual([
+      { assetId: 'asset-1', filename: 'photo.jpg', mimeType: 'image/jpeg', size: 12 }
+    ])
   })
 
   it('同步服务端事件顶层的 conversationId 到客户端消息和工具上下文', () => {

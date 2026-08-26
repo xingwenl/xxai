@@ -8,6 +8,15 @@
 
 **Tech Stack:** Vue/TypeScript AI SDK、FastAPI、Pydantic、SQLAlchemy/Alembic、Celery Worker、LlamaIndex file readers、PostgreSQL pgvector、现有 WebSocket/SSE 协议。
 
+## 增量计划：独立 HTTP `baseUrl`
+
+1. 在 `AgentClientOptions` 暴露可选 `baseUrl`，并集中由 `_httpBaseUrl` 读取；显式值优先，缺省时从 `endpoint` 推导以保持兼容。
+2. 让 `loadAsset`、`uploadAsset`、`getAssetStatus`、`deleteAsset` 统一使用该根路径，移除调试输出并规范尾部斜杠处理，避免 URL 拼接产生双斜杠或路径串接。
+3. 更新 README、Demo 初始化示例，明确 `endpoint` 仅用于 WebSocket，`baseUrl` 用于 HTTP API。
+4. 增加 SDK 单测，覆盖显式 `baseUrl` 和缺省推导两种情况，验证请求地址不包含 `/ws/agents/...`。
+
+本增量涉及 SDK 公共 API 契约，进入实现前需人工确认；不涉及后端数据模型、权限或路由变更。
+
 ---
 
 ## 变更文件地图

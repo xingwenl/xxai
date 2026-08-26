@@ -1,5 +1,8 @@
 # Changelog
 
+## - 2026-08-26
+- ✨ feat：文件附件上传、解析切块与当前会话缓存（Phase 1） `🧑‍💻 lixingwen`
+
 ## - 2026-08-25
 - ✨ feat：增加图片生成读取与鉴权展示 `🧑‍💻 lixingwen`
 

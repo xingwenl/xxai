@@ -42,6 +42,7 @@ from app.modules.gateway.connection import (
     normalize_conversation_id,
     validate_incoming_message,
 )
+from app.modules.gateway.schemas import AttachmentRef
 from app.modules.observability.metrics import (
     record_authentication,
     record_connection,
@@ -437,6 +438,42 @@ async def _handle_message_send(
         raw_conversation_id,
         conversation_id,
     )
+    # 校验 attachments 格式和会话权限
+    raw_attachments = message_payload.get("attachments")
+    if raw_attachments is not None:
+        if not isinstance(raw_attachments, list) or len(raw_attachments) > 10:
+            await websocket.send_text(
+                envelope(
+                    "error",
+                    {
+                        "code": "invalid_attachments",
+                        "message": "附件格式无效或数量超过限制",
+                        "retryable": False,
+                    },
+                )
+            )
+            return active_request, active_task
+        try:
+            validated_attachments = [
+                AttachmentRef(**att) if isinstance(att, dict) else AttachmentRef.model_validate(att)
+                for att in raw_attachments
+            ]
+        except Exception:
+            await websocket.send_text(
+                envelope(
+                    "error",
+                    {
+                        "code": "invalid_attachments",
+                        "message": "附件字段格式无效",
+                        "retryable": False,
+                    },
+                )
+            )
+            return active_request, active_task
+        message_payload["attachments"] = [
+            att.model_dump(by_alias=True) for att in validated_attachments
+        ]
+
     if not isinstance(message_payload.get("text"), str):
         await websocket.send_text(
             envelope(
@@ -623,6 +660,7 @@ async def produce_embed_request(
                 host_tools=context.host_tools,
                 runtime_tools=runtime_tools,
                 invoke_host_tool_fn=dispatcher.invoke,
+                attachments=message.get("attachments"),
             ):
                 await event_queue.put(event)
     except asyncio.CancelledError:

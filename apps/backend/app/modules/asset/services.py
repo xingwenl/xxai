@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import os
 import re
+import shutil
 from pathlib import Path
 from uuid import uuid4
 
@@ -46,7 +48,14 @@ async def persist_asset(
     storage_key = str(Path("assets") / str(platform_id) / asset_id / safe_name)
     target = resolve_asset_path(storage_key)
     await asyncio.to_thread(target.parent.mkdir, parents=True, exist_ok=True)
-    await asyncio.to_thread(os.replace, temp_path, target)
+    try:
+        await asyncio.to_thread(os.replace, temp_path, target)
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+        # 临时目录和持久化目录可能来自不同 Docker volume，跨设备时无法 rename。
+        await asyncio.to_thread(shutil.copyfile, temp_path, target)
+        await asyncio.to_thread(temp_path.unlink, missing_ok=True)
     try:
         return await repo.create(
             asset_id=asset_id,

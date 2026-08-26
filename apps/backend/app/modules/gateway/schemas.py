@@ -1,9 +1,10 @@
 """网关向外发送的 ai-agent.v1 协议模型。"""
 
 from datetime import datetime
+import re
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class _WireModel(BaseModel):
@@ -39,7 +40,7 @@ class ToolStatePayload(_WireModel):
 
 
 class HostToolCallPayload(_WireModel):
-    """服务端请求页面执行宿主工具时携带的参数。"""
+    """服务端请求页面执行��主工具时携带的参数。"""
 
     call_id: str
     name: str
@@ -127,3 +128,68 @@ class ProtocolEnvelope(_WireModel):
     sequence: int = Field(ge=1)
     timestamp: datetime
     payload: ProtocolPayload
+
+
+# ---------------------------------------------------------------------------
+# 附件引用 schema（message_send 入站消息中的 attachments 字段）
+# ---------------------------------------------------------------------------
+
+_ASSET_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+
+_MAX_ATTACHMENTS = 10
+
+
+class AttachmentRef(BaseModel):
+    """消息发送时携带的附件引用，客户端只传元数据，后端重新校验。"""
+
+    assetId: str = Field(
+        min_length=1,
+        max_length=128,
+        description="附件唯一标识，由上传接口返回",
+    )
+    filename: str = Field(
+        min_length=1,
+        max_length=255,
+        description="安全化处理后的文件名",
+    )
+    mimeType: str = Field(
+        min_length=1,
+        max_length=255,
+        description="资源媒体类型",
+    )
+    size: int = Field(
+        ge=1,
+        description="资源字节大小",
+    )
+
+    @field_validator("assetId")
+    @classmethod
+    def validate_asset_id_format(cls, value: str) -> str:
+        if not _ASSET_ID_RE.fullmatch(value):
+            raise ValueError("assetId 格式无效")
+        return value
+
+
+class MessageSendPayload(BaseModel):
+    """message_send 入站消息的 payload 结构。"""
+
+    text: str = Field(
+        min_length=1,
+        max_length=20_000,
+        description="用户消息文本",
+    )
+    conversationId: int | None = Field(
+        default=None,
+        ge=1,
+        description="会话 ID",
+    )
+    attachments: list[AttachmentRef] | None = Field(
+        default=None,
+        max_length=_MAX_ATTACHMENTS,
+        description="附件引用列表，最多 10 个",
+    )
+    systemPrompt: str | None = Field(
+        default=None,
+        max_length=20_000,
+        description="可选的系统提示词",
+    )

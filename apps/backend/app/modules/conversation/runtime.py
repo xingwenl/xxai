@@ -124,6 +124,36 @@ def _content_text(content: Any) -> str:
     )
 
 
+def build_user_content(user_message: str, image_parts: list[dict] | None = None):
+    """仅在存在图片时构造多模态内容，保持纯文本模型调用兼容。"""
+    if not image_parts:
+        return user_message
+    return [{"type": "text", "text": user_message}, *image_parts]
+
+
+def _is_text_only_image_error(error: Exception) -> bool:
+    """识别兼容网关返回的“模型仅支持 text”错误。"""
+    text = str(error)
+    return "messages.content.type" in text and "text" in text
+
+
+async def _astream_with_image_fallback(model, messages: list[Any], user_message: str, image_parts):
+    """视觉输入被上游拒绝时，自动以文字重试一次。"""
+    try:
+        async for chunk in model.astream(messages):
+            yield chunk
+    except Exception as error:
+        if not image_parts or not _is_text_only_image_error(error):
+            raise
+        logger.warning("Model does not support image input; retrying text-only request")
+        fallback_messages = [
+            *messages[:-1],
+            HumanMessage(content=user_message),
+        ]
+        async for chunk in model.astream(fallback_messages):
+            yield chunk
+
+
 def _thinking_text(chunk: Any) -> str:
     """从模型流式块中提取思考/推理文本，与正文严格分离。
 
@@ -438,6 +468,7 @@ async def _stream_graph(
     tools: list[Any] | None = None,
     invoke_tool_fn=None,
     max_iterations: int | None = None,
+    image_parts: list[dict] | None = None,
 ):
     """
     流式执行对话图，通过 SSE 逐步输出模型回复
@@ -497,6 +528,7 @@ async def _stream_graph(
                 citations=citations,
                 tools=tools,
                 invoke_tool_fn=invoke_tool_fn,
+                image_parts=image_parts,
             )
             if result.content:
                 yield {"type": "message_delta", "content": result.content}
@@ -506,7 +538,7 @@ async def _stream_graph(
         messages = [
             SystemMessage(content=system_prompt),
             *build_history_messages(history),
-            HumanMessage(content=user_message),
+            HumanMessage(content=build_user_content(user_message, image_parts)),
         ]
         content_parts: list[str] = []
         thinking_parts: list[str] = []
@@ -520,7 +552,7 @@ async def _stream_graph(
         while True:
             iteration_count += 1
             response = None
-            async for chunk in bound_model.astream(messages):
+            async for chunk in _astream_with_image_fallback(bound_model, messages, user_message, image_parts):
                 usage = merge_token_usage(usage, extract_token_usage(chunk))
                 response = chunk if response is None else response + chunk
 
@@ -679,6 +711,7 @@ async def _stream_graph(
             user_message=user_message,
             history=history,
             citations=citations,
+            image_parts=image_parts,
         )
         if result.content:
             yield {"type": "message_delta", "content": result.content}
@@ -697,11 +730,11 @@ async def _stream_graph(
     usage = None
 
     # 流式迭代模型输出，每个 chunk 包含增量内容
-    async for chunk in model.astream(
-        [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_message),
-        ]
+    async for chunk in _astream_with_image_fallback(
+        model,
+        [SystemMessage(content=system_prompt), HumanMessage(content=build_user_content(user_message, image_parts))],
+        user_message,
+        image_parts,
     ):
         # 累积 Token 使用量统计
         usage = merge_token_usage(usage, extract_token_usage(chunk))
@@ -747,6 +780,7 @@ async def stream_graph(
     tools: list[Any] | None = None,
     invoke_tool_fn=None,
     max_iterations: int | None = None,
+    image_parts: list[dict] | None = None,
 ):
     """执行流式图，并将上游异常转换为终止 error 事件。"""
     try:
@@ -759,6 +793,7 @@ async def stream_graph(
             tools=tools,
             invoke_tool_fn=invoke_tool_fn,
             max_iterations=max_iterations,
+            image_parts=image_parts,
         ):
             yield event
     except asyncio.CancelledError:
@@ -779,6 +814,7 @@ async def run_graph(
     invoke_tool_fn=None,
     on_event=None,
     max_iterations: int | None = None,
+    image_parts: list[dict] | None = None,
 ) -> GraphResult:
     """
     非流式执行对话图，支持工具调用循环
@@ -860,7 +896,7 @@ async def run_graph(
         "messages": [
             SystemMessage(content=system_prompt),
             *build_history_messages(history),
-            HumanMessage(content=user_message),
+            HumanMessage(content=build_user_content(user_message, image_parts)),
         ]
     }
 

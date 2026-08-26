@@ -48,7 +48,12 @@ def validate_incoming_message(raw: str) -> dict:
     } and not isinstance(message.get("payload"), dict):
         raise ValueError("invalid_host_tool_payload")
     if message.get("type") == "message_send":
-        text = message.get("payload", {}).get("text")
-        if isinstance(text, str) and len(text.encode("utf-8")) > MAX_TEXT_BYTES:
-            raise ValueError("text_too_large")
+        payload = message.get("payload", {})
+        if isinstance(payload, dict):
+            text = payload.get("text")
+            if isinstance(text, str) and len(text.encode("utf-8")) > MAX_TEXT_BYTES:
+                raise ValueError("text_too_large")
+            attachments = payload.get("attachments")
+            if attachments is not None and not isinstance(attachments, list):
+                raise ValueError("invalid_attachments")
     return message

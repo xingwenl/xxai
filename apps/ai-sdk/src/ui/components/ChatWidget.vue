@@ -61,7 +61,7 @@
         :agent="agent"
         :question="pendingQuestion"
       />
-      <ChatInput :is-sending="isSending" @send="handleSend" @stop="handleStop" />
+      <ChatInput ref="chatInputRef" :is-sending="isSending" @send="handleSend" @stop="handleStop" @upload-attachment="handleUploadAttachment" />
       <div
         class="xxai-window-resize-handle"
         aria-hidden="true"
@@ -128,6 +128,7 @@ const pendingLoop = ref<import('../../core').AgentLoopRun | null>(null)
 const connectionState = ref<ConnectionState>('disconnected')
 const customComponents = ref<Record<string, Component>>({})
 const pendingConfirmation = ref<ToolConfirmationData | null>(null)
+const chatInputRef = ref<any>(null)
 const pendingQuestion = ref<AgentQuestion | null>(null)
 const viewport = ref({ width: 0, height: 0 })
 const windowRect = ref<WindowRect>({ x: 0, y: 0, width: 430, height: 680 })
@@ -286,10 +287,30 @@ function restoreWindowRect(): WindowRect {
   return defaultWindowRect(layoutContext.value)
 }
 
-async function handleSend(text: string) {
+async function handleSend(text: string, attachments?: any[]) {
   if (isSending.value) return
   isSending.value = true
-  await agent.sendMessage(text)
+  await agent.sendMessage(text, attachments ? { attachments } : undefined)
+}
+
+async function handleUploadAttachment(file: File) {
+  try {
+    const result = await agent.uploadAsset(file)
+    if (chatInputRef.value) {
+      chatInputRef.value.updateAttachment(
+        // 找到匹配的 pending attachment
+        chatInputRef.value.getAttachments().find((a: any) => a.filename === file.name && a.state === 'pending')?.id || '',
+        { state: 'ready', assetId: result.assetId }
+      )
+    }
+  } catch (error) {
+    if (chatInputRef.value) {
+      const pending = chatInputRef.value.getAttachments().find((a: any) => a.filename === file.name && a.state === 'pending')
+      if (pending) {
+        chatInputRef.value.updateAttachment(pending.id, { state: 'failed', errorMessage: error instanceof Error ? error.message : '上传失败' })
+      }
+    }
+  }
 }
 
 function handleStop() {

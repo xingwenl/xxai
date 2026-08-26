@@ -1,9 +1,9 @@
 """网关请求任务和 Embed 对话流的运行时编排。"""
 
 import asyncio
+import base64
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
-
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.modules.conversation.repositories import ConversationRepository
@@ -14,9 +14,63 @@ from app.modules.conversation.runtime import (
     image_content_blocks,
 )
 from app.modules.conversation.schemas import sanitize_content_blocks
+from app.modules.asset.repositories import AssetRepository
+from app.modules.asset.services import resolve_asset_path
+from app.modules.asset_processing.repositories import AssetProcessingRepository
+from app.modules.asset_processing.models import ProcessingStatus
 from app.shared.exceptions import NotFoundException
 
 logger = get_logger(__name__)
+
+
+async def _load_embed_image_parts(
+    repo: ConversationRepository,
+    conversation,
+    *,
+    attachments: list[dict] | None,
+    platform_id: int,
+    agent_id: int,
+    end_user_id: int,
+) -> tuple[list[dict], list[dict]]:
+    """按当前 Embed 主体和会话读取图片，转换为模型可接受的 data URL。"""
+    if not attachments:
+        return [], []
+    image_parts: list[dict] = []
+    content_blocks: list[dict] = []
+    asset_repo = AssetRepository(repo.session)
+    processing_repo = AssetProcessingRepository(repo.session)
+    for attachment in attachments or []:
+        asset_id = str(attachment["assetId"])
+        asset = await asset_repo.get_for_embed_conversation(
+            asset_id,
+            platform_id=platform_id,
+            agent_id=agent_id,
+            end_user_id=end_user_id,
+            conversation_id=conversation.id,
+        )
+        if asset is None:
+            raise ValueError("attachment_not_found")
+        if not asset.content_type.startswith("image/"):
+            continue
+        processing = await processing_repo.get_processing(asset.id, conversation.id)
+        if processing is not None and processing.status != ProcessingStatus.ready:
+            raise ValueError("asset_not_ready")
+        path = resolve_asset_path(asset.storage_key)
+        data = await asyncio.to_thread(path.read_bytes)
+        data_url = f"data:{asset.content_type};base64,{base64.b64encode(data).decode('ascii')}"
+        image_parts.append({"type": "image_url", "image_url": {"url": data_url}})
+        content_blocks.append({
+            "id": f"attachment_{asset.asset_id}",
+            "type": "image",
+            "status": "completed",
+            "asset_id": asset.asset_id,
+            "url": f"/api/v1/assets/{asset.asset_id}",
+            "alt": asset.filename,
+            "fileName": asset.filename,
+            "mimeType": asset.content_type,
+            "size": asset.size_bytes,
+        })
+    return image_parts, content_blocks
 
 
 def filter_conflicting_runtime_tools(tools: list | None) -> list:
@@ -306,6 +360,7 @@ async def stream_embed_chat(
     host_tools: list | None = None,
     runtime_tools: list | None = None,
     invoke_host_tool_fn=None,
+    attachments: list[dict] | None = None,
 ) -> AsyncIterator[dict]:
     """把一次 Embed 消息转换为网关事件流。
 
@@ -334,6 +389,15 @@ async def stream_embed_chat(
         conversation_id=conversation_id,
         request_id=request_id,
     )
+    image_parts, attachment_blocks = await _load_embed_image_parts(
+        repo,
+        conversation,
+        attachments=attachments,
+        platform_id=platform_id,
+        agent_id=context.agent.id,
+        end_user_id=end_user_id,
+    )
+
 
     # Embed SDK 只发送当前消息和可信会话 ID，历史由服务端按窗口读取。
     history_since = datetime.now(timezone.utc) - timedelta(
@@ -347,6 +411,10 @@ async def stream_embed_chat(
         conversation.id,
         role="user",
         content=message,
+        content_blocks=sanitize_content_blocks([
+            {"id": f"message_{request_id}_markdown", "type": "markdown", "text": message, "status": "completed"},
+            *attachment_blocks,
+        ]),
         citations=[],
         knowledge_grounded=False,
     )
@@ -468,6 +536,7 @@ async def stream_embed_chat(
             caller_system_prompt=system_prompt,
         ),
         user_message=message,
+        image_parts=image_parts,
         history=history,
         citations=citations,
         tools=runtime_tools if runtime_tools is not None else host_tools,

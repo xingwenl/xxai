@@ -2,7 +2,7 @@
   "id": "2026-08-25-ai-sdk-file-attachments",
   "title": "AI SDK 文件附件与当前会话缓存",
   "scope": "full-stack",
-  "phase": "plan",
+  "phase": "verify",
   "status": "active",
   "riskLevel": "high",
   "changeTypes": [
@@ -43,15 +43,17 @@
   ],
   "owner": "ai",
   "createdAt": "2026-08-25",
-  "updatedAt": "2026-08-25",
+  "updatedAt": "2026-08-26",
   "relatedPaths": [
     "apps/ai-sdk",
     "apps/backend/app/modules/asset",
+    "apps/backend/app/modules/asset_processing",
     "apps/backend/app/modules/conversation",
     "apps/backend/app/modules/knowledge",
+    "apps/backend/app/modules/gateway",
     "docs/harness/requests/2026-08-25-ai-sdk-file-attachments/research.md",
     "docs/harness/requests/2026-08-25-ai-sdk-file-attachments/spec.md",
     "docs/harness/requests/2026-08-25-ai-sdk-file-attachments/plan.md"
   ],
-  "notes": "当前阶段仅完成 research/spec/plan 文档，尚未修改业务代码。"
+  "notes": "Phase 1 实现完成并通过提交前全量验证：后端 132 测试通过、ruff 0 错误、SDK 96/96、type-check/build 通过、Alembic 处于 head、路由注册无重复。验证中修复路由遮蔽与 baseUrl 双前缀两个 bug。待 Phase 2 provider 适配和向量检索。"
 }

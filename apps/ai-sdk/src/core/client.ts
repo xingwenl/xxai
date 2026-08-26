@@ -1,4 +1,5 @@
 import type {
+  SendMessageOptions,
   AgentCallbacks,
   AgentClientOptions,
   AgentInfo,
@@ -57,7 +58,19 @@ export class AgentClient {
   private _clientInfo: EmbedClientInfo | undefined
   private _agentInfo: AgentInfo | undefined
   private _quota: QuotaUsage | undefined
+  private _token: string = '';
   readonly storageKey: string
+
+  /** 干净的 HTTP API 根路径，优先使用 baseUrl，否则从 WS endpoint 推导。 */
+  private get _httpBaseUrl(): string {
+    // baseUrl 已是完整的 HTTP API 根路径（含 /api/v1），直接使用，避免重复拼接前缀。
+    if (this.options.baseUrl) return this.options.baseUrl.replace(/\/+$/, '')
+    // 从 ws://host/api/v1/ws/agents/1 推导为 http://host/api/v1
+    const ws = this.options.endpoint
+    const http = ws.replace(/^ws(s?):\/\//, 'http$1://')
+    // 去掉 /ws/agents/... 后缀，只保留 /api/v1 前缀
+    return http.replace(/\/ws\/agents\/.*$/, '').replace(/\/+$/, '')
+  }
 
   constructor(options: AgentClientOptions) {
     this.options = {
@@ -88,7 +101,7 @@ export class AgentClient {
 
     this.transport = new WebSocketTransport({
       endpoint: this.options.endpoint,
-      getToken: this.options.getToken,
+      getToken: this._getToken.bind(this),
       platformId: this.options.platformId,
       agentId: this.options.agentId,
       user: this.options.user,
@@ -103,17 +116,24 @@ export class AgentClient {
     this.setupTransportListeners()
     this.persistState()
   }
-
-  /** 获取受保护的会话资源，返回仅在当前页面有效的 Blob URL。 */
-  async loadAsset(url: string): Promise<string> {
-    const endpoint = this.options.endpoint.replace(/^ws(s?):\/\//, 'http$1://')
-    console.log('url', endpoint, url)
-    const resourceUrl = new URL(url, endpoint).toString()
+  async _getToken() {
+    if (!this.options?.getToken) return ''
+    if (this._token) return this._token
     const token = await this.options.getToken({
       platformId: this.options.platformId,
       agentId: this.options.agentId,
       user: this.options.user
     })
+    this._token = token
+
+    return token;
+  }
+
+  /** 获取受保护的会话资源，返回仅在当前页面有效的 Blob URL。 */
+  async loadAsset(url: string): Promise<string> {
+    const endpoint = this._httpBaseUrl
+    const resourceUrl = new URL(url, endpoint).toString()
+    const token = await this._getToken()
     const response = await fetch(resourceUrl, {
       headers: { Authorization: `Bearer ${token}` }
     })
@@ -167,6 +187,9 @@ export class AgentClient {
         conversationId: msg.conversationId
       })
       this.conversationId = msg.conversationId
+      if (this.transport instanceof WebSocketTransport) {
+        this.transport.setConversationId(msg.conversationId)
+      }
       this.persistState()
     }
     let message: Message | null = null
@@ -175,6 +198,9 @@ export class AgentClient {
       case 'session_ready':
         if (typeof msg.payload.sessionId === 'string' && msg.payload.sessionId) {
           this.conversationId = msg.payload.sessionId
+          if (this.transport instanceof WebSocketTransport) {
+            this.transport.setConversationId(msg.payload.sessionId)
+          }
           this.persistState()
         }
         // 网关在认证成功后下发 embed client/agent 基本信息与配额快照；
@@ -537,7 +563,8 @@ export class AgentClient {
     }
   }
 
-  async sendMessage(text: string): Promise<void> {
+  async sendMessage(text: string, options?: SendMessageOptions): Promise<void> {
+    const attachments = options?.attachments || []
     const userMessage: Message = {
       id: generateId(),
       role: 'user',
@@ -546,6 +573,27 @@ export class AgentClient {
         type: 'text',
         text: text
       },
+      contentBlocks: [
+        {
+          id: `${generateId()}_text`,
+          type: 'markdown',
+          text,
+          status: 'completed'
+        },
+        ...attachments.map((attachment) => ({
+          id: `attachment_${attachment.assetId}`,
+          type: attachment.mimeType.startsWith('image/') ? 'image' as const : 'file' as const,
+          assetId: attachment.assetId,
+          asset_id: attachment.assetId,
+          url: `/api/v1/assets/${attachment.assetId}`,
+          previewUrl: attachment.previewUrl,
+          alt: attachment.filename,
+          fileName: attachment.filename,
+          mimeType: attachment.mimeType,
+          size: attachment.size,
+          status: 'completed' as const
+        }))
+      ],
       timestamp: new Date(),
       conversationId: this.conversationId
     }
@@ -555,18 +603,122 @@ export class AgentClient {
     this._callbacks.onMessage?.(userMessage)
     this.eventEmitter.emit('message', userMessage)
 
+    const payload: Record<string, unknown> = {
+      text,
+      ...(this._systemPrompt ? { systemPrompt: this._systemPrompt } : {}),
+    }
+
+    // 如果提供了附件，添加到 payload 中
+    if (attachments.length > 0) {
+      payload.attachments = attachments.map((att) => ({
+        assetId: att.assetId,
+        filename: att.filename,
+        mimeType: att.mimeType,
+        size: att.size,
+      }))
+    }
+
+    if (options?.systemPrompt) {
+      payload.systemPrompt = options.systemPrompt
+    }
+
     const outgoing: OutgoingMessage = {
       type: 'message_send',
       requestId: generateId(),
-      payload: {
-        text,
-        ...(this._systemPrompt ? { systemPrompt: this._systemPrompt } : {})
-      }
+      payload,
     }
 
     this.currentRequestId = outgoing.requestId
     this.activeRequestId = outgoing.requestId
     this.transport.send(outgoing)
+  }
+
+  /** 上传附件：已有会话时归入当前会话，否则由后端自动创建会话。 */
+  async uploadAsset(
+    file: File
+  ): Promise<{ assetId: string; filename: string; mimeType: string; size: number; status: string; conversationId?: number }> {
+    const baseUrl = this._httpBaseUrl
+    const token = await this._getToken()
+
+    const formData = new FormData()
+    formData.append('file', file)
+    const uploadUrl = this.conversationId
+      ? `${baseUrl}/embed/conversations/${encodeURIComponent(this.conversationId)}/assets`
+      : `${baseUrl}/embed/assets`
+
+    const response = await fetch(
+      uploadUrl,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      }
+    )
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}))
+      throw new Error(error.message || `上传失败: ${response.status}`)
+    }
+
+    const result = await response.json()
+    const data = result.data
+
+    // 首次上传时后端自动创建会话，同步 conversationId 回客户端
+    if (data.conversationId && !this.conversationId) {
+      this.conversationId = String(data.conversationId)
+      if (this.transport instanceof WebSocketTransport) {
+        this.transport.setConversationId(this.conversationId)
+      }
+      this.persistState()
+    }
+
+    return data
+  }
+
+  /** 查询附件处理状态和 chunks。 */
+  async getAssetStatus(
+    assetId: string
+  ): Promise<{ assetId: string; status: string; chunks?: Array<{ position: number; content: string; pageNumber?: number; tokenCount: number }> }> {
+    const baseUrl = this._httpBaseUrl
+    const token = await this._getToken()
+
+    const response = await fetch(
+      `${baseUrl}/embed/conversations/${this.conversationId}/assets/${assetId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    )
+
+    if (!response.ok) {
+      throw new Error(`查询失败: ${response.status}`)
+    }
+
+    const result = await response.json()
+    return result.data
+  }
+
+  /** 删除附件。 */
+  async deleteAsset(assetId: string): Promise<void> {
+    const baseUrl = this._httpBaseUrl
+    const token = await this._getToken()
+
+    const response = await fetch(
+      `${baseUrl}/embed/conversations/${this.conversationId}/assets/${assetId}`,
+      {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    )
+
+    if (!response.ok) {
+      throw new Error(`删除失败: ${response.status}`)
+    }
   }
 
   cancelMessage(): void {

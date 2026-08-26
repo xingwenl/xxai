@@ -144,6 +144,8 @@ import 'xxai-agent/style.css'
 
 const agent = createAgentClient({
   endpoint: 'wss://ai.example.com/api/v1/ws/agents/11',
+  // HTTP API 根路径；不配置时 SDK 会从 endpoint 推导。
+  baseUrl: 'https://ai.example.com/api/v1',
   platformId: 'platform_123',
   agentId: '11',
 
@@ -188,6 +190,7 @@ SDK 不生成、不拼接、不通过 WebSocket 发送 `external_user_id`。接�
 | 参数 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `endpoint` | `string` | 是 | WebSocket 地址 |
+| `baseUrl` | `string` | 否 | HTTP API 根路径，用于附件上传、状态查询、删除和资源下载；未提供时从 `endpoint` 推导 |
 | `platformId` | `string` | 是 | 平台 ID |
 | `agentId` | `string` | 是 | Agent ID |
 | `getToken` | `(context) => Promise<string>` | 是 | 获取短期 Embed Access Token；连接和重连都会调用 |

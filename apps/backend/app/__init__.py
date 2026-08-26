@@ -31,6 +31,10 @@ from app.modules.builtin_tool.router import router as builtin_tool_router
 from app.modules.asset.router import router as asset_router
 from app.modules.wechat_bot.router import router as wechat_bot_router
 from app.modules.observability.metrics import metrics_content_type, metrics_payload
+from app.modules.asset.conversation_asset_router import (
+    conversation_router as asset_conversation_router,
+    upload_router as asset_upload_router,
+)
 from app.shared.exceptions import register_exception_handlers
 
 
@@ -90,6 +94,8 @@ def create_app() -> FastAPI:
     app.include_router(asset_router, prefix=settings.api_v1_prefix)
     app.include_router(wechat_bot_router, prefix=settings.api_v1_prefix)
 
+    app.include_router(asset_conversation_router, prefix=settings.api_v1_prefix)
+    app.include_router(asset_upload_router, prefix=settings.api_v1_prefix)
     @app.get("/metrics", include_in_schema=False, response_class=PlainTextResponse)
     async def metrics():
         if not get_settings().metrics_enabled:

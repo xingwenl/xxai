@@ -460,6 +460,64 @@ def test_graph_returns_answer_with_structured_citations():
     assert result.knowledge_grounded is True
 
 
+def test_graph_passes_image_parts_to_model_as_multimodal_user_content():
+    captured = []
+
+    class VisionModel:
+        async def ainvoke(self, messages):
+            captured.append(messages[-1].content)
+            return AIMessage(content="图片是一张测试图")
+
+    result = asyncio.run(
+        run_graph(
+            VisionModel(),
+            system_prompt="识别图片",
+            user_message="这是什么",
+            image_parts=[
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/jpeg;base64,YQ=="},
+                }
+            ],
+        )
+    )
+
+    assert captured == [[
+        {"type": "text", "text": "这是什么"},
+        {
+            "type": "image_url",
+            "image_url": {"url": "data:image/jpeg;base64,YQ=="},
+        },
+    ]]
+    assert result.content == "图片是一张测试图"
+
+
+def test_stream_graph_retries_text_only_when_model_rejects_image_input():
+    class TextOnlyModel:
+        def __init__(self):
+            self.calls = []
+
+        async def astream(self, messages):
+            self.calls.append(messages[-1].content)
+            if len(self.calls) == 1:
+                raise ValueError("messages.content.type 参数非法，取值范围 ['text']")
+            yield AIMessageChunk(content="已按文字请求处理")
+
+    model = TextOnlyModel()
+    async def collect():
+        return [item async for item in stream_graph(
+            model,
+            system_prompt="识别图片",
+            user_message="这是什么",
+            image_parts=[{"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,YQ=="}}],
+        )]
+
+    events = asyncio.run(collect())
+    assert events[-1].get("result").content == "已按文字请求处理"
+    assert isinstance(model.calls[0], list)
+    assert model.calls[1] == "这是什么"
+
+
 def test_graph_injects_persisted_history_before_current_message():
     captured = []
 

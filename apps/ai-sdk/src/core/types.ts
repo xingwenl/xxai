@@ -295,6 +295,8 @@ export interface TokenProviderContext {
 
 export interface AgentClientOptions {
   endpoint: string
+  /** HTTP API 根路径，用于上传、下载等非 WebSocket 调用。未提供时从 endpoint 推导。 */
+  baseUrl?: string
   platformId: string
   agentId: string
   getToken: (context: TokenProviderContext) => Promise<string>
@@ -344,4 +346,48 @@ export interface HostToolCall {
   arguments: unknown
   sideEffect: ToolDefinition['sideEffect']
   requiresConfirmation: boolean
+}
+
+// ---------------------------------------------------------------------------
+// 附件相关类型
+// ---------------------------------------------------------------------------
+
+/** 附件引用，在消息发送时携带。 */
+export interface AttachmentRef {
+  assetId: string
+  filename: string
+  mimeType: string
+  size: number
+  /** 当前页面即时预览地址，不会发送到后端协议。 */
+  previewUrl?: string
+}
+
+/** 附件上传和处理的实时状态。 */
+export type AttachmentUploadState =
+  | 'pending'
+  | 'uploading'
+  | 'uploaded'
+  | 'processing'
+  | 'ready'
+  | 'failed'
+  | 'unsupported'
+
+/** 输入框中待上传/已上传的附件条目。 */
+export interface AttachmentEntry {
+  id: string
+  file: File
+  assetId?: string
+  filename: string
+  mimeType: string
+  size: number
+  state: AttachmentUploadState
+  progress?: number
+  errorMessage?: string
+  thumbnailUrl?: string
+}
+
+/** sendMessage 的扩展选项，保持向后兼容的 sendMessage(text) 签名。 */
+export interface SendMessageOptions {
+  attachments?: AttachmentRef[]
+  systemPrompt?: string
 }
