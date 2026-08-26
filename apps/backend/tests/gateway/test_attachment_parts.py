@@ -46,7 +46,7 @@ def attachment_repos(monkeypatch, tmp_path):
             else:
                 filename, mime_type = "report.pdf", "application/pdf"
             return SimpleNamespace(
-                id=1,
+                id=asset_id,
                 asset_id=asset_id,
                 filename=filename,
                 content_type=mime_type,
@@ -89,9 +89,6 @@ class TestLoadEmbedAttachmentParts:
     async def test_document_injects_extracted_text_and_file_block(
         self, monkeypatch, attachment_repos, tmp_path
     ):
-        extracted = tmp_path / "report.txt"
-        extracted.write_text("季度营收增长 30%", encoding="utf-8")
-
         class FakeProcessingRepository:
             def __init__(self, session):
                 self.session = session
@@ -99,7 +96,8 @@ class TestLoadEmbedAttachmentParts:
             async def get_processing(self, asset_id, conversation_id):
                 return SimpleNamespace(
                     status=ProcessingStatus.ready,
-                    extracted_text_storage_key=str(extracted),
+                    extracted_text="季度营收增长 30%",
+                    extracted_text_storage_key=None,
                 )
 
         monkeypatch.setattr(
@@ -131,6 +129,46 @@ class TestLoadEmbedAttachmentParts:
         assert blocks[0]["asset_id"] == "doc-1"
 
     @async_test
+    async def test_document_falls_back_to_storage_file_when_cache_missing(
+        self, monkeypatch, attachment_repos, tmp_path
+    ):
+        extracted = tmp_path / "report.txt"
+        extracted.write_text("旧数据文本", encoding="utf-8")
+
+        class FakeProcessingRepository:
+            def __init__(self, session):
+                self.session = session
+
+            async def get_processing(self, asset_id, conversation_id):
+                return SimpleNamespace(
+                    status=ProcessingStatus.ready,
+                    extracted_text=None,
+                    extracted_text_storage_key=str(extracted),
+                )
+
+        monkeypatch.setattr(
+            gateway_runtime,
+            "AssetProcessingRepository",
+            FakeProcessingRepository,
+        )
+
+        (
+            _image_parts,
+            document_text_parts,
+            _blocks,
+        ) = await gateway_runtime._load_embed_attachment_parts(
+            SimpleNamespace(session=None),
+            _conversation(),
+            attachments=[_attachment("doc-1", "report.pdf", "application/pdf")],
+            platform_id=1,
+            agent_id=2,
+            end_user_id=3,
+        )
+
+        assert len(document_text_parts) == 1
+        assert "旧数据文本" in document_text_parts[0]["text"]
+
+    @async_test
     async def test_document_not_ready_raises(self, monkeypatch, attachment_repos):
         class FakeProcessingRepository:
             def __init__(self, session):
@@ -139,6 +177,7 @@ class TestLoadEmbedAttachmentParts:
             async def get_processing(self, asset_id, conversation_id):
                 return SimpleNamespace(
                     status=ProcessingStatus.processing,
+                    extracted_text=None,
                     extracted_text_storage_key=None,
                 )
 
@@ -172,6 +211,7 @@ class TestLoadEmbedAttachmentParts:
             async def get_processing(self, asset_id, conversation_id):
                 return SimpleNamespace(
                     status=ProcessingStatus.ready,
+                    extracted_text=None,
                     extracted_text_storage_key=None,
                 )
 
@@ -204,3 +244,92 @@ class TestLoadEmbedAttachmentParts:
         assert document_text_parts == []
         assert blocks[0]["type"] == "image"
         assert blocks[0]["asset_id"] == "img-1"
+
+
+class TestLoadHistoryAttachmentParts:
+    """历史消息附件内容恢复：按 asset 分组、去重、删除跳过。"""
+
+    def _history_user_message(self, asset_ids, content="分析附件"):
+        blocks = [
+            {
+                "type": "file" if not asset_id.startswith("img") else "image",
+                "asset_id": asset_id,
+            }
+            for asset_id in asset_ids
+        ]
+        return SimpleNamespace(role="user", content=content, content_blocks=blocks)
+
+    @async_test
+    async def test_restores_parts_by_asset_and_dedupes(
+        self, monkeypatch, attachment_repos, tmp_path
+    ):
+        calls = []
+
+        class FakeProcessingRepository:
+            def __init__(self, session):
+                self.session = session
+
+            async def get_processing(self, asset_id, conversation_id):
+                calls.append(asset_id)
+                return SimpleNamespace(
+                    status=ProcessingStatus.ready,
+                    extracted_text=f"内容 {asset_id}",
+                    extracted_text_storage_key=None,
+                )
+
+        monkeypatch.setattr(
+            gateway_runtime,
+            "AssetProcessingRepository",
+            FakeProcessingRepository,
+        )
+
+        history = [
+            self._history_user_message(["doc-1"]),
+            SimpleNamespace(role="assistant", content="已看过", content_blocks=None),
+            self._history_user_message(["doc-1", "doc-2"]),
+        ]
+        parts = await gateway_runtime._load_history_attachment_parts(
+            SimpleNamespace(session=None),
+            _conversation(),
+            history,
+            platform_id=1,
+            agent_id=2,
+            end_user_id=3,
+        )
+
+        assert sorted(parts) == ["doc-1", "doc-2"]
+        assert "内容 doc-1" in parts["doc-1"][0]["text"]
+        assert "内容 doc-2" in parts["doc-2"][0]["text"]
+        assert calls == ["doc-1", "doc-2"]
+
+    @async_test
+    async def test_skips_deleted_attachments(self, monkeypatch, attachment_repos):
+        class FakeAssetRepository:
+            def __init__(self, session):
+                self.session = session
+
+            async def get_for_embed_conversation(self, asset_id, **kwargs):
+                return None
+
+        class FakeProcessingRepository:
+            def __init__(self, session):
+                self.session = session
+
+        monkeypatch.setattr(gateway_runtime, "AssetRepository", FakeAssetRepository)
+        monkeypatch.setattr(
+            gateway_runtime,
+            "AssetProcessingRepository",
+            FakeProcessingRepository,
+        )
+
+        history = [self._history_user_message(["deleted-1"])]
+        parts = await gateway_runtime._load_history_attachment_parts(
+            SimpleNamespace(session=None),
+            _conversation(),
+            history,
+            platform_id=1,
+            agent_id=2,
+            end_user_id=3,
+        )
+
+        assert parts == {}

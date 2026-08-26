@@ -1,5 +1,23 @@
 # 验证记录
 
+## 2026-08-26 历史附件上下文恢复与文本缓存
+
+第二轮及以后的消息可通过历史内容块引用恢复图片与文档内容；文档解析文本缓存到数据库，避免重复读文件。
+
+| 项目 | 命令 | 结果 |
+| --- | --- | --- |
+| 附件处理全量 | `cd apps/backend && poetry run pytest tests/asset tests/gateway tests/conversation -q` | 通过，149 个通过、1 个条件跳过 |
+| 迁移应用 | `cd apps/backend && poetry run alembic upgrade head` | 成功，`20260825_0025 -> 20260826_0026`，当前 `20260826_0026 (head)` |
+| 列存在确认 | asyncpg 查询 `information_schema.columns` | `extracted_text` text 列已存在 |
+| 静态检查 | `cd apps/backend && poetry run ruff check app tests migrations` | 通过 |
+| 差异格式检查 | `git diff --check` | 通过 |
+
+验证说明：
+
+- 新增用例：`_load_history_attachment_parts` 按 asset 分组恢复内容并去重、已删除附件跳过；`build_history_messages` 把带附件块的历史用户消息恢复为多模态内容；纯文本模型降级重试时历史与当前图片都被移除、文档文本保留。
+- 文档文本加载改为 `processing.extracted_text` 优先，旧记录回退 `extracted_text_storage_key` 文件，单附件注入上限 16000 字符。
+- 已知限制：历史附件恢复沿用会话时间窗口（`conversation_history_window_seconds`），窗口外附件不注入；第二期接入 embedding/pgvector 后可进一步切换为 Top-K 检索注入。
+
 ## 2026-08-26 文档附件文本注入模型
 
 网关在发送消息时把已解析的 PDF/Word/Excel 文本以 text 内容块注入模型，并持久化 `file` 内容块；图片降级重试保留文档文本。

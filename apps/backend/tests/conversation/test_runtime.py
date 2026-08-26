@@ -564,7 +564,7 @@ def test_stream_graph_retries_text_only_when_model_rejects_image_input():
     events = asyncio.run(collect())
     assert events[-1].get("result").content == "已按文字请求处理"
     assert isinstance(model.calls[0], list)
-    assert model.calls[1] == "这是什么"
+    assert model.calls[1] == [{"type": "text", "text": "这是什么"}]
 
 
 def test_stream_graph_image_retry_keeps_document_text_parts():
@@ -637,6 +637,115 @@ def test_graph_injects_persisted_history_before_current_message():
     ]
     assert captured[0][-2].content == "工具结果"
     assert captured[0][-1].content == "我叫什么？"
+
+
+def test_graph_restores_history_attachment_content():
+    captured = []
+
+    class HistoryModel:
+        async def ainvoke(self, messages):
+            captured.append(messages)
+            return AIMessage(content="第二轮的图片和 Excel 我都记得")
+
+    history = [
+        SimpleNamespace(
+            role="user",
+            content="分析附件",
+            content_blocks=[
+                {"type": "file", "asset_id": "doc-1"},
+                {"type": "image", "asset_id": "img-1"},
+            ],
+            tool_call_id=None,
+        ),
+        SimpleNamespace(
+            role="assistant", content="已分析", content_blocks=None, tool_call_id=None
+        ),
+    ]
+    asyncio.run(
+        run_graph(
+            HistoryModel(),
+            system_prompt="系统",
+            history=history,
+            history_attachment_parts={
+                "doc-1": [{"type": "text", "text": "附件 doc-1 内容如下：\n金额 100"}],
+                "img-1": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/jpeg;base64,YQ=="},
+                    }
+                ],
+            },
+            user_message="刚才的图和数据是什么",
+        )
+    )
+
+    history_message = captured[0][1]
+    assert history_message.content == [
+        {"type": "text", "text": "分析附件"},
+        {"type": "text", "text": "附件 doc-1 内容如下：\n金额 100"},
+        {
+            "type": "image_url",
+            "image_url": {"url": "data:image/jpeg;base64,YQ=="},
+        },
+    ]
+    assert captured[0][-1].content == "刚才的图和数据是什么"
+
+
+def test_stream_graph_text_only_retry_strips_history_images():
+    class TextOnlyModel:
+        def __init__(self):
+            self.calls = []
+
+        async def astream(self, messages):
+            self.calls.append([getattr(m, "content", None) for m in messages])
+            if len(self.calls) == 1:
+                raise ValueError("messages.content.type 参数非法，取值范围 ['text']")
+            yield AIMessageChunk(content="已按文字请求处理")
+
+    model = TextOnlyModel()
+    history = [
+        SimpleNamespace(
+            role="user",
+            content="第一轮的图",
+            content_blocks=[{"type": "image", "asset_id": "img-1"}],
+            tool_call_id=None,
+        )
+    ]
+    tools = [
+        SimpleNamespace(name="lookup", description="", input_schema={"type": "object"})
+    ]
+
+    async def collect():
+        return [
+            item
+            async for item in stream_graph(
+                model,
+                system_prompt="系统",
+                history=history,
+                tools=tools,
+                history_attachment_parts={
+                    "img-1": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "data:image/jpeg;base64,YQ=="},
+                        }
+                    ]
+                },
+                user_message="请总结",
+                image_parts=[
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/jpeg;base64,YQ=="},
+                    }
+                ],
+            )
+        ]
+
+    events = asyncio.run(collect())
+    assert events[-1].get("result").content == "已按文字请求处理"
+    # 重试时历史图片与当前图片都被移除，消息保持纯文本
+    assert model.calls[1][1] == [{"type": "text", "text": "第一轮的图"}]
+    assert model.calls[1][2] == [{"type": "text", "text": "请总结"}]
 
 
 class ToolCallingModel:

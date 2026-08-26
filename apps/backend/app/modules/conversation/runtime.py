@@ -74,8 +74,15 @@ def _is_budget_exceeded_outcome(outcome) -> bool:
     return "page_tool_budget_exceeded" in values
 
 
-def build_history_messages(history: list[Any] | None = None) -> list[Any]:
-    """将持久化消息转换为模型消息，忽略不支持的角色和空内容。"""
+def build_history_messages(
+    history: list[Any] | None = None,
+    attachment_parts: dict[str, list[dict]] | None = None,
+) -> list[Any]:
+    """将持久化消息转换为模型消息，忽略不支持的角色和空内容。
+
+    ``attachment_parts`` 按 asset_id 提供历史附件内容块，带附件的
+    用户消息恢复为多模态内容，保证后续轮次仍能读取历史附件。
+    """
     converted = []
     for item in history or []:
         content = getattr(item, "content", "")
@@ -83,7 +90,11 @@ def build_history_messages(history: list[Any] | None = None) -> list[Any]:
             continue
         role = getattr(item, "role", None)
         if role == "user":
-            converted.append(HumanMessage(content=content))
+            parts = _history_attachment_parts(item, attachment_parts)
+            message_content = (
+                [{"type": "text", "text": content}, *parts] if parts else content
+            )
+            converted.append(HumanMessage(content=message_content))
         elif role == "assistant":
             converted.append(AIMessage(content=content))
         elif role == "tool":
@@ -94,6 +105,45 @@ def build_history_messages(history: list[Any] | None = None) -> list[Any]:
                 )
             )
     return converted
+
+
+def _history_attachment_parts(
+    item: Any,
+    attachment_parts: dict[str, list[dict]] | None,
+) -> list[dict]:
+    """按消息内容块引用，组装该条历史用户消息的附件内容块。"""
+    if not attachment_parts:
+        return []
+    parts: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for block in getattr(item, "content_blocks", None) or []:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") not in {"image", "file"}:
+            continue
+        asset_id = block.get("asset_id") or block.get("assetId")
+        if not asset_id:
+            continue
+        for part in attachment_parts.get(str(asset_id), []):
+            key = (str(asset_id), part.get("type", ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            parts.append(part)
+    return parts
+
+
+def _strip_image_parts_from_messages(messages: list[Any]) -> list[Any]:
+    """重建消息列表，移除所有 image_url 内容块，保留文本和文档内容。"""
+    rebuilt: list[Any] = []
+    for message in messages:
+        content = getattr(message, "content", None)
+        if isinstance(content, list):
+            text_parts = [part for part in content if part.get("type") != "image_url"]
+            if text_parts:
+                message = type(message)(content=text_parts)
+        rebuilt.append(message)
+    return rebuilt
 
 
 def _tool_result_content(tool, outcome) -> str:
@@ -148,11 +198,7 @@ def _is_text_only_image_error(error: Exception) -> bool:
 
 
 async def _astream_with_image_fallback(
-    model,
-    messages: list[Any],
-    user_message: str,
-    image_parts,
-    document_text_parts=None,
+    model, messages: list[Any], user_message: str, image_parts
 ):
     """视觉输入被上游拒绝时，自动以文字重试一次。"""
     try:
@@ -162,12 +208,9 @@ async def _astream_with_image_fallback(
         if not image_parts or not _is_text_only_image_error(error):
             raise
         logger.warning("Model does not support image input; retrying text-only request")
-        fallback_messages = [
-            *messages[:-1],
-            HumanMessage(
-                content=build_user_content(user_message, [], document_text_parts)
-            ),
-        ]
+        fallback_messages = _strip_image_parts_from_messages(messages)
+        if not fallback_messages:
+            fallback_messages = [HumanMessage(content=user_message)]
         async for chunk in model.astream(fallback_messages):
             yield chunk
 
@@ -488,6 +531,7 @@ async def _stream_graph(
     max_iterations: int | None = None,
     image_parts: list[dict] | None = None,
     document_text_parts: list[dict] | None = None,
+    history_attachment_parts: dict[str, list[dict]] | None = None,
 ):
     """
     流式执行对话图，通过 SSE 逐步输出模型回复
@@ -549,6 +593,7 @@ async def _stream_graph(
                 invoke_tool_fn=invoke_tool_fn,
                 image_parts=image_parts,
                 document_text_parts=document_text_parts,
+                history_attachment_parts=history_attachment_parts,
             )
             if result.content:
                 yield {"type": "message_delta", "content": result.content}
@@ -557,7 +602,7 @@ async def _stream_graph(
 
         messages = [
             SystemMessage(content=system_prompt),
-            *build_history_messages(history),
+            *build_history_messages(history, attachment_parts=history_attachment_parts),
             HumanMessage(
                 content=build_user_content(
                     user_message, image_parts, document_text_parts
@@ -577,7 +622,7 @@ async def _stream_graph(
             iteration_count += 1
             response = None
             async for chunk in _astream_with_image_fallback(
-                bound_model, messages, user_message, image_parts, document_text_parts
+                bound_model, messages, user_message, image_parts
             ):
                 usage = merge_token_usage(usage, extract_token_usage(chunk))
                 response = chunk if response is None else response + chunk
@@ -766,7 +811,6 @@ async def _stream_graph(
         ],
         user_message,
         image_parts,
-        document_text_parts,
     ):
         # 累积 Token 使用量统计
         usage = merge_token_usage(usage, extract_token_usage(chunk))
@@ -814,6 +858,7 @@ async def stream_graph(
     max_iterations: int | None = None,
     image_parts: list[dict] | None = None,
     document_text_parts: list[dict] | None = None,
+    history_attachment_parts: dict[str, list[dict]] | None = None,
 ):
     """执行流式图，并将上游异常转换为终止 error 事件。"""
     try:
@@ -828,6 +873,7 @@ async def stream_graph(
             max_iterations=max_iterations,
             image_parts=image_parts,
             document_text_parts=document_text_parts,
+            history_attachment_parts=history_attachment_parts,
         ):
             yield event
     except asyncio.CancelledError:
@@ -850,6 +896,7 @@ async def run_graph(
     max_iterations: int | None = None,
     image_parts: list[dict] | None = None,
     document_text_parts: list[dict] | None = None,
+    history_attachment_parts: dict[str, list[dict]] | None = None,
 ) -> GraphResult:
     """
     非流式执行对话图，支持工具调用循环
@@ -930,7 +977,7 @@ async def run_graph(
     state = {
         "messages": [
             SystemMessage(content=system_prompt),
-            *build_history_messages(history),
+            *build_history_messages(history, attachment_parts=history_attachment_parts),
             HumanMessage(
                 content=build_user_content(
                     user_message, image_parts, document_text_parts

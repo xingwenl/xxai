@@ -5,6 +5,7 @@
 - ✨ feat：Word/Excel 附件解析依赖与真实样例测试 `🧑‍💻 lixingwen`
 - ✨ feat：文档附件解析文本注入模型 `🧑‍💻 lixingwen`
 - ♻️ refactor：内置工具执行改为处理器注册表分发 `🧑‍💻 lixingwen`
+- ✨ feat：历史附件上下文恢复与文本缓存 `🧑‍💻 lixingwen`
 
 ## - 2026-08-25
 - ✨ feat：增加图片生成读取与鉴权展示 `🧑‍💻 lixingwen`

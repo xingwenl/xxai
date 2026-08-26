@@ -30,9 +30,7 @@ from app.shared.exceptions import BadRequestException
 logger = get_logger(__name__)
 
 
-def validate_asset_conversation(
-    asset: ConversationAsset, conversation_id: int
-) -> None:
+def validate_asset_conversation(asset: ConversationAsset, conversation_id: int) -> None:
     """校验附件是否属于当前会话，跨会话访问抛出异常。"""
     if asset.conversation_id != conversation_id:
         raise BadRequestException("附件不属于当前会话，拒绝访问")
@@ -107,9 +105,7 @@ async def create_processing_record(
         asset.id, processing_version
     )
     if existing is not None and existing.status == ProcessingStatus.ready:
-        logger.info(
-            "处理缓存命中 asset_id=%s version=%s", asset.id, processing_version
-        )
+        logger.info("处理缓存命中 asset_id=%s version=%s", asset.id, processing_version)
         return existing
 
     record = await processing_repo.create_processing(
@@ -138,7 +134,6 @@ async def execute_processing(
     """
     try:
         storage_path = resolve_asset_path(asset.storage_key)
-
 
         if is_image_mime(asset.content_type):
             # 图片：标记 ready，不解析文本
@@ -171,7 +166,10 @@ async def execute_processing(
 
         # 保存解析文本到 storage
         text_storage_key = str(
-            Path("assets") / "processed" / str(asset.platform_id) / f"{asset.asset_id}.txt"
+            Path("assets")
+            / "processed"
+            / str(asset.platform_id)
+            / f"{asset.asset_id}.txt"
         )
         text_target = resolve_asset_path(text_storage_key)
         await asyncio.to_thread(text_target.parent.mkdir, parents=True, exist_ok=True)
@@ -203,6 +201,7 @@ async def execute_processing(
             record,
             status=ProcessingStatus.ready,
             extracted_text_storage_key=text_storage_key,
+            extracted_text=text,
             completed_at=datetime.now(timezone.utc),
         )
 
@@ -246,9 +245,7 @@ def _split_text_to_chunks(
         return _simple_chunk_split(text, chunk_size, chunk_overlap)
 
 
-def _simple_chunk_split(
-    text: str, chunk_size: int, chunk_overlap: int
-) -> list[dict]:
+def _simple_chunk_split(text: str, chunk_size: int, chunk_overlap: int) -> list[dict]:
     """简单按字符切分，不回退时使用。"""
     chunks = []
     start = 0

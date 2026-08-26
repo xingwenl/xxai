@@ -88,6 +88,11 @@ class ConversationAssetProcessing(BaseModel, TimeModel):
         nullable=True,
         comment="解析后规范化文本的存储键，相对存储根目录",
     )
+    extracted_text: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="解析后规范化文本全文缓存，模型上下文直接读取，避免重复读文件",
+    )
     error_message: Mapped[str | None] = mapped_column(
         Text, nullable=True, comment="处理失败时的错误信息"
     )
@@ -143,9 +148,7 @@ class ConversationAssetChunk(BaseModel, TimeModel):
     position: Mapped[int] = mapped_column(
         Integer, nullable=False, comment="切块在文档中的序号，从 0 开始"
     )
-    content: Mapped[str] = mapped_column(
-        Text, nullable=False, comment="切块文本内容"
-    )
+    content: Mapped[str] = mapped_column(Text, nullable=False, comment="切块文本内容")
     page_number: Mapped[int | None] = mapped_column(
         Integer, nullable=True, comment="切块所在页码，从 1 开始；纯文本文件可为空"
     )
