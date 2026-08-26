@@ -8,7 +8,7 @@
 
 ## 范围
 
-- AI SDK 输入框支持图片、PDF、DOCX、TXT、Markdown 附件。
+- AI SDK 输入框支持图片、PDF、DOCX、XLSX、TXT、Markdown 附件。
 - 上传接口返回 `assetId` 和处理状态；SDK 发送文本及附件引用，不发送 Base64 文件内容。
 - 附件只允许当前会话和当前主体访问，不跨会话共享。
 - 后端异步执行文件解析、切块和缓存；处理状态可查询并可通过实时事件通知。
@@ -108,6 +108,14 @@ DELETE /embed/conversations/{conversation_id}/assets/{asset_id}
 - 后端测试覆盖权限隔离、状态机、缓存命中、失败重试和 provider 降级；SDK 测试覆盖上传状态、协议序列化和输入框交互。
 
 ## 变更记录
+
+### 2026-08-26 第 10 次变更（增量）
+
+- 变更原因：Phase 1 实现把 PDF、DOCX、XLSX 统一交给 `SimpleDirectoryReader` 解析，但后端运行环境缺少 Word/Excel 的底层解析库，导致这两种格式解析必然失败。
+- 变更内容：新增运行时依赖 `docx2txt`（DOCX）与 `openpyxl`（XLSX，多 sheet 内容全部抽取）；PDF 依赖 `pypdf` 已存在；新增 `tests/asset/test_load_file_text.py`，用真实 PDF/DOCX/XLSX 样例断言 `load_file_text` 能抽取文本。Excel 支持属于原规格"文档默认抽取为文本"的既有目标，本次补齐实现与验证。
+- 影响章节：范围、处理与模型数据流、验收标准。
+- 是否触发人工确认：否，不改变 API 契约、数据模型或权限规则，仅补齐既有解析路径的运行依赖与测试。
+- 关联计划更新：落实 Phase 1 Task 4 的文档解析步骤（TXT、Markdown、PDF、DOCX 与 Excel 统一解析）。
 
 ### 2026-08-26 第 9 次变更（fix）
 

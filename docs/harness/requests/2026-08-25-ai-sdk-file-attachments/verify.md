@@ -1,5 +1,23 @@
 # 验证记录
 
+## 2026-08-26 Word/Excel 解析依赖补齐
+
+新增 `docx2txt`、`openpyxl` 运行时依赖，`SimpleDirectoryReader` 对 PDF/DOCX/XLSX 统一解析并抽取文本；新增真实样例测试覆盖三种格式与 Excel 多 sheet 场景。
+
+| 项目 | 命令 | 结果 |
+| --- | --- | --- |
+| 新增解析测试 | `cd apps/backend && poetry run pytest tests/asset/test_load_file_text.py -q` | 通过，6/6 |
+| 附件模块测试 | `cd apps/backend && poetry run pytest tests/asset -q` | 通过，29/29 |
+| 同 Phase 1 范围全量 | `cd apps/backend && poetry run pytest tests/asset tests/gateway tests/conversation -q` | 通过，138 个通过、1 个条件跳过 |
+| 静态检查 | `cd apps/backend && poetry run ruff check app tests` | 通过 |
+| 差异格式检查 | `git diff --check` | 通过 |
+
+验证说明：
+
+- 样例文件为真实二进制格式：PDF 为 xref 偏移准确的单页文档，DOCX 为最小合法 Office Open XML 包，XLSX 由 openpyxl 生成；测试断言能抽取到具体文本内容。
+- 确认 Excel 多 sheet 行为：`load_file_text` 将每个 sheet 的解析结果按空行拼接；仅含表头、无数据行的 sheet 不产生文本（`PandasExcelReader` 的既有行为）。
+- 已知限制：PPTX 虽在允许 MIME 白名单内，但运行环境尚未安装 `python-pptx`，演示文稿解析留待后续；`xlrd` 缺失时旧版 `.xls` 也不在解析范围。
+
 ## 2026-08-26 Phase 1 全量验证与提交前修复
 
 本次为 Phase 1 提交前的完整验证，实际执行命令与结果如下：
