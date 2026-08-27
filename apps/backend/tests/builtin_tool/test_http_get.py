@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 import socket
 from functools import wraps
+from pathlib import Path
 
 import httpx
 import pytest
 
-from app.modules.builtin_tool.http_get import (
-    HttpGetError,
-    fetch_http_get,
+from app.modules.tools.basic.framework import BasicToolError
+from app.modules.tools.basic.http_get import (
+    http_get,
     sanitized_url,
     validate_public_target,
     validate_public_url,
@@ -30,7 +31,7 @@ def test_validate_public_url_rejects_credentials_and_non_http_protocols() -> Non
         "https://user:password@example.com/data",
         "http://",
     ):
-        with pytest.raises(HttpGetError) as error:
+        with pytest.raises(BasicToolError) as error:
             validate_public_url(url)
         assert error.value.code == "invalid_url"
 
@@ -47,7 +48,7 @@ async def test_validate_public_target_rejects_any_private_dns_result(
             (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0)),
         ],
     )
-    with pytest.raises(HttpGetError) as error:
+    with pytest.raises(BasicToolError) as error:
         await validate_public_target("https://example.com/data")
     assert error.value.code == "target_not_public"
 
@@ -60,7 +61,7 @@ async def test_fetch_json_returns_parsed_content_and_sanitized_url(
         return None
 
     monkeypatch.setattr(
-        "app.modules.builtin_tool.http_get.validate_public_target", allow_target
+        "app.modules.tools.basic.http_get.validate_public_target", allow_target
     )
     transport = httpx.MockTransport(
         lambda request: httpx.Response(
@@ -70,18 +71,20 @@ async def test_fetch_json_returns_parsed_content_and_sanitized_url(
             request=request,
         )
     )
-    result = await fetch_http_get(
-        "https://example.com/data?token=secret#fragment",
-        temp_dir=tmp_path,
-        total_timeout_seconds=30,
-        text_max_bytes=1024,
-        text_max_chars=100,
-        file_max_bytes=1024,
-        transport=transport,
+    result = await http_get(
+        {
+            "url": "https://example.com/data?token=secret#fragment",
+            "temp_dir": str(tmp_path),
+            "total_timeout_seconds": 30,
+            "text_max_bytes": 1024,
+            "text_max_chars": 100,
+            "file_max_bytes": 1024,
+            "transport": transport,
+        }
     )
-    assert result.kind == "json"
-    assert result.content == {"ok": True}
-    assert result.final_url == "https://example.com/data"
+    assert result["kind"] == "json"
+    assert result["content"] == {"ok": True}
+    assert result["final_url"] == "https://example.com/data"
     assert sanitized_url("https://example.com/a?secret=1#x") == "https://example.com/a"
 
 
@@ -91,7 +94,7 @@ async def test_fetch_binary_streams_to_temp_file(monkeypatch, tmp_path) -> None:
         return None
 
     monkeypatch.setattr(
-        "app.modules.builtin_tool.http_get.validate_public_target", allow_target
+        "app.modules.tools.basic.http_get.validate_public_target", allow_target
     )
     transport = httpx.MockTransport(
         lambda request: httpx.Response(
@@ -104,20 +107,22 @@ async def test_fetch_binary_streams_to_temp_file(monkeypatch, tmp_path) -> None:
             request=request,
         )
     )
-    result = await fetch_http_get(
-        "https://example.com/preview",
-        temp_dir=tmp_path,
-        total_timeout_seconds=30,
-        text_max_bytes=1024,
-        text_max_chars=100,
-        file_max_bytes=1024,
-        transport=transport,
+    result = await http_get(
+        {
+            "url": "https://example.com/preview",
+            "temp_dir": str(tmp_path),
+            "total_timeout_seconds": 30,
+            "text_max_bytes": 1024,
+            "text_max_chars": 100,
+            "file_max_bytes": 1024,
+            "transport": transport,
+        }
     )
-    assert result.kind == "image"
-    assert result.filename == "preview.png"
-    assert result.temp_path is not None
-    assert result.temp_path.read_bytes() == b"png-bytes"
-    result.temp_path.unlink()
+    assert result["kind"] == "image"
+    assert result["filename"] == "preview.png"
+    assert result["temp_path"] is not None
+    assert Path(result["temp_path"]).read_bytes() == b"png-bytes"
+    Path(result["temp_path"]).unlink()
 
 
 @async_test
@@ -128,7 +133,7 @@ async def test_unknown_binary_media_type_is_forced_to_octet_stream(
         return None
 
     monkeypatch.setattr(
-        "app.modules.builtin_tool.http_get.validate_public_target", allow_target
+        "app.modules.tools.basic.http_get.validate_public_target", allow_target
     )
     transport = httpx.MockTransport(
         lambda request: httpx.Response(
@@ -138,19 +143,21 @@ async def test_unknown_binary_media_type_is_forced_to_octet_stream(
             request=request,
         )
     )
-    result = await fetch_http_get(
-        "https://example.com/plugin.bin",
-        temp_dir=tmp_path,
-        total_timeout_seconds=30,
-        text_max_bytes=1024,
-        text_max_chars=100,
-        file_max_bytes=1024,
-        transport=transport,
+    result = await http_get(
+        {
+            "url": "https://example.com/plugin.bin",
+            "temp_dir": str(tmp_path),
+            "total_timeout_seconds": 30,
+            "text_max_bytes": 1024,
+            "text_max_chars": 100,
+            "file_max_bytes": 1024,
+            "transport": transport,
+        }
     )
-    assert result.kind == "file"
-    assert result.content_type == "application/octet-stream"
-    assert result.temp_path is not None
-    result.temp_path.unlink()
+    assert result["kind"] == "file"
+    assert result["content_type"] == "application/octet-stream"
+    assert result["temp_path"] is not None
+    Path(result["temp_path"]).unlink()
 
 
 @async_test
@@ -161,7 +168,7 @@ async def test_fetch_rejects_oversized_chunked_file_and_cleans_temp(
         return None
 
     monkeypatch.setattr(
-        "app.modules.builtin_tool.http_get.validate_public_target", allow_target
+        "app.modules.tools.basic.http_get.validate_public_target", allow_target
     )
     transport = httpx.MockTransport(
         lambda request: httpx.Response(
@@ -171,15 +178,17 @@ async def test_fetch_rejects_oversized_chunked_file_and_cleans_temp(
             request=request,
         )
     )
-    with pytest.raises(HttpGetError) as error:
-        await fetch_http_get(
-            "https://example.com/report.pdf",
-            temp_dir=tmp_path,
-            total_timeout_seconds=30,
-            text_max_bytes=4,
-            text_max_chars=4,
-            file_max_bytes=5,
-            transport=transport,
+    with pytest.raises(BasicToolError) as error:
+        await http_get(
+            {
+                "url": "https://example.com/report.pdf",
+                "temp_dir": str(tmp_path),
+                "total_timeout_seconds": 30,
+                "text_max_bytes": 4,
+                "text_max_chars": 4,
+                "file_max_bytes": 5,
+                "transport": transport,
+            }
         )
     assert error.value.code == "response_too_large"
     assert list(tmp_path.iterdir()) == []
@@ -192,10 +201,10 @@ async def test_redirect_target_is_revalidated(monkeypatch, tmp_path) -> None:
     async def validate_target(url: str) -> None:
         checked.append(url)
         if "127.0.0.1" in url:
-            raise HttpGetError("target_not_public")
+            raise BasicToolError("target_not_public")
 
     monkeypatch.setattr(
-        "app.modules.builtin_tool.http_get.validate_public_target", validate_target
+        "app.modules.tools.basic.http_get.validate_public_target", validate_target
     )
 
     def respond(request: httpx.Request) -> httpx.Response:
@@ -205,15 +214,17 @@ async def test_redirect_target_is_revalidated(monkeypatch, tmp_path) -> None:
             request=request,
         )
 
-    with pytest.raises(HttpGetError) as error:
-        await fetch_http_get(
-            "https://example.com/start",
-            temp_dir=tmp_path,
-            total_timeout_seconds=30,
-            text_max_bytes=1024,
-            text_max_chars=100,
-            file_max_bytes=1024,
-            transport=httpx.MockTransport(respond),
+    with pytest.raises(BasicToolError) as error:
+        await http_get(
+            {
+                "url": "https://example.com/start",
+                "temp_dir": str(tmp_path),
+                "total_timeout_seconds": 30,
+                "text_max_bytes": 1024,
+                "text_max_chars": 100,
+                "file_max_bytes": 1024,
+                "transport": httpx.MockTransport(respond),
+            }
         )
     assert error.value.code == "target_not_public"
     assert checked == [

@@ -63,3 +63,21 @@
 - 配置：`apps/backend/.env` 新增 `READ_IMAGE_TIMEOUT_SECONDS=120`（实测一次 60s 超时、成功响应约 40s）。
 - 代码：`image_read.py` 在异常信息含 `model_dump` 时输出“上游返回非 JSON 响应（检查 base_url 是否以 /v1 结尾…）”提示；新增测试 `test_read_image_description_non_json_response_logs_hint`。
 - 回归：`poetry run pytest tests/model_registry tests/asset_processing tests/builtin_tool -q --import-mode=importlib` → `36 passed`；`ruff check`/`ruff format --check` 通过；前端 `build` 与 eslint 通过。
+
+## 第 4 次变更验证（架构：基本/业务工具框架落地）
+
+### 执行命令
+
+- `poetry run pytest -q --import-mode=importlib`：后端全量 `418 passed, 1 skipped`。
+- `poetry run pytest tests/builtin_tool tests/model_registry tests/asset_processing -q --import-mode=importlib`：`36 passed`（工具相关回归）。
+- `poetry run ruff check app/modules/tools app/modules/builtin_tool tests/builtin_tool`：全部通过。
+- `poetry run ruff format app/modules/tools app/modules/builtin_tool tests/builtin_tool`：已格式化。
+- 冒烟脚本：导入两个公共注册页列出注册表；走真实 `invoke_builtin_tool` 验证 `invalid_arguments` 与 `conversation_required` 校验路径。
+
+### 实际结果
+
+- 基本注册表：`[('http.get','none'), ('http.post','none'), ('image_gen.generate','create'), ('vision.describe','none')]`。
+- 业务注册表：`[('http_get',('http.get',)), ('http_post',('http.post',)), ('image_generate',('image_gen.generate',)), ('image_read',('http.get','vision.describe'))]`；`depends_on` 启动依赖校验通过。
+- 委托层冒烟：`http_get` 传非法参数返回 `failed {'error': {'code': 'invalid_arguments'}}`；合法参数但无会话返回 `failed {'error': {'code': 'conversation_required'}}`（均未发真实请求）。
+- 错误映射测试（`test_services.py`）：`BusinessToolError` 映射稳定 `code`（`status_code` 可选透传）、未知异常兜底 `tool_failed`、禁用与参数校验路径均保持旧契约。
+- 旧实现 `builtin_tool/http_get.py`、`http_post.py`、`image_generate.py`、`image_read.py` 已删除，全仓无残留引用；对外 LLM 契约（工具名、入参、返回结构）不变。

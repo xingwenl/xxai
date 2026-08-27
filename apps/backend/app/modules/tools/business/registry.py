@@ -1,0 +1,26 @@
+"""业务工具公共注册页：只负责收集注册，保持简洁。"""
+
+from app.modules.tools.basic.registry import get_basic_tool
+from app.modules.tools.business import http_get  # noqa: F401  导入即注册
+from app.modules.tools.business import http_post  # noqa: F401
+from app.modules.tools.business import image_generate  # noqa: F401
+from app.modules.tools.business import image_read  # noqa: F401
+from app.modules.tools.business.framework import (
+    BUSINESS_TOOL_REGISTRY,
+    validate_business_tool_dependencies,
+)
+
+# 启动即校验依赖完整性，缺失直接报错（快速失败）。
+_missing = validate_business_tool_dependencies(get_basic_tool)
+if _missing:
+    raise RuntimeError(
+        f"business tools depend on missing basic tools: {', '.join(_missing)}"
+    )
+
+
+def list_business_tools():
+    return list(BUSINESS_TOOL_REGISTRY.values())
+
+
+def get_business_tool(name: str):
+    return BUSINESS_TOOL_REGISTRY.get(name)

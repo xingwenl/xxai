@@ -30,3 +30,10 @@
 - 根因已确认并修复：`image_read` 绑定模型 `base_url` 缺少 `/v1`，网关返回 HTML 导致描述静默为空；数据修正后生产路径端到端返回正常描述。
 - 超时从 60s 提升到 120s（`READ_IMAGE_TIMEOUT_SECONDS`，本地配置），并新增非 JSON 响应诊断日志与回归测试。
 - 相关回归 `36 passed`；本次未改变数据模型与 API 契约。
+
+## 第 4 次变更验收结论（架构：基本/业务工具分层）
+
+- 4 个内置工具（`http_get`/`http_post`/`image_generate`/`image_read`）已按「基本工具 / 业务工具」双层完成搬移与接线：基本层输入即数据、零业务上下文、单一职责；业务层持有 `BusinessToolContext`，负责来源解析、鉴权、持久化、模型绑定解析与结果包装。
+- 定义与 handler 同页、装饰器导入即注册；公共注册页只做 import 收集与 `list/get`；业务工具 `depends_on` 依赖在启动期校验。
+- `builtin_tool/services.py` 收敛为薄委托层，`invoke_builtin_tool` 旧签名与对外 LLM 契约不变；稳定错误码映射与 `tool_failed` 兜底已由单元测试锁定。
+- 后端全量 `418 passed, 1 skipped`，ruff 检查与格式化通过；旧实现文件已删除、无残留引用。

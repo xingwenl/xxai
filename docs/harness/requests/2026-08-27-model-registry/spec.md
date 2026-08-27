@@ -15,6 +15,7 @@
 - 附件 embedding 改为按 Agent 绑定解析模型，未绑定回退全局配置。
 - 工具执行上下文（`BuiltinToolContext`）携带 `platform_id`/`agent_id`，新增模型解析服务在工具处理函数内调用。
 - 前端管理界面：新增「模型管理」页面（注册表 CRUD、类型过滤、启停），智能体详情页新增「模型绑定」Tab（按角色绑定/解绑）。
+- 基本工具 / 业务工具分层框架：新增 `app/modules/tools`，基本工具为能力原子（输入即数据、单一职责），业务工具为 LLM 暴露层（来源解析、鉴权、持久化、模型绑定）；本期先落地框架与 `http_get` 示例，生产接线在后续变更完成。
 - 相关单元测试与 Harness 六件套文档。
 
 ### 不包含
@@ -114,6 +115,7 @@
 - 前端「模型管理」页面可完成注册表创建、编辑、启停、删除，删除被绑定模型给出明确提示。
 - 前端智能体「模型绑定」Tab 可按三个能力角色绑定/解绑模型，未绑定提示回退全局配置。
 - 前端构建（`tsc -b && vite build`）与 lint 通过，侧边栏入口可见。
+- 基本/业务工具分层框架可导入可用：装饰器注册、依赖校验、统一入口兜底；生产工具行为不变。
 
 ## 变更记录
 
@@ -139,3 +141,18 @@
 - 影响章节：能力路由语义（补充诊断与超时说明）、验收标准。
 - 是否触发人工确认：否（未改变数据模型、API 契约、鉴权与架构边界）。
 - 关联计划更新：已同步更新 `plan.md`（新增 Task 7）。
+
+### 2026-08-27 第 4 次变更（架构）
+
+- 变更原因：用户提出内置工具按「基本工具 / 业务工具」分层，避免 `image_read` 这类工具混入来源解析、持久化与模型调用等多重职责后越来越乱。
+- 变更内容：
+  - 新增 `app/modules/tools/basic`：能力原子层，输入即数据（url/base64/file/bytes/prompt），不感知平台/Agent/会话/用户，不落库、不鉴权、不碰模型注册表；坚持基本工具单一职责（一个文件 = 一个能力）。
+  - 新增 `app/modules/tools/business`：LLM 暴露层，持有 `BusinessToolContext`，负责来源解析、鉴权、持久化、Agent 模型绑定解析、结果包装。
+  - 注册方式：装饰器 `@basic_tool` / `@business_tool`，定义与 handler 同页、导入即注册；公共注册页只做 import 收集与 `list/get`；业务工具用 `depends_on` 声明依赖，启动时校验依赖完整性。
+  - 统一入口 `invoke_business_tool` 兜底错误码，不向 LLM 泄漏未捕获异常。
+  - 本期完成 4 个内置工具的完整搬移与接线：`http_get`/`http_post`/`image_generate`/`image_read` 迁入 basic（能力原子）与 business（LLM 暴露层）双文件实现；`builtin_tool/services.py` 收敛为薄委托层（保留旧 `invoke_builtin_tool` 签名），经 `BusinessToolContext` 映射后委托业务注册表；对外 LLM 契约（工具名、入参、返回结构与稳定错误码）不变。
+  - 基本工具单一职责落地：`http.get`、`http.post`、`image_gen.generate`、`vision.describe` 四个能力原子各占一个文件；业务层 `assets.py` 为唯一落库点。
+  - 错误码收敛：`BusinessToolError` 统一携带 `code`（+ 可选 `status_code` 透传），未捕获异常统一兜底为 `tool_failed`。
+- 影响章节：范围、能力路由语义、验收标准。
+- 是否触发人工确认：是（架构边界变化），用户已确认装饰器注册方式与基本工具单一职责原则。
+- 关联计划更新：已同步更新 `plan.md`（新增 Task 8）。

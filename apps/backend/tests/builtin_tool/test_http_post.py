@@ -6,9 +6,9 @@ from functools import wraps
 import httpx
 import pytest
 
-from app.modules.builtin_tool.http_get import HttpGetError
-from app.modules.builtin_tool.http_post import fetch_http_post
 from app.modules.builtin_tool.registry import get_builtin_tool
+from app.modules.tools.basic.framework import BasicToolError
+from app.modules.tools.basic.http_post import http_post
 
 
 def async_test(function):
@@ -36,7 +36,7 @@ async def test_fetch_post_sends_json_body_and_returns_parsed_content(
         return None
 
     monkeypatch.setattr(
-        "app.modules.builtin_tool.http_post.validate_public_target", allow_target
+        "app.modules.tools.basic.http_post.validate_public_target", allow_target
     )
     captured = {}
 
@@ -52,20 +52,22 @@ async def test_fetch_post_sends_json_body_and_returns_parsed_content(
         )
 
     transport = httpx.MockTransport(handler)
-    result = await fetch_http_post(
-        "https://api.example.com/feed",
-        body={"cursor": "0", "limit": 20},
-        temp_dir=tmp_path,
-        total_timeout_seconds=30,
-        text_max_bytes=4096,
-        text_max_chars=1000,
-        file_max_bytes=4096,
-        transport=transport,
+    result = await http_post(
+        {
+            "url": "https://api.example.com/feed",
+            "body": {"cursor": "0", "limit": 20},
+            "temp_dir": str(tmp_path),
+            "total_timeout_seconds": 30,
+            "text_max_bytes": 4096,
+            "text_max_chars": 1000,
+            "file_max_bytes": 4096,
+            "transport": transport,
+        }
     )
     assert captured["method"] == "POST"
     assert "application/json" in captured["content_type"]
-    assert result.kind == "json"
-    assert result.content == {"data": {"list": [1, 2]}}
+    assert result["kind"] == "json"
+    assert result["content"] == {"data": {"list": [1, 2]}}
 
 
 @async_test
@@ -74,7 +76,7 @@ async def test_fetch_post_rejects_non_text_response(monkeypatch, tmp_path) -> No
         return None
 
     monkeypatch.setattr(
-        "app.modules.builtin_tool.http_post.validate_public_target", allow_target
+        "app.modules.tools.basic.http_post.validate_public_target", allow_target
     )
     transport = httpx.MockTransport(
         lambda request: httpx.Response(
@@ -84,15 +86,17 @@ async def test_fetch_post_rejects_non_text_response(monkeypatch, tmp_path) -> No
             request=request,
         )
     )
-    with pytest.raises(HttpGetError) as error:
-        await fetch_http_post(
-            "https://api.example.com/export",
-            temp_dir=tmp_path,
-            total_timeout_seconds=30,
-            text_max_bytes=4096,
-            text_max_chars=1000,
-            file_max_bytes=4096,
-            transport=transport,
+    with pytest.raises(BasicToolError) as error:
+        await http_post(
+            {
+                "url": "https://api.example.com/export",
+                "temp_dir": str(tmp_path),
+                "total_timeout_seconds": 30,
+                "text_max_bytes": 4096,
+                "text_max_chars": 1000,
+                "file_max_bytes": 4096,
+                "transport": transport,
+            }
         )
     assert error.value.code == "unsupported_response_type"
 
@@ -103,20 +107,22 @@ async def test_fetch_post_propagates_upstream_error(monkeypatch, tmp_path) -> No
         return None
 
     monkeypatch.setattr(
-        "app.modules.builtin_tool.http_post.validate_public_target", allow_target
+        "app.modules.tools.basic.http_post.validate_public_target", allow_target
     )
     transport = httpx.MockTransport(
         lambda request: httpx.Response(404, request=request)
     )
-    with pytest.raises(HttpGetError) as error:
-        await fetch_http_post(
-            "https://api.example.com/missing",
-            temp_dir=tmp_path,
-            total_timeout_seconds=30,
-            text_max_bytes=4096,
-            text_max_chars=1000,
-            file_max_bytes=4096,
-            transport=transport,
+    with pytest.raises(BasicToolError) as error:
+        await http_post(
+            {
+                "url": "https://api.example.com/missing",
+                "temp_dir": str(tmp_path),
+                "total_timeout_seconds": 30,
+                "text_max_bytes": 4096,
+                "text_max_chars": 1000,
+                "file_max_bytes": 4096,
+                "transport": transport,
+            }
         )
     assert error.value.code == "upstream_http_error"
     assert error.value.status_code == 404

@@ -1,33 +1,22 @@
+"""内置工具对外委托层：校验后委托给业务工具注册表，保持旧调用契约不变。"""
+
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from jsonschema import ValidationError, validate
 
-from app.core.config import get_settings
-from app.modules.asset.services import persist_asset
-from app.modules.builtin_tool.http_get import (
-    HttpGetError,
-    HttpGetResult,
-    fetch_http_get,
-)
-from app.modules.builtin_tool.http_post import fetch_http_post
-from app.modules.builtin_tool.image_generate import (
-    ImageGenerationError,
-    generate_images,
-)
-from app.modules.builtin_tool.image_read import ImageReadError, read_image
 from app.modules.builtin_tool.registry import get_builtin_tool
 from app.modules.builtin_tool.schemas import BuiltinToolOutcome
-from app.modules.model_registry.resolver import resolve_agent_model
+from app.modules.tools.business.framework import BusinessToolContext, BusinessToolError
+from app.modules.tools.business.registry import get_business_tool
 
 
 @dataclass(frozen=True)
 class BuiltinToolContext:
-    """一次内置工具调用共享的执行上下文。"""
+    """一次内置工具调用共享的执行上下文（兼容旧入口签名）。"""
 
     asset_repo: Any
     platform_id: int
@@ -41,143 +30,49 @@ class BuiltinToolContext:
 _ToolHandler = Callable[[dict, BuiltinToolContext], Awaitable[BuiltinToolOutcome]]
 
 
-def _http_fetch_options(temp_dir: Path) -> dict[str, Any]:
-    """聚合 HTTP 工具的公共限流与临时目录参数。"""
-    settings = get_settings()
-    return {
-        "temp_dir": temp_dir,
-        "total_timeout_seconds": settings.builtin_http_get_timeout_seconds,
-        "text_max_bytes": settings.builtin_http_get_text_max_bytes,
-        "text_max_chars": settings.builtin_http_get_text_max_chars,
-        "file_max_bytes": settings.builtin_http_get_file_max_bytes,
-    }
+def _delegate(
+    executor: str,
+) -> Callable[[dict, BuiltinToolContext], Awaitable[BuiltinToolOutcome]]:
+    """按执行器名委托业务工具注册表（定义与 handler 同页，注册表只做收集）。"""
 
-
-async def _persist_fetched_asset(
-    fetched: HttpGetResult, ctx: BuiltinToolContext
-) -> dict | None:
-    """将下载的临时文件持久化为受保护资源；纯文本/JSON 响应返回 None。"""
-    if fetched.temp_path is None:
-        return None
-    try:
-        asset = await persist_asset(
-            ctx.asset_repo,
-            fetched.temp_path,
+    async def invoke(arguments: dict, ctx: BuiltinToolContext) -> BuiltinToolOutcome:
+        tool = get_business_tool(executor)
+        if tool is None:
+            return BuiltinToolOutcome(
+                status="failed", result={"error": {"code": "tool_not_available"}}
+            )
+        business_ctx = BusinessToolContext(
+            asset_repo=ctx.asset_repo,
             platform_id=ctx.platform_id,
             agent_id=ctx.agent_id,
             conversation_id=ctx.conversation_id,
             user_id=ctx.user_id,
             platform_end_user_id=ctx.platform_end_user_id,
-            filename=fetched.filename or "download",
-            content_type=fetched.content_type,
-            size_bytes=fetched.size_bytes,
-            source_url=fetched.final_url,
+            session=ctx.session,
         )
-    except Exception:
-        fetched.temp_path.unlink(missing_ok=True)
-        raise
-    return {
-        "asset_id": asset.asset_id,
-        "filename": asset.filename,
-        "content_type": asset.content_type,
-        "size_bytes": asset.size_bytes,
-        "download_url": f"/api/v1/assets/{asset.asset_id}",
-    }
+        try:
+            result = await tool.handler(arguments, business_ctx)
+        except BusinessToolError as exc:
+            error: dict[str, Any] = {"code": exc.code}
+            if exc.status_code is not None:
+                error["status_code"] = exc.status_code
+            return BuiltinToolOutcome(status="failed", result={"error": error})
+        except Exception:
+            return BuiltinToolOutcome(
+                status="failed", result={"error": {"code": "tool_failed"}}
+            )
+        return BuiltinToolOutcome(status="completed", result=result)
+
+    return invoke
 
 
-def _http_outcome(
-    fetched: HttpGetResult, asset_data: dict | None
-) -> BuiltinToolOutcome:
-    return BuiltinToolOutcome(
-        status="completed",
-        result={
-            "kind": fetched.kind,
-            "status_code": fetched.status_code,
-            "content_type": fetched.content_type,
-            "final_url": fetched.final_url,
-            "size_bytes": fetched.size_bytes,
-            "truncated": fetched.truncated,
-            "content": fetched.content,
-            "asset": asset_data,
-        },
-    )
-
-
-async def _handle_image_generate(
-    arguments: dict, ctx: BuiltinToolContext
-) -> BuiltinToolOutcome:
-    model_config = await resolve_agent_model(
-        ctx.session,
-        platform_id=ctx.platform_id,
-        agent_id=ctx.agent_id,
-        role="image_generate",
-    )
-    assets = await generate_images(
-        arguments,
-        asset_repo=ctx.asset_repo,
-        platform_id=ctx.platform_id,
-        agent_id=ctx.agent_id,
-        conversation_id=ctx.conversation_id,
-        user_id=ctx.user_id,
-        platform_end_user_id=ctx.platform_end_user_id,
-        model_config=model_config,
-    )
-    return BuiltinToolOutcome(
-        status="completed", result={"kind": "image", "assets": assets}
-    )
-
-
-async def _handle_image_read(
-    arguments: dict, ctx: BuiltinToolContext
-) -> BuiltinToolOutcome:
-    model_config = await resolve_agent_model(
-        ctx.session,
-        platform_id=ctx.platform_id,
-        agent_id=ctx.agent_id,
-        role="image_read",
-    )
-    result = await read_image(
-        arguments,
-        asset_repo=ctx.asset_repo,
-        platform_id=ctx.platform_id,
-        agent_id=ctx.agent_id,
-        conversation_id=ctx.conversation_id,
-        user_id=ctx.user_id,
-        platform_end_user_id=ctx.platform_end_user_id,
-        model_config=model_config,
-    )
-    return BuiltinToolOutcome(status="completed", result=result)
-
-
-async def _handle_http_get(
-    arguments: dict, ctx: BuiltinToolContext
-) -> BuiltinToolOutcome:
-    settings = get_settings()
-    temp_dir = Path(settings.agent_file_storage_path) / "assets" / ".tmp"
-    fetched = await fetch_http_get(arguments["url"], **_http_fetch_options(temp_dir))
-    return _http_outcome(fetched, await _persist_fetched_asset(fetched, ctx))
-
-
-async def _handle_http_post(
-    arguments: dict, ctx: BuiltinToolContext
-) -> BuiltinToolOutcome:
-    settings = get_settings()
-    temp_dir = Path(settings.agent_file_storage_path) / "assets" / ".tmp"
-    fetched = await fetch_http_post(
-        arguments["url"],
-        body=arguments.get("body") or None,
-        **_http_fetch_options(temp_dir),
-    )
-    return _http_outcome(fetched, await _persist_fetched_asset(fetched, ctx))
-
-
-# 执行器注册表：key 与 registry 中 BuiltinToolDefinition.executor 一一对应，
-# 新增内置工具只需在此追加一条 handler 映射，无需改动主分发逻辑。
+# 执行器委托表：key 与 registry 中 BuiltinToolDefinition.executor 一一对应；
+# 新增内置工具 = 在 business 目录新增一个文件（公共注册页收集）+ 在此追加一行。
 _TOOL_HANDLERS: dict[str, _ToolHandler] = {
-    "image_generate": _handle_image_generate,
-    "image_read": _handle_image_read,
-    "http_get": _handle_http_get,
-    "http_post": _handle_http_post,
+    "http_get": _delegate("http_get"),
+    "http_post": _delegate("http_post"),
+    "image_generate": _delegate("image_generate"),
+    "image_read": _delegate("image_read"),
 }
 
 
@@ -194,6 +89,7 @@ async def invoke_builtin_tool(
     platform_end_user_id: int | None = None,
     session=None,
 ) -> BuiltinToolOutcome:
+    """旧入口：参数与返回结构不变，实现委托给业务工具注册表。"""
     definition = get_builtin_tool(tool.name)
     if definition is None or not await builtin_repo.is_enabled(
         platform_id, agent_id, tool.name
@@ -227,16 +123,4 @@ async def invoke_builtin_tool(
         platform_end_user_id=platform_end_user_id,
         session=session,
     )
-    try:
-        return await handler(arguments, ctx)
-    except (ImageGenerationError, ImageReadError) as exc:
-        return BuiltinToolOutcome(status="failed", result={"error": {"code": exc.code}})
-    except HttpGetError as exc:
-        error = {"code": exc.code}
-        if exc.status_code is not None:
-            error["status_code"] = exc.status_code
-        return BuiltinToolOutcome(status="failed", result={"error": error})
-    except Exception:
-        return BuiltinToolOutcome(
-            status="failed", result={"error": {"code": "storage_failed"}}
-        )
+    return await handler(arguments, ctx)

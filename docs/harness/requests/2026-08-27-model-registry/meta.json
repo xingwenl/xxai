@@ -2,7 +2,7 @@
   "id": "2026-08-27-model-registry",
   "title": "平台级模型注册表与 Agent 能力路由",
   "scope": "backend",
-  "phase": "acceptance",
+  "phase": "implement",
   "status": "active",
   "riskLevel": "high",
   "changeTypes": [
@@ -49,7 +49,8 @@
     "apps/front/src/api/model-registry.ts",
     "apps/front/src/features/model-registry",
     "apps/front/src/features/agents/agent-model-bindings-tab.tsx",
-    "apps/front/src/routes/_authenticated/ai/models.tsx"
+    "apps/front/src/routes/_authenticated/ai/models.tsx",
+    "apps/backend/app/modules/tools"
   ],
-  "notes": "第 1 次闭环完成（迁移 20260827_0029、注册表 CRUD 与绑定 API、工具与 embedding 按 Agent 路由；后端 410 测试通过）。第 2 次变更：前端「模型管理」页与智能体「模型绑定」Tab。第 3 次变更（fix）：image_read 描述为空，根因为绑定模型 base_url 缺 /v1，已修复并补充诊断日志、超时配置与回归测试。"
+  "notes": "第 1 次闭环完成（迁移 20260827_0029、注册表 CRUD 与绑定 API、工具与 embedding 按 Agent 路由；后端 410 测试通过）。第 2 次变更：前端「模型管理」页与智能体「模型绑定」Tab。第 3 次变更（fix）：image_read 描述为空，根因为绑定模型 base_url 缺 /v1，已修复并补充诊断日志、超时配置与回归测试。第 4 次变更（架构）：基本/业务工具分层完成——4 个内置工具迁入 basic/business，builtin_tool/services.py 收敛为薄委托层，对外契约不变；后端全量 418 测试通过。"
 }

@@ -1,3 +1,8 @@
+"""http.get 基本工具：GET 一个公开 URL，返回内容或临时文件引用。
+
+单一职责：只取数据，不鉴权、不落库，结果如何处置由上层业务工具决定。
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -6,14 +11,15 @@ import json
 import re
 import socket
 import tempfile
-from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote, urljoin, urlsplit, urlunsplit
 
 import httpx
 
+from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.modules.asset.services import sanitize_filename
+from app.modules.tools.basic.framework import BasicToolError, basic_tool
 
 logger = get_logger(__name__)
 
@@ -40,26 +46,6 @@ _FILENAME_STAR = re.compile(r"filename\*=UTF-8''([^;]+)", re.IGNORECASE)
 _FILENAME = re.compile(r'filename="?([^";]+)"?', re.IGNORECASE)
 
 
-class HttpGetError(Exception):
-    def __init__(self, code: str, *, status_code: int | None = None) -> None:
-        super().__init__(code)
-        self.code = code
-        self.status_code = status_code
-
-
-@dataclass
-class HttpGetResult:
-    kind: str
-    status_code: int
-    content_type: str
-    final_url: str
-    size_bytes: int
-    truncated: bool = False
-    content: object | None = None
-    temp_path: Path | None = None
-    filename: str | None = None
-
-
 def sanitized_url(url: str) -> str:
     parsed = urlsplit(url)
     hostname = parsed.hostname or ""
@@ -71,23 +57,23 @@ def sanitized_url(url: str) -> str:
 
 def validate_public_url(url: str) -> str:
     if not isinstance(url, str) or not 1 <= len(url) <= 2048:
-        raise HttpGetError("invalid_url")
+        raise BasicToolError("invalid_url")
     try:
         parsed = urlsplit(url)
         _ = parsed.port
     except ValueError as exc:
-        raise HttpGetError("invalid_url") from exc
+        raise BasicToolError("invalid_url") from exc
     if (
         parsed.scheme.lower() not in {"http", "https"}
         or not parsed.hostname
         or parsed.username is not None
         or parsed.password is not None
     ):
-        raise HttpGetError("invalid_url")
+        raise BasicToolError("invalid_url")
     try:
         parsed.hostname.encode("ascii")
     except UnicodeEncodeError as exc:
-        raise HttpGetError("invalid_url") from exc
+        raise BasicToolError("invalid_url") from exc
     return url
 
 
@@ -107,10 +93,10 @@ async def validate_public_target(url: str) -> None:
             None, lambda: socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
         )
     except socket.gaierror as exc:
-        raise HttpGetError("invalid_url") from exc
+        raise BasicToolError("invalid_url") from exc
     resolved = {item[4][0] for item in addresses}
     if not resolved or any(not _is_public_ip(item) for item in resolved):
-        raise HttpGetError("target_not_public")
+        raise BasicToolError("target_not_public")
 
 
 def _media_type(headers: httpx.Headers) -> str:
@@ -158,7 +144,7 @@ async def _read_limited(response: httpx.Response, max_bytes: int) -> bytes:
     async for chunk in response.aiter_bytes():
         data.extend(chunk)
         if len(data) > max_bytes:
-            raise HttpGetError("response_too_large")
+            raise BasicToolError("response_too_large")
     return bytes(data)
 
 
@@ -173,7 +159,7 @@ async def _stream_to_temp(
         async for chunk in response.aiter_bytes():
             size += len(chunk)
             if size > max_bytes:
-                raise HttpGetError("response_too_large")
+                raise BasicToolError("response_too_large")
             await asyncio.to_thread(handle.write, chunk)
         await asyncio.to_thread(handle.flush)
         await asyncio.to_thread(handle.close)
@@ -184,17 +170,46 @@ async def _stream_to_temp(
         raise
 
 
-async def fetch_http_get(
-    url: str,
-    *,
-    temp_dir: Path,
-    total_timeout_seconds: float,
-    text_max_bytes: int,
-    text_max_chars: int,
-    file_max_bytes: int,
-    transport: httpx.AsyncBaseTransport | None = None,
-) -> HttpGetResult:
-    current_url = validate_public_url(url)
+@basic_tool(
+    name="http.get",
+    description="GET 一个公开 HTTP/HTTPS URL",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "url": {"type": "string", "minLength": 1},
+            "temp_dir": {"type": "string"},
+            "total_timeout_seconds": {"type": "number"},
+            "text_max_bytes": {"type": "integer"},
+            "text_max_chars": {"type": "integer"},
+            "file_max_bytes": {"type": "integer"},
+        },
+        "required": ["url"],
+        "additionalProperties": False,
+    },
+    side_effect="none",
+)
+async def http_get(inputs: dict) -> dict:
+    """输入 {url, temp_dir?, 限流参数?} → 输出 {kind, content?, temp_path?, ...}。"""
+    settings = get_settings()
+    temp_dir = Path(
+        inputs.get("temp_dir")
+        or Path(settings.agent_file_storage_path) / "assets" / ".tmp"
+    )
+    total_timeout_seconds = float(
+        inputs.get("total_timeout_seconds", settings.builtin_http_get_timeout_seconds)
+    )
+    text_max_bytes = int(
+        inputs.get("text_max_bytes", settings.builtin_http_get_text_max_bytes)
+    )
+    text_max_chars = int(
+        inputs.get("text_max_chars", settings.builtin_http_get_text_max_chars)
+    )
+    file_max_bytes = int(
+        inputs.get("file_max_bytes", settings.builtin_http_get_file_max_bytes)
+    )
+    transport = inputs.get("transport")
+
+    current_url = validate_public_url(inputs["url"])
     try:
         async with asyncio.timeout(total_timeout_seconds):
             timeout = httpx.Timeout(
@@ -212,16 +227,16 @@ async def fetch_http_get(
                     async with client.stream("GET", current_url) as response:
                         if response.is_redirect:
                             if redirect_count >= 3:
-                                raise HttpGetError("too_many_redirects")
+                                raise BasicToolError("too_many_redirects")
                             location = response.headers.get("location")
                             if not location:
-                                raise HttpGetError("invalid_redirect")
+                                raise BasicToolError("invalid_redirect")
                             current_url = validate_public_url(
                                 urljoin(current_url, location)
                             )
                             continue
                         if not 200 <= response.status_code < 300:
-                            raise HttpGetError(
+                            raise BasicToolError(
                                 "upstream_http_error",
                                 status_code=response.status_code,
                             )
@@ -237,13 +252,13 @@ async def fetch_http_get(
                                 else file_max_bytes
                             )
                             if declared_size > limit:
-                                raise HttpGetError("response_too_large")
+                                raise BasicToolError("response_too_large")
                         if kind in {"json", "text"}:
                             data = await _read_limited(response, text_max_bytes)
                             try:
                                 text = data.decode(response.encoding or "utf-8")
                             except (LookupError, UnicodeDecodeError) as exc:
-                                raise HttpGetError(
+                                raise BasicToolError(
                                     "unsupported_content_encoding"
                                 ) from exc
                             truncated = len(text) > text_max_chars
@@ -265,36 +280,42 @@ async def fetch_http_get(
                                     truncated = len(serialized) > text_max_chars
                                 except (UnicodeDecodeError, json.JSONDecodeError):
                                     kind = "text"
-                            return HttpGetResult(
-                                kind=kind,
-                                status_code=response.status_code,
-                                content_type=media_type,
-                                final_url=final_url,
-                                size_bytes=len(data),
-                                truncated=truncated,
-                                content=content,
-                            )
+                            return {
+                                "kind": kind,
+                                "status_code": response.status_code,
+                                "content_type": media_type,
+                                "final_url": final_url,
+                                "size_bytes": len(data),
+                                "truncated": truncated,
+                                "content": content,
+                                "temp_path": None,
+                                "filename": None,
+                            }
                         path, size = await _stream_to_temp(
                             response,
                             temp_dir=temp_dir,
                             max_bytes=file_max_bytes,
                         )
-                        return HttpGetResult(
-                            kind=kind,
-                            status_code=response.status_code,
-                            content_type=_safe_content_type(kind, media_type),
-                            final_url=final_url,
-                            size_bytes=size,
-                            temp_path=path,
-                            filename=_filename_from_response(response),
-                        )
+                        return {
+                            "kind": kind,
+                            "status_code": response.status_code,
+                            "content_type": _safe_content_type(kind, media_type),
+                            "final_url": final_url,
+                            "size_bytes": size,
+                            "truncated": False,
+                            "content": None,
+                            "temp_path": str(path),
+                            "filename": _filename_from_response(response),
+                        }
     except TimeoutError as exc:
-        raise HttpGetError("request_timeout") from exc
+        raise BasicToolError("request_timeout") from exc
     except httpx.TimeoutException as exc:
-        raise HttpGetError("request_timeout") from exc
+        raise BasicToolError("request_timeout") from exc
     except httpx.DecodingError as exc:
-        raise HttpGetError("unsupported_content_encoding") from exc
+        raise BasicToolError("unsupported_content_encoding") from exc
     except httpx.HTTPError as exc:
-        logger.info("HTTP GET transport failed host=%s", urlsplit(url).hostname)
-        raise HttpGetError("upstream_http_error") from exc
-    raise HttpGetError("upstream_http_error")
+        logger.info(
+            "HTTP GET transport failed host=%s", urlsplit(inputs["url"]).hostname
+        )
+        raise BasicToolError("upstream_http_error") from exc
+    raise BasicToolError("upstream_http_error")

@@ -101,6 +101,27 @@
 - [x] 代码加固：非 JSON 上游响应输出可操作告警；新增回归测试。
 - [x] 端到端验证：生产 `_describe_image` 路径对真实 asset 返回描述；相关回归 36 passed。
 
+### Task 8: 基本/业务工具分层框架落地（第 4 次变更，架构）
+
+**Files:**
+- Create: `apps/backend/app/modules/tools/__init__.py`
+- Create: `apps/backend/app/modules/tools/invoke.py`
+- Create: `apps/backend/app/modules/tools/basic/__init__.py`
+- Create: `apps/backend/app/modules/tools/basic/framework.py`
+- Create: `apps/backend/app/modules/tools/basic/http_get.py`
+- Create: `apps/backend/app/modules/tools/basic/registry.py`
+- Create: `apps/backend/app/modules/tools/business/__init__.py`
+- Create: `apps/backend/app/modules/tools/business/framework.py`
+- Create: `apps/backend/app/modules/tools/business/http_get.py`
+- Create: `apps/backend/app/modules/tools/business/registry.py`
+
+- [x] 基本工具框架：`@basic_tool` 装饰器、注册表、稳定错误码、单一职责约束（一个文件一个能力）。
+- [x] 业务工具框架：`@business_tool`、`BusinessToolContext`、`depends_on` 启动依赖校验。
+- [x] 4 个内置工具迁入 basic/business（定义 + handler 同页）：`http.get`、`http.post`、`image_gen.generate`、`vision.describe`。
+- [x] 公共注册页 import 收集 + `list/get`；统一入口兜底错误码。
+- [x] 生产接线：`builtin_tool/services.py` 收敛为薄委托层（保留旧签名），经 `BusinessToolContext` 映射委托业务注册表；`BusinessToolError` 映射稳定错误码，未捕获异常兜底 `tool_failed`。
+- [x] 测试更新：`tests/builtin_tool/test_http_get.py`/`test_http_post.py` 改测基本工具，`test_image_tools.py` 改测业务工具，新增 `test_services.py` 锁定委托层错误映射。
+
 ## 测试步骤
 
 - `poetry run pytest apps/backend/tests/model_registry apps/backend/tests/builtin_tool apps/backend/tests/asset_processing -q`：新增与回归用例通过。
