@@ -12,6 +12,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
+from pgvector.sqlalchemy import Vector
+
 from app.shared.base_model import BaseModel, TimeModel
 
 
@@ -167,4 +169,67 @@ class ConversationAssetChunk(BaseModel, TimeModel):
         server_default=func.now(),
         onupdate=func.now(),
         comment="切块更新时间",
+    )
+
+
+class ConversationAssetEmbedding(BaseModel, TimeModel):
+    """附件切块的会话级向量缓存，按处理版本与 embedding 配置生成。"""
+
+    __tablename__ = "conversation_asset_embeddings"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True, comment="向量记录内部主键"
+    )
+    chunk_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("conversation_asset_chunks.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="关联的切块 ID",
+    )
+    processing_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("conversation_asset_processing.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="关联的处理记录 ID，便于按处理版本整批重建",
+    )
+    conversation_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="资源所属会话 ID，冗余字段便于权限过滤",
+    )
+    asset_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("conversation_assets.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="关联的会话资源 ID",
+    )
+    provider: Mapped[str] = mapped_column(
+        String(50), nullable=False, comment="embedding 服务提供方，如 openai"
+    )
+    model: Mapped[str] = mapped_column(
+        String(120), nullable=False, comment="embedding 模型名称"
+    )
+    dimension: Mapped[int] = mapped_column(
+        Integer, nullable=False, comment="向量维度，用于配置变更校验"
+    )
+    embedding: Mapped[list[float]] = mapped_column(
+        Vector(), nullable=False, comment="切块文本的向量表示"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        comment="记录创建时间",
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+        comment="记录更新时间",
     )

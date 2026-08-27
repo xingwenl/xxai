@@ -109,6 +109,14 @@ DELETE /embed/conversations/{conversation_id}/assets/{asset_id}
 
 ## 变更记录
 
+### 2026-08-27 第 13 次变更（增量）
+
+- 变更原因：大文档全文注入受 16000 字符截断限制，且无法按用户问题精准定位内容；按计划 Phase 2 Task 8 接入会话级向量检索。
+- 变更内容：新增全局配置 `ATTACHMENT_EMBEDDING_PROVIDER/MODEL/BASE_URL/API_KEY/DIMENSION`（未配置时检索禁用、保持全文注入降级）；新增 `conversation_asset_embeddings` 表与迁移 `20260827_0027`；解析切块后批量生成并持久化向量（服务失败只降级不阻塞 ready、维度不匹配跳过）；网关当轮文档附件在提供用户问题且检索可用时，按余弦距离注入 Top-K（4 段）切块并带段号定位，检索失败自动回退全文；历史附件恢复保持全文注入。
+- 影响章节：数据模型、处理与模型数据流、风险、验收标准。
+- 是否触发人工确认：是，新增 embedding 数据表并改变文档注入策略；原 spec 与 plan 已确认“第二期接入可配置 embedding 和 pgvector 检索”，本次按已批准范围实施。
+- 关联计划更新：落实 Phase 2 Task 8 Step 1-4；真实 embedding 端点联调与 Task 5 的检索命中验证待配置环境变量后补充。
+
 ### 2026-08-26 第 12 次变更（增量）
 
 - 变更原因：附件内容只在发送当轮注入模型，第二轮追问“刚才的图片/Excel 内容”时，历史组装只带纯文本，AI 完全不知道历史附件内容。

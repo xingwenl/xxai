@@ -20,6 +20,16 @@ def _get_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _parse_optional_int(name: str) -> int | None:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
 @dataclass(frozen=True)
 class Settings:
     app_name: str
@@ -62,6 +72,11 @@ class Settings:
     agent_fetch_timeout_seconds: int
     agent_max_iterations: int
     embedding_batch_size: int
+    attachment_embedding_provider: str | None
+    attachment_embedding_model: str | None
+    attachment_embedding_base_url: str | None
+    attachment_embedding_api_key: str | None
+    attachment_embedding_dimension: int | None
     agent_master_key: str
     builtin_http_get_timeout_seconds: float
     builtin_http_get_text_max_bytes: int
@@ -160,6 +175,13 @@ def get_settings() -> Settings:
         agent_fetch_timeout_seconds=int(os.getenv("AGENT_FETCH_TIMEOUT_SECONDS", "15")),
         agent_max_iterations=int(os.getenv("AGENT_MAX_ITERATIONS", "20")),
         embedding_batch_size=int(os.getenv("EMBEDDING_BATCH_SIZE", "10")),
+        attachment_embedding_provider=os.getenv("ATTACHMENT_EMBEDDING_PROVIDER"),
+        attachment_embedding_model=os.getenv("ATTACHMENT_EMBEDDING_MODEL"),
+        attachment_embedding_base_url=os.getenv("ATTACHMENT_EMBEDDING_BASE_URL"),
+        attachment_embedding_api_key=os.getenv("ATTACHMENT_EMBEDDING_API_KEY"),
+        attachment_embedding_dimension=_parse_optional_int(
+            "ATTACHMENT_EMBEDDING_DIMENSION"
+        ),
         agent_master_key=os.getenv(
             "AGENT_MASTER_KEY", "dev-agent-master-key-change-me"
         ),
@@ -225,9 +247,7 @@ def get_settings() -> Settings:
             "WECHAT_BOT_STATE_DIR",
             str(BASE_DIR / "data" / "wechat_bot"),
         ),
-        wechat_bot_api_base_url=os.getenv(
-            "WECHAT_BOT_API_BASE_URL", "http://api:8000"
-        ),
+        wechat_bot_api_base_url=os.getenv("WECHAT_BOT_API_BASE_URL", "http://api:8000"),
         wechat_bot_max_instances=max(
             1, int(os.getenv("WECHAT_BOT_MAX_INSTANCES", "20"))
         ),

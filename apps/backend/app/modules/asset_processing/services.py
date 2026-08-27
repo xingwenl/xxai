@@ -19,6 +19,8 @@ from app.modules.asset_processing.runtime import (
     DEFAULT_CHUNK_SIZE,
     PARSER_NAME,
     PARSER_VERSION,
+    attachment_embedding_enabled,
+    build_attachment_embedding_model,
     compute_processing_version,
     is_image_mime,
     is_text_parseable,
@@ -195,7 +197,10 @@ async def execute_processing(
             }
             for i, chunk in enumerate(chunks)
         ]
-        await processing_repo.create_chunks(chunk_records)
+        saved_chunks = await processing_repo.create_chunks(chunk_records)
+
+        # 会话级向量缓存：配置可用时生成并持久化，失败只降级为文本注入
+        await _build_attachment_embeddings(processing_repo, record, saved_chunks)
 
         return await processing_repo.update_processing(
             record,
@@ -212,6 +217,56 @@ async def execute_processing(
             status=ProcessingStatus.failed,
             error_message=str(exc)[:2000],
             completed_at=datetime.now(timezone.utc),
+        )
+
+
+async def _build_attachment_embeddings(
+    processing_repo,
+    record,
+    saved_chunks: list,
+) -> None:
+    """按全局 embedding 配置批量生成附件切块向量并持久化。
+
+    任何失败（服务不可用、维度不匹配等）都不影响处理状态，由网关
+    降级为全文文本注入。
+    """
+    if not attachment_embedding_enabled():
+        return
+    from app.core.config import get_settings
+
+    try:
+        model = build_attachment_embedding_model()
+        embeddings = await model.aget_text_embedding_batch(
+            [chunk.content for chunk in saved_chunks]
+        )
+        dimension = get_settings().attachment_embedding_dimension
+        if any(len(item) != dimension for item in embeddings):
+            logger.warning(
+                "附件 embedding 维度不匹配，跳过向量缓存 asset_id=%s",
+                record.asset_id,
+            )
+            return
+        await processing_repo.save_embeddings(
+            [
+                {
+                    "chunk_id": chunk.id,
+                    "processing_id": record.id,
+                    "conversation_id": record.conversation_id,
+                    "asset_id": record.asset_id,
+                    "provider": get_settings().attachment_embedding_provider
+                    or "openai",
+                    "model": get_settings().attachment_embedding_model,
+                    "dimension": dimension,
+                    "embedding": embedding,
+                }
+                for chunk, embedding in zip(saved_chunks, embeddings, strict=True)
+            ]
+        )
+    except Exception as exc:
+        logger.warning(
+            "附件 embedding 生成失败，降级为文本注入 asset_id=%s: %s",
+            record.asset_id,
+            exc,
         )
 
 

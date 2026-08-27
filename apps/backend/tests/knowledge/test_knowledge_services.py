@@ -114,8 +114,14 @@ def test_build_embedding_model_uses_dummy_key_for_local_base_url() -> None:
     assert model._text_engine == "embeddinggemma"
 
 
-def test_build_embedding_model_keeps_missing_key_for_remote_base_url() -> None:
+def test_build_embedding_model_keeps_missing_key_for_remote_base_url(
+    monkeypatch,
+) -> None:
     from app.modules.knowledge.runtime import build_embedding_model
+
+    # OpenAIEmbedding 未显式传 key 时会回退读取环境变量，测试环境可能
+    # 存在真实 OPENAI_API_KEY，先移除以保证断言与外部环境无关。
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     model = build_embedding_model(FakeBase(embedding_base_url="https://api.openai.com/v1"))
 

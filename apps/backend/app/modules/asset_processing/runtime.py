@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from urllib.parse import urlparse
 
 from app.core.logging import get_logger
+from app.core.config import get_settings
 from app.modules.knowledge.runtime import resolve_storage_path
 
 logger = get_logger(__name__)
@@ -84,6 +86,55 @@ def compute_file_hash(file_path: Path) -> str:
         for chunk in iter(lambda: f.read(65536), b""):
             sha.update(chunk)
     return sha.hexdigest()
+
+
+def attachment_embedding_enabled() -> bool:
+    """附件向量检索是否启用：模型与维度已配置，且提供 API key 或本地端点。"""
+    settings = get_settings()
+    if (
+        not settings.attachment_embedding_model
+        or not settings.attachment_embedding_dimension
+    ):
+        return False
+    if settings.attachment_embedding_api_key:
+        return True
+    base_url = settings.attachment_embedding_base_url
+    if not base_url:
+        return False
+    hostname = urlparse(base_url).hostname
+    return hostname in {"localhost", "127.0.0.1", "::1", "ollama"}
+
+
+def build_attachment_embedding_model():
+    """按全局附件 embedding 配置构建模型，兼容 OpenAI-compatible 服务。"""
+    from llama_index.embeddings.openai import (
+        OpenAIEmbedding,
+        OpenAIEmbeddingModelType,
+    )
+
+    settings = get_settings()
+    model = settings.attachment_embedding_model
+    base_url = settings.attachment_embedding_base_url
+    api_key = settings.attachment_embedding_api_key
+    if not api_key and base_url:
+        hostname = urlparse(base_url).hostname
+        if hostname in {"localhost", "127.0.0.1", "::1", "ollama"}:
+            api_key = "ollama"
+    embed_batch_size = settings.embedding_batch_size
+    if model not in {item.value for item in OpenAIEmbeddingModelType}:
+        return OpenAIEmbedding(
+            model="text-embedding-3-small",
+            model_name=model,
+            api_base=base_url,
+            api_key=api_key,
+            embed_batch_size=embed_batch_size,
+        )
+    return OpenAIEmbedding(
+        model=model,
+        api_base=base_url,
+        api_key=api_key,
+        embed_batch_size=embed_batch_size,
+    )
 
 
 def is_image_mime(mime_type: str) -> bool:

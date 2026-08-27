@@ -169,6 +169,120 @@ class TestLoadEmbedAttachmentParts:
         assert "旧数据文本" in document_text_parts[0]["text"]
 
     @async_test
+    async def test_document_uses_retrieval_when_query_and_embedding_enabled(
+        self, monkeypatch, attachment_repos, tmp_path
+    ):
+        class FakeProcessingRepository:
+            def __init__(self, session):
+                self.session = session
+
+            async def get_processing(self, asset_id, conversation_id):
+                return SimpleNamespace(
+                    status=ProcessingStatus.ready,
+                    extracted_text="季度营收增长 30%（全文不会被注入）",
+                    extracted_text_storage_key=None,
+                )
+
+        monkeypatch.setattr(
+            gateway_runtime,
+            "AssetProcessingRepository",
+            FakeProcessingRepository,
+        )
+        monkeypatch.setattr(
+            gateway_runtime,
+            "attachment_embedding_enabled",
+            lambda: True,
+        )
+
+        async def fake_retrieve(
+            processing_repo, asset, processing, conversation_id, query
+        ):
+            assert query == "总金额是多少"
+            return [
+                (SimpleNamespace(position=0, content="金额: 100"), 0.92),
+                (SimpleNamespace(position=3, content="统计: 总金额 100"), 0.85),
+            ]
+
+        monkeypatch.setattr(
+            gateway_runtime,
+            "_retrieve_attachment_chunks",
+            fake_retrieve,
+        )
+
+        (
+            _image_parts,
+            document_text_parts,
+            _blocks,
+        ) = await gateway_runtime._load_embed_attachment_parts(
+            SimpleNamespace(session=None),
+            _conversation(),
+            attachments=[_attachment("doc-1", "report.pdf", "application/pdf")],
+            platform_id=1,
+            agent_id=2,
+            end_user_id=3,
+            query="总金额是多少",
+        )
+
+        assert len(document_text_parts) == 1
+        assert "[第1段] 金额: 100" in document_text_parts[0]["text"]
+        assert "[第4段] 统计: 总金额 100" in document_text_parts[0]["text"]
+        assert "全文不会被注入" not in document_text_parts[0]["text"]
+
+    @async_test
+    async def test_document_falls_back_to_full_text_when_retrieval_fails(
+        self, monkeypatch, attachment_repos, tmp_path
+    ):
+        class FakeProcessingRepository:
+            def __init__(self, session):
+                self.session = session
+
+            async def get_processing(self, asset_id, conversation_id):
+                return SimpleNamespace(
+                    status=ProcessingStatus.ready,
+                    extracted_text="季度营收增长 30%",
+                    extracted_text_storage_key=None,
+                )
+
+        monkeypatch.setattr(
+            gateway_runtime,
+            "AssetProcessingRepository",
+            FakeProcessingRepository,
+        )
+        monkeypatch.setattr(
+            gateway_runtime,
+            "attachment_embedding_enabled",
+            lambda: True,
+        )
+
+        async def fake_retrieve(
+            processing_repo, asset, processing, conversation_id, query
+        ):
+            raise RuntimeError("embedding service unavailable")
+
+        monkeypatch.setattr(
+            gateway_runtime,
+            "_retrieve_attachment_chunks",
+            fake_retrieve,
+        )
+
+        (
+            _image_parts,
+            document_text_parts,
+            _blocks,
+        ) = await gateway_runtime._load_embed_attachment_parts(
+            SimpleNamespace(session=None),
+            _conversation(),
+            attachments=[_attachment("doc-1", "report.pdf", "application/pdf")],
+            platform_id=1,
+            agent_id=2,
+            end_user_id=3,
+            query="总金额是多少",
+        )
+
+        assert len(document_text_parts) == 1
+        assert "季度营收增长 30%" in document_text_parts[0]["text"]
+
+    @async_test
     async def test_document_not_ready_raises(self, monkeypatch, attachment_repos):
         class FakeProcessingRepository:
             def __init__(self, session):

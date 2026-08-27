@@ -1,5 +1,22 @@
 # 验证记录
 
+## 2026-08-27 会话级 embedding 与 pgvector 检索
+
+按计划 Phase 2 Task 8 接入可配置 embedding：解析后生成切块向量，网关按用户问题注入 Top-K 相关段，未配置或失败时回退全文注入。
+
+| 项目 | 命令 | 结果 |
+| --- | --- | --- |
+| 附件+网关+会话+知识全量 | `cd apps/backend && poetry run pytest tests/asset tests/gateway tests/conversation tests/knowledge -q` | 通过，186 个通过、1 个条件跳过 |
+| 迁移应用 | `cd apps/backend && poetry run alembic upgrade head` | 成功，`20260826_0026 -> 20260827_0027`，当前 `20260827_0027 (head)` |
+| 静态检查 | `cd apps/backend && poetry run ruff check app tests migrations` | 通过 |
+| 差异格式检查 | `git diff --check` | 通过 |
+
+验证说明：
+
+- 新增测试覆盖：embedding 启用判定（API key / 本地端点 / 缺配置）；解析后批量生成并持久化向量、维度不匹配跳过、服务失败降级不阻塞；网关当轮附件按 query 注入 Top-K 切块（含段号）、检索失败回退全文、无 query 保持全文。
+- 修复一处环境相关测试：`test_build_embedding_model_keeps_missing_key_for_remote_base_url` 在 `.env` 含真实 `OPENAI_API_KEY` 时，`OpenAIEmbedding` 会回退读取环境变量导致断言失败；已加 `monkeypatch.delenv("OPENAI_API_KEY")` 使断言与外部环境解耦。
+- 已知限制：真实 embedding 服务联调未执行，需配置 `ATTACHMENT_EMBEDDING_*` 环境变量与可用的 OpenAI-compatible embedding 端点后验证；检索仅对当轮文档附件生效，历史附件恢复仍为全文注入；未做 pgvector 索引（ivfflat/hnsw），向量量级上升后需补充。
+
 ## 2026-08-26 历史附件上下文恢复与文本缓存
 
 第二轮及以后的消息可通过历史内容块引用恢复图片与文档内容；文档解析文本缓存到数据库，避免重复读文件。
