@@ -13,6 +13,7 @@ const agentDetailSearch = z.object({
       'tools',
       'versions',
       'usage',
+      'models',
     ])
     .optional(),
 })

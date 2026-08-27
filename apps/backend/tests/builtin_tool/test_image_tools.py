@@ -41,6 +41,7 @@ def image_settings(tmp_path, monkeypatch):
         openai_base_url=None,
         openai_image_model="gpt-image-1",
         image_generation_timeout_seconds=10,
+        read_image_timeout_seconds=10,
         image_max_bytes=1024 * 1024,
         image_max_count=4,
         agent_file_storage_path=str(tmp_path),
@@ -95,6 +96,64 @@ def test_generate_images_requires_api_key(monkeypatch):
     assert str(exc.value) == "image_generation_not_configured"
 
 
+def test_generate_images_uses_bound_model_config(image_settings, monkeypatch):
+    captured = {}
+
+    class RecordingClient:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+            self.images = FakeImages()
+
+    monkeypatch.setattr(image_generate, "AsyncOpenAI", RecordingClient)
+    model_config = SimpleNamespace(
+        model_name="gpt-image-1",
+        base_url="https://gateway.example.com/v1",
+        api_key="bound-key",
+        capabilities=None,
+        options={},
+    )
+    result = asyncio.run(
+        generate_images(
+            {"prompt": "a red kite"},
+            asset_repo=FakeAssetRepo(),
+            platform_id=1,
+            agent_id=2,
+            conversation_id=3,
+            user_id=4,
+            platform_end_user_id=None,
+            model_config=model_config,
+        )
+    )
+
+    assert captured["api_key"] == "bound-key"
+    assert captured["base_url"] == "https://gateway.example.com/v1"
+    assert result[0]["content_type"] == "image/png"
+
+
+def test_generate_images_bound_model_without_key_fails(image_settings, monkeypatch):
+    model_config = SimpleNamespace(
+        model_name="gpt-image-1",
+        base_url=None,
+        api_key=None,
+        capabilities=None,
+        options={},
+    )
+    with pytest.raises(image_generate.ImageGenerationError) as exc:
+        asyncio.run(
+            generate_images(
+                {"prompt": "test"},
+                asset_repo=FakeAssetRepo(),
+                platform_id=1,
+                agent_id=2,
+                conversation_id=3,
+                user_id=4,
+                platform_end_user_id=None,
+                model_config=model_config,
+            )
+        )
+    assert str(exc.value) == "image_generation_not_configured"
+
+
 def test_read_image_rejects_non_image_result(monkeypatch, image_settings):
     monkeypatch.setattr(
         image_read,
@@ -114,6 +173,60 @@ def test_read_image_rejects_non_image_result(monkeypatch, image_settings):
             )
         )
     assert str(exc.value) == "image_required"
+
+
+def test_read_image_description_non_json_response_logs_hint(
+    monkeypatch, image_settings, caplog, tmp_path
+):
+    monkeypatch.setattr(
+        "app.modules.asset.services.get_settings",
+        lambda: SimpleNamespace(agent_file_storage_path=str(tmp_path)),
+    )
+    storage_path = tmp_path / "sample.png"
+    storage_path.write_bytes(b"fake-image-bytes")
+    asset = SimpleNamespace(
+        asset_id="asset-1",
+        storage_key="sample.png",
+        filename="sample.png",
+        content_type="image/png",
+        size_bytes=16,
+    )
+
+    class BrokenChat:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def ainvoke(self, messages):
+            raise AttributeError("'str' object has no attribute 'model_dump'")
+
+    monkeypatch.setattr("langchain_openai.ChatOpenAI", BrokenChat)
+
+    class Repo:
+        async def get_for_embed_conversation(self, *_args, **_kwargs):
+            return asset
+
+    result = asyncio.run(
+        read_image(
+            {"asset_id": "asset-1"},
+            asset_repo=Repo(),
+            platform_id=1,
+            agent_id=2,
+            conversation_id=3,
+            user_id=None,
+            platform_end_user_id=9,
+            model_config=SimpleNamespace(
+                model_name="vision-model",
+                base_url="https://example.com",
+                api_key="k",
+                capabilities=None,
+                options={},
+            ),
+        )
+    )
+
+    assert result["description"] is None
+    assert "read image description failed" in caplog.text
+    assert "非 JSON" in caplog.text
 
 
 def _fake_fetch(*, kind, temp_path):

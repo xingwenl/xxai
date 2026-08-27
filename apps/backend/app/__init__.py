@@ -30,6 +30,10 @@ from app.modules.model_usage.router import router as model_usage_router
 from app.modules.builtin_tool.router import router as builtin_tool_router
 from app.modules.asset.router import router as asset_router
 from app.modules.wechat_bot.router import router as wechat_bot_router
+from app.modules.model_registry.router import (
+    binding_router as model_binding_router,
+    model_router as platform_model_router,
+)
 from app.modules.observability.metrics import metrics_content_type, metrics_payload
 from app.modules.asset.conversation_asset_router import (
     conversation_router as asset_conversation_router,
@@ -67,7 +71,11 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://127.0.0.1:5500", "http://127.0.0.1:5173", "http://localhost:5173"],
+        allow_origins=[
+            "http://127.0.0.1:5500",
+            "http://127.0.0.1:5173",
+            "http://localhost:5173",
+        ],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -93,9 +101,12 @@ def create_app() -> FastAPI:
     app.include_router(builtin_tool_router, prefix=settings.api_v1_prefix)
     app.include_router(asset_router, prefix=settings.api_v1_prefix)
     app.include_router(wechat_bot_router, prefix=settings.api_v1_prefix)
+    app.include_router(platform_model_router, prefix=settings.api_v1_prefix)
+    app.include_router(model_binding_router, prefix=settings.api_v1_prefix)
 
     app.include_router(asset_conversation_router, prefix=settings.api_v1_prefix)
     app.include_router(asset_upload_router, prefix=settings.api_v1_prefix)
+
     @app.get("/metrics", include_in_schema=False, response_class=PlainTextResponse)
     async def metrics():
         if not get_settings().metrics_enabled:

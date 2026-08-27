@@ -200,7 +200,13 @@ async def execute_processing(
         saved_chunks = await processing_repo.create_chunks(chunk_records)
 
         # 会话级向量缓存：配置可用时生成并持久化，失败只降级为文本注入
-        await _build_attachment_embeddings(processing_repo, record, saved_chunks)
+        await _build_attachment_embeddings(
+            processing_repo,
+            record,
+            saved_chunks,
+            platform_id=asset.platform_id,
+            agent_id=asset.agent_id,
+        )
 
         return await processing_repo.update_processing(
             record,
@@ -224,18 +230,31 @@ async def _build_attachment_embeddings(
     processing_repo,
     record,
     saved_chunks: list,
+    *,
+    platform_id: int | None = None,
+    agent_id: int | None = None,
 ) -> None:
-    """按全局 embedding 配置批量生成附件切块向量并持久化。
+    """按 Agent 绑定或全局 embedding 配置批量生成附件切块向量并持久化。
 
     任何失败（服务不可用、维度不匹配等）都不影响处理状态，由网关
     降级为全文文本注入。
     """
-    if not attachment_embedding_enabled():
+    model_config = None
+    if platform_id is not None and agent_id is not None:
+        from app.modules.model_registry.resolver import resolve_agent_model
+
+        model_config = await resolve_agent_model(
+            processing_repo.session,
+            platform_id=platform_id,
+            agent_id=agent_id,
+            role="embedding",
+        )
+    if not attachment_embedding_enabled(model_config):
         return
     from app.core.config import get_settings
 
     try:
-        model = build_attachment_embedding_model()
+        model = build_attachment_embedding_model(model_config)
         embeddings = await model.aget_text_embedding_batch(
             [chunk.content for chunk in saved_chunks]
         )
@@ -255,7 +274,11 @@ async def _build_attachment_embeddings(
                     "asset_id": record.asset_id,
                     "provider": get_settings().attachment_embedding_provider
                     or "openai",
-                    "model": get_settings().attachment_embedding_model,
+                    "model": (
+                        model_config.model_name
+                        if model_config
+                        else get_settings().attachment_embedding_model
+                    ),
                     "dimension": dimension,
                     "embedding": embedding,
                 }

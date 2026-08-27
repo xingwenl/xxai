@@ -173,7 +173,7 @@ def get_settings() -> Settings:
         read_image_base_url=os.getenv("READ_IMAGE_BASE_URL") or None,
         read_image_api_key=os.getenv("READ_IMAGE_API_KEY") or None,
         read_image_timeout_seconds=float(
-            os.getenv("READ_IMAGE_TIMEOUT_SECONDS", "60")
+            os.getenv("READ_IMAGE_TIMEOUT_SECONDS", "120")
         ),
         image_generation_timeout_seconds=float(
             os.getenv("IMAGE_GENERATION_TIMEOUT_SECONDS", "120")

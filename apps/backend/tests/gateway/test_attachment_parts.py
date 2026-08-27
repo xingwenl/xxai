@@ -192,11 +192,17 @@ class TestLoadEmbedAttachmentParts:
         monkeypatch.setattr(
             gateway_runtime,
             "attachment_embedding_enabled",
-            lambda: True,
+            lambda _model_config: True,
         )
 
         async def fake_retrieve(
-            processing_repo, asset, processing, conversation_id, query
+            processing_repo,
+            asset,
+            processing,
+            conversation_id,
+            query,
+            *,
+            model_config=None,
         ):
             assert query == "总金额是多少"
             return [
@@ -252,11 +258,17 @@ class TestLoadEmbedAttachmentParts:
         monkeypatch.setattr(
             gateway_runtime,
             "attachment_embedding_enabled",
-            lambda: True,
+            lambda _model_config: True,
         )
 
         async def fake_retrieve(
-            processing_repo, asset, processing, conversation_id, query
+            processing_repo,
+            asset,
+            processing,
+            conversation_id,
+            query,
+            *,
+            model_config=None,
         ):
             raise RuntimeError("embedding service unavailable")
 

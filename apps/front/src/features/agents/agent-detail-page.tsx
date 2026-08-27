@@ -14,6 +14,7 @@ import { ProfileDropdown } from '@/components/profile-dropdown'
 import { ThemeSwitch } from '@/components/theme-switch'
 import { AgentConfigTab } from './agent-config-tab'
 import { AgentKnowledgeTab } from './agent-knowledge-tab'
+import { AgentModelBindingsTab } from './agent-model-bindings-tab'
 import { AgentOverviewTab } from './agent-overview-tab'
 import { AgentSkillsTab } from './agent-skills-tab'
 import { AgentToolsTab } from './agent-tools-tab'
@@ -28,6 +29,7 @@ export type AgentTabKey =
   | 'tools'
   | 'versions'
   | 'usage'
+  | 'models'
 
 const routeApi = getRouteApi('/_authenticated/ai/bots/$agentId')
 
@@ -134,7 +136,7 @@ export function AgentDetailPage() {
           }
           className='gap-0'
         >
-          <TabsList className='h-auto w-full justify-start overflow-x-auto rounded-lg mb-4'>
+          <TabsList className='mb-4 h-auto w-full justify-start overflow-x-auto rounded-lg'>
             <TabsTrigger value='overview'>概览</TabsTrigger>
             <TabsTrigger value='config'>配置</TabsTrigger>
             <TabsTrigger value='knowledge'>知识库</TabsTrigger>
@@ -142,6 +144,7 @@ export function AgentDetailPage() {
             <TabsTrigger value='tools'>工具</TabsTrigger>
             <TabsTrigger value='versions'>版本</TabsTrigger>
             <TabsTrigger value='usage'>用量</TabsTrigger>
+            <TabsTrigger value='models'>模型绑定</TabsTrigger>
           </TabsList>
           <TabsContent value='overview'>
             <AgentOverviewTab platformId={platformId} agentId={agentIdNumber} />
@@ -166,6 +169,12 @@ export function AgentDetailPage() {
           </TabsContent>
           <TabsContent value='usage'>
             <AgentUsageTab platformId={platformId} agentId={agentIdNumber} />
+          </TabsContent>
+          <TabsContent value='models'>
+            <AgentModelBindingsTab
+              platformId={platformId}
+              agentId={agentIdNumber}
+            />
           </TabsContent>
         </Tabs>
       </Main>

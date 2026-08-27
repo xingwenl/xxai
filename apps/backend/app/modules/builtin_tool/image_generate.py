@@ -12,6 +12,7 @@ from openai import AsyncOpenAI
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.modules.asset.services import persist_asset
+from app.modules.model_registry.resolver import ResolvedModel
 
 logger = get_logger(__name__)
 
@@ -32,20 +33,27 @@ async def generate_images(
     user_id: int | None,
     platform_end_user_id: int | None,
     client=None,
+    model_config: ResolvedModel | None = None,
 ) -> list[dict]:
     settings = get_settings()
-    if not settings.openai_api_key:
+    # 绑定注册表模型时优先使用其密钥与地址；未绑定时回退全局配置。
+    api_key = model_config.api_key if model_config else settings.openai_api_key
+    if not api_key:
         raise ImageGenerationError("image_generation_not_configured")
     count = int(arguments.get("n", 1))
     if count > settings.image_max_count:
         raise ImageGenerationError("image_too_many")
     client = client or AsyncOpenAI(
-        api_key=settings.openai_api_key,
-        base_url=settings.openai_base_url,
+        api_key=api_key,
+        base_url=(model_config.base_url if model_config else None)
+        or settings.openai_base_url,
         timeout=settings.image_generation_timeout_seconds,
         max_retries=0,
     )
-    model = arguments.get("model") or settings.openai_image_model
+    default_model = (
+        model_config.model_name if model_config else settings.openai_image_model
+    )
+    model = arguments.get("model") or default_model
     params = {
         "model": model,
         "prompt": arguments["prompt"],
@@ -71,7 +79,9 @@ async def generate_images(
         try:
             payload = base64.b64decode(encoded, validate=True)
         except (ValueError, binascii.Error) as exc:
-            logger.warning("OpenAI Images API returned invalid image data model=%s", model)
+            logger.warning(
+                "OpenAI Images API returned invalid image data model=%s", model
+            )
             raise ImageGenerationError("image_generation_failed") from exc
         if len(payload) > settings.image_max_bytes:
             raise ImageGenerationError("image_too_large")

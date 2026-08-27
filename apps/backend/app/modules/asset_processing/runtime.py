@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 from app.core.logging import get_logger
 from app.core.config import get_settings
 from app.modules.knowledge.runtime import resolve_storage_path
+from app.modules.model_registry.resolver import ResolvedModel
 
 logger = get_logger(__name__)
 
@@ -88,34 +89,51 @@ def compute_file_hash(file_path: Path) -> str:
     return sha.hexdigest()
 
 
-def attachment_embedding_enabled() -> bool:
-    """附件向量检索是否启用：模型与维度已配置，且提供 API key 或本地端点。"""
-    settings = get_settings()
-    if (
-        not settings.attachment_embedding_model
-        or not settings.attachment_embedding_dimension
-    ):
-        return False
-    if settings.attachment_embedding_api_key:
-        return True
-    base_url = settings.attachment_embedding_base_url
+def _local_endpoint_without_key(base_url: str | None) -> bool:
+    """本地 OpenAI 兼容端点（Ollama 等）允许不配置 API key。"""
     if not base_url:
         return False
     hostname = urlparse(base_url).hostname
     return hostname in {"localhost", "127.0.0.1", "::1", "ollama"}
 
 
-def build_attachment_embedding_model():
-    """按全局附件 embedding 配置构建模型，兼容 OpenAI-compatible 服务。"""
+def attachment_embedding_enabled(
+    model_config: ResolvedModel | None = None,
+) -> bool:
+    """附件向量检索是否启用：维度已配置，且绑定模型或全局配置可用。"""
+    settings = get_settings()
+    if not settings.attachment_embedding_dimension:
+        return False
+    if model_config is not None:
+        return bool(model_config.model_name) and (
+            bool(model_config.api_key)
+            or _local_endpoint_without_key(model_config.base_url)
+        )
+    if not settings.attachment_embedding_model:
+        return False
+    if settings.attachment_embedding_api_key:
+        return True
+    return _local_endpoint_without_key(settings.attachment_embedding_base_url)
+
+
+def build_attachment_embedding_model(
+    model_config: ResolvedModel | None = None,
+):
+    """按绑定模型或全局附件 embedding 配置构建模型，兼容 OpenAI-compatible 服务。"""
     from llama_index.embeddings.openai import (
         OpenAIEmbedding,
         OpenAIEmbeddingModelType,
     )
 
     settings = get_settings()
-    model = settings.attachment_embedding_model
-    base_url = settings.attachment_embedding_base_url
-    api_key = settings.attachment_embedding_api_key
+    if model_config is not None:
+        model = model_config.model_name
+        base_url = model_config.base_url
+        api_key = model_config.api_key
+    else:
+        model = settings.attachment_embedding_model
+        base_url = settings.attachment_embedding_base_url
+        api_key = settings.attachment_embedding_api_key
     if not api_key and base_url:
         hostname = urlparse(base_url).hostname
         if hostname in {"localhost", "127.0.0.1", "::1", "ollama"}:

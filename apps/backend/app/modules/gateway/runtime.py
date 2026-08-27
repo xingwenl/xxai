@@ -119,7 +119,17 @@ async def _load_single_attachment_parts(
             ),
         }
     ]
-    if query and attachment_embedding_enabled():
+    model_config = None
+    if query:
+        from app.modules.model_registry.resolver import resolve_agent_model
+
+        model_config = await resolve_agent_model(
+            processing_repo.session,
+            platform_id=platform_id,
+            agent_id=agent_id,
+            role="embedding",
+        )
+    if query and attachment_embedding_enabled(model_config):
         try:
             retrieved = await _retrieve_attachment_chunks(
                 processing_repo,
@@ -127,6 +137,7 @@ async def _load_single_attachment_parts(
                 processing,
                 conversation_id,
                 query,
+                model_config=model_config,
             )
         except Exception as exc:
             logger.warning(
@@ -158,6 +169,8 @@ async def _retrieve_attachment_chunks(
     processing,
     conversation_id: int,
     query: str,
+    *,
+    model_config=None,
 ):
     """按用户问题生成查询向量，检索会话内该处理版本的最相关切块。"""
     from app.core.config import get_settings
@@ -165,7 +178,7 @@ async def _retrieve_attachment_chunks(
         build_attachment_embedding_model,
     )
 
-    model = build_attachment_embedding_model()
+    model = build_attachment_embedding_model(model_config)
     query_embedding = await model.aget_query_embedding(query)
     dimension = get_settings().attachment_embedding_dimension
     if len(query_embedding) != dimension:

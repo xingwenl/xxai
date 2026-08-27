@@ -78,6 +78,7 @@ async def _prepare(
                 agent_id=agent_id,
                 conversation_id=context.conversation_id,
                 user_id=current_user.id,
+                session=session,
             )
         if getattr(tool, "kind", None) == "skill_script":
             return await execute_skill_script(

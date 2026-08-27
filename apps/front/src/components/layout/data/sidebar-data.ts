@@ -1,6 +1,7 @@
 import {
   Bell,
   Bot,
+  Cpu,
   Cable,
   Database,
   FileCode2,
@@ -68,6 +69,11 @@ export const sidebarData: SidebarData = {
           title: '平台管理',
           url: '/ai/platforms',
           icon: Server,
+        },
+        {
+          title: '模型管理',
+          url: '/ai/models',
+          icon: Cpu,
         },
         {
           title: '知识库管理',

@@ -83,7 +83,9 @@ class TestBuildAttachmentEmbeddings:
                 return [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
 
         monkeypatch.setattr(
-            services, "build_attachment_embedding_model", lambda: FakeModel()
+            services,
+            "build_attachment_embedding_model",
+            lambda _model_config: FakeModel(),
         )
 
         class FakeRepo:
@@ -127,7 +129,9 @@ class TestBuildAttachmentEmbeddings:
                 return [[0.1, 0.2]]
 
         monkeypatch.setattr(
-            services, "build_attachment_embedding_model", lambda: FakeModel()
+            services,
+            "build_attachment_embedding_model",
+            lambda _model_config: FakeModel(),
         )
 
         class FakeRepo:
@@ -161,7 +165,9 @@ class TestBuildAttachmentEmbeddings:
                 raise RuntimeError("embedding service unavailable")
 
         monkeypatch.setattr(
-            services, "build_attachment_embedding_model", lambda: FakeModel()
+            services,
+            "build_attachment_embedding_model",
+            lambda _model_config: FakeModel(),
         )
 
         class FakeRepo:

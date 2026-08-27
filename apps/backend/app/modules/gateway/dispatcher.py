@@ -112,6 +112,7 @@ class RuntimeToolDispatcher:
                 agent_id=self.agent_id,
                 conversation_id=self.context.conversation_id,
                 platform_end_user_id=self.end_user_id,
+                session=self.session,
             )
         if getattr(tool, "kind", None) == "skill_script":
             return await execute_skill_script(

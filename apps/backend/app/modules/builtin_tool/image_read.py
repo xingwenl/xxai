@@ -8,6 +8,7 @@ from pathlib import Path
 from app.core.config import get_settings
 from app.modules.asset.services import persist_asset, resolve_asset_path
 from app.modules.builtin_tool.http_get import HttpGetError, fetch_http_get
+from app.modules.model_registry.resolver import ResolvedModel
 
 logger = logging.getLogger(__name__)
 
@@ -28,14 +29,28 @@ def asset_payload(asset) -> dict:
     }
 
 
-async def _describe_image(asset) -> str | None:
-    """配置视觉模型时生成图片文字描述；未配置或调用失败返回 None。"""
+async def _describe_image(
+    asset, model_config: ResolvedModel | None = None
+) -> str | None:
+    """配置视觉模型时生成图片文字描述；未配置或调用失败返回 None。
+
+    绑定 ``image_read`` 注册表模型时优先使用其配置，未绑定时回退
+    全局 ``READ_IMAGE_*`` 与 ``OPENAI_*`` 配置。
+    """
     settings = get_settings()
-    if not settings.read_image_model:
+    if model_config is not None:
+        model_name = model_config.model_name
+        base_url = model_config.base_url
+        api_key = model_config.api_key
+    else:
+        model_name = settings.read_image_model
+        base_url = settings.read_image_base_url
+        api_key = settings.read_image_api_key
+    if not model_name:
         return None
-    if not (settings.read_image_base_url or settings.openai_base_url):
+    if not (base_url or settings.openai_base_url):
         return None
-    if not (settings.read_image_api_key or settings.openai_api_key):
+    if not (api_key or settings.openai_api_key):
         return None
     try:
         from langchain_core.messages import HumanMessage
@@ -44,13 +59,12 @@ async def _describe_image(asset) -> str | None:
         path = resolve_asset_path(asset.storage_key)
         data = await asyncio.to_thread(path.read_bytes)
         data_url = (
-            f"data:{asset.content_type};base64,"
-            f"{base64.b64encode(data).decode('ascii')}"
+            f"data:{asset.content_type};base64,{base64.b64encode(data).decode('ascii')}"
         )
         model = ChatOpenAI(
-            model=settings.read_image_model,
-            base_url=settings.read_image_base_url or settings.openai_base_url,
-            api_key=settings.read_image_api_key or settings.openai_api_key,
+            model=model_name,
+            base_url=base_url or settings.openai_base_url,
+            api_key=api_key or settings.openai_api_key,
             timeout=settings.read_image_timeout_seconds,
             max_retries=0,
         )
@@ -76,10 +90,16 @@ async def _describe_image(asset) -> str | None:
         text = getattr(response, "content", "") or ""
         return str(text)[:2000]
     except Exception as exc:
+        detail = str(exc)
+        if "model_dump" in detail:
+            detail = (
+                "上游返回非 JSON 响应（检查模型 base_url 是否以 /v1 结尾、"
+                f"模型是否支持图片输入）: {detail}"
+            )
         logger.warning(
             "read image description failed asset_id=%s: %s",
             getattr(asset, "asset_id", None),
-            exc,
+            detail,
         )
         return None
 
@@ -93,6 +113,7 @@ async def read_image(
     conversation_id: int,
     user_id: int | None,
     platform_end_user_id: int | None,
+    model_config: ResolvedModel | None = None,
 ) -> dict:
     settings = get_settings()
     asset_id = arguments.get("asset_id")
@@ -114,7 +135,7 @@ async def read_image(
         return {
             "kind": "image",
             "asset": asset_payload(asset),
-            "description": await _describe_image(asset),
+            "description": await _describe_image(asset, model_config),
         }
 
     temp_dir = Path(settings.agent_file_storage_path) / "assets" / ".tmp"
@@ -153,5 +174,5 @@ async def read_image(
     return {
         "kind": "image",
         "asset": asset_payload(asset),
-        "description": await _describe_image(asset),
+        "description": await _describe_image(asset, model_config),
     }

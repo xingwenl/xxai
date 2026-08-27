@@ -46,6 +46,7 @@ import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenti
 import { Route as AuthenticatedAiWechatBotsRouteImport } from './routes/_authenticated/ai/wechat-bots'
 import { Route as AuthenticatedAiSkillsRouteImport } from './routes/_authenticated/ai/skills'
 import { Route as AuthenticatedAiPlatformsRouteImport } from './routes/_authenticated/ai/platforms'
+import { Route as AuthenticatedAiModelsRouteImport } from './routes/_authenticated/ai/models'
 import { Route as AuthenticatedAiModelUsageRouteImport } from './routes/_authenticated/ai/model-usage'
 import { Route as AuthenticatedAiKnowledgeBasesRouteImport } from './routes/_authenticated/ai/knowledge-bases'
 import { Route as AuthenticatedAiHostToolsRouteImport } from './routes/_authenticated/ai/host-tools'
@@ -250,6 +251,11 @@ const AuthenticatedAiPlatformsRoute =
     path: '/ai/platforms',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAiModelsRoute = AuthenticatedAiModelsRouteImport.update({
+  id: '/ai/models',
+  path: '/ai/models',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedAiModelUsageRoute =
   AuthenticatedAiModelUsageRouteImport.update({
     id: '/ai/model-usage',
@@ -305,6 +311,7 @@ export interface FileRoutesByFullPath {
   '/ai/host-tools': typeof AuthenticatedAiHostToolsRoute
   '/ai/knowledge-bases': typeof AuthenticatedAiKnowledgeBasesRoute
   '/ai/model-usage': typeof AuthenticatedAiModelUsageRoute
+  '/ai/models': typeof AuthenticatedAiModelsRoute
   '/ai/platforms': typeof AuthenticatedAiPlatformsRoute
   '/ai/skills': typeof AuthenticatedAiSkillsRoute
   '/ai/wechat-bots': typeof AuthenticatedAiWechatBotsRoute
@@ -346,6 +353,7 @@ export interface FileRoutesByTo {
   '/ai/host-tools': typeof AuthenticatedAiHostToolsRoute
   '/ai/knowledge-bases': typeof AuthenticatedAiKnowledgeBasesRoute
   '/ai/model-usage': typeof AuthenticatedAiModelUsageRoute
+  '/ai/models': typeof AuthenticatedAiModelsRoute
   '/ai/platforms': typeof AuthenticatedAiPlatformsRoute
   '/ai/skills': typeof AuthenticatedAiSkillsRoute
   '/ai/wechat-bots': typeof AuthenticatedAiWechatBotsRoute
@@ -392,6 +400,7 @@ export interface FileRoutesById {
   '/_authenticated/ai/host-tools': typeof AuthenticatedAiHostToolsRoute
   '/_authenticated/ai/knowledge-bases': typeof AuthenticatedAiKnowledgeBasesRoute
   '/_authenticated/ai/model-usage': typeof AuthenticatedAiModelUsageRoute
+  '/_authenticated/ai/models': typeof AuthenticatedAiModelsRoute
   '/_authenticated/ai/platforms': typeof AuthenticatedAiPlatformsRoute
   '/_authenticated/ai/skills': typeof AuthenticatedAiSkillsRoute
   '/_authenticated/ai/wechat-bots': typeof AuthenticatedAiWechatBotsRoute
@@ -436,6 +445,7 @@ export interface FileRouteTypes {
     | '/ai/host-tools'
     | '/ai/knowledge-bases'
     | '/ai/model-usage'
+    | '/ai/models'
     | '/ai/platforms'
     | '/ai/skills'
     | '/ai/wechat-bots'
@@ -477,6 +487,7 @@ export interface FileRouteTypes {
     | '/ai/host-tools'
     | '/ai/knowledge-bases'
     | '/ai/model-usage'
+    | '/ai/models'
     | '/ai/platforms'
     | '/ai/skills'
     | '/ai/wechat-bots'
@@ -522,6 +533,7 @@ export interface FileRouteTypes {
     | '/_authenticated/ai/host-tools'
     | '/_authenticated/ai/knowledge-bases'
     | '/_authenticated/ai/model-usage'
+    | '/_authenticated/ai/models'
     | '/_authenticated/ai/platforms'
     | '/_authenticated/ai/skills'
     | '/_authenticated/ai/wechat-bots'
@@ -823,6 +835,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAiPlatformsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/ai/models': {
+      id: '/_authenticated/ai/models'
+      path: '/ai/models'
+      fullPath: '/ai/models'
+      preLoaderRoute: typeof AuthenticatedAiModelsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/ai/model-usage': {
       id: '/_authenticated/ai/model-usage'
       path: '/ai/model-usage'
@@ -898,6 +917,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAiHostToolsRoute: typeof AuthenticatedAiHostToolsRoute
   AuthenticatedAiKnowledgeBasesRoute: typeof AuthenticatedAiKnowledgeBasesRoute
   AuthenticatedAiModelUsageRoute: typeof AuthenticatedAiModelUsageRoute
+  AuthenticatedAiModelsRoute: typeof AuthenticatedAiModelsRoute
   AuthenticatedAiPlatformsRoute: typeof AuthenticatedAiPlatformsRoute
   AuthenticatedAiSkillsRoute: typeof AuthenticatedAiSkillsRoute
   AuthenticatedAiWechatBotsRoute: typeof AuthenticatedAiWechatBotsRoute
@@ -922,6 +942,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAiHostToolsRoute: AuthenticatedAiHostToolsRoute,
   AuthenticatedAiKnowledgeBasesRoute: AuthenticatedAiKnowledgeBasesRoute,
   AuthenticatedAiModelUsageRoute: AuthenticatedAiModelUsageRoute,
+  AuthenticatedAiModelsRoute: AuthenticatedAiModelsRoute,
   AuthenticatedAiPlatformsRoute: AuthenticatedAiPlatformsRoute,
   AuthenticatedAiSkillsRoute: AuthenticatedAiSkillsRoute,
   AuthenticatedAiWechatBotsRoute: AuthenticatedAiWechatBotsRoute,

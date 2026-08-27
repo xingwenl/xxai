@@ -22,6 +22,7 @@ from app.modules.builtin_tool.image_generate import (
 from app.modules.builtin_tool.image_read import ImageReadError, read_image
 from app.modules.builtin_tool.registry import get_builtin_tool
 from app.modules.builtin_tool.schemas import BuiltinToolOutcome
+from app.modules.model_registry.resolver import resolve_agent_model
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ class BuiltinToolContext:
     conversation_id: int
     user_id: int | None = None
     platform_end_user_id: int | None = None
+    session: Any | None = None
 
 
 _ToolHandler = Callable[[dict, BuiltinToolContext], Awaitable[BuiltinToolOutcome]]
@@ -104,6 +106,12 @@ def _http_outcome(
 async def _handle_image_generate(
     arguments: dict, ctx: BuiltinToolContext
 ) -> BuiltinToolOutcome:
+    model_config = await resolve_agent_model(
+        ctx.session,
+        platform_id=ctx.platform_id,
+        agent_id=ctx.agent_id,
+        role="image_generate",
+    )
     assets = await generate_images(
         arguments,
         asset_repo=ctx.asset_repo,
@@ -112,6 +120,7 @@ async def _handle_image_generate(
         conversation_id=ctx.conversation_id,
         user_id=ctx.user_id,
         platform_end_user_id=ctx.platform_end_user_id,
+        model_config=model_config,
     )
     return BuiltinToolOutcome(
         status="completed", result={"kind": "image", "assets": assets}
@@ -121,6 +130,12 @@ async def _handle_image_generate(
 async def _handle_image_read(
     arguments: dict, ctx: BuiltinToolContext
 ) -> BuiltinToolOutcome:
+    model_config = await resolve_agent_model(
+        ctx.session,
+        platform_id=ctx.platform_id,
+        agent_id=ctx.agent_id,
+        role="image_read",
+    )
     result = await read_image(
         arguments,
         asset_repo=ctx.asset_repo,
@@ -129,6 +144,7 @@ async def _handle_image_read(
         conversation_id=ctx.conversation_id,
         user_id=ctx.user_id,
         platform_end_user_id=ctx.platform_end_user_id,
+        model_config=model_config,
     )
     return BuiltinToolOutcome(status="completed", result=result)
 
@@ -138,9 +154,7 @@ async def _handle_http_get(
 ) -> BuiltinToolOutcome:
     settings = get_settings()
     temp_dir = Path(settings.agent_file_storage_path) / "assets" / ".tmp"
-    fetched = await fetch_http_get(
-        arguments["url"], **_http_fetch_options(temp_dir)
-    )
+    fetched = await fetch_http_get(arguments["url"], **_http_fetch_options(temp_dir))
     return _http_outcome(fetched, await _persist_fetched_asset(fetched, ctx))
 
 
@@ -178,6 +192,7 @@ async def invoke_builtin_tool(
     conversation_id: int | None,
     user_id: int | None = None,
     platform_end_user_id: int | None = None,
+    session=None,
 ) -> BuiltinToolOutcome:
     definition = get_builtin_tool(tool.name)
     if definition is None or not await builtin_repo.is_enabled(
@@ -210,6 +225,7 @@ async def invoke_builtin_tool(
         conversation_id=conversation_id,
         user_id=user_id,
         platform_end_user_id=platform_end_user_id,
+        session=session,
     )
     try:
         return await handler(arguments, ctx)
