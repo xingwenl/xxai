@@ -127,6 +127,7 @@ class TestLoadEmbedAttachmentParts:
         assert blocks[0]["type"] == "file"
         assert blocks[0]["fileName"] == "report.pdf"
         assert blocks[0]["asset_id"] == "doc-1"
+        assert blocks[0]["url"] == "/api/v1/assets/doc-1"
 
     @async_test
     async def test_document_falls_back_to_storage_file_when_cache_missing(

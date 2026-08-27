@@ -2,6 +2,7 @@
 
 ## - 2026-08-27
 - ✨ feat：会话级 embedding 与 pgvector 检索 `🧑‍💻 lixingwen`
+- ✨ feat：文件附件支持加载与点击下载 `🧑‍💻 lixingwen`
 
 ## - 2026-08-26
 - ✨ feat：文件附件上传、解析切块与当前会话缓存（Phase 1） `🧑‍💻 lixingwen`

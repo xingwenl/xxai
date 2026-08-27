@@ -109,6 +109,14 @@ DELETE /embed/conversations/{conversation_id}/assets/{asset_id}
 
 ## 变更记录
 
+### 2026-08-27 第 14 次变更（增量）
+
+- 变更原因：文件内容块缺少资源地址，SDK 文件组件未加载受保护资源，历史消息显示“文件暂不可用”，用户无法查看或下载附件。
+- 变更内容：网关 `_load_single_attachment_parts` 的 `file` 内容块补充 `url: /api/v1/assets/{asset_id}`（复用既有受保护资源下载端点，Bearer Embed token 鉴权，`attachment` 下载）；SDK `FileContent.vue` 通过 `agent.loadAsset` 加载资源并支持点击下载（`download` 保留原始文件名），`MessageContent.vue` 向 FileContent 传入 agent。
+- 影响章节：输入与交互、后端接口、验收标准。
+- 是否触发人工确认：否，复用既有受保护资源下载路由与 SDK 资源加载机制，不改变 API 契约、数据模型或权限规则。
+- 关联计划更新：落实 Phase 1 Task 5 的附件展示与下载要求。
+
 ### 2026-08-27 第 13 次变更（增量）
 
 - 变更原因：大文档全文注入受 16000 字符截断限制，且无法按用户问题精准定位内容；按计划 Phase 2 Task 8 接入会话级向量检索。

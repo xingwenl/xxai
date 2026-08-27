@@ -1,5 +1,24 @@
 # 验证记录
 
+## 2026-08-27 文件附件可加载与下载
+
+文件内容块补充受保护资源地址，SDK 文件组件加载资源并支持点击下载，替代“文件暂不可用”占位。
+
+| 项目 | 命令 | 结果 |
+| --- | --- | --- |
+| 后端附件加载测试 | `cd apps/backend && poetry run pytest tests/gateway/test_attachment_parts.py -q` | 通过，9/9（含 file 块 url 断言） |
+| 后端全量 | `cd apps/backend && poetry run pytest tests/asset tests/gateway tests/conversation tests/knowledge -q` | 通过，186 个通过、1 个条件跳过 |
+| SDK 全量测试 | `pnpm --dir apps/ai-sdk test -- --run` | 通过，15 个测试文件、96/96 |
+| SDK 类型检查 | `pnpm --dir apps/ai-sdk type-check` | 通过 |
+| SDK 生产构建 | `pnpm --dir apps/ai-sdk build` | 通过，生成 ESM、UMD、CSS 和声明文件 |
+| 差异格式检查 | `git diff --check` | 通过 |
+
+验证说明：
+
+- 后端 `file` 内容块现在包含 `url`，与图片块一致指向 `/api/v1/assets/{asset_id}` 受保护下载端点。
+- SDK `FileContent.vue` 复用 `AgentClient.loadAsset`（Bearer token + blob），加载成功显示可点击下载的文件卡片，失败仍回退“文件暂不可用”。
+- 未执行真实浏览器点击下载联调；该下载端点已长期服务图片资源，文档资源走同一鉴权与 `attachment` 响应头。
+
 ## 2026-08-27 会话级 embedding 与 pgvector 检索
 
 按计划 Phase 2 Task 8 接入可配置 embedding：解析后生成切块向量，网关按用户问题注入 Top-K 相关段，未配置或失败时回退全文注入。

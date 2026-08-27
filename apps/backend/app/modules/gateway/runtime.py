@@ -88,6 +88,7 @@ async def _load_single_attachment_parts(
         "type": "file",
         "status": "completed",
         "asset_id": asset.asset_id,
+        "url": f"/api/v1/assets/{asset.asset_id}",
         "fileName": asset.filename,
         "mimeType": asset.content_type,
         "size": asset.size_bytes,

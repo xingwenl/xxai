@@ -3,7 +3,7 @@
     <template v-for="block in blocks" :key="block.id">
       <MarkdownContent v-if="block.type === 'markdown' || block.type === 'text'" :text="block.text" :agent="agent" />
       <ImageContent v-else-if="block.type === 'image'" :block="block" :agent="agent" />
-      <FileContent v-else-if="block.type === 'file'" :block="block" />
+      <FileContent v-else-if="block.type === 'file'" :block="block" :agent="agent" />
       <TableContent v-else-if="block.type === 'table' || block.type === 'chart'" :block="block" />
       <ActionsContent v-else-if="block.type === 'actions'" :block="block" @action="handleAction" />
       <CustomContent v-else-if="block.type === 'custom'" :block="block" />
