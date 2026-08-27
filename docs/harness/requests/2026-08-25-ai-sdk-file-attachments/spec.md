@@ -14,6 +14,8 @@
 - 后端异步执行文件解析、切块和缓存；处理状态可查询并可通过实时事件通知。
 - 图片保存原文件并生成 `image` 内容块；OpenAI-compatible 和 Qwen-VL adapter 可转换为原生图片输入。
 - 文档默认抽取为文本/Markdown；模型支持原生文件输入时由 adapter 选择原文件，否则使用 chunks。
+- 每个 `agent_version` 通过 `capabilities` 声明附件能力；未配置时优先实时查询 OpenRouter `input_modalities`，失败按模型名兜底，默认按纯文本处理。
+- 纯文本主模型收到图片附件时，注入图片引用文本（文件名、受保护资源地址），主模型可自主调用 `image_read` 工具读取图片；不再强制发送 `image_url`。
 - 第二期接入可配置 embedding 和 pgvector 检索，embedding 记录模型、维度和版本。
 - 增加稳定错误码、大小/MIME/数量限制、失败重试和会话级清理策略。
 
@@ -66,6 +68,7 @@ DELETE /embed/conversations/{conversation_id}/assets/{asset_id}
 
 现有 `ConversationAsset` 保留原始文件和下载权限。新增或扩展以下实体，所有 SQLAlchemy 字段必须添加中文 `comment`：
 
+- `AgentVersion.capabilities`：模型附件能力配置（JSON，可选）。取值至少包含 `image`（视觉输入）、`native_file`（原生文件输入）、`text_retrieval`（文本切块注入）三项布尔能力；`null` 表示未显式配置，由运行时探测决定。
 - `ConversationAssetProcessing`：asset、解析器名称/版本、状态、抽取文本存储键、错误信息、开始/完成时间。
 - `ConversationAssetChunk`：asset、处理版本、序号、文本、页码/定位信息、token 数量。
 - `ConversationAssetEmbedding`：chunk、embedding provider、模型、维度、版本、向量。
@@ -78,7 +81,7 @@ DELETE /embed/conversations/{conversation_id}/assets/{asset_id}
 2. 后端创建处理记录并投递异步任务，立即返回 `processing`。
 3. Worker 解析文本、PDF、DOCX 或 Markdown，生成规范化文本和 chunks；图片只保存原图，OCR/视觉描述按能力配置执行。
 4. 第二期 Worker 按 embedding 配置批量生成向量并写入 pgvector。
-5. 消息发送时，后端加载当前会话可见附件；图片交给视觉 adapter，文档优先原生 file input，失败或不支持时检索/注入 chunks。
+5. 消息发送时，后端加载当前会话可见附件，并按主模型能力适配输入：支持视觉的模型图片直接转换为 `image_url` 原生输入；纯文本模型不发送图片内容，仅注入图片引用文本并保留 `image_read` 工具；文档优先原生 file input，失败或不支持时检索/注入 chunks。能力解析顺序：`agent_version.capabilities` 显式配置优先，其次 OpenRouter `input_modalities`（带 TTL 缓存），再次模型名兜底推导，最后默认纯文本。
 6. 模型上下文明确标记文件内容为不可信外部内容，避免把文档中的指令当作系统指令。
 
 ## 风险
@@ -103,11 +106,21 @@ DELETE /embed/conversations/{conversation_id}/assets/{asset_id}
 - `message_send` 可携带附件引用；后端拒绝不存在、未完成或不属于当前会话的 asset。
 - 同一会话第二次引用 ready 文件时，不重复执行解析和切块。
 - 图片在支持视觉的 OpenAI-compatible/Qwen 模型中按图片内容块传递；DeepSeek 返回明确不支持或使用文本描述兜底。
+- `agent_version.capabilities` 可配置且按版本生效；未配置时通过 OpenRouter `input_modalities` 探测视觉能力，探测失败按模型名兜底，默认纯文本。
+- 纯文本主模型收到图片时不再直接发送 `image_url`，而是注入图片引用并保留 `image_read` 工具供模型自主调用；既有"仅支持 text"错误重试保留为最后防线。
 - 文档解析结果、chunks 和处理版本可查询；第二期向量包含模型和维度信息。
 - 删除会话或附件后，原文件和派生缓存不再可访问。
 - 后端测试覆盖权限隔离、状态机、缓存命中、失败重试和 provider 降级；SDK 测试覆盖上传状态、协议序列化和输入框交互。
 
 ## 变更记录
+
+### 2026-08-27 第 15 次变更（增量）
+
+- 变更原因：主对话模型（`agent_versions` 发布版本）与辅助模型（生图/读图工具）能力不同，网关无法在发送前判断图片应走原生视觉输入还是文本降级，依赖"先发 `image_url` 报错再重试"不可靠。
+- 变更内容：为 `agent_versions` 增加 `capabilities` JSON 列（`image`/`native_file`/`text_retrieval`，可选）；新增 `attachment/provider.py` 能力矩阵，按"显式配置 → OpenRouter `input_modalities` 实时探测（TTL 缓存）→ 模型名兜底 → 保守纯文本"解析能力；网关按能力适配图片输入，纯文本主模型注入图片引用文本并由其自主调用 `image_read` 工具；`image_read` 工具在配置视觉模型（`READ_IMAGE_MODEL`）时返回图片文字描述，未配置时保持受保护资源引用。
+- 影响章节：范围、数据模型、处理与模型数据流、验收标准。
+- 是否触发人工确认：是，新增 `agent_versions.capabilities` 数据模型字段与网关输入适配行为；用户已于 2026-08-27 确认方案（1-A 存储、2-C OpenRouter 探测、3-C 自主调工具）。
+- 关联计划更新：细化 Phase 2 Task 7 为能力矩阵、探测缓存、网关适配与 `image_read` 描述增强。
 
 ### 2026-08-27 第 14 次变更（增量）
 

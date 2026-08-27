@@ -49,6 +49,13 @@ class AgentVersionCreate(BaseModel):
     api_key: str | None = Field(default=None, min_length=1)
     temperature: float = Field(default=0.2, ge=0, le=2)
     model_options: dict[str, Any] = Field(default_factory=dict)
+    capabilities: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "模型附件能力配置，至少包含 image/native_file/text_retrieval "
+            "三项布尔能力；不传时按 OpenRouter input_modalities 自动探测"
+        ),
+    )
 
 
 class AgentVersionRead(BaseModel):
@@ -62,6 +69,7 @@ class AgentVersionRead(BaseModel):
     model_base_url: str | None = None
     temperature: float
     model_options: dict[str, Any]
+    capabilities: dict[str, Any] | None = None
     created_at: datetime
     published_at: datetime | None = None
     has_api_key: bool = False

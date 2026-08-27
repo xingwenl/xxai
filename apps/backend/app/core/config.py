@@ -62,6 +62,12 @@ class Settings:
     openai_api_key: str | None
     openai_base_url: str | None
     openai_image_model: str
+    provider_capability_cache_ttl_seconds: int
+    provider_capability_query_timeout_seconds: float
+    read_image_model: str | None
+    read_image_base_url: str | None
+    read_image_api_key: str | None
+    read_image_timeout_seconds: float
     image_generation_timeout_seconds: float
     image_max_bytes: int
     image_max_count: int
@@ -157,6 +163,18 @@ def get_settings() -> Settings:
         openai_api_key=os.getenv("OPENAI_API_KEY") or None,
         openai_base_url=os.getenv("OPENAI_BASE_URL") or None,
         openai_image_model=os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1"),
+        provider_capability_cache_ttl_seconds=int(
+            os.getenv("PROVIDER_CAPABILITY_CACHE_TTL_SECONDS", "600")
+        ),
+        provider_capability_query_timeout_seconds=float(
+            os.getenv("PROVIDER_CAPABILITY_QUERY_TIMEOUT_SECONDS", "5")
+        ),
+        read_image_model=os.getenv("READ_IMAGE_MODEL") or None,
+        read_image_base_url=os.getenv("READ_IMAGE_BASE_URL") or None,
+        read_image_api_key=os.getenv("READ_IMAGE_API_KEY") or None,
+        read_image_timeout_seconds=float(
+            os.getenv("READ_IMAGE_TIMEOUT_SECONDS", "60")
+        ),
         image_generation_timeout_seconds=float(
             os.getenv("IMAGE_GENERATION_TIMEOUT_SECONDS", "120")
         ),

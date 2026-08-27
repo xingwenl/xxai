@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import asyncio
+import base64
+import logging
 from pathlib import Path
 
 from app.core.config import get_settings
-from app.modules.asset.services import persist_asset
+from app.modules.asset.services import persist_asset, resolve_asset_path
 from app.modules.builtin_tool.http_get import HttpGetError, fetch_http_get
+
+logger = logging.getLogger(__name__)
 
 
 class ImageReadError(Exception):
@@ -21,6 +26,62 @@ def asset_payload(asset) -> dict:
         "size_bytes": asset.size_bytes,
         "download_url": f"/api/v1/assets/{asset.asset_id}",
     }
+
+
+async def _describe_image(asset) -> str | None:
+    """配置视觉模型时生成图片文字描述；未配置或调用失败返回 None。"""
+    settings = get_settings()
+    if not settings.read_image_model:
+        return None
+    if not (settings.read_image_base_url or settings.openai_base_url):
+        return None
+    if not (settings.read_image_api_key or settings.openai_api_key):
+        return None
+    try:
+        from langchain_core.messages import HumanMessage
+        from langchain_openai import ChatOpenAI
+
+        path = resolve_asset_path(asset.storage_key)
+        data = await asyncio.to_thread(path.read_bytes)
+        data_url = (
+            f"data:{asset.content_type};base64,"
+            f"{base64.b64encode(data).decode('ascii')}"
+        )
+        model = ChatOpenAI(
+            model=settings.read_image_model,
+            base_url=settings.read_image_base_url or settings.openai_base_url,
+            api_key=settings.read_image_api_key or settings.openai_api_key,
+            timeout=settings.read_image_timeout_seconds,
+            max_retries=0,
+        )
+        response = await model.ainvoke(
+            [
+                HumanMessage(
+                    content=[
+                        {
+                            "type": "text",
+                            "text": (
+                                "请用中文详细描述这张图片的内容、"
+                                "可辨识的文字和关键信息。"
+                            ),
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": data_url},
+                        },
+                    ]
+                )
+            ]
+        )
+        text = getattr(response, "content", "") or ""
+        return str(text)[:2000]
+    except Exception as exc:
+        logger.warning(
+            "read image description failed asset_id=%s: %s",
+            getattr(asset, "asset_id", None),
+            exc,
+        )
+        return None
 
 
 async def read_image(
@@ -50,7 +111,11 @@ async def read_image(
             )
         if asset is None or not asset.content_type.startswith("image/"):
             raise ImageReadError("asset_not_found")
-        return {"kind": "image", "asset": asset_payload(asset)}
+        return {
+            "kind": "image",
+            "asset": asset_payload(asset),
+            "description": await _describe_image(asset),
+        }
 
     temp_dir = Path(settings.agent_file_storage_path) / "assets" / ".tmp"
     try:
@@ -85,4 +150,8 @@ async def read_image(
     except Exception:
         fetched.temp_path.unlink(missing_ok=True)
         raise
-    return {"kind": "image", "asset": asset_payload(asset)}
+    return {
+        "kind": "image",
+        "asset": asset_payload(asset),
+        "description": await _describe_image(asset),
+    }

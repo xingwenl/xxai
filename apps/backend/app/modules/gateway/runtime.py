@@ -16,6 +16,11 @@ from app.modules.conversation.runtime import (
 from app.modules.conversation.schemas import sanitize_content_blocks
 from app.modules.asset.repositories import AssetRepository
 from app.modules.asset.services import resolve_asset_path
+from app.modules.attachment.provider import (
+    ProviderAttachmentCapabilities,
+    image_reference_text_part,
+    resolve_attachment_capabilities,
+)
 from app.modules.asset_processing.runtime import attachment_embedding_enabled
 from app.modules.asset_processing.repositories import AssetProcessingRepository
 from app.modules.asset_processing.models import ProcessingStatus
@@ -40,12 +45,14 @@ async def _load_single_attachment_parts(
     agent_id: int,
     end_user_id: int,
     query: str | None = None,
+    capabilities: ProviderAttachmentCapabilities | None = None,
 ) -> tuple[list[dict], dict]:
     """加载单个附件为模型内容块，返回（内容 parts，持久化 block）。
 
-    图片转换为 data URL 的 image_url 内容块；文档优先读取数据库缓存的
-    解析文本（extracted_text），旧数据回退读取 storage 文本文件，注入时
-    视为不可信外部内容并做字符数截断。
+    图片按主模型能力适配：支持视觉时转换为 data URL 的 image_url 内容块，
+    纯文本模型改为图片引用文本；文档优先读取数据库缓存的解析文本
+    （extracted_text），旧数据回退读取 storage 文本文件，注入时视为
+    不可信外部内容并做字符数截断。
     """
     asset = await asset_repo.get_for_embed_conversation(
         asset_id,
@@ -61,11 +68,6 @@ async def _load_single_attachment_parts(
         processing = await processing_repo.get_processing(asset.id, conversation_id)
         if processing is not None and processing.status != ProcessingStatus.ready:
             raise ValueError("asset_not_ready")
-        path = resolve_asset_path(asset.storage_key)
-        data = await asyncio.to_thread(path.read_bytes)
-        data_url = (
-            f"data:{asset.content_type};base64,{base64.b64encode(data).decode('ascii')}"
-        )
         block = {
             "id": f"attachment_{asset.asset_id}",
             "type": "image",
@@ -77,7 +79,15 @@ async def _load_single_attachment_parts(
             "mimeType": asset.content_type,
             "size": asset.size_bytes,
         }
-        return [{"type": "image_url", "image_url": {"url": data_url}}], block
+        if capabilities is None or capabilities.image:
+            path = resolve_asset_path(asset.storage_key)
+            data = await asyncio.to_thread(path.read_bytes)
+            data_url = (
+                f"data:{asset.content_type};base64,"
+                f"{base64.b64encode(data).decode('ascii')}"
+            )
+            return [{"type": "image_url", "image_url": {"url": data_url}}], block
+        return [image_reference_text_part(asset)], block
 
     # 文档附件：注入已解析文本，仅当处理完成且存在抽取结果时生成内容块。
     processing = await processing_repo.get_processing(asset.id, conversation_id)
@@ -178,6 +188,7 @@ async def _load_embed_attachment_parts(
     agent_id: int,
     end_user_id: int,
     query: str | None = None,
+    capabilities: ProviderAttachmentCapabilities | None = None,
 ) -> tuple[list[dict], list[dict], list[dict]]:
     """按当前 Embed 主体和会话读取附件，转换为模型可接受的内容块。"""
     if not attachments:
@@ -197,6 +208,7 @@ async def _load_embed_attachment_parts(
             agent_id=agent_id,
             end_user_id=end_user_id,
             query=query,
+            capabilities=capabilities,
         )
         for part in parts:
             if part.get("type") == "image_url":
@@ -215,6 +227,7 @@ async def _load_history_attachment_parts(
     platform_id: int,
     agent_id: int,
     end_user_id: int,
+    capabilities: ProviderAttachmentCapabilities | None = None,
 ) -> dict[str, list[dict]]:
     """按历史用户消息的内容块引用加载附件内容，按 asset_id 分组。
 
@@ -248,6 +261,7 @@ async def _load_history_attachment_parts(
                 platform_id=platform_id,
                 agent_id=agent_id,
                 end_user_id=end_user_id,
+                capabilities=capabilities,
             )
         except ValueError as error:
             if str(error) == "attachment_not_found":
@@ -572,6 +586,7 @@ async def stream_embed_chat(
         conversation_id=conversation_id,
         request_id=request_id,
     )
+    capabilities = await resolve_attachment_capabilities(context.version)
     (
         image_parts,
         document_text_parts,
@@ -584,6 +599,7 @@ async def stream_embed_chat(
         agent_id=context.agent.id,
         end_user_id=end_user_id,
         query=message,
+        capabilities=capabilities,
     )
 
     # Embed SDK 只发送当前消息和可信会话 ID，历史由服务端按窗口读取。
@@ -600,6 +616,7 @@ async def stream_embed_chat(
         platform_id=platform_id,
         agent_id=context.agent.id,
         end_user_id=end_user_id,
+        capabilities=capabilities,
     )
 
     user_message = await repo.create_message(

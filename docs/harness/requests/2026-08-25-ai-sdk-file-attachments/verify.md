@@ -1,5 +1,26 @@
 # 验证记录
 
+## 2026-08-27 Phase 2 Task 7 provider 能力矩阵
+
+为 `agent_versions` 增加 `capabilities` 附件能力配置，网关按能力矩阵适配图片输入：视觉模型直接传 `image_url`，纯文本模型注入图片引用文本并由主模型自主调用 `image_read` 工具；能力解析按"显式配置 → OpenRouter `input_modalities`（TTL 缓存）→ 模型名兜底 → 保守纯文本"。
+
+| 项目 | 命令 | 结果 |
+| --- | --- | --- |
+| 能力矩阵单测 | `cd apps/backend && poetry run pytest tests/attachment -q` | 通过，17/17 |
+| 相关模块回归 | `cd apps/backend && poetry run pytest tests/attachment tests/builtin_tool tests/gateway tests/agent -q` | 通过，118 个通过、1 个条件跳过 |
+| 后端全量 | `cd apps/backend && poetry run pytest -q --import-mode=importlib` | 通过，394 个通过、1 个条件跳过（`--import-mode=importlib` 规避仓库既有同名测试文件收集冲突） |
+| 静态检查 | `cd apps/backend && poetry run ruff check app tests` | 通过 |
+| 迁移应用 | `cd apps/backend && poetry run alembic upgrade head` | 成功，`20260827_0027 -> 20260827_0028`，当前 `20260827_0028 (head)` |
+| 迁移往返 | `poetry run alembic downgrade 20260827_0027` 后 `upgrade head` | 成功，downgrade/upgrade 均可执行 |
+| 差异格式检查 | `git diff --check` | 通过 |
+
+验证说明：
+
+- 新增测试覆盖：`capabilities` 显式配置映射与非法值拒绝；OpenRouter `/models` 的 `input_modalities` 解析（`["text","image"]` → 视觉）、TTL 缓存命中（仅一次请求）、网络失败按模型名兜底；模型名规则（`vl`/`vision`/`4o`/`gemini`/`claude` → 视觉优先，`deepseek`/`gpt-3.5`/`qwen-turbo` → 纯文本，未知 → 保守纯文本）；网关图片适配（视觉 → `image_url` data URL、纯文本 → 图片引用文本、缺省 → 向后兼容视觉）。
+- 纯文本模型不再直接发送 `image_url`，改为注入图片引用（文件名 + 受保护资源地址 + `image_read` 工具提示），既有"仅支持 text"错误重试保留为最后防线。
+- `image_read` 工具新增可选描述生成：配置 `READ_IMAGE_MODEL` 后调用视觉模型返回图片文字描述；未配置时保持受保护资源引用，不破坏既有行为。
+- 已知限制：OpenRouter 实时探测依赖网络，失败按模型名兜底仍可能误判；真实 OpenAI-compatible 视觉模型联调未执行，需在配置 `agent_versions.capabilities` 或 OpenRouter base_url 的环境中验证；`image_read` 描述生成需要配置 `READ_IMAGE_MODEL`/`READ_IMAGE_BASE_URL`/`READ_IMAGE_API_KEY`。
+
 ## 2026-08-27 文件附件可加载与下载
 
 文件内容块补充受保护资源地址，SDK 文件组件加载资源并支持点击下载，替代“文件暂不可用”占位。

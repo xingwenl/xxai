@@ -93,3 +93,79 @@
 - 资料时效性：供应商的视觉/文件能力、模型名称和端点限制可能变化，需要运行时能力配置和联调测试。
 - 与本项目上下文的差异：当前网关消息入口只校验 `payload.text`，需要扩展为附件引用；当前 `ConversationAsset` 主要服务图片和资源下载，需要增加文档处理状态。
 - 尚未验证的假设：扫描 PDF 的 OCR 引擎、Office 表格解析质量、Celery/Worker 对大文件的吞吐，以及生产环境 pgvector 索引规模。
+
+## Provider 能力矩阵调研补充（2026-08-27）
+
+### 调研问题
+
+不同模型能力不同：有生成图片的模型、读取图片的模型、纯文本交流模型，而 `agent_versions` 只发布一个主对话模型。需要确定主模型输入端的能力判断方式：主模型支持视觉时图片直接传原生输入，不支持时由主模型自主调用读图工具，避免"先发 `image_url` 报错再重试"的不可靠路径。
+
+### 参考依据
+
+#### 来源 7
+
+- 类型：官方 API
+- 名称：OpenRouter Models API
+- 链接：https://openrouter.ai/docs/api-reference/models（端点 `https://openrouter.ai/api/v1/models`）
+- 版本或发布日期：持续更新；以 2026-08-27 抓取的真实响应为准
+- 调研日期：2026-08-27
+- 核心做法：`/api/v1/models` 返回每个模型的 `architecture.input_modalities`（取值如 `["text"]`、`["text","image"]`、`["text","file"]`）与 `supported_parameters`（含 `tools`）。真实响应示例：`deepseek/deepseek-v4-flash-vision-exp` 的 `input_modalities: ["text","image"]`。
+- 对本项目的启发：能力来源可以直接复用 OpenRouter 模型元数据，运行时按 `model_name` 匹配 `input_modalities`，同时保留显式配置覆盖；这是当前最权威、成本最低的实时探测来源。
+
+#### 来源 8
+
+- 类型：开源项目讨论
+- 名称：Ollama `/api/tags` capabilities 字段讨论
+- 链接：https://github.com/ollama/ollama/issues/14964
+- 版本或发布日期：讨论进行中
+- 调研日期：2026-08-27
+- 核心做法：Ollama 官方 `/api/tags` 目前不返回 capabilities/输入模态字段，相关能力信息仍在讨论中。
+- 对本项目的启发：不能依赖本地 Ollama 标签做能力判断；本地/自建模型需要走显式配置或保守兜底。
+
+#### 来源 9
+
+- 类型：生产代码修复案例
+- 名称：gptme 视觉能力探测修复
+- 链接：https://github.com/gptme/gptme/commit/bc4803cb0beb43ecc1293d8367b8b66dec7e0985
+- 版本或发布日期：2023-03-23 提交
+- 调研日期：2026-08-27
+- 核心做法：gptme 曾用 `"vision" in modality` 判断视觉能力，但 OpenRouter 返回的 `modality` 是 `text+image->text`、`input_modalities` 是 `["text","image"]`，导致所有视觉模型探测失败。修复为检查 `"image" in input_modalities`。
+- 对本项目的启发：能力探测必须解析 `input_modalities` 数组而非匹配 modality 字符串；该案例说明"只看模型名或 modality 字符串"会产生生产事故，需以结构化字段为准并保留兜底。
+
+### 方案比较
+
+能力存储位置：
+
+| 方案 | 优点 | 限制 | 匹配度 |
+|---|---|---|---|
+| `agent_versions` 增加 `capabilities` JSON 列（推荐） | 与版本同生命周期、语义清晰、可按版本回滚 | 需要一次数据库迁移 | 高 |
+| 复用 `model_options` JSON | 零迁移 | 与传给 ChatOpenAI 的参数混在一起，职责不清 | 低 |
+| 独立能力表 | 最规范、可扩展 | 对当前单模型发布模式过度设计 | 低 |
+
+能力来源：
+
+| 方案 | 优点 | 限制 | 匹配度 |
+|---|---|---|---|
+| 实时查 OpenRouter `input_modalities` + 显式配置覆盖（推荐） | 最准、随供应商更新、可解释 | 依赖网络，失败需兜底；未托管在 OpenRouter 的模型无法查询 | 高 |
+| 按模型名前缀自动推导 | 无网络依赖、零配置 | 命名规则不可靠，容易误判（gptme 案例） | 中 |
+| 纯手动勾选 | 完全可控 | 维护成本高，容易过期 | 中低 |
+
+纯文本主模型遇到图片时的降级路径：
+
+| 方案 | 优点 | 限制 | 匹配度 |
+|---|---|---|---|
+| 返回 `model_attachment_not_supported` | 简单可靠 | 用户无法获得图片内容，体验差 | 中 |
+| 自动调用视觉模型生成描述注入 | 体验好 | 每次都要额外调用模型，延迟和成本不可控 | 中 |
+| 主模型自主调用 `image_read` 工具（推荐） | 由模型按需决定，避免强制开销；工具返回受保护资源引用，可扩展描述生成 | 依赖工具注册；纯文本模型拿到引用后需要描述能力才能真正理解图片 | 高 |
+
+### 最终决策
+
+- 选择方案：`agent_versions.capabilities` JSON 列 + OpenRouter `input_modalities` 实时探测（TTL 缓存）+ 显式配置优先 + 模型名兜底 + 保守默认；纯文本主模型遇图片时注入图片引用文本，主模型自主调用 `image_read` 工具。
+- 选择原因：能力与发布版本同生命周期，可按版本回滚；实时探测随供应商更新且可解释；探测失败有兜底不会中断消息流；降级路径由模型自主决策，不强制额外模型调用。
+- 不选择其他方案的原因：复用 `model_options` 职责混乱；独立能力表当前过度设计；纯手动配置容易过期；自动注入描述增加不可控延迟与成本。
+- 对后续 spec、plan 或人工确认的影响：需要新增 `agent_versions.capabilities` 数据模型字段与迁移；网关组装消息时按能力适配图片输入；实现前需人工确认（用户已于 2026-08-27 确认：1-A 存储、2-C 探测、3-C 自主调工具）。
+
+### 剩余风险
+
+- OpenRouter 探测依赖网络与模型是否托管在 OpenRouter；失败时按模型名兜底，仍可能误判，需保留"仅支持 text"错误重试作为最后防线。
+- `image_read` 工具当前返回受保护资源引用；生成图片文字描述需要额外配置视觉模型（`READ_IMAGE_MODEL`），未配置时纯文本主模型只能基于引用作答。

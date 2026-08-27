@@ -79,6 +79,15 @@ class AgentVersion(BaseModel):
     model_options: Mapped[dict[str, Any]] = mapped_column(
         JSON, nullable=False, default=dict, comment="模型额外配置"
     )
+    capabilities: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON,
+        nullable=True,
+        default=None,
+        comment=(
+            "模型附件能力配置（image/native_file/text_retrieval），"
+            "为空时按 OpenRouter input_modalities 探测并按模型名兜底"
+        ),
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, comment="版本创建时间"
     )
