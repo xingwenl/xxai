@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ToolVerse · 深色玻璃拟态仪表盘</title>
+    
+    <!-- 引入 Inter 字体 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- 引入 Tailwind CSS (CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Tailwind 配置扩展 -->
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                    borderRadius: {
+                        '4xl': '2rem',
+                        '5xl': '2.5rem',
+                    },
+                    boxShadow: {
+                        'glass': '0 8px 32px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.2)',
+                        'glow-blue': '0 0 20px rgba(59, 130, 246, 0.4), 0 0 60px rgba(59, 130, 246, 0.15)',
+                        'glow-white': '0 0 16px rgba(255, 255, 255, 0.25), 0 0 48px rgba(255, 255, 255, 0.08)',
+                    },
+                    animation: {
+                        'float-slow': 'float 10s ease-in-out infinite',
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                    },
+                    keyframes: {
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0px)' },
+                            '50%': { transform: 'translateY(-12px)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* 核心玻璃拟态样式 */
+        body {
+            background-color: #09090b; /* zinc-950 */
+            color: #fafafa;
+            font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+        }
+
+        .glass-panel {
+            background-color: rgba(24, 24, 27, 0.6); /* zinc-900/60 */
+            backdrop-filter: blur(40px); /* backdrop-blur-2xl */
+            -webkit-backdrop-filter: blur(40px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.2);
+            position: relative;
+        }
+
+        /* 顶部内高光：模拟玻璃边缘反光的关键细节 */
+        .glass-panel::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            pointer-events: none;
+            box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+        }
+
+        .glass-interactive {
+            transition: all 0.3s ease-out;
+            cursor: pointer;
+        }
+        .glass-interactive:hover {
+            background-color: rgba(39, 39, 42, 0.6); /* zinc-800/60 */
+            border-color: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+        .glass-interactive:active {
+            transform: translateY(0) scale(0.99);
+        }
+
+        /* 背景弥散光斑 */
+        .ambient-orb {
+            position: absolute;
+            border-radius: 9999px;
+            filter: blur(120px);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* 自定义滚动条 */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 99px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        
+        /* 图表模拟动画 */
+        @keyframes chart-draw {
+            from { stroke-dashoffset: 1000; }
+            to { stroke-dashoffset: 0; }
+        }
+        .chart-line {
+            stroke-dasharray: 1000;
+            animation: chart-draw 2s ease-out forwards;
+        }
+    </style>
+</head>
+<body class="antialiased min-h-screen overflow-x-hidden selection:bg-blue-500/30">
+
+    <!-- ================= 背景氛围层 ================= -->
+    <div class="ambient-orb bg-blue-500/20 w-[600px] h-[600px] -top-[15%] -left-[10%] animate-float-slow"></div>
+    <div class="ambient-orb bg-violet-500/15 w-[500px] h-[500px] top-[5%] -right-[5%]" style="animation: float 14s ease-in-out infinite reverse;"></div>
+    <div class="ambient-orb bg-sky-500/10 w-[700px] h-[500px] -bottom-[20%] left-1/3"></div>
+    <!-- 噪点纹理叠加 -->
+    <div class="fixed inset-0 opacity-[0.03] pointer-events-none z-0" style="background-image: url('data:image/svg+xml,%3Csvg viewBox=%220 0 200 200%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22noiseFilter%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.65%22 numOctaves=%223%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23noiseFilter)%22/%3E%3C/svg%3E');"></div>
+
+    <!-- ================= 桌面端侧边栏 ================= -->
+    <aside class="glass-panel fixed left-4 top-1/2 -translate-y-1/2 z-40 hidden md:flex flex-col items-center gap-2 p-2 rounded-3xl">
+        <!-- Logo -->
+        <div class="mb-2 flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-violet-600 shadow-glow-blue">
+            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path></svg>
+        </div>
+        <div class="h-px w-6 bg-white/10"></div>
+
+        <!-- Nav Items -->
+        <button class="relative flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-zinc-900 shadow-glow-white transition-all">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+        </button>
+        <button class="flex h-11 w-11 items-center justify-center rounded-2xl text-zinc-400 hover:bg-white/10 hover:text-white transition-all">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+        </button>
+        <button class="flex h-11 w-11 items-center justify-center rounded-2xl text-zinc-400 hover:bg-white/10 hover:text-white transition-all">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+        </button>
+        <button class="flex h-11 w-11 items-center justify-center rounded-2xl text-zinc-400 hover:bg-white/10 hover:text-white transition-all">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+        </button>
+
+        <div class="h-px w-6 bg-white/10"></div>
+        <button class="flex h-11 w-11 items-center justify-center rounded-2xl text-zinc-400 hover:bg-white/10 hover:text-white transition-all">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+        </button>
+    </aside>
+
+    <!-- ================= 移动端底部导航 ================= -->
+    <nav class="glass-panel fixed bottom-4 left-4 right-4 z-40 flex md:hidden items-center justify-around p-2 rounded-3xl">
+        <button class="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-zinc-900 shadow-glow-white"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg></button>
+        <button class="flex h-11 w-11 items-center justify-center rounded-2xl text-zinc-400 hover:bg-white/10 hover:text-white"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg></button>
+        <button class="flex h-11 w-11 items-center justify-center rounded-2xl text-zinc-400 hover:bg-white/10 hover:text-white"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg></button>
+        <button class="flex h-11 w-11 items-center justify-center rounded-2xl text-zinc-400 hover:bg-white/10 hover:text-white"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg></button>
+    </nav>
+
+    <!-- ================= 主内容区 ================= -->
+    <main class="relative z-10 mx-auto max-w-7xl px-4 pb-28 pt-4 sm:px-6 md:ml-24 md:pb-10 lg:ml-28">
+        
+        <!-- Top Bar -->
+        <header class="glass-panel flex items-center gap-3 p-3 sm:gap-4 sm:p-4 rounded-4xl">
+            <nav class="hidden lg:flex items-center gap-1.5 text-sm">
+                <span class="text-zinc-500">工作台</span>
+                <svg class="w-3.5 h-3.5 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                <span class="font-medium tracking-wide text-white">仪表盘</span>
+            </nav>
+
+            <div class="group relative flex-1 max-w-xl">
+                <svg class="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500 transition-colors group-focus-within:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                <input placeholder="搜索工具、应用或指令…" class="h-11 w-full rounded-full border border-white/10 bg-white/5 pl-11 pr-20 text-sm text-white placeholder:text-zinc-500 backdrop-blur-xl transition-all duration-300 focus:border-blue-400/40 focus:bg-white/[0.08] focus:outline-none focus:ring-4 focus:ring-blue-500/10" />
+                <kbd class="pointer-events-none absolute right-4 top-1/2 hidden -translate-y-1/2 rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-zinc-500 sm:block">⌘K</kbd>
+            </div>
+
+            <button class="hidden sm:flex h-11 gap-1.5 items-center justify-center rounded-full bg-blue-500 px-5 text-sm font-medium text-white shadow-glow-blue transition-all hover:bg-blue-400">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                新建
+            </button>
+
+            <button class="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400 transition-colors hover:bg-white/10 hover:text-white">
+                <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+                <span class="absolute right-3 top-3 h-2 w-2 rounded-full bg-blue-500 ring-4 ring-blue-500/20"></span>
+            </button>
+
+            <div class="h-11 w-11 shrink-0 cursor-pointer overflow-hidden rounded-full border border-white/15 transition-transform hover:scale-105 bg-zinc-800 flex items-center justify-center text-sm text-white">TV</div>
+        </header>
+
+        <!-- Bento Grid -->
+        <div class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            
+            <!-- Welcome Card -->
+            <div class="glass-panel relative overflow-hidden p-7 rounded-4xl sm:col-span-2">
+                <div class="absolute -right-16 -top-24 h-64 w-64 rounded-full bg-blue-500/15 blur-[80px]"></div>
+                <p class="text-sm text-zinc-500">2026年8月20日 · 星期四</p>
+                <h1 class="mt-2 text-3xl font-extralight tracking-tight text-white sm:text-4xl">下午好，<span class="font-normal">开发者</span></h1>
+                <p class="mt-3 max-w-md text-sm leading-relaxed text-zinc-400">你的工作台一切正常 —— 12 个应用运行中，本周已为你节省约 4.5 小时。</p>
+                <div class="mt-6 flex flex-wrap items-center gap-2">
+                    <span class="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-zinc-300">
+                        <span class="h-1.5 w-1.5 animate-pulse-slow rounded-full bg-emerald-400"></span>全部服务正常
+                    </span>
+                    <span class="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-zinc-300">延迟 23ms</span>
+                    <span class="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-zinc-300">v3.2.1</span>
+                </div>
+            </div>
+
+            <!-- Stat Cards -->
+            <div class="glass-panel glass-interactive p-5 rounded-3xl group">
+                <div class="flex items-start justify-between">
+                    <div class="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-zinc-300 transition-colors group-hover:text-blue-400">
+                        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    </div>
+                    <span class="flex items-center gap-0.5 rounded-full bg-emerald-500/10 text-emerald-400 px-2 py-1 text-[11px] font-medium">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 11l5-5m0 0l5 5m-5-5v12"></path></svg>
+                        12.6%
+                    </span>
+                </div>
+                <div class="mt-5">
+                    <p class="text-[13px] tracking-wide text-zinc-500">本周调用次数</p>
+                    <p class="mt-1 text-[28px] font-light tracking-tight text-white">4,010</p>
+                    <p class="mt-1 text-[11px] text-zinc-600">对比上周</p>
+                </div>
+            </div>
+
+            <div class="glass-panel glass-interactive p-5 rounded-3xl group">
+                <div class="flex items-start justify-between">
+                    <div class="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-zinc-300 transition-colors group-hover:text-blue-400">
+                        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                    </div>
+                    <span class="flex items-center gap-0.5 rounded-full bg-rose-500/10 text-rose-400 px-2 py-1 text-[11px] font-medium">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 13l-5 5m0 0l-5-5m5 5V6"></path></svg>
+                        2.1%
+                    </span>
+                </div>
+                <div class="mt-5">
+                    <p class="text-[13px] tracking-wide text-zinc-500">活跃应用</p>
+                    <p class="mt-1 text-[28px] font-light tracking-tight text-white">12</p>
+                    <p class="mt-1 text-[11px] text-zinc-600">对比上周</p>
+                </div>
+            </div>
+
+            <!-- Quick Tools -->
+            <div class="glass-panel glass-interactive flex items-center gap-4 p-4 rounded-3xl group">
+                <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-sky-400 transition-transform duration-300 group-hover:scale-110">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                </div>
+                <div class="min-w-0">
+                    <h3 class="truncate text-sm font-medium text-white">图片压缩</h3>
+                    <p class="mt-0.5 truncate text-xs text-zinc-500">批量压缩 · WebP 转换</p>
+                </div>
+            </div>
+
+            <div class="glass-panel glass-interactive flex items-center gap-4 p-4 rounded-3xl group">
+                <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-amber-400 transition-transform duration-300 group-hover:scale-110">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+                </div>
+                <div class="min-w-0">
+                    <h3 class="truncate text-sm font-medium text-white">JSON 格式化</h3>
+                    <p class="mt-0.5 truncate text-xs text-zinc-500">校验 · 树状视图</p>
+                </div>
+            </div>
+
+            <div class="glass-panel glass-interactive flex items-center gap-4 p-4 rounded-3xl group">
+                <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-emerald-400 transition-transform duration-300 group-hover:scale-110">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"></path></svg>
+                </div>
+                <div class="min-w-0">
+                    <h3 class="truncate text-sm font-medium text-white">二维码生成</h3>
+                    <p class="mt-0.5 truncate text-xs text-zinc-500">支持 Logo 嵌入</p>
+                </div>
+            </div>
+
+            <div class="glass-panel glass-interactive flex items-center gap-4 p-4 rounded-3xl group">
+                <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-fuchsia-400 transition-transform duration-300 group-hover:scale-110">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                </div>
+                <div class="min-w-0">
+                    <h3 class="truncate text-sm font-medium text-white">时间戳转换</h3>
+                    <p class="mt-0.5 truncate text-xs text-zinc-500">Unix ⇄ 可读时间</p>
+                </div>
+            </div>
+
+            <!-- Chart Area -->
+            <div class="glass-panel flex h-full flex-col p-6 rounded-4xl sm:col-span-2 lg:col-span-3">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h2 class="text-base font-medium tracking-wide text-white">API 调用趋势</h2>
+                        <p class="mt-1 text-xs text-zinc-500">过去 7 天 · 所有应用汇总</p>
+                    </div>
+                    <div class="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-zinc-400">
+                        <span class="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse-slow"></span>实时
+                    </div>
+                </div>
+                
+                <!-- Pure SVG Chart Simulation -->
+                <div class="mt-6 flex-1 w-full h-[220px] relative">
+                    <svg class="w-full h-full" viewBox="0 0 600 200" preserveAspectRatio="none">
+                        <!-- Grid Lines -->
+                        <line x1="0" y1="50" x2="600" y2="50" stroke="rgba(255,255,255,0.05)" stroke-dasharray="4 4" />
+                        <line x1="0" y1="100" x2="600" y2="100" stroke="rgba(255,255,255,0.05)" stroke-dasharray="4 4" />
+                        <line x1="0" y1="150" x2="600" y2="150" stroke="rgba(255,255,255,0.05)" stroke-dasharray="4 4" />
+                        
+                        <!-- Gradient Fill -->
+                        <defs>
+                            <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.35"/>
+                                <stop offset="100%" stop-color="#3b82f6" stop-opacity="0"/>
+                            </linearGradient>
+                        </defs>
+                        <path d="M0,140 C80,140 80,100 160,100 C240,100 240,120 320,60 C400,60 400,90 480,40 C560,40 560,60 600,60 V200 H0 Z" fill="url(#chartGradient)" />
+                        
+                        <!-- Line -->
+                        <path class="chart-line" d="M0,140 C80,140 80,100 160,100 C240,100 240,120 320,60 C400,60 400,90 480,40 C560,40 560,60 600,60" fill="none" stroke="#60a5fa" stroke-width="2.5" stroke-linecap="round" />
+                        
+                        <!-- X Axis Labels -->
+                        <text x="40" y="195" fill="#71717a" font-size="11" text-anchor="middle">周一</text>
+                        <text x="140" y="195" fill="#71717a" font-size="11" text-anchor="middle">周二</text>
+                        <text x="240" y="195" fill="#71717a" font-size="11" text-anchor="middle">周三</text>
+                        <text x="340" y="195" fill="#71717a" font-size="11" text-anchor="middle">周四</text>
+                        <text x="440" y="195" fill="#71717a" font-size="11" text-anchor="middle">周五</text>
+                        <text x="540" y="195" fill="#71717a" font-size="11" text-anchor="middle">周六</text>
+                    </svg>
+                </div>
+            </div>
+
+            <!-- Recommended Apps -->
+            <div class="glass-panel flex h-full flex-col p-6 rounded-4xl sm:col-span-2 lg:col-span-1">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-base font-medium tracking-wide text-white">推荐应用</h2>
+                    <button class="text-xs text-zinc-500 transition-colors hover:text-blue-400">查看全部 →</button>
+                </div>
+                <div class="mt-5 grid flex-1 grid-cols-2 gap-3">
+                    <button class="group flex flex-col justify-between rounded-2xl border border-white/[0.07] bg-white/[0.03] p-4 text-left transition-all duration-300 hover:border-white/15 hover:bg-white/[0.07]">
+                        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500/20 to-sky-500/5 text-sky-400 border border-white/10 transition-transform duration-300 group-hover:scale-110">
+                            <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                        </div>
+                        <div class="mt-4">
+                            <p class="text-[13px] font-medium text-zinc-200">Markdown</p>
+                            <p class="mt-0.5 text-[11px] text-zinc-600">效率</p>
+                        </div>
+                    </button>
+                    <button class="group flex flex-col justify-between rounded-2xl border border-white/[0.07] bg-white/[0.03] p-4 text-left transition-all duration-300 hover:border-white/15 hover:bg-white/[0.07]">
+                        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-fuchsia-500/20 to-fuchsia-500/5 text-fuchsia-400 border border-white/10 transition-transform duration-300 group-hover:scale-110">
+                            <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path></svg>
+                        </div>
+                        <div class="mt-4">
+                            <p class="text-[13px] font-medium text-zinc-200">取色器</p>
+                            <p class="mt-0.5 text-[11px] text-zinc-600">设计</p>
+                        </div>
+                    </button>
+                    <button class="group flex flex-col justify-between rounded-2xl border border-white/[0.07] bg-white/[0.03] p-4 text-left transition-all duration-300 hover:border-white/15 hover:bg-white/[0.07]">
+                        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500/20 to-emerald-500/5 text-emerald-400 border border-white/10 transition-transform duration-300 group-hover:scale-110">
+                            <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                        </div>
+                        <div class="mt-4">
+                            <p class="text-[13px] font-medium text-zinc-200">正则实验室</p>
+                            <p class="mt-0.5 text-[11px] text-zinc-600">开发</p>
+                        </div>
+                    </button>
+                    <button class="group flex flex-col justify-between rounded-2xl border border-white/[0.07] bg-white/[0.03] p-4 text-left transition-all duration-300 hover:border-white/15 hover:bg-white/[0.07]">
+                        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500/20 to-amber-500/5 text-amber-400 border border-white/10 transition-transform duration-300 group-hover:scale-110">
+                            <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
+                        </div>
+                        <div class="mt-4">
+                            <p class="text-[13px] font-medium text-zinc-200">URL 编解码</p>
+                            <p class="mt-0.5 text-[11px] text-zinc-600">工具</p>
+                        </div>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <p class="mt-10 text-center text-xs text-zinc-700">ToolVerse · Crafted with Glassmorphism</p>
+    </main>
+</body>
+</html>

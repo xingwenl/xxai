@@ -8,6 +8,7 @@
 - ♻️ refactor：内置工具注册表合并为单一来源并直连真实 handler `🧑‍💻 lixingwen`
 - ✨ feat：Agent 版本列表展示模型 Base URL 并升级 xxai-agent 至 0.1.5 `🧑‍💻 lixingwen`
 - 🧰 chore：移除应用卡片调试日志 `🧑‍💻 lixingwen`
+- 🧰 chore：新增 ToolVerse 玻璃拟态仪表盘演示页 `🧑‍💻 lixingwen`
 
 ## - 2026-08-27
 - ✨ feat：会话级 embedding 与 pgvector 检索 `🧑‍💻 lixingwen`
