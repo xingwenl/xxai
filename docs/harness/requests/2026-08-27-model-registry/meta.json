@@ -35,6 +35,12 @@
       "at": "2026-08-27",
       "scope": "确认方案 B：平台模型注册表、Agent 绑定表、注册表 CRUD 与绑定 API、按能力角色路由及 .env 兜底",
       "note": "用户确认数据模型与 API 契约后开始实现"
+    },
+    {
+      "by": "user",
+      "at": "2026-08-28",
+      "scope": "注册表合并方向 A（单一来源）与严格工具描述要求",
+      "note": "用户确认方向 A，并要求描述严格清晰说明工具用法与结果用法"
     }
   ],
   "owner": "ai",
@@ -52,5 +58,5 @@
     "apps/front/src/routes/_authenticated/ai/models.tsx",
     "apps/backend/app/modules/tools"
   ],
-  "notes": "第 1 次闭环完成（迁移 20260827_0029、注册表 CRUD 与绑定 API、工具与 embedding 按 Agent 路由；后端 410 测试通过）。第 2 次变更：前端「模型管理」页与智能体「模型绑定」Tab。第 3 次变更（fix）：image_read 描述为空，根因为绑定模型 base_url 缺 /v1，已修复并补充诊断日志、超时配置与回归测试。第 4 次变更（架构）：基本/业务工具分层完成——4 个内置工具迁入 basic/business，builtin_tool/services.py 收敛为薄委托层，对外契约不变；后端全量 418 测试通过。"
+  "notes": "第 1 次闭环完成（迁移 20260827_0029、注册表 CRUD 与绑定 API、工具与 embedding 按 Agent 路由；后端 410 测试通过）。第 2 次变更：前端「模型管理」页与智能体「模型绑定」Tab。第 3 次变更（fix）：image_read 描述为空，根因为绑定模型 base_url 缺 /v1，已修复并补充诊断日志、超时配置与回归测试。第 4 次变更（架构）：基本/业务工具分层完成——4 个内置工具迁入 basic/business，builtin_tool/services.py 收敛为薄委托层，对外契约不变；后端全量 418 测试通过。第 5 次变更（架构）：builtin_tool 注册表与业务注册表合并为单一来源（描述/schema/handler 来自 tools/business），executor 由字符串改为真实 handler，services 删除字符串委托表；4 个业务工具描述重写为严格用法说明；后端全量 422 测试通过。"
 }

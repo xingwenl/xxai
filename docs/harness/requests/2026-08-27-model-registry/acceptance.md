@@ -37,3 +37,9 @@
 - 定义与 handler 同页、装饰器导入即注册；公共注册页只做 import 收集与 `list/get`；业务工具 `depends_on` 依赖在启动期校验。
 - `builtin_tool/services.py` 收敛为薄委托层，`invoke_builtin_tool` 旧签名与对外 LLM 契约不变；稳定错误码映射与 `tool_failed` 兜底已由单元测试锁定。
 - 后端全量 `418 passed, 1 skipped`，ruff 检查与格式化通过；旧实现文件已删除、无残留引用。
+
+## 第 5 次变更验收结论（架构：注册表单一来源）
+
+- `builtin_tool/registry.py` 已与业务注册表合并为单一事实来源：描述、input_schema、handler 全部来自 `tools/business`，`executor` 为真实 handler，`services.py` 字符串委托表已删除。
+- 4 个业务工具描述已重写为严格用法说明（调用方式 + 结果使用规则），input_schema 约束与对外 LLM 契约一致；`ask_user` 保留为网关直连特例。
+- 后端全量 `422 passed, 1 skipped`，ruff 通过；对外 LLM 契约与稳定错误码不变，无新增剩余风险。

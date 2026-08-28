@@ -317,9 +317,8 @@ def tool_step_values(tool_event: dict, sequence: int) -> dict:
     }
 
 
-def image_content_blocks(tool_events: list[dict] | None) -> list[dict]:
-    """把图片工具结果转换为消息内容块，避免把 base64 写入消息。"""
-    blocks: list[dict] = []
+def _iter_image_assets(tool_events: list[dict] | None):
+    """遍历图片工具结果中的受保护图片资源。"""
     for event in tool_events or []:
         outcome = event.get("outcome")
         result = getattr(outcome, "result", None)
@@ -328,23 +327,52 @@ def image_content_blocks(tool_events: list[dict] | None) -> list[dict]:
         assets = result.get("assets") or (
             [result["asset"]] if result.get("asset") else []
         )
-        for index, asset in enumerate(assets):
-            if not isinstance(asset, dict) or not asset.get("asset_id"):
-                continue
-            asset_id = str(asset["asset_id"])
-            blocks.append(
-                {
-                    "id": f"image_{asset_id}_{index}",
-                    "type": "image",
-                    "status": "completed",
-                    "asset_id": asset_id,
-                    "url": asset.get("download_url"),
-                    "mime_type": asset.get("content_type", "image/png"),
-                    "size": asset.get("size_bytes"),
-                    "alt": "图片工具输出",
-                }
-            )
+        for asset in assets:
+            if isinstance(asset, dict) and asset.get("asset_id"):
+                yield asset
+
+
+def image_content_blocks(tool_events: list[dict] | None) -> list[dict]:
+    """把图片工具结果转换为消息内容块，避免把 base64 写入消息。"""
+    blocks: list[dict] = []
+    for index, asset in enumerate(_iter_image_assets(tool_events)):
+        asset_id = str(asset["asset_id"])
+        blocks.append(
+            {
+                "id": f"image_{asset_id}_{index}",
+                "type": "image",
+                "status": "completed",
+                "asset_id": asset_id,
+                "url": asset.get("download_url"),
+                "mime_type": asset.get("content_type", "image/png"),
+                "size": asset.get("size_bytes"),
+                "alt": "图片工具输出",
+            }
+        )
     return blocks
+
+
+def rewrite_image_markdown(content: str, tool_events: list[dict] | None) -> str:
+    """把模型输出的 Markdown 图片链接中误用的裸 asset_id 改写为 download_url。
+
+    模型可能把 image_read/image_generate 返回的 asset_id 直接当成图片地址，
+    前端无法渲染；这里按本轮工具结果做确定性兜底替换，避免依赖模型自觉。
+    """
+    asset_urls = {
+        str(asset["asset_id"]): str(asset["download_url"])
+        for asset in _iter_image_assets(tool_events)
+        if asset.get("download_url")
+    }
+    if not asset_urls or not content:
+        return content
+
+    def _replace(match: re.Match) -> str:
+        url = match.group(2).strip()
+        if url in asset_urls:
+            return f"![{match.group(1)}]({asset_urls[url]})"
+        return match.group(0)
+
+    return re.sub(r"!\[([^\]]*)\]\(\s*([^)\s]+)\s*\)", _replace, content)
 
 
 def build_agent_error_payload(error: BaseException) -> dict[str, Any]:
@@ -701,7 +729,9 @@ async def _stream_graph(
                     yield {
                         "type": "completed",
                         "result": GraphResult(
-                            content="".join(content_parts),
+                            content=rewrite_image_markdown(
+                                "".join(content_parts), tool_events
+                            ),
                             citations=citations or [],
                             knowledge_grounded=bool(citations),
                             thinking_text="".join(thinking_parts),
@@ -762,7 +792,9 @@ async def _stream_graph(
         yield {
             "type": "completed",
             "result": GraphResult(
-                content="".join(content_parts),
+                content=rewrite_image_markdown(
+                    "".join(content_parts), tool_events
+                ),
                 citations=citations or [],
                 knowledge_grounded=bool(citations),
                 thinking_text="".join(thinking_parts),
@@ -837,7 +869,7 @@ async def _stream_graph(
     yield {
         "type": "completed",
         "result": GraphResult(
-            content="".join(content_parts),
+            content=rewrite_image_markdown("".join(content_parts), None),
             citations=citations or [],
             knowledge_grounded=bool(citations),
             thinking_text="".join(thinking_parts),
@@ -1106,7 +1138,9 @@ async def run_graph(
 
     # 步骤7：组装最终结果
     graph_result = GraphResult(
-        content=result.get("content", ""),
+        content=rewrite_image_markdown(
+            result.get("content", ""), tool_events
+        ),
         citations=citation_items,
         knowledge_grounded=bool(citation_items),
         thinking_text="".join(thinking_parts),
@@ -1304,6 +1338,17 @@ def build_system_prompt(
                 "可以调用 ask_user 工具向用户提问。问题应一次一个，提供 2-4 个选项；"
                 "只有确实需要用户决策时才提问，不要用提问替代普通的信息回复。"
                 "用户回答后，根据答案继续执行原任务。"
+            )
+        # 图片工具可见时补充图片渲染规则：前端只能按 download_url 渲染图片。
+        if any(
+            getattr(tool, "name", None) in {"image_read", "image_generate"}
+            for tool in host_tools
+        ):
+            sections.append(
+                "图片展示规则：image_read/image_generate 等工具返回的图片资源，"
+                "回复中如需展示图片，必须使用结果中的 download_url 字段作为 "
+                "Markdown 图片地址，格式为 ![图片描述](/api/v1/assets/{asset_id})；"
+                "严禁把 asset_id 直接当作图片地址。"
             )
 
     # 使用双换行符拼接所有非空段落

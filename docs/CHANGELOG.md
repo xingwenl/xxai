@@ -1,5 +1,8 @@
 # Changelog
 
+## - 2026-08-28
+- ♻️ refactor：内置工具注册表合并为单一来源并直连真实 handler `🧑‍💻 lixingwen`
+
 ## - 2026-08-27
 - ✨ feat：会话级 embedding 与 pgvector 检索 `🧑‍💻 lixingwen`
 - ✨ feat：文件附件支持加载与点击下载 `🧑‍💻 lixingwen`

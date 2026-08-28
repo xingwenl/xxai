@@ -14,12 +14,26 @@ from app.modules.tools.business.framework import (
 
 @business_tool(
     name="http_post",
-    description="向公开 HTTP/HTTPS URL 发送 POST 请求（可选 JSON 请求体）",
+    description=(
+        "向一个公开的 HTTP 或 HTTPS URL 发送 POST 请求（可选 JSON 请求体），返回响应内容。"
+        "仅支持公开地址，无认证信息，不要发送敏感数据；"
+        "url 必须是完整的 http:// 或 https:// 地址，body 必须是 JSON 对象（不要传字符串或数组）。"
+        "结果使用：与 http_get 一致，result.kind 为 json 或 text 时正文在 result.content；"
+        "仅适合返回 JSON/文本的接口，返回图片或文件会失败（unsupported_response_type）。"
+    ),
     input_schema={
         "type": "object",
         "properties": {
-            "url": {"type": "string", "minLength": 1},
-            "body": {"type": "object"},
+            "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "description": "要请求的公开 HTTP 或 HTTPS URL",
+            },
+            "body": {
+                "type": "object",
+                "description": "要发送的 JSON 请求体（可选，默认空对象）",
+            },
         },
         "required": ["url"],
         "additionalProperties": False,

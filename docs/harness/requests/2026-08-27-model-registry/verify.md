@@ -81,3 +81,22 @@
 - 委托层冒烟：`http_get` 传非法参数返回 `failed {'error': {'code': 'invalid_arguments'}}`；合法参数但无会话返回 `failed {'error': {'code': 'conversation_required'}}`（均未发真实请求）。
 - 错误映射测试（`test_services.py`）：`BusinessToolError` 映射稳定 `code`（`status_code` 可选透传）、未知异常兜底 `tool_failed`、禁用与参数校验路径均保持旧契约。
 - 旧实现 `builtin_tool/http_get.py`、`http_post.py`、`image_generate.py`、`image_read.py` 已删除，全仓无残留引用；对外 LLM 契约（工具名、入参、返回结构）不变。
+
+### 2026-08-28 第 5 次变更验证（注册表合并）
+
+命令：
+
+```bash
+cd apps/backend
+poetry run ruff check app/modules/builtin_tool app/modules/tools tests/builtin_tool
+poetry run pytest tests/builtin_tool tests/conversation/test_runtime.py -q
+poetry run pytest -q --import-mode=importlib
+```
+
+结果：ruff 通过；目标测试 `79 passed`；后端全量 `422 passed, 1 skipped`。
+
+补充验证：
+
+- 冒烟导入 `builtin_tool/registry.py`：4 个业务工具定义从 `BUSINESS_TOOL_REGISTRY` 遍历自动派生（新增业务工具无需改动该文件），`ask_user` 保留为 `executor=None` 特例追加在末尾。
+- `test_services.py` 改为 mock `get_builtin_tool` 返回假定义，锁定「校验 → 直连 handler → 错误映射」路径；新增 `executor=None` 兜底测试。
+- 未变契约：工具名、入参 schema（与旧 builtin 定义一致）、返回结构、稳定错误码。

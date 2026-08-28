@@ -143,3 +143,9 @@
 - API 契约：注册表 CRUD 与 Agent 绑定接口路径、请求/响应语义、删除被绑定模型的错误策略。
 - 路由语义：按能力角色单模型绑定，未绑定回退全局配置；主对话模型不走注册表。
 - 以上确认通过后才进入 Task 1 实现。
+
+### 2026-08-28 第 5 次变更增量（注册表合并）
+
+- 变更内容：`builtin_tool/registry.py` 遍历业务注册表自动派生定义（`executor` 由字符串改为真实 handler，新增工具无需改动该文件），`services.py` 删除 `_TOOL_HANDLERS` 字符串表直接执行 handler；业务工具描述改为严格用法说明，input_schema 与对外契约一致。
+- 影响：对外 LLM 契约与错误码不变；新增工具只改 `tools/business` 一处。
+- 验证：`pytest --import-mode=importlib` 全量 `422 passed, 1 skipped`；ruff 检查通过。

@@ -19,15 +19,50 @@ from app.modules.tools.business.framework import (
 
 @business_tool(
     name="image_generate",
-    description="使用后端配置的图片模型生成图片，并返回可展示的受保护图片资源",
+    description=(
+        "使用后端配置的图片模型生成图片，返回受保护图片资源列表。"
+        "用法：prompt 必填，用自然语言描述要生成的图片；"
+        "model、size、quality、n 可选，不填使用后端默认配置，n 为一次生成数量（1-4）。"
+        "结果使用：result.assets 为图片资源数组，每个元素含 asset_id 与 download_url；"
+        "展示图片必须用 download_url 作为 Markdown 图片地址"
+        "（如 ![图片描述](/api/v1/assets/{asset_id})），严禁把 asset_id 直接当作图片地址。"
+    ),
     input_schema={
         "type": "object",
         "properties": {
-            "prompt": {"type": "string", "minLength": 1},
-            "model": {"type": "string"},
-            "size": {"type": "string"},
-            "quality": {"type": "string"},
-            "n": {"type": "integer", "minimum": 1, "maximum": 4},
+            "prompt": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4000,
+                "description": "图片生成提示词",
+            },
+            "model": {
+                "type": "string",
+                "enum": ["gpt-image-1", "dall-e-3"],
+                "description": "图片模型，可选",
+            },
+            "size": {
+                "type": "string",
+                "enum": [
+                    "1024x1024",
+                    "1536x1024",
+                    "1024x1536",
+                    "1792x1024",
+                    "1024x1792",
+                ],
+                "description": "图片尺寸，可选",
+            },
+            "quality": {
+                "type": "string",
+                "enum": ["auto", "low", "medium", "high", "standard"],
+                "description": "图片质量，可选",
+            },
+            "n": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 4,
+                "description": "生成数量，可选",
+            },
         },
         "required": ["prompt"],
         "additionalProperties": False,

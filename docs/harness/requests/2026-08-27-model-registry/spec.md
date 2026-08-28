@@ -156,3 +156,16 @@
 - 影响章节：范围、能力路由语义、验收标准。
 - 是否触发人工确认：是（架构边界变化），用户已确认装饰器注册方式与基本工具单一职责原则。
 - 关联计划更新：已同步更新 `plan.md`（新增 Task 8）。
+
+### 2026-08-28 第 5 次变更（架构：注册表合并为单一来源）
+
+- 变更原因：第 4 次分层后 `builtin_tool/registry.py` 仍手工维护一份工具定义（描述、input_schema 与 `executor` 字符串），与业务注册表靠 `services.py` 的字符串表对接；两处定义已出现漂移（如 `http_get` 描述不一致、`image_generate` schema 约束不一致）。
+- 变更内容：
+  - `builtin_tool/registry.py` 不再手工定义业务工具，改为遍历 `BUSINESS_TOOL_REGISTRY` 自动派生 `BuiltinToolDefinition`（新增业务工具无需改动该文件）；描述、input_schema、handler 的单一事实来源收敛到 `tools/business`，`executor` 由字符串改为真实 handler 引用。
+  - `builtin_tool/services.py` 删除 `_TOOL_HANDLERS` 字符串委托表，校验后直接调用 `definition.executor`，错误映射与旧签名不变。
+  - 4 个业务工具描述重写为严格、清晰的用法说明：怎么调用（参数约束、公开地址、无鉴权、body 必须 JSON 对象）、结果怎么用（`kind=json/text` 读 `content`；图片/文件必须用 `download_url` 作为 Markdown 地址，严禁把 `asset_id` 当 URL）。
+  - 业务工具 input_schema 提升为与对外 LLM 契约一致的严格约束（enum、minLength/maxLength、oneOf），校验行为不变。
+  - `ask_user` 保持特例：网关直连处理，无业务 handler，单独维护。
+- 影响章节：范围、能力路由语义、验收标准。
+- 是否触发人工确认：是（架构边界变化），用户确认方向 A（单一来源合并），并要求描述严格清晰。
+- 关联计划更新：已同步更新 `plan.md`。

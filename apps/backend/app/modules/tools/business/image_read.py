@@ -104,12 +104,30 @@ def _build_vision_model_spec(model_config, settings) -> dict | None:
 
 @business_tool(
     name="image_read",
-    description="读取公开图片 URL 或当前会话已有图片资源，返回可展示的受保护图片资源",
+    description=(
+        "读取一张图片，返回受保护图片资源（可附带图片内容的文字描述）。"
+        "用法：参数二选一——url 传公开图片地址，或 asset_id 传当前会话中已有的图片资源；"
+        "必须且只能提供一个，两者都不传或都传会校验失败。"
+        "结果使用：result.asset 含 asset_id 与 download_url，"
+        "展示图片必须用 download_url 作为 Markdown 图片地址"
+        "（如 ![图片描述](/api/v1/assets/{asset_id})），严禁把 asset_id 直接当作图片地址；"
+        "result.description 为可选的图片内容描述，可直接引用。"
+    ),
     input_schema={
         "type": "object",
         "properties": {
-            "url": {"type": "string", "minLength": 1},
-            "asset_id": {"type": "string", "minLength": 1},
+            "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "description": "公开 HTTPS 图片地址",
+            },
+            "asset_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "description": "当前会话图片资源标识",
+            },
         },
         "oneOf": [{"required": ["url"]}, {"required": ["asset_id"]}],
         "additionalProperties": False,

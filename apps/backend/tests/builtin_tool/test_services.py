@@ -15,8 +15,18 @@ class _DisabledRepo:
         return False
 
 
-def _fake_business_tool(handler):
-    return SimpleNamespace(handler=handler)
+def _fake_definition(handler):
+    return SimpleNamespace(
+        name="http_get",
+        description="读取公开 HTTP/HTTPS URL",
+        input_schema={
+            "type": "object",
+            "properties": {"url": {"type": "string"}},
+            "required": ["url"],
+            "additionalProperties": False,
+        },
+        executor=handler,
+    )
 
 
 def _run(**kwargs):
@@ -43,8 +53,8 @@ def test_invoke_delegates_to_business_handler_with_context(monkeypatch):
         return {"ok": True}
 
     monkeypatch.setattr(
-        "app.modules.builtin_tool.services.get_business_tool",
-        lambda _name: _fake_business_tool(handler),
+        "app.modules.builtin_tool.services.get_builtin_tool",
+        lambda _name: _fake_definition(handler),
     )
     outcome = _run()
 
@@ -63,8 +73,8 @@ def test_invoke_maps_business_tool_error(monkeypatch):
         raise BusinessToolError("image_required")
 
     monkeypatch.setattr(
-        "app.modules.builtin_tool.services.get_business_tool",
-        lambda _name: _fake_business_tool(handler),
+        "app.modules.builtin_tool.services.get_builtin_tool",
+        lambda _name: _fake_definition(handler),
     )
     outcome = _run()
 
@@ -77,8 +87,8 @@ def test_invoke_passes_through_http_status_code(monkeypatch):
         raise BusinessToolError("upstream_http_error", status_code=404)
 
     monkeypatch.setattr(
-        "app.modules.builtin_tool.services.get_business_tool",
-        lambda _name: _fake_business_tool(handler),
+        "app.modules.builtin_tool.services.get_builtin_tool",
+        lambda _name: _fake_definition(handler),
     )
     outcome = _run()
 
@@ -93,8 +103,8 @@ def test_invoke_falls_back_for_unexpected_exception(monkeypatch):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(
-        "app.modules.builtin_tool.services.get_business_tool",
-        lambda _name: _fake_business_tool(handler),
+        "app.modules.builtin_tool.services.get_builtin_tool",
+        lambda _name: _fake_definition(handler),
     )
     outcome = _run()
 
@@ -111,14 +121,30 @@ def test_invoke_rejects_invalid_arguments_without_calling_handler(monkeypatch):
         return {"ok": True}
 
     monkeypatch.setattr(
-        "app.modules.builtin_tool.services.get_business_tool",
-        lambda _name: _fake_business_tool(handler),
+        "app.modules.builtin_tool.services.get_builtin_tool",
+        lambda _name: _fake_definition(handler),
     )
     outcome = _run(call={"args": {"url": 123}})
 
     assert outcome.status == "failed"
     assert outcome.result == {"error": {"code": "invalid_arguments"}}
     assert called is False
+
+
+def test_invoke_returns_not_available_when_executor_missing(monkeypatch):
+    monkeypatch.setattr(
+        "app.modules.builtin_tool.services.get_builtin_tool",
+        lambda _name: SimpleNamespace(
+            name="ask_user",
+            description="",
+            input_schema={"type": "object", "properties": {}},
+            executor=None,
+        ),
+    )
+    outcome = _run()
+
+    assert outcome.status == "failed"
+    assert outcome.result == {"error": {"code": "tool_not_available"}}
 
 
 def test_invoke_returns_not_available_when_disabled(monkeypatch):

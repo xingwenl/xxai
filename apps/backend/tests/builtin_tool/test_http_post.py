@@ -22,7 +22,7 @@ def async_test(function):
 def test_http_post_tool_is_registered() -> None:
     tool = get_builtin_tool("http_post")
     assert tool is not None
-    assert tool.executor == "http_post"
+    assert callable(tool.executor)
     assert "url" in tool.input_schema["properties"]
     assert "body" in tool.input_schema["properties"]
     assert tool.input_schema["required"] == ["url"]

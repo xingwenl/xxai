@@ -17,10 +17,25 @@ from app.modules.tools.business.framework import (
 
 @business_tool(
     name="http_get",
-    description="读取公开 HTTP/HTTPS URL",
+    description=(
+        "读取一个公开的 HTTP 或 HTTPS URL，返回其响应内容。"
+        "仅支持公开地址，不携带任何认证信息，不能用于需要登录或鉴权的接口；"
+        "url 必须是完整的 http:// 或 https:// 地址。"
+        "结果使用：result.kind 为 json 或 text 时，正文在 result.content 中，直接阅读即可；"
+        "result.kind 为 image 或 file 时，内容已存为受保护资源，"
+        "必须用 result.asset.download_url 作为 Markdown 图片/链接地址，"
+        "不要使用或拼接 result.content。"
+    ),
     input_schema={
         "type": "object",
-        "properties": {"url": {"type": "string", "minLength": 1}},
+        "properties": {
+            "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "description": "要读取的公开 HTTP 或 HTTPS URL",
+            }
+        },
         "required": ["url"],
         "additionalProperties": False,
     },

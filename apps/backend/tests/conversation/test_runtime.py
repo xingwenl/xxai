@@ -20,6 +20,7 @@ from app.modules.conversation.runtime import (
     _PAGE_TOOL_BUDGET_EXCEEDED_MESSAGE,
     tool_step_values,
     image_content_blocks,
+    rewrite_image_markdown,
 )
 from app.modules.conversation.schemas import sanitize_content_blocks
 from app.modules.conversation.services import build_loop_payload
@@ -71,6 +72,59 @@ def test_image_tool_outcome_becomes_renderable_content_block():
     assert blocks[0]["type"] == "image"
     assert blocks[0]["asset_id"] == "asset-123"
     assert blocks[0]["url"] == "/api/v1/assets/asset-123"
+
+
+def test_rewrite_image_markdown_replaces_bare_asset_id_with_download_url():
+    content = "参考图：![参考图](asset-123)\n已生成：![生成图](asset-456)"
+    tool_events = [
+        {
+            "outcome": BuiltinToolOutcome(
+                status="completed",
+                result={
+                    "kind": "image",
+                    "assets": [
+                        {
+                            "asset_id": "asset-123",
+                            "download_url": "/api/v1/assets/asset-123",
+                            "content_type": "image/png",
+                        },
+                        {
+                            "asset_id": "asset-456",
+                            "download_url": "/api/v1/assets/asset-456",
+                            "content_type": "image/png",
+                        },
+                    ],
+                },
+            )
+        }
+    ]
+    rewritten = rewrite_image_markdown(content, tool_events)
+    assert rewritten == (
+        "参考图：![参考图](/api/v1/assets/asset-123)\n"
+        "已生成：![生成图](/api/v1/assets/asset-456)"
+    )
+
+
+def test_rewrite_image_markdown_keeps_normal_urls_and_unknown_asset_ids():
+    content = "![外链](https://example.com/a.png) ![未知](not-in-this-turn)"
+    tool_events = [
+        {
+            "outcome": BuiltinToolOutcome(
+                status="completed",
+                result={
+                    "kind": "image",
+                    "asset": {
+                        "asset_id": "asset-123",
+                        "download_url": "/api/v1/assets/asset-123",
+                    },
+                },
+            )
+        }
+    ]
+    assert (
+        rewrite_image_markdown(content, tool_events)
+        == "![外链](https://example.com/a.png) ![未知](not-in-this-turn)"
+    )
 
 
 def test_agent_upstream_502_is_mapped_to_safe_terminal_error():
@@ -319,6 +373,26 @@ def test_system_prompt_adds_ask_user_guidance_only_when_tool_visible():
         SimpleNamespace(system_prompt="base prompt"), [], []
     )
     assert "可以调用 ask_user 工具向用户提问" not in without_tool
+
+
+def test_system_prompt_adds_image_render_rule_only_when_image_tools_visible():
+    with_tool = build_system_prompt(
+        SimpleNamespace(system_prompt="base prompt"),
+        [],
+        [],
+        host_tools=[SimpleNamespace(name="image_read", description="读图")],
+    )
+    assert "图片展示规则" in with_tool
+    assert "download_url" in with_tool
+    assert "严禁把 asset_id 直接当作图片地址" in with_tool
+
+    without_tool = build_system_prompt(
+        SimpleNamespace(system_prompt="base prompt"),
+        [],
+        [],
+        host_tools=[SimpleNamespace(name="http_get", description="请求")],
+    )
+    assert "图片展示规则" not in without_tool
 
 
 def test_rest_tool_lists_exclude_ask_user_even_when_db_bound():
