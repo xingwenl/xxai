@@ -7,6 +7,7 @@
 - 🐛 fix：attachment_search 关键词测试在配置 embedding 后误打真实 API `🧑‍💻 lixingwen`
 - ♻️ refactor：内置工具注册表合并为单一来源并直连真实 handler `🧑‍💻 lixingwen`
 - ✨ feat：Agent 版本列表展示模型 Base URL 并升级 xxai-agent 至 0.1.5 `🧑‍💻 lixingwen`
+- 🧰 chore：移除应用卡片调试日志 `🧑‍💻 lixingwen`
 
 ## - 2026-08-27
 - ✨ feat：会话级 embedding 与 pgvector 检索 `🧑‍💻 lixingwen`

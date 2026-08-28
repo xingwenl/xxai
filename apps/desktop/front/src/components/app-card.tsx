@@ -44,7 +44,6 @@ export function AppCard({ app, pinned, onClick, onTogglePinned }: {
   const Icon = app.icon
   // 卡片强调色：优先插件派生的 color，缺失时回退到用户设置的主题色
   const accent = app.color ?? 'var(--primary)'
-  console.log('accent', app)
   const tint = (hexAlpha: string, alpha: number) =>
     app.color ? app.color + hexAlpha : `rgba(var(--primary-rgb) / ${alpha})`
 
