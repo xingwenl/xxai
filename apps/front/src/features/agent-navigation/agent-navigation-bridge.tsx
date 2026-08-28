@@ -111,7 +111,7 @@ export function AgentNavigationBridge() {
       pageTools: {
         enabled: true,
         confirmationKeywords: ['提交', '删除', '支付'],
-        maxCalls: 50,
+        maxCalls: 500000,
         maxDurationMs: 60_000,
       },
     })

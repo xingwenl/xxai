@@ -104,6 +104,7 @@ export function AgentVersionsTab({
                 <TableHead>模型</TableHead>
                 <TableHead>Temperature</TableHead>
                 <TableHead>API Key</TableHead>
+                <TableHead>Base URL</TableHead>
                 <TableHead>创建 / 发布时间</TableHead>
                 <TableHead className='w-44 text-end'>操作</TableHead>
               </TableRow>
@@ -137,6 +138,9 @@ export function AgentVersionsTab({
                       <TableCell>{version.temperature}</TableCell>
                       <TableCell>
                         {version.has_api_key ? '已配置' : '未配置'}
+                      </TableCell>
+                      <TableCell>
+                        {version.model_base_url}
                       </TableCell>
                       <TableCell className='text-xs text-muted-foreground'>
                         <div>
