@@ -56,6 +56,7 @@ export type AgentVersionInput = {
   api_key?: string
   temperature: number
   model_options: Record<string, unknown>
+  capabilities?: Record<string, unknown> | null
 }
 
 export async function listAgents(

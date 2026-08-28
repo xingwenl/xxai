@@ -5,6 +5,7 @@ from app.modules.tools.business import http_get  # noqa: F401  导入即注册
 from app.modules.tools.business import http_post  # noqa: F401
 from app.modules.tools.business import image_generate  # noqa: F401
 from app.modules.tools.business import image_read  # noqa: F401
+from app.modules.tools.business import attachment_search  # noqa: F401
 from app.modules.tools.business.framework import (
     BUSINESS_TOOL_REGISTRY,
     validate_business_tool_dependencies,

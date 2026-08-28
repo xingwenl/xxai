@@ -167,9 +167,29 @@
 - [ ] Step 3: 记录真实命令、结果、失败项和未解决的 OCR/供应商联调风险。
 - [ ] Step 4: 对照 spec 验收标准逐条填写 acceptance，并把 meta phase 更新为 `acceptance`。
 
+## Phase 4（增量）: 附件主动检索工具
+
+### Task 10: 让智能体可自主检索附件其余内容
+
+**Files:**
+- Create: `apps/backend/app/modules/tools/business/attachment_search.py`
+- Modify: `apps/backend/app/modules/asset/repositories.py`（新增会话内文档资产列表查询，供"未指定 asset_id 时检索全部附件"使用）
+- Modify: `apps/backend/app/modules/asset_processing/repositories.py`（新增关键词兜底检索方法）
+- Modify: `apps/backend/app/modules/gateway/runtime.py`（注入截断/Top-K 时提示可调用 `attachment_search`）
+- Create: `apps/backend/migrations/versions/20260828_0030_enable_attachment_search.py`
+- Create: `apps/backend/tests/builtin_tool/test_attachment_search.py`
+- Modify: `apps/backend/tests/gateway/test_attachment_parts.py`
+
+- [x] Step 1: 新增 `attachment_search` 业务工具：入参 `query`（必填）、`asset_id`（可选）、`limit`（默认 4）；asset 解析复用 `image_read` 的会话权限校验（Embed 与用户两条链路），仅允许文本可解析且 ready 的文档。
+- [x] Step 2: 检索实现：embedding 已配置时按查询向量走 pgvector 余弦 `search_chunks`；未配置时按查询词对 chunks 词法打分兜底；跨附件汇总后返回 `results`（filename、position、page_number、content、score）。
+- [x] Step 3: 网关注入调整：文档全文被截断或仅注入 Top-K 时，在注入文本末尾提示"附件还有其他内容，可调用 attachment_search 工具继续检索"；提示文本同样标记为不可信外部内容。
+- [x] Step 4: 新增迁移 `20260828_0030`：为现有已启用内置工具的 Agent 插入 `attachment_search` 启用绑定（`ON CONFLICT DO NOTHING`），downgrade 删除该工具绑定；`alembic heads` 确认在迁移链上（本地库应用待环境放行）。
+- [x] Step 5: 添加测试：会话权限隔离（跨会话 asset 拒绝）、embedding 检索（mock 向量）、词法兜底、空结果、非法参数、注入提示文本；运行 `poetry run pytest tests/builtin_tool/test_attachment_search.py tests/gateway/test_attachment_parts.py -q`、`poetry run ruff check app tests`、`poetry run alembic heads`。
+
 ## 测试步骤
 
 - `poetry run pytest tests/asset tests/attachment tests/conversation tests/gateway tests/knowledge -q`
+- `poetry run pytest tests/builtin_tool/test_attachment_search.py tests/gateway/test_attachment_parts.py -q`
 - `poetry run ruff check app tests`
 - `poetry run alembic upgrade head`
 - `pnpm --dir apps/ai-sdk test`
@@ -185,4 +205,5 @@
 ## 人工确认点
 
 - 已确认：仅当前会话复用、允许分期、覆盖 OpenAI-compatible/Qwen/DeepSeek。
+- 已确认（2026-08-28）：新增 `attachment_search` 工具方案，待实现前最终确认。
 - 实现前仍需确认：OCR 服务选择、embedding 默认模型/维度、文件大小与保留时长、是否允许发送 `processing` 附件、生产 Worker 队列和存储挂载配置。

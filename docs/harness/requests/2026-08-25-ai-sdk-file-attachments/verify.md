@@ -202,3 +202,90 @@ SDK 新增回归测试，确认发送带图片附件时，本地用户消息包�
 | 差异格式检查 | `git diff --check` | 通过 |
 
 新增测试确认 `createdAt` 通过 `model_dump(mode="json")` 序列化为 ISO 8601 字符串。全目录 `tests/asset` Ruff 仍有原有 `test_asset_processing.py` 的 3 个未使用导入，未纳入本次改动。
+
+## 2026-08-28 附件主动检索工具 attachment_search
+
+大文档（长 PDF）只注入开头 16,000 字符或 Top-K 4 段时，智能体无法获取其余内容；新增 `attachment_search` 内置工具让主模型按需自主检索当前会话 ready 文档的 chunks，并在注入文本中明确提示"附件还有其他内容"。
+
+| 项目 | 命令 | 结果 |
+| --- | --- | --- |
+| 新增工具单测 | `cd apps/backend && poetry run pytest tests/builtin_tool/test_attachment_search.py -q` | 通过，8/8 |
+| 网关注入测试 | `cd apps/backend && poetry run pytest tests/gateway/test_attachment_parts.py -q` | 通过，10/10（含截断提示与检索提示断言） |
+| 相关模块回归 | `cd apps/backend && poetry run pytest tests/builtin_tool tests/asset tests/asset_processing tests/gateway -q` | 通过，151 个通过、1 个条件跳过 |
+| 后端全量 | `cd apps/backend && poetry run pytest -q --import-mode=importlib` | 通过，431 个通过、1 个条件跳过 |
+| 静态检查 | `cd apps/backend && poetry run ruff check app tests migrations` | 通过 |
+| 迁移链 | `cd apps/backend && poetry run alembic heads` | `20260828_0030 (head)`，新迁移在链上；SQL 对齐已验证的 `20260823_0024` 先例 |
+
+验证说明：
+
+- 新增测试覆盖：指定 `asset_id` 的词法兜底检索（返回片段位置/页码/内容/分数）；未指定时跨附件汇总并跳过未 ready 附件；embedding 配置时走向量检索；跨会话 asset 拒绝（`asset_not_found`）；图片附件拒绝（`asset_not_searchable`）；后台用户链路复用 `get_for_user_conversation`；空结果与空 query 校验；网关截断提示（超过 16,000 字符时提示可调用 `attachment_search`）与 Top-K 检索提示。
+- 词法兜底分词：英文按单词、中文按整词 + 双字 n-gram，避免单字扩展的噪声误匹配（"关键词"不会误中"无关"）。
+- 工具自动进入内置工具目录（`/platforms/{platform_id}/builtin-tools`），管理界面可随时启停；迁移为现有已启用内置工具的 Agent 插入启用绑定。
+- 已知限制：真实数据库迁移应用因沙箱禁止 localhost 连接未执行（`alembic heads` 已验证链完整性），需在放行环境执行 `poetry run alembic upgrade head`；词法兜底为降级路径，精度低于 embedding 检索；真实会话中模型是否调用该工具依赖其自主判断，仍需真实联调确认。
+
+### 2026-08-28 真实会话确认
+
+用户在真实会话中发送长 PDF 后确认：智能体可以自主调用 `attachment_search`，并能检索到未注入模型的那部分文档内容。此前“只发给智能体一部分、未发送部分无法主动获取”的问题已在真实链路闭环。
+
+## 2026-08-28 附件 embedding 维度不匹配 bugfix
+
+真实日志出现 `附件检索失败，回退全文注入 asset_id=...: attachment embedding dimension mismatch`，排查确认根因并完成配置修正。
+
+根因（真实日志证据，`apps/backend/logs/app-2026-08-28.log`）：
+
+- 写入侧：`附件 embedding 维度不匹配，跳过向量缓存 asset_id=65/66/67`（`asset_processing/services.py` 按配置维度校验，不匹配则整批跳过向量保存，处理状态仍为 ready）。
+- 查询侧：`附件检索失败，回退全文注入 asset_id=73e52f916b1d4d95ada48d4435a39eb1: attachment embedding dimension mismatch`（`gateway/runtime._retrieve_attachment_chunks` 按同一配置维度校验查询向量，不匹配则抛错，由调用方捕获后回退为截断的全文注入）。
+- 配置来源：根目录 `.env`（docker-compose 经 `ATTACHMENT_EMBEDDING_DIMENSION: ${ATTACHMENT_EMBEDDING_DIMENSION:-}` 注入容器环境）配置 `ATTACHMENT_EMBEDDING_MODEL=text-embedding-v3` + `ATTACHMENT_EMBEDDING_DIMENSION=1536`。
+- 模型事实（官方文档）：`text-embedding-v3` 默认输出 1024 维，仅支持 1024/768/512，无 1536（1536 是 `text-embedding-v4` 的可选维度）；代码未向兼容端点传 `dimensions` 参数，因此实际返回模型默认 1024 维，与配置 1536 必然不匹配。
+
+修复内容：
+
+- 根目录 `.env`：`ATTACHMENT_EMBEDDING_DIMENSION` 由 `1536` 修正为 `1024`。
+- 新增 `apps/backend/scripts/backfill_attachment_embeddings.py`：为已 ready 但缺少向量的文档附件重建 embedding，支持 `--asset-id <附件UUID>` 单条回填，缺省回填全部。
+
+验证情况：
+
+- 维度依据：阿里云百炼/Model Studio 官方文档确认 `text-embedding-v3` 合法维度为 1024（默认）/768/512。
+- 代码路径核对：`services.py:257-269` 写入侧校验、`gateway/runtime.py:181-198` 查询侧校验、`asset_processing/runtime.py:69-78` 处理版本键不含 embedding 配置（故配置修正不会自动触发重算，需要回填脚本）。
+- 静态检查：`cd apps/backend && poetry run ruff check scripts/backfill_attachment_embeddings.py`：通过。
+- 未执行：沙箱禁止 localhost 数据库连接与真实 embedding API 调用，回填脚本与维度探测命令需在放行环境执行（`cd apps/backend && .venv/bin/python scripts/backfill_attachment_embeddings.py --asset-id 73e52f916b1d4d95ada48d4435a39eb1`）。
+
+## 2026-08-28 Agent 版本表单暴露附件能力矩阵
+
+`agent_versions.capabilities` 后端已支持但版本表单未暴露，本次在「创建版本」表单中新增「附件能力矩阵（可选）」开关与 image/native_file/text_retrieval 三项勾选；关闭时 `capabilities` 不传（走自动探测/模型名推断），开启时显式提交布尔能力矩阵。
+
+| 项目 | 命令 | 结果 |
+| --- | --- | --- |
+| 类型检查 | `cd apps/front && pnpm exec tsc -b` | 通过 |
+| 静态检查 | `cd apps/front && pnpm exec eslint src/features/agents/agent-version-form.tsx src/api/agent.ts` | 通过，0 错误（1 个既有 `versionSchema` 导出警告） |
+| 格式检查 | `cd apps/front && pnpm exec prettier --check src/features/agents/agent-version-form.tsx src/api/agent.ts` | 通过 |
+
+验证说明：
+
+- 改动仅前端：`apps/front/src/api/agent.ts` 的 `AgentVersionInput` 增加 `capabilities` 字段；`apps/front/src/features/agents/agent-version-form.tsx` 增加能力矩阵开关与勾选项，提交时按开关状态显式传 `capabilities` 或省略（自动探测）。
+- 后端 `AgentVersionCreate.capabilities` 与 `create_version` 持久化逻辑此前已就绪，无需改动。
+- `form.watch` 的 React Compiler 告警按 `otp-form.tsx` 既有惯例加 `eslint-disable-next-line react-hooks/incompatible-library` 处理。
+- 未执行：未在真实浏览器验证表单交互；运行 `cd apps/front && pnpm dev` 后到 Agent「版本管理」创建版本即可看到能力矩阵开关。
+
+## 2026-08-28 Task 9 全量回归（验收前）
+
+完成验收前全量回归，并修复测试封闭性问题。
+
+| 项目 | 命令 | 结果 |
+| --- | --- | --- |
+| 后端全量 | `cd apps/backend && poetry run pytest -q --import-mode=importlib -p no:cacheprovider` | 通过，431 个通过、1 个条件跳过 |
+| 静态检查 | `cd apps/backend && poetry run ruff check app tests migrations` | 通过 |
+| 迁移链 | `cd apps/backend && poetry run alembic heads` | `20260828_0030 (head)`；本地库 `alembic upgrade head` 已由用户在放行环境执行 |
+| SDK 全量测试 | `pnpm --dir apps/ai-sdk test -- --run` | 通过，15 个测试文件、96/96 |
+| SDK 类型检查 | `pnpm --dir apps/ai-sdk type-check` | 通过 |
+| SDK 生产构建 | `pnpm --dir apps/ai-sdk build` | 通过，生成 ESM/UMD/CSS/声明文件 |
+| 前端类型检查 | `cd apps/front && pnpm exec tsc -b` | 通过（能力矩阵表单增量） |
+
+发现并修复的问题：
+
+- `tests/builtin_tool/test_attachment_search.py` 4 个关键词兜底用例在本地配置 embedding 后打真实 DashScope API（APIConnectionError + 重试），单用例约 90 秒；已在 `_run` 统一 mock `attachment_embedding_enabled`，修复后单文件 8/8 通过（2.3s），全量从约 6:46 降至 8.5s。
+- 全量回归同时覆盖本次新增：embedding 维度配置修正（1024）与向量回填、Agent 版本表单能力矩阵暴露、attachment_search 工具。
+
+### 2026-08-28 真实会话确认（读图工具）
+
+用户确认：纯文本主模型（DeepSeek）收到图片后，可调用 `image_read` 工具读取图片内容（已配置读图模型），降级链路真实可用。

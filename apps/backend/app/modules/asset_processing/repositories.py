@@ -142,6 +142,44 @@ class AssetProcessingRepository:
             for chunk, distance_value in result.all()
         ]
 
+    async def search_chunks_keyword(
+        self,
+        *,
+        asset_id: int,
+        conversation_id: int,
+        processing_id: int,
+        terms: list[str],
+        limit: int,
+    ) -> list[tuple[ConversationAssetChunk, float]]:
+        """按词元对切块内容做词法打分兜底检索，返回（chunk, 归一化分数）。
+
+        未配置 embedding 时使用：对每个词元统计在切块文本中的出现次数求和，
+        按最高分归一化到 0-1，保证与向量检索的返回契约一致。
+        """
+        if not terms:
+            return []
+        result = await self.session.execute(
+            select(ConversationAssetChunk).where(
+                ConversationAssetChunk.asset_id == asset_id,
+                ConversationAssetChunk.conversation_id == conversation_id,
+                ConversationAssetChunk.processing_id == processing_id,
+            )
+        )
+        scored: list[tuple[ConversationAssetChunk, float]] = []
+        for chunk in result.scalars().all():
+            content = chunk.content.lower()
+            score = sum(content.count(term) for term in terms)
+            if score > 0:
+                scored.append((chunk, float(score)))
+        scored.sort(key=lambda item: item[1], reverse=True)
+        if not scored:
+            return []
+        max_score = scored[0][1]
+        return [
+            (chunk, round(score / max_score, 4))
+            for chunk, score in scored[:limit]
+        ]
+
     async def delete_processing(self, record: ConversationAssetProcessing) -> None:
         await self.session.delete(record)
         await self.session.commit()

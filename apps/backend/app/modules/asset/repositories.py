@@ -73,3 +73,34 @@ class AssetRepository:
                 ConversationAsset.conversation_id == conversation_id,
             )
         )
+
+    async def list_for_embed_conversation(
+        self,
+        *,
+        platform_id: int,
+        agent_id: int,
+        end_user_id: int,
+        conversation_id: int,
+    ) -> list[ConversationAsset]:
+        """列出 Embed 主体在当前会话内的全部资源，供附件检索工具使用。"""
+        result = await self.session.execute(
+            select(ConversationAsset).where(
+                ConversationAsset.platform_id == platform_id,
+                ConversationAsset.agent_id == agent_id,
+                ConversationAsset.platform_end_user_id == end_user_id,
+                ConversationAsset.conversation_id == conversation_id,
+            )
+        )
+        return list(result.scalars().all())
+
+    async def list_for_user_conversation(
+        self, user_id: int, conversation_id: int
+    ) -> list[ConversationAsset]:
+        """列出后台用户在当前会话内的全部资源，供附件检索工具使用。"""
+        result = await self.session.execute(
+            select(ConversationAsset).where(
+                ConversationAsset.user_id == user_id,
+                ConversationAsset.conversation_id == conversation_id,
+            )
+        )
+        return list(result.scalars().all())

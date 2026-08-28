@@ -2,7 +2,7 @@
   "id": "2026-08-25-ai-sdk-file-attachments",
   "title": "AI SDK 文件附件与当前会话缓存",
   "scope": "full-stack",
-  "phase": "verify",
+  "phase": "acceptance",
   "status": "active",
   "riskLevel": "high",
   "changeTypes": [
@@ -43,7 +43,7 @@
   ],
   "owner": "ai",
   "createdAt": "2026-08-25",
-  "updatedAt": "2026-08-27",
+  "updatedAt": "2026-08-28",
   "relatedPaths": [
     "apps/ai-sdk",
     "apps/backend/app/modules/asset",
@@ -53,7 +53,8 @@
     "apps/backend/app/modules/gateway",
     "docs/harness/requests/2026-08-25-ai-sdk-file-attachments/research.md",
     "docs/harness/requests/2026-08-25-ai-sdk-file-attachments/spec.md",
-    "docs/harness/requests/2026-08-25-ai-sdk-file-attachments/plan.md"
+    "docs/harness/requests/2026-08-25-ai-sdk-file-attachments/plan.md",
+    "apps/backend/app/modules/tools/business/attachment_search.py"
   ],
-  "notes": "Phase 1 实现完成并通过提交前全量验证：后端 132 测试通过、ruff 0 错误、SDK 96/96、type-check/build 通过、Alembic 处于 head、路由注册无重复。验证中修复路由遮蔽与 baseUrl 双前缀两个 bug。提交后补齐 Word/Excel 解析依赖与真实样例测试、文档附件文本注入模型、历史附件上下文恢复（extracted_text 缓存列 + 历史内容块引用加载），接入会话级 embedding 与 pgvector 检索（conversation_asset_embeddings 表、Top-K 注入、未配置降级全文），并为文件内容块补充受保护资源 url、SDK 文件组件支持加载与点击下载。Phase 2 Task 7 provider 能力矩阵已完成：agent_versions.capabilities 附件能力配置列（迁移 20260827_0028）、attachment/provider.py 能力矩阵（显式配置优先、OpenRouter input_modalities 实时探测 + TTL 缓存、模型名兜底、保守纯文本）、网关按能力适配图片输入（视觉直接 image_url、纯文本注入图片引用并保留 image_read 工具）、image_read 工具可选视觉模型描述生成（READ_IMAGE_MODEL）。后端全量 394 测试通过（--import-mode=importlib 规避既有同名收集冲突）、ruff 0 错误、迁移升级/降级往返可执行。待真实视觉模型与 DeepSeek 降级联调、真实 embedding 端点联调与向量索引优化。"
+  "notes": "Phase 1 实现完成并通过提交前全量验证：后端 132 测试通过、ruff 0 错误、SDK 96/96、type-check/build 通过、Alembic 处于 head、路由注册无重复。验证中修复路由遮蔽与 baseUrl 双前缀两个 bug。提交后补齐 Word/Excel 解析依赖与真实样例测试、文档附件文本注入模型、历史附件上下文恢复（extracted_text 缓存列 + 历史内容块引用加载），接入会话级 embedding 与 pgvector 检索（conversation_asset_embeddings 表、Top-K 注入、未配置降级全文），并为文件内容块补充受保护资源 url、SDK 文件组件支持加载与点击下载。Phase 2 Task 7 provider 能力矩阵已完成：agent_versions.capabilities 附件能力配置列（迁移 20260827_0028）、attachment/provider.py 能力矩阵（显式配置优先、OpenRouter input_modalities 实时探测 + TTL 缓存、模型名兜底、保守纯文本）、网关按能力适配图片输入（视觉直接 image_url、纯文本注入图片引用并保留 image_read 工具）、image_read 工具可选视觉模型描述生成（READ_IMAGE_MODEL）。后端全量 394 测试通过（--import-mode=importlib 规避既有同名收集冲突）、ruff 0 错误、迁移升级/降级往返可执行。待真实视觉模型与 DeepSeek 降级联调、真实 embedding 端点联调与向量索引优化。 2026-08-28 增量：新增 attachment_search 内置工具，主模型可自主检索当前会话 ready 文档的 chunks（embedding 优先、词法兜底），注入截断/Top-K 时明确提示可继续检索；迁移 20260828_0030 为现有 Agent 启用该工具；后端全量 431 测试通过、ruff 0 错误、alembic heads 确认迁移在链上（本地库应用待环境放行）。 2026-08-28 验收前全量回归：后端 431 通过、ruff 0 错误、alembic heads=20260828_0030（本地库已升级）、SDK 96/96、type-check/build 通过；修复 attachment_search 测试封闭性（关键词兜底用例在配置 embedding 后误打真实 API）；修复附件 embedding 维度配置 1536→1024 并新增向量回填脚本（真实会话确认向量检索可用）；Agent 版本表单暴露附件能力矩阵。剩余风险：真实视觉模型识图、DeepSeek 降级联调、DOCX 真实上传与 Docker 回归未执行。"
 }

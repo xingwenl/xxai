@@ -169,3 +169,43 @@
 
 - OpenRouter 探测依赖网络与模型是否托管在 OpenRouter；失败时按模型名兜底，仍可能误判，需保留"仅支持 text"错误重试作为最后防线。
 - `image_read` 工具当前返回受保护资源引用；生成图片文字描述需要额外配置视觉模型（`READ_IMAGE_MODEL`），未配置时纯文本主模型只能基于引用作答。
+
+## 2026-08-28 补充调研：大文档内容不全时智能体如何自主获取剩余内容
+
+### 调研问题
+
+当前实现中，大文档（如长 PDF）只向模型注入开头 16,000 字符或按问题检索的 Top-K 4 段；未被注入的内容智能体无法获取，因为没有任何让智能体主动检索附件内容的工具。需要确定业界成熟做法。
+
+### 参考方案
+
+| 方案 | 代表实现 | 优点 | 限制 |
+|---|---|---|---|
+| 智能体主动检索工具（Tool-Based RAG，推荐） | OpenAI Assistants File Search、Gemini File Search、Azure Agent Service 内置检索工具、LangChain Deep Agents `search_documentation`、Docker RAG Tool | 由模型按需决定何时检索、检索什么，避免一次注入全部内容撑爆上下文；对"只发了部分内容"的提问天然可覆盖 | 依赖模型自主决定调用工具，需要在注入内容里明确提示文档更长；工具需做会话权限校验 |
+| 一次性全文注入 | 现有 16,000 字符截断 | 实现简单 | 受上下文长度限制，大文档必然截断，超出部分仍不可达 |
+| 检索增强注入（Pre-Contextualized RAG） | 现有 Top-K 注入 | 每轮按问题预检索 | 检索窗口外的内容模型不知道，也不会追问 |
+| 混合检索 | Docker RAG Tool（语义 + BM25 关键词）、LlamaIndex 双语文章 | 未配置 embedding 时关键词兜底仍可用 | 中文分词需要额外依赖，词法兜底精度有限 |
+
+### 关键结论
+
+- 业界主流是给智能体一个可自主调用的文档检索工具（File Search 类），与"预注入"互补：预注入保证首轮有上下文，检索工具保证模型需要细节时能自己查（Elastic、OpenAI Community、DevoxxGenie 均描述该模式；Agent 类模型更倾向使用工具而不是依赖被动上下文）。
+- 成熟实践同时提供语义检索与关键词检索（hybrid search）；本项目已具备 pgvector 余弦检索（配置 embedding 后启用），缺 embedding 时应提供关键词兜底，保证工具始终可用。
+- 工具必须限定在当前会话、当前主体可见的 ready 附件内检索，与既有 `image_read` 工具的权限边界一致。
+
+### 最终决策
+
+- 新增内置业务工具 `attachment_search`：模型可自主传入关键词/问题检索当前会话已解析文档的 chunks；embedding 已配置时走 pgvector 余弦相似度，未配置时用词法匹配分数兜底；返回片段内容、位置、页码与相似度。
+- 在注入的文档文本中增加提示：当全文被截断或只注入 Top-K 时，明确告知模型"附件还有其他内容，可调用 attachment_search 工具继续检索"，弥补模型"不知道还有内容"的信息差。
+- 启用方式：新工具自动进入内置工具目录；用迁移为现有 Agent 启用（对齐 `http_post` 启用先例），管理界面可随时关闭。
+- 不选择一次性全文注入：上下文长度硬约束下无法解决；不选择只做预检索增强：模型无法主动获取检索窗口外内容。
+
+### 来源
+
+- OpenAI Assistants API File Search：https://developers.openai.com/api/docs/assistants/tools/file-search.md
+- Azure Architecture Center Agentic RAG：https://learn.microsoft.com/en-ca/azure/architecture/ai-ml/guide/rag/rag-agentic
+- Elastic 博客 Search tools for context engineering：https://www.elastic.co/search-labs/blog/search-tools-context-engineering
+- DevoxxGenie 博客 Why We Turned RAG Into a Tool：https://genie.devoxx.com/blog/rag-semantic-search-tool
+- OpenAI Community：File Search 是 Tool-Based RAG：https://community.openai.com/t/is-openais-file-search-tool-considered-rag/1064183/3
+- Docker RAG Tool（混合检索）：https://docs.docker.com/ai/docker-agent/tools/rag/
+- LlamaIndex 博客 词法搜索 VS 语义搜索：https://llamaindex.org.cn/blog/is-grep-all-you-need-lexical-vs-sematic-search-for-agents
+
+调研日期：2026-08-28。

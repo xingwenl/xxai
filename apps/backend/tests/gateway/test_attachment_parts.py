@@ -170,6 +170,45 @@ class TestLoadEmbedAttachmentParts:
         assert "旧数据文本" in document_text_parts[0]["text"]
 
     @async_test
+    async def test_document_truncation_adds_search_hint(
+        self, monkeypatch, attachment_repos, tmp_path
+    ):
+        class FakeProcessingRepository:
+            def __init__(self, session):
+                self.session = session
+
+            async def get_processing(self, asset_id, conversation_id):
+                return SimpleNamespace(
+                    status=ProcessingStatus.ready,
+                    extracted_text="长文档内容。" * 4000,
+                    extracted_text_storage_key=None,
+                )
+
+        monkeypatch.setattr(
+            gateway_runtime,
+            "AssetProcessingRepository",
+            FakeProcessingRepository,
+        )
+
+        (
+            _image_parts,
+            document_text_parts,
+            _blocks,
+        ) = await gateway_runtime._load_embed_attachment_parts(
+            SimpleNamespace(session=None),
+            _conversation(),
+            attachments=[_attachment("doc-1", "report.pdf", "application/pdf")],
+            platform_id=1,
+            agent_id=2,
+            end_user_id=3,
+        )
+
+        assert len(document_text_parts) == 1
+        assert "以上仅为开头部分" in document_text_parts[0]["text"]
+        assert "attachment_search" in document_text_parts[0]["text"]
+        assert len(document_text_parts[0]["text"]) < 17000
+
+    @async_test
     async def test_document_uses_retrieval_when_query_and_embedding_enabled(
         self, monkeypatch, attachment_repos, tmp_path
     ):
@@ -234,6 +273,7 @@ class TestLoadEmbedAttachmentParts:
         assert "[第1段] 金额: 100" in document_text_parts[0]["text"]
         assert "[第4段] 统计: 总金额 100" in document_text_parts[0]["text"]
         assert "全文不会被注入" not in document_text_parts[0]["text"]
+        assert "可调用 attachment_search 工具" in document_text_parts[0]["text"]
 
     @async_test
     async def test_document_falls_back_to_full_text_when_retrieval_fails(

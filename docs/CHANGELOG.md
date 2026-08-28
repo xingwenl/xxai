@@ -1,6 +1,10 @@
 # Changelog
 
 ## - 2026-08-28
+- ✨ feat：附件主动检索工具 attachment_search 与截断注入提示 `🧑‍💻 lixingwen`
+- ✨ feat：Agent 版本表单暴露附件能力矩阵配置 `🧑‍💻 lixingwen`
+- 🐛 fix：附件 embedding 维度配置修正与向量回填脚本 `🧑‍💻 lixingwen`
+- 🐛 fix：attachment_search 关键词测试在配置 embedding 后误打真实 API `🧑‍💻 lixingwen`
 - ♻️ refactor：内置工具注册表合并为单一来源并直连真实 handler `🧑‍💻 lixingwen`
 
 ## - 2026-08-27

@@ -16,6 +16,7 @@
 - 文档默认抽取为文本/Markdown；模型支持原生文件输入时由 adapter 选择原文件，否则使用 chunks。
 - 每个 `agent_version` 通过 `capabilities` 声明附件能力；未配置时优先实时查询 OpenRouter `input_modalities`，失败按模型名兜底，默认按纯文本处理。
 - 纯文本主模型收到图片附件时，注入图片引用文本（文件名、受保护资源地址），主模型可自主调用 `image_read` 工具读取图片；不再强制发送 `image_url`。
+- 大文档不一次性全量注入：注入文本截断或按问题检索 Top-K 片段，同时提供 `attachment_search` 工具供主模型按需自主检索附件其余内容，避免长文档上下文溢出。
 - 第二期接入可配置 embedding 和 pgvector 检索，embedding 记录模型、维度和版本。
 - 增加稳定错误码、大小/MIME/数量限制、失败重试和会话级清理策略。
 
@@ -82,7 +83,8 @@ DELETE /embed/conversations/{conversation_id}/assets/{asset_id}
 3. Worker 解析文本、PDF、DOCX 或 Markdown，生成规范化文本和 chunks；图片只保存原图，OCR/视觉描述按能力配置执行。
 4. 第二期 Worker 按 embedding 配置批量生成向量并写入 pgvector。
 5. 消息发送时，后端加载当前会话可见附件，并按主模型能力适配输入：支持视觉的模型图片直接转换为 `image_url` 原生输入；纯文本模型不发送图片内容，仅注入图片引用文本并保留 `image_read` 工具；文档优先原生 file input，失败或不支持时检索/注入 chunks。能力解析顺序：`agent_version.capabilities` 显式配置优先，其次 OpenRouter `input_modalities`（带 TTL 缓存），再次模型名兜底推导，最后默认纯文本。
-6. 模型上下文明确标记文件内容为不可信外部内容，避免把文档中的指令当作系统指令。
+6. 文档文本注入被截断或仅注入 Top-K 片段时，注入内容明确提示“附件还有其他内容”，主模型可自主调用 `attachment_search` 工具按关键词/问题检索当前会话 ready 文档的 chunks（embedding 已配置时用 pgvector 余弦相似度，未配置时用词法匹配兜底），检索结果与注入内容同样标记为不可信外部内容。
+7. 模型上下文明确标记文件内容为不可信外部内容，避免把文档中的指令当作系统指令。
 
 ## 风险
 
@@ -111,8 +113,41 @@ DELETE /embed/conversations/{conversation_id}/assets/{asset_id}
 - 文档解析结果、chunks 和处理版本可查询；第二期向量包含模型和维度信息。
 - 删除会话或附件后，原文件和派生缓存不再可访问。
 - 后端测试覆盖权限隔离、状态机、缓存命中、失败重试和 provider 降级；SDK 测试覆盖上传状态、协议序列化和输入框交互。
+- 大文档注入被截断或只注入检索片段时，模型可自主调用 `attachment_search` 工具检索当前会话 ready 文档的其余内容；工具校验会话与主体权限，返回片段内容、位置、页码与相似度，未配置 embedding 时关键词兜底仍可用。
 
 ## 变更记录
+
+### 2026-08-28 第 19 次变更（fix）
+
+- 变更原因：`tests/builtin_tool/test_attachment_search.py` 的关键词兜底用例依赖环境未配置 embedding 才走词法路径；本地 `apps/backend/.env` 配置真实 embedding 后，用例未 mock `attachment_embedding_enabled`，全量测试时触发真实 DashScope API 调用（沙箱网络不通，单用例重试约 90 秒，4 个用例失败）。
+- 变更内容：`_run` 辅助统一 mock `attachment_embedding_enabled`（embedding 场景返回 True，词法场景返回 False），用例不再依赖环境配置，任何环境下确定性走目标分支。
+- 影响章节：验收标准（后端测试覆盖）。
+- 是否触发人工确认：否，纯测试封闭性修正。
+- 关联计划更新：无需调整计划；在 `verify.md` 记录全量回归结果。
+
+### 2026-08-28 第 18 次变更（增量）
+
+- 变更原因：`agent_versions.capabilities`（附件能力矩阵 image/native_file/text_retrieval）后端 API 已支持，但 Agent 版本创建表单未暴露，视觉/纯文本能力只能依赖模型名自动推断，无法在 UI 显式指定，联调视觉模型与 DeepSeek 降级时缺少确定性控制。
+- 变更内容：Agent 版本表单新增「附件能力矩阵（可选）」开关与 image/native_file/text_retrieval 三项勾选；关闭时按原逻辑不传 `capabilities`（走 OpenRouter 探测/模型名推断），开启时显式提交布尔能力矩阵。
+- 影响章节：处理与模型数据流、验收标准。
+- 是否触发人工确认：否，仅暴露后端已有字段，无 API/数据模型变化；用户已确认要做此项。
+- 关联计划更新：无需调整计划；在 `verify.md` 记录验证结果。
+
+### 2026-08-28 第 17 次变更（fix）
+
+- 变更原因：真实日志出现 `附件检索失败，回退全文注入 asset_id=...: attachment embedding dimension mismatch`。根因是根目录 `.env` 的 `ATTACHMENT_EMBEDDING_DIMENSION=1536` 与 `text-embedding-v3` 实际输出维度（默认 1024，仅支持 1024/768/512）不一致：写入侧 `services._build_attachment_embeddings` 校验不匹配会跳过向量缓存，查询侧 `gateway/runtime._retrieve_attachment_chunks` 校验不匹配会抛错并回退为截断的全文注入。
+- 变更内容：将 `ATTACHMENT_EMBEDDING_DIMENSION` 修正为 `1024`（保持 `text-embedding-v3` 默认维度）；新增 `scripts/backfill_attachment_embeddings.py` 为已处理但缺少向量的文档附件补齐向量（支持按附件 UUID 单条回填），避免配置修正后历史附件仍需重新上传才能启用向量检索。
+- 影响章节：处理与模型数据流、验收标准、风险。
+- 是否触发人工确认：否，纯配置修正与运维工具，不涉及架构/数据模型/API/权限变化。
+- 关联计划更新：无需调整计划；在 `verify.md` 记录真实日志证据与回填执行方式。
+
+### 2026-08-28 第 16 次变更（增量）
+
+- 变更原因：大文档（如长 PDF）只注入开头 16,000 字符或按问题检索的 Top-K 片段，未被注入的内容智能体无法获取，因为没有任何让智能体主动检索附件内容的工具，真实会话中表现为“只发了一部分、智能体不会主动搜”。
+- 变更内容：新增内置业务工具 `attachment_search`（模型可自主传入关键词/问题检索当前会话已解析文档的 chunks；embedding 已配置时走 pgvector 余弦相似度，未配置时词法匹配兜底；返回片段内容、位置、页码与相似度；限定当前会话与主体权限）；文档注入被截断或仅注入 Top-K 时在注入文本中明确提示“附件还有其他内容，可调用 attachment_search 工具继续检索”；新增迁移为现有 Agent 启用该工具（对齐 `http_post` 启用先例，管理界面可随时关闭）。
+- 影响章节：范围、处理与模型数据流、验收标准、风险。
+- 是否触发人工确认：是，新增模型可见的内置工具契约与 `agent_builtin_tools` 数据迁移；待用户确认方案后进入实现。
+- 关联计划更新：已同步更新 `plan.md`，新增“附件主动检索工具”实现任务。
 
 ### 2026-08-27 第 15 次变更（增量）
 
