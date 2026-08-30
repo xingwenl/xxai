@@ -8,10 +8,8 @@ import pytest
 
 from app.modules.gateway.connection import validate_incoming_message
 from app.modules.gateway.dispatcher import RuntimeToolDispatcher
-from app.modules.gateway.router import (
-    _event_to_protocol_payload,
-    _handle_question_answer,
-)
+from app.modules.gateway.events import event_to_protocol_payload
+from app.modules.gateway.router import _handle_question_answer
 from app.modules.gateway.schemas import ProtocolEnvelope
 
 
@@ -174,7 +172,7 @@ def test_handle_question_answer_wakes_only_matching_future():
 
 
 def test_event_to_protocol_payload_converts_question_required():
-    payload = _event_to_protocol_payload(
+    payload = event_to_protocol_payload(
         "question_required",
         {
             "question_id": "q_1",
@@ -232,4 +230,3 @@ def test_protocol_envelope_supports_question_required():
     )
     assert event.payload.question_id == "q_1"
     assert event.payload.options[0].label == "A"
-

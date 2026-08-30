@@ -68,75 +68,27 @@ from app.modules.host_tool.services import (
 )
 from app.modules.builtin_tool.repositories import BuiltinToolRepository
 from app.modules.gateway.dispatcher import RuntimeToolDispatcher
+from app.modules.gateway.events import build_error, event_to_protocol_payload
 
 router = APIRouter()
 logger = get_logger(__name__)
 
 
-def _event_to_protocol_payload(event_type: str, event: dict) -> dict:
-    """把内部运行事件转换为 ai-agent.v1 协议 payload。"""
-    if event_type == "message_delta":
-        return {"content": event["content"]}
-    if event_type == "citation":
-        return event["citation"]
-    if event_type == "error":
-        return event["payload"]
-    if event_type == "host_tool_call":
-        return {
-            "callId": event["call_id"],
-            "name": event["name"],
-            "arguments": redact_sensitive(event["arguments"]),
-            "sideEffect": event["side_effect"],
-            "requiresConfirmation": event["requires_confirmation"],
-        }
-    if event_type == "confirmation_required":
-        return {
-            "callId": event["call_id"],
-            "name": event["name"],
-            "toolType": event["tool_type"],
-            "sideEffect": event["side_effect"],
-            "summary": {"arguments": redact_sensitive(event["arguments"])},
-            "expiresAt": event.get("expires_at"),
-        }
-    if event_type == "question_required":
-        return {
-            "questionId": event["question_id"],
-            "question": event["question"],
-            "description": event.get("description"),
-            "options": event["options"],
-            "allowFreeText": event["allow_free_text"],
-            "requireSelection": event["require_selection"],
-            "expiresAt": event.get("expires_at"),
-        }
-    if event_type in {
-        "agent_loop_started",
-        "agent_step_started",
-        "agent_step_delta",
-        "agent_step_completed",
-        "agent_loop_completed",
-    }:
-        return event.get("payload", {})
-    if event_type == "message_completed":
-        return {
-            "content": event["content"],
-            "contentBlocks": event.get("content_blocks", []),
-            "citations": event["result"].citations,
-            "knowledgeGrounded": event["result"].knowledge_grounded,
-            "usage": event["result"].usage,
-            "loop": (
-                {
-                    "id": str(event.get("loop_run_id")),
-                    "requestId": event.get("request_id"),
-                    "status": "completed",
-                    "summary": "已完成回答",
-                    "steps": [],
-                }
-                if event.get("loop_run_id")
-                else None
-            ),
-        }
-    return {}
-
+async def _send_protocol_error(
+    websocket: WebSocket,
+    envelope,
+    *,
+    code: str,
+    message: str,
+    retryable: bool,
+    request_id: str | None = None,
+    details: dict[str, str] | None = None,
+) -> None:
+    """发送协议错误事件，统一错误 payload 结构与关联 ID。"""
+    payload: dict = {"code": code, "message": message, "retryable": retryable}
+    if details is not None:
+        payload["details"] = details
+    await websocket.send_text(envelope("error", payload, request_id=request_id))
 
 async def _handle_host_tools_register(
     *,
@@ -154,15 +106,12 @@ async def _handle_host_tools_register(
     # token claim ∩ Agent 后台绑定 ∩ 当前页面注册，并且 Schema 完全一致。
     registrations = message.get("payload", {}).get("tools", [])
     if not isinstance(registrations, list):
-        await websocket.send_text(
-            envelope(
-                "error",
-                {
-                    "code": "invalid_host_tools",
-                    "message": "tools must be a list",
-                    "retryable": False,
-                },
-            )
+        await _send_protocol_error(
+            websocket,
+            envelope,
+            code="invalid_host_tools",
+            message="tools must be a list",
+            retryable=False,
         )
         return
     token_names = set(payload.get("host_tools", []))
@@ -381,27 +330,21 @@ async def _handle_message_send(
     # 同一连接串行处理聊天请求；重复 requestId 做幂等处理，
     # 不同 requestId 在前一个完成前返回 request_in_progress。
     if not isinstance(request_id, str):
-        await websocket.send_text(
-            envelope(
-                "error",
-                {
-                    "code": "request_id_required",
-                    "message": "requestId is required",
-                    "retryable": False,
-                },
-            )
+        await _send_protocol_error(
+            websocket,
+            envelope,
+            code="request_id_required",
+            message="requestId is required",
+            retryable=False,
         )
         return active_request, active_task
     if active_task is not None and active_request != request_id:
-        await websocket.send_text(
-            envelope(
-                "error",
-                {
-                    "code": "request_in_progress",
-                    "message": "request already running",
-                    "retryable": True,
-                },
-            )
+        await _send_protocol_error(
+            websocket,
+            envelope,
+            code="request_in_progress",
+            message="request already running",
+            retryable=True,
         )
         return active_request, active_task
     if active_request == request_id:
@@ -416,16 +359,13 @@ async def _handle_message_send(
     try:
         conversation_id = normalize_conversation_id(raw_conversation_id)
     except ValueError:
-        await websocket.send_text(
-            envelope(
-                "error",
-                {
-                    "code": "invalid_conversation_id",
-                    "message": "conversationId must be a positive integer",
-                    "retryable": False,
-                },
-                request_id=request_id,
-            )
+        await _send_protocol_error(
+            websocket,
+            envelope,
+            code="invalid_conversation_id",
+            message="conversationId must be a positive integer",
+            retryable=False,
+            request_id=request_id,
         )
         return active_request, active_task
     message_payload = {
@@ -442,32 +382,25 @@ async def _handle_message_send(
     raw_attachments = message_payload.get("attachments")
     if raw_attachments is not None:
         if not isinstance(raw_attachments, list) or len(raw_attachments) > 10:
-            await websocket.send_text(
-                envelope(
-                    "error",
-                    {
-                        "code": "invalid_attachments",
-                        "message": "附件格式无效或数量超过限制",
-                        "retryable": False,
-                    },
-                )
+            await _send_protocol_error(
+                websocket,
+                envelope,
+                code="invalid_attachments",
+                message="附件格式无效或数量超过限制",
+                retryable=False,
             )
             return active_request, active_task
         try:
             validated_attachments = [
-                AttachmentRef(**att) if isinstance(att, dict) else AttachmentRef.model_validate(att)
-                for att in raw_attachments
+                AttachmentRef.model_validate(att) for att in raw_attachments
             ]
         except Exception:
-            await websocket.send_text(
-                envelope(
-                    "error",
-                    {
-                        "code": "invalid_attachments",
-                        "message": "附件字段格式无效",
-                        "retryable": False,
-                    },
-                )
+            await _send_protocol_error(
+                websocket,
+                envelope,
+                code="invalid_attachments",
+                message="附件字段格式无效",
+                retryable=False,
             )
             return active_request, active_task
         message_payload["attachments"] = [
@@ -475,15 +408,12 @@ async def _handle_message_send(
         ]
 
     if not isinstance(message_payload.get("text"), str):
-        await websocket.send_text(
-            envelope(
-                "error",
-                {
-                    "code": "text_required",
-                    "message": "text is required",
-                    "retryable": False,
-                },
-            )
+        await _send_protocol_error(
+            websocket,
+            envelope,
+            code="text_required",
+            message="text is required",
+            retryable=False,
         )
         return active_request, active_task
     if quota_service is not None:
@@ -498,24 +428,19 @@ async def _handle_message_send(
         )
         if not decision.allowed:
             record_quota_rejection("message", decision.code)
-            await websocket.send_text(
-                envelope(
-                    "error",
-                    {
-                        "code": decision.code,
-                        "message": (
-                            "message quota unavailable"
-                            if decision.code == "quota_unavailable"
-                            else "message quota exceeded"
-                        ),
-                        "retryable": decision.retryable,
-                        "details": {
-                            "retryAfterSeconds": str(
-                                decision.retry_after_seconds or 0
-                            )
-                        },
-                    },
-                )
+            await _send_protocol_error(
+                websocket,
+                envelope,
+                code=decision.code,
+                message=(
+                    "message quota unavailable"
+                    if decision.code == "quota_unavailable"
+                    else "message quota exceeded"
+                ),
+                retryable=decision.retryable,
+                details={
+                    "retryAfterSeconds": str(decision.retry_after_seconds or 0)
+                },
             )
             return active_request, active_task
         model_tokens_decision = await quota_service.peek(
@@ -529,24 +454,21 @@ async def _handle_message_send(
         )
         if not model_tokens_decision.allowed:
             record_quota_rejection("model_tokens", model_tokens_decision.code)
-            await websocket.send_text(
-                envelope(
-                    "error",
-                    {
-                        "code": model_tokens_decision.code,
-                        "message": (
-                            "model token quota unavailable"
-                            if model_tokens_decision.code == "quota_unavailable"
-                            else "model token quota exceeded"
-                        ),
-                        "retryable": model_tokens_decision.retryable,
-                        "details": {
-                            "retryAfterSeconds": str(
-                                model_tokens_decision.retry_after_seconds or 0
-                            )
-                        },
-                    },
-                )
+            await _send_protocol_error(
+                websocket,
+                envelope,
+                code=model_tokens_decision.code,
+                message=(
+                    "model token quota unavailable"
+                    if model_tokens_decision.code == "quota_unavailable"
+                    else "model token quota exceeded"
+                ),
+                retryable=model_tokens_decision.retryable,
+                details={
+                    "retryAfterSeconds": str(
+                        model_tokens_decision.retry_after_seconds or 0
+                    )
+                },
             )
             return active_request, active_task
     new_task = asyncio.create_task(
@@ -669,12 +591,10 @@ async def produce_embed_request(
         # 后台 Task 不能静默失败，否则前端会永久停留在发送中；详细堆栈只写服务端日志。
         logger.exception("Embed chat request failed: %s", request_id)
         await event_queue.put(
-            {
-                "type": "error",
-                "request_id": request_id,
-                "conversation": None,
-                "payload": build_agent_error_payload(exc),
-            }
+            build_error(
+                request_id=request_id,
+                payload=build_agent_error_payload(exc),
+            )
         )
     finally:
         await event_queue.put(None)
@@ -950,10 +870,12 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
             if queue_task in done:
                 event = queue_task.result()
                 if event is not None:
-                    # 先把内部事件转换为协议 payload，再统一附加 sequence、会话和请求 ID。
+                    # 业务侧事件已带协议 payload；dispatcher 等内部来源事件
+                    # 仍由 events 注册表转换为协议 payload。最后统一附加
+                    # sequence、会话和请求 ID。
                     event_type = event["type"]
                     if event_type == "message_completed" and quota_service is not None:
-                        usage = getattr(event.get("result"), "usage", None) or {}
+                        usage = event["payload"].get("usage") or {}
                         total_tokens = usage.get("total_tokens")
                         if isinstance(total_tokens, int) and total_tokens > 0:
                             consume = await quota_service.consume_capped(
@@ -982,8 +904,10 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                                     consume.current,
                                     consume.limit,
                                 )
-                    event_payload = _event_to_protocol_payload(event_type, event)
-                    conversation_id = getattr(event.get("conversation"), "id", None)
+                    event_payload = event.get("payload")
+                    if event_payload is None:
+                        event_payload = event_to_protocol_payload(event_type, event)
+                    conversation_id = event.get("conversation_id")
                     request_id = event.get("request_id")
                     encoded = envelope(
                         event_type,

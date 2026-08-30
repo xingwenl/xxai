@@ -922,6 +922,58 @@ def test_read_only_tool_result_is_returned_to_model():
     assert result.tool_events[0]["tool_call_id"] == "call-1"
 
 
+def test_run_graph_appends_model_reply_once_when_multiple_tools():
+    """一轮请求多个工具时，模型回复只回填一次，避免下一轮重复追加。"""
+    captured = []
+
+    class MultiToolCallingModel:
+        def __init__(self):
+            self.calls = 0
+
+        def bind_tools(self, tools):
+            return self
+
+        async def ainvoke(self, messages):
+            self.calls += 1
+            captured.append([type(item).__name__ for item in messages])
+            if self.calls == 1:
+                return AIMessage(
+                    content="",
+                    tool_calls=[
+                        {"name": "lookup", "args": {"query": "a"}, "id": "call-1"},
+                        {"name": "lookup", "args": {"query": "b"}, "id": "call-2"},
+                    ],
+                )
+            return AIMessage(content="完成")
+
+    tool = SimpleNamespace(
+        name="lookup",
+        description="查询",
+        input_schema={"type": "object"},
+        server_id=9,
+    )
+    invocations = []
+
+    async def invoke_tool_fn(**kwargs):
+        invocations.append(kwargs)
+        return ToolInvocationOutcome(status="completed", audit_id=1, result="结果")
+
+    result = asyncio.run(
+        run_graph(
+            MultiToolCallingModel(),
+            system_prompt="回答问题",
+            user_message="查询天气",
+            tools=[tool],
+            invoke_tool_fn=invoke_tool_fn,
+        )
+    )
+
+    assert result.content == "完成"
+    assert len(invocations) == 2
+    assert captured[1].count("AIMessage") == 1
+    assert captured[1].count("ToolMessage") == 2
+
+
 def test_stream_graph_emits_tool_started_before_tool_finishes():
     async def run():
         tool = SimpleNamespace(

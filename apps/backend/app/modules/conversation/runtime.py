@@ -2,7 +2,7 @@
 对话运行时模块
 
 本模块实现了对话系统的核心运行时逻辑，负责：
-- 管理对话状态图（LangGraph StateGraph）的执行流程
+- 管理对话图的执行流程（流式 / 非流式）
 - 处理大模型的流式和非流式调用
 - 支持工具（Tool）的绑定与调用循环
 - 统一 Token 使用量的提取与合并
@@ -23,12 +23,9 @@ import re
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
-from langgraph.graph import END, START, StateGraph
-from typing_extensions import TypedDict
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.modules.agent.services import build_chat_model
 from app.modules.skill.services import build_runtime_skill_metadata
 from app.modules.skill_runner.tools import (
     build_skill_instruction_tool,
@@ -164,6 +161,26 @@ def classify_tool_type(tool) -> str:
     if kind == "builtin":
         return "builtin_tool"
     return "host_tool"
+
+
+def _build_tool_event(
+    tool,
+    call,
+    *,
+    waiting_status: str | None = None,
+) -> dict[str, Any]:
+    """构造工具调用事件的基础字段，供流式与非流式执行路径共用。"""
+    event = {
+        "tool": tool.name,
+        "tool_type": classify_tool_type(tool),
+        "tool_call_id": call.get("id", tool.name),
+        "input_summary": _summarize_json(call.get("args", {}), limit=300),
+        "skill_name": getattr(tool, "skill_name", None),
+        "skill_version": getattr(tool, "skill_version", None),
+    }
+    if waiting_status is not None:
+        event["waiting_status"] = waiting_status
+    return event
 
 
 def _content_text(content: Any) -> str:
@@ -317,6 +334,48 @@ def tool_step_values(tool_event: dict, sequence: int) -> dict:
     }
 
 
+def build_step_payload(
+    step,
+    *,
+    loop_run_id,
+    sequence: int | None = None,
+    citation_refs: list | None = None,
+    with_input: bool = False,
+    with_output: bool = False,
+    with_tool: bool = False,
+    with_skill: bool = False,
+    with_thinking: bool = False,
+) -> dict[str, Any]:
+    """构造 agent_step_* 事件的 payload，统一协议字段命名。
+
+    ``with_thinking`` 控制 thinkingText 是否总是输出：网关路径默认仅在
+    存在思考文本时携带该字段；REST 流式路径保持 always-present 语义。
+    """
+    payload = {
+        "loopRunId": str(loop_run_id),
+        "stepId": str(step.id),
+        "sequence": step.sequence if sequence is None else sequence,
+        "stepType": step.step_type,
+        "title": step.title,
+        "status": step.status,
+    }
+    if with_input:
+        payload["inputSummary"] = step.input_summary
+    if with_output:
+        payload["outputSummary"] = step.output_summary
+    thinking = getattr(step, "thinking_text", None)
+    if with_thinking or thinking:
+        payload["thinkingText"] = thinking
+    if with_tool:
+        payload["toolName"] = step.tool_name
+    if with_skill:
+        payload["skillName"] = step.skill_name
+        payload["skillVersion"] = step.skill_version
+    if citation_refs is not None:
+        payload["citationRefs"] = citation_refs
+    return payload
+
+
 def _iter_image_assets(tool_events: list[dict] | None):
     """遍历图片工具结果中的受保护图片资源。"""
     for event in tool_events or []:
@@ -444,22 +503,6 @@ class GraphResult:
     content_blocks: list[dict] = field(default_factory=list)
 
 
-class ChatState(TypedDict, total=False):
-    """
-    对话状态图的状态定义
-
-    作为 LangGraph StateGraph 的状态类型，在对话流转过程中传递消息列表
-    和中间生成的文本内容。
-
-    Attributes:
-        messages: 对话消息历史列表（包含 SystemMessage、HumanMessage、AIMessage、ToolMessage 等）
-        content: 模型生成的中间文本内容
-    """
-
-    messages: list[Any]
-    content: str
-
-
 def extract_token_usage(message: Any) -> dict[str, int] | None:
     """
     从模型响应消息中提取 Token 使用量
@@ -547,229 +590,245 @@ def format_sse_event(event: dict[str, Any]) -> str:
     )
 
 
-async def _stream_graph(
-    model,
+@dataclass
+class _AstreamCollectState:
+    """单轮模型原生流的累积状态：拼接后的响应消息与 token 用量。"""
+
+    response: Any = None
+    usage: dict[str, int] | None = None
+
+
+@dataclass
+class _ToolRoundResult:
+    """一轮工具调用的结果状态：是否执行了工具、预算是否超限、确认结果。"""
+
+    executed_tool: bool = False
+    budget_exceeded: bool = False
+    confirmation_result: GraphResult | None = None
+
+
+@dataclass
+class _FinishResult:
+    """工具循环收尾产出的最终 GraphResult。"""
+
+    graph_result: GraphResult | None = None
+
+
+def _bind_tools_schema(model, tools: list[Any] | None):
+    """将工具按统一 function-calling schema 绑定到模型；不支持时原样返回。"""
+    if not tools or not hasattr(model, "bind_tools"):
+        return model
+    return model.bind_tools(
+        [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description or "",
+                    "parameters": tool.input_schema or {"type": "object"},
+                },
+            }
+            for tool in tools
+        ]
+    )
+
+
+def _build_initial_messages(
     *,
     system_prompt: str,
     user_message: str,
-    history: list[Any] | None = None,
-    citations: list[dict[str, Any]] | None = None,
-    tools: list[Any] | None = None,
-    invoke_tool_fn=None,
-    max_iterations: int | None = None,
-    image_parts: list[dict] | None = None,
-    document_text_parts: list[dict] | None = None,
-    history_attachment_parts: dict[str, list[dict]] | None = None,
+    history: list[Any] | None,
+    image_parts: list[dict] | None,
+    document_text_parts: list[dict] | None,
+    history_attachment_parts: dict[str, list[dict]] | None,
+) -> list[Any]:
+    """组装对话初始消息列表：系统提示 → 历史消息 → 当前用户消息。"""
+    return [
+        SystemMessage(content=system_prompt),
+        *build_history_messages(history, attachment_parts=history_attachment_parts),
+        HumanMessage(
+            content=build_user_content(
+                user_message, image_parts, document_text_parts
+            )
+        ),
+    ]
+
+
+async def _astream_collect(
+    model,
+    messages: list[Any],
+    *,
+    user_message: str,
+    image_parts: list[dict] | None,
+    content_parts: list[str],
+    thinking_parts: list[str],
+    state: _AstreamCollectState,
 ):
     """
-    流式执行对话图，通过 SSE 逐步输出模型回复
+    消费模型原生流，逐 chunk 累积内容并转发增量事件
 
-    本函数根据场景选择不同的执行路径：
-        1. **有工具**：委托给 run_graph() 非流式执行，完成后一次性输出结果
-        2. **无流式能力**（模型不支持 astream）：委托给 run_graph() 执行
-        3. **纯流式**：直接调用 model.astream() 逐 Token 流式输出
-
-    流式输出的事件类型：
-        - "message_delta": 增量文本片段
-        - "completed": 最终完成结果（含 GraphResult）
+    产出 ``thinking_delta`` / ``message_delta`` 事件，供调用方实时转发；
+    正文与思考文本追加到 content_parts / thinking_parts，拼接后的响应消息
+    与 token 用量写入 state，供主循环跨轮继续累积。
 
     Args:
-        model: LangChain 聊天模型实例（支持 invoke / astream）
-        system_prompt: 系统提示词，定义模型的角色和行为约束
-        user_message: 用户输入的消息内容
-        citations: 知识库引用列表，用于 grounding
-        tools: 可绑定的工具列表，每个工具需有 name、description、input_schema
-        invoke_tool_fn: 工具调用回调函数，签名为 (call) -> ToolOutcome
-
-    Yields:
-        dict[str, Any]: 事件字典，包含 type 和对应的载荷
+        model: 支持 astream 的聊天模型（已绑定工具）
+        messages: 当前对话消息列表
+        user_message: 原始用户消息，用于图片输入被拒后的纯文本重试
+        image_parts: 图片输入块，用于判断是否需要降级重试
+        content_parts: 正文增量累积列表
+        thinking_parts: 思考文本累积列表
+        state: 本轮累积状态（response / usage）
     """
-    logger.info(
-        "stream_graph tools=%s",
-        [getattr(tool, "name", type(tool).__name__) for tool in (tools or [])],
-    )
+    async for chunk in _astream_with_image_fallback(
+        model, messages, user_message, image_parts
+    ):
+        state.usage = merge_token_usage(state.usage, extract_token_usage(chunk))
+        if state.response is None:
+            state.response = chunk
+        else:
+            try:
+                state.response = state.response + chunk
+            except TypeError:
+                # 部分纯文本模型/测试桩的 chunk 不支持拼接，保留首个 chunk 即可；
+                # 此类 chunk 不携带 tool_calls，不影响工具循环判断。
+                pass
 
-    # 场景1：工具场景逐轮消费模型原生流，工具结果回填后继续下一轮生成。
-    if tools:
-        bound_model = (
-            model.bind_tools(
-                [
-                    {
-                        "type": "function",
-                        "function": {
-                            "name": tool.name,
-                            "description": tool.description or "",
-                            "parameters": tool.input_schema or {"type": "object"},
-                        },
-                    }
-                    for tool in tools
-                ]
-            )
-            if hasattr(model, "bind_tools")
-            else model
+        thinking = _thinking_text(chunk)
+        if thinking:
+            thinking_parts.append(thinking)
+            yield {"type": "thinking_delta", "content": thinking}
+
+        content = _content_text(chunk.content)
+        if content:
+            content_parts.append(content)
+            yield {"type": "message_delta", "content": content}
+
+
+async def _execute_tool_round(
+    *,
+    tools: list[Any],
+    tool_calls: list[dict],
+    invoke_tool_fn,
+    messages: list[Any],
+    content_parts: list[str],
+    thinking_parts: list[str],
+    usage: dict[str, int] | None,
+    tool_events: list[dict[str, Any]],
+    citations: list[dict[str, Any]],
+    result: _ToolRoundResult,
+):
+    """
+    执行一轮工具调用，产出 tool_started / tool_completed 事件
+
+    流式与非流式路径共用：调用方用 async for 逐事件转发
+    （流式原样 yield，非流式转交 on_event 回调）。
+    轮次结果写入 result：
+    - executed_tool：本轮是否至少执行了一个工具；
+    - budget_exceeded：工具结果触发页面工具预算上限；
+    - confirmation_result：工具要求用户确认时返回的确认态 GraphResult，否则为 None。
+    """
+    for call in tool_calls:
+        tool = next((item for item in tools if item.name == call["name"]), None)
+        if tool is None:
+            logger.warning("Model requested unknown tool name=%s", call["name"])
+            continue
+
+        result.executed_tool = True
+        # 询问工具在等待用户选择期间，把 loop step 标记为等待状态，
+        # 前端可据此展示"等待用户选择"而非"运行中"。
+        tool_event = _build_tool_event(
+            tool,
+            call,
+            waiting_status=(
+                "waiting_question" if tool.name == "ask_user" else None
+            ),
         )
 
-        # 少数模型适配器只实现非流式调用，保留兼容降级路径。
-        if not hasattr(bound_model, "astream"):
-            result = await run_graph(
-                model,
-                system_prompt=system_prompt,
-                user_message=user_message,
-                history=history,
-                citations=citations,
-                tools=tools,
-                invoke_tool_fn=invoke_tool_fn,
-                image_parts=image_parts,
-                document_text_parts=document_text_parts,
-                history_attachment_parts=history_attachment_parts,
+        # 上游消费并完成 Loop step 落库后才会恢复生成器并执行工具，
+        # 从而串行化同一个 AsyncSession 上的数据库操作。
+        yield {"type": "tool_started", **tool_event}
+        if hasattr(tool, "server_id"):
+            outcome = await invoke_tool_fn(
+                server_id=tool.server_id,
+                tool_name=tool.name,
+                arguments=call.get("args", {}),
             )
-            if result.content:
-                yield {"type": "message_delta", "content": result.content}
-            yield {"type": "completed", "result": result}
+        else:
+            outcome = await invoke_tool_fn(tool=tool, call=call)
+
+        completed_tool_event = {**tool_event, "outcome": outcome}
+        tool_events.append(completed_tool_event)
+        yield {"type": "tool_completed", **completed_tool_event}
+
+        if outcome.status == "confirmation_required":
+            result.confirmation_result = GraphResult(
+                content=rewrite_image_markdown("".join(content_parts), tool_events),
+                citations=citations,
+                knowledge_grounded=bool(citations),
+                thinking_text="".join(thinking_parts),
+                pending_confirmation_id=outcome.confirmation_id,
+                tool_events=tool_events,
+                usage=usage,
+            )
             return
 
-        messages = [
-            SystemMessage(content=system_prompt),
-            *build_history_messages(history, attachment_parts=history_attachment_parts),
-            HumanMessage(
-                content=build_user_content(
-                    user_message, image_parts, document_text_parts
-                )
-            ),
+        if _is_budget_exceeded_outcome(outcome):
+            logger.warning("Page tool budget exceeded; stopping agent loop")
+            result.budget_exceeded = True
+            break
+
+        messages.append(
+            ToolMessage(
+                content=_tool_result_content(tool, outcome),
+                tool_call_id=call.get("id", tool.name),
+            )
+        )
+
+
+async def _drain_events(agen, *, on_event=None):
+    """消费事件型异步生成器，逐事件回调 on_event（为空则丢弃事件）。"""
+    async for event in agen:
+        if on_event is not None:
+            await on_event(event)
+
+
+async def _finish_tool_loop(
+    *,
+    model,
+    messages: list[Any],
+    wrap_up: bool,
+    budget_exceeded: bool,
+    content_parts: list[str],
+    thinking_parts: list[str],
+    usage: dict[str, int] | None,
+    tool_events: list[dict[str, Any]],
+    citations: list[dict[str, Any]],
+    stream: bool,
+    with_content_blocks: bool = False,
+    result: _FinishResult,
+):
+    """
+    工具循环收尾：处理预算超限/达到迭代上限的最终输出，并组装 GraphResult
+
+    生成器产出 message_delta 增量事件（仅 stream=True 的收尾分支）；
+    结束前将最终 GraphResult 写入 result.graph_result。
+
+    content_parts 语义：
+    - stream=True：累积各轮流式内容，收尾内容追加其后（与既有流式行为一致）；
+    - stream=False：仅保存最终一段内容，收尾分支直接覆盖（与既有非流式行为一致）。
+    """
+    if budget_exceeded:
+        message = _PAGE_TOOL_BUDGET_EXCEEDED_MESSAGE
+        content_parts[:] = [*content_parts, message] if stream else [message]
+        if stream:
+            yield {"type": "message_delta", "content": message}
+    elif wrap_up:
+        wrap_messages = [
+            SystemMessage(content=_MAX_ITERATIONS_WRAPUP_PROMPT),
+            *messages,
         ]
-        content_parts: list[str] = []
-        thinking_parts: list[str] = []
-        tool_events: list[dict[str, Any]] = []
-        usage = None
-        limit = _resolve_max_iterations(max_iterations)
-        iteration_count = 0
-        wrap_up = False
-        budget_exceeded = False
-
-        while True:
-            iteration_count += 1
-            response = None
-            async for chunk in _astream_with_image_fallback(
-                bound_model, messages, user_message, image_parts
-            ):
-                usage = merge_token_usage(usage, extract_token_usage(chunk))
-                response = chunk if response is None else response + chunk
-
-                thinking = _thinking_text(chunk)
-                if thinking:
-                    thinking_parts.append(thinking)
-                    yield {"type": "thinking_delta", "content": thinking}
-
-                content = _content_text(chunk.content)
-                if content:
-                    content_parts.append(content)
-                    yield {"type": "message_delta", "content": content}
-
-            if response is None:
-                break
-
-            tool_calls = getattr(response, "tool_calls", []) or []
-            if not tool_calls:
-                break
-            if invoke_tool_fn is None:
-                logger.warning(
-                    "Model requested tools but no tool invoker is configured"
-                )
-                break
-
-            if limit is not None and iteration_count >= limit:
-                logger.warning(
-                    "Agent reached max iterations limit=%s tools_requested=%s; wrapping up without executing tools",
-                    limit,
-                    [call.get("name") for call in tool_calls],
-                )
-                wrap_up = True
-                break
-
-            messages.append(response)
-            executed_tool = False
-            for call in tool_calls:
-                tool = next((item for item in tools if item.name == call["name"]), None)
-                if tool is None:
-                    logger.warning("Model requested unknown tool name=%s", call["name"])
-                    continue
-
-                executed_tool = True
-                tool_event = {
-                    "tool": tool.name,
-                    "tool_type": classify_tool_type(tool),
-                    "tool_call_id": call.get("id", tool.name),
-                    "input_summary": _summarize_json(call.get("args", {}), limit=300),
-                    "skill_name": getattr(tool, "skill_name", None),
-                    "skill_version": getattr(tool, "skill_version", None),
-                    # 询问工具在等待用户选择期间，把 loop step 标记为等待状态，
-                    # 前端可据此展示"等待用户选择"而非"运行中"。
-                    "waiting_status": (
-                        "waiting_question" if tool.name == "ask_user" else None
-                    ),
-                }
-
-                # 上游消费并完成 Loop step 落库后才会恢复生成器并执行工具，
-                # 从而串行化同一个 AsyncSession 上的数据库操作。
-                yield {"type": "tool_started", **tool_event}
-                if hasattr(tool, "server_id"):
-                    outcome = await invoke_tool_fn(
-                        server_id=tool.server_id,
-                        tool_name=tool.name,
-                        arguments=call.get("args", {}),
-                    )
-                else:
-                    outcome = await invoke_tool_fn(tool=tool, call=call)
-
-                completed_tool_event = {**tool_event, "outcome": outcome}
-                tool_events.append(completed_tool_event)
-                yield {"type": "tool_completed", **completed_tool_event}
-
-                if outcome.status == "confirmation_required":
-                    yield {
-                        "type": "completed",
-                        "result": GraphResult(
-                            content=rewrite_image_markdown(
-                                "".join(content_parts), tool_events
-                            ),
-                            citations=citations or [],
-                            knowledge_grounded=bool(citations),
-                            thinking_text="".join(thinking_parts),
-                            pending_confirmation_id=outcome.confirmation_id,
-                            tool_events=tool_events,
-                            usage=usage,
-                        ),
-                    }
-                    return
-
-                if _is_budget_exceeded_outcome(outcome):
-                    logger.warning("Page tool budget exceeded; stopping agent loop")
-                    budget_exceeded = True
-                    break
-
-                messages.append(
-                    ToolMessage(
-                        content=_tool_result_content(tool, outcome),
-                        tool_call_id=call.get("id", tool.name),
-                    )
-                )
-
-            if budget_exceeded:
-                break
-            if not executed_tool:
-                break
-
-        if budget_exceeded:
-            content_parts.append(_PAGE_TOOL_BUDGET_EXCEEDED_MESSAGE)
-            yield {
-                "type": "message_delta",
-                "content": _PAGE_TOOL_BUDGET_EXCEEDED_MESSAGE,
-            }
-        elif wrap_up:
-            wrap_messages = [
-                SystemMessage(content=_MAX_ITERATIONS_WRAPUP_PROMPT),
-                *messages,
-            ]
+        if stream:
             try:
                 async for chunk in model.astream(wrap_messages):
                     usage = merge_token_usage(usage, extract_token_usage(chunk))
@@ -788,23 +847,78 @@ async def _stream_graph(
                 fallback = "已达执行上限，本次回答可能不完整。"
                 content_parts.append(fallback)
                 yield {"type": "message_delta", "content": fallback}
+        else:
+            try:
+                response = await model.ainvoke(wrap_messages)
+            except Exception as error:
+                logger.exception(
+                    "Agent wrap-up call failed: %s", type(error).__name__
+                )
+                response = AIMessage(content="已达执行上限，本次回答可能不完整。")
+            content = _content_text(response.content)
+            thinking = _thinking_text(response)
+            if thinking:
+                thinking_parts.append(thinking)
+            content_parts[:] = [content] if content else []
+            usage = merge_token_usage(usage, extract_token_usage(response))
 
-        yield {
-            "type": "completed",
-            "result": GraphResult(
-                content=rewrite_image_markdown(
-                    "".join(content_parts), tool_events
-                ),
-                citations=citations or [],
-                knowledge_grounded=bool(citations),
-                thinking_text="".join(thinking_parts),
-                tool_events=tool_events,
-                usage=usage,
-            ),
-        }
-        return
+    result.graph_result = GraphResult(
+        content=rewrite_image_markdown("".join(content_parts), tool_events),
+        citations=citations,
+        knowledge_grounded=bool(citations),
+        thinking_text="".join(thinking_parts),
+        tool_events=tool_events,
+        usage=usage,
+        content_blocks=(
+            image_content_blocks(tool_events) if with_content_blocks else []
+        ),
+    )
 
-    # 场景2：模型不支持流式（无 astream 方法），降级为非流式调用
+
+async def _stream_graph(
+    model,
+    *,
+    system_prompt: str,
+    user_message: str,
+    history: list[Any] | None = None,
+    citations: list[dict[str, Any]] | None = None,
+    tools: list[Any] | None = None,
+    invoke_tool_fn=None,
+    max_iterations: int | None = None,
+    image_parts: list[dict] | None = None,
+    document_text_parts: list[dict] | None = None,
+    history_attachment_parts: dict[str, list[dict]] | None = None,
+):
+    """
+    流式执行对话图，通过事件逐步输出模型回复
+
+    统一执行路径：
+        1. **工具场景**：逐轮消费模型原生流，工具结果回填后继续下一轮生成
+        2. **无流式能力**（模型不支持 astream）：降级为 run_graph() 非流式执行
+        3. **纯流式**：零轮工具调用的特例，走同一主循环
+
+    输出的事件类型：
+        - "thinking_delta" / "message_delta": 增量思考/正文片段
+        - "tool_started" / "tool_completed": 工具调用生命周期
+        - "completed": 最终完成结果（含 GraphResult）
+
+    Args:
+        model: LangChain 聊天模型实例（支持 invoke / astream）
+        system_prompt: 系统提示词，定义模型的角色和行为约束
+        user_message: 用户输入的消息内容
+        citations: 知识库引用列表，用于 grounding
+        tools: 可绑定的工具列表，每个工具需有 name、description、input_schema
+        invoke_tool_fn: 工具调用回调函数，签名为 (call) -> ToolOutcome
+
+    Yields:
+        dict[str, Any]: 事件字典，包含 type 和对应的载荷
+    """
+    logger.info(
+        "stream_graph tools=%s",
+        [getattr(tool, "name", type(tool).__name__) for tool in (tools or [])],
+    )
+
+    # 场景2：模型不支持流式，降级为非流式调用
     if not hasattr(model, "astream"):
         result = await run_graph(
             model,
@@ -819,63 +933,116 @@ async def _stream_graph(
         yield {"type": "completed", "result": result}
         return
 
-    # 场景3：纯流式模式，直接通过 model.astream() 逐 Token 输出
-    logger.info(
-        "Streaming chat graph message_chars=%s citations=%s has_tools=%s",
-        len(user_message),
-        len(citations or []),
-        bool(tools),
+    bound_model = _bind_tools_schema(model, tools)
+    messages = _build_initial_messages(
+        system_prompt=system_prompt,
+        user_message=user_message,
+        history=history,
+        image_parts=image_parts,
+        document_text_parts=document_text_parts,
+        history_attachment_parts=history_attachment_parts,
     )
-    content_parts = []
-    thinking_parts = []
+    content_parts: list[str] = []
+    thinking_parts: list[str] = []
+    tool_events: list[dict[str, Any]] = []
     usage = None
+    citations = citations or []
+    limit = _resolve_max_iterations(max_iterations)
+    iteration_count = 0
+    wrap_up = False
+    budget_exceeded = False
 
-    # 流式迭代模型输出，每个 chunk 包含增量内容
-    async for chunk in _astream_with_image_fallback(
-        model,
-        [
-            SystemMessage(content=system_prompt),
-            HumanMessage(
-                content=build_user_content(
-                    user_message, image_parts, document_text_parts
-                )
-            ),
-        ],
-        user_message,
-        image_parts,
+    # 场景1/3 统一主循环：逐轮消费模型原生流，工具结果回填后继续下一轮。
+    while True:
+        iteration_count += 1
+
+        # 消费模型原生流并转发增量事件，随后取回本轮累积结果。
+        collect_state = _AstreamCollectState()
+        async for event in _astream_collect(
+            bound_model,
+            messages,
+            user_message=user_message,
+            image_parts=image_parts,
+            content_parts=content_parts,
+            thinking_parts=thinking_parts,
+            state=collect_state,
+        ):
+            yield event
+        response = collect_state.response
+        usage = merge_token_usage(usage, collect_state.usage)
+
+        if response is None:
+            break
+
+        tool_calls = getattr(response, "tool_calls", []) or []
+        if not tool_calls:
+            break
+        if invoke_tool_fn is None:
+            logger.warning(
+                "Model requested tools but no tool invoker is configured"
+            )
+            break
+        if limit is not None and iteration_count >= limit:
+            logger.warning(
+                "Agent reached max iterations limit=%s tools_requested=%s; wrapping up without executing tools",
+                limit,
+                [call.get("name") for call in tool_calls],
+            )
+            wrap_up = True
+            break
+
+        # 每轮只回填一次模型回复，避免一轮多工具时重复追加。
+        messages.append(response)
+
+        # 执行本轮工具并转发工具事件，随后取回轮次结果。
+        round_result = _ToolRoundResult()
+        async for event in _execute_tool_round(
+            tools=tools,
+            tool_calls=tool_calls,
+            invoke_tool_fn=invoke_tool_fn,
+            messages=messages,
+            content_parts=content_parts,
+            thinking_parts=thinking_parts,
+            usage=usage,
+            tool_events=tool_events,
+            citations=citations,
+            result=round_result,
+        ):
+            yield event
+
+        budget_exceeded = round_result.budget_exceeded
+        if round_result.confirmation_result is not None:
+            yield {"type": "completed", "result": round_result.confirmation_result}
+            return
+        if budget_exceeded:
+            break
+        if not round_result.executed_tool:
+            break
+
+    # 收尾：预算超限/达到迭代上限的最终输出，并组装最终 GraphResult。
+    finish_result = _FinishResult()
+    async for event in _finish_tool_loop(
+        model=model,
+        messages=messages,
+        wrap_up=wrap_up,
+        budget_exceeded=budget_exceeded,
+        content_parts=content_parts,
+        thinking_parts=thinking_parts,
+        usage=usage,
+        tool_events=tool_events,
+        citations=citations,
+        stream=True,
+        result=finish_result,
     ):
-        # 累积 Token 使用量统计
-        usage = merge_token_usage(usage, extract_token_usage(chunk))
-
-        thinking = _thinking_text(chunk)
-        if thinking:
-            thinking_parts.append(thinking)
-            yield {"type": "thinking_delta", "content": thinking}
-
-        # 处理 chunk 内容：兼容纯字符串和多模态列表两种格式
-        content = _content_text(chunk.content)
-        if content:
-            content_parts.append(content)
-            yield {"type": "message_delta", "content": content}
+        yield event
 
     logger.info(
         "Streaming chat graph completed content_chars=%s knowledge_grounded=%s usage=%s",
-        len("".join(content_parts)),
+        len(finish_result.graph_result.content),
         bool(citations),
-        usage,
+        finish_result.graph_result.usage,
     )
-
-    # 输出完成事件，包含完整的 GraphResult
-    yield {
-        "type": "completed",
-        "result": GraphResult(
-            content=rewrite_image_markdown("".join(content_parts), None),
-            citations=citations or [],
-            knowledge_grounded=bool(citations),
-            thinking_text="".join(thinking_parts),
-            usage=usage,
-        ),
-    }
+    yield {"type": "completed", "result": finish_result.graph_result}
 
 
 async def stream_graph(
@@ -933,14 +1100,12 @@ async def run_graph(
     """
     非流式执行对话图，支持工具调用循环
 
-    本函数构建一个 LangGraph 状态图，通过单个 answer 节点执行对话。
     核心流程：
         1. 将工具绑定到模型（bind_tools），使模型具备调用工具的能力
-        2. 执行初始推理，获取模型回复
-        3. 检测工具调用（tool_calls），逐个执行工具
-        4. 将工具执行结果追加到消息列表，再次调用模型进行推理
-        5. 循环处理直到模型不再请求工具调用
-        6. 若工具需要用户确认（confirmation_required），则提前返回
+        2. 逐轮调用模型（ainvoke），检测工具调用（tool_calls）并逐个执行
+        3. 将工具执行结果回填到消息列表，再次调用模型进行推理
+        4. 循环处理直到模型不再请求工具调用
+        5. 若工具需要用户确认（confirmation_required），则提前返回
 
     Args:
         model: LangChain 聊天模型实例
@@ -951,12 +1116,10 @@ async def run_graph(
         invoke_tool_fn: 工具调用回调函数，支持两种调用签名：
             - 旧版: invoke_tool_fn(tool=tool, call=call)
             - 新版: invoke_tool_fn(server_id=..., tool_name=..., arguments=...)
+        on_event: 工具事件回调，签名为 async (event: dict) -> None
 
     Returns:
         GraphResult: 包含最终回复内容、引用、工具事件、Token 用量等
-
-    Raises:
-        LookupError: 当 invoke_tool_fn 为 None 时跳过工具处理
     """
     citation_items = citations or []
     logger.info(
@@ -966,73 +1129,48 @@ async def run_graph(
         [getattr(tool, "name", type(tool).__name__) for tool in (tools or [])],
     )
 
-    # 步骤1：将工具绑定到模型，使模型具备 function calling 能力
-    bound_model = model
-    if tools and hasattr(model, "bind_tools"):
-        bound_model = model.bind_tools(
-            [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": tool.name,
-                        "description": tool.description or "",
-                        "parameters": tool.input_schema or {"type": "object"},
-                    },
-                }
-                for tool in tools
-            ]
-        )
+    bound_model = _bind_tools_schema(model, tools)
+    messages = _build_initial_messages(
+        system_prompt=system_prompt,
+        user_message=user_message,
+        history=history,
+        image_parts=image_parts,
+        document_text_parts=document_text_parts,
+        history_attachment_parts=history_attachment_parts,
+    )
 
-    # 步骤2：定义图中的 answer 节点，执行模型推理
     thinking_parts: list[str] = []
+    content_parts: list[str] = []
+    tool_events: list[dict[str, Any]] = []
+    usage = None
+    limit = _resolve_max_iterations(max_iterations)
+    iteration_count = 0
+    wrap_up = False
+    budget_exceeded = False
 
-    async def answer_node(state: ChatState):
+    # 工具调用循环：模型请求工具时执行工具并回填结果，直到不再请求或触达上限。
+    while True:
+        iteration_count += 1
         try:
-            response = await bound_model.ainvoke(state["messages"])
-        except Exception as e:
-            logger.exception("Model invocation failed: %s", type(e).__name__)
+            response = await bound_model.ainvoke(messages)
+        except Exception as error:
+            logger.exception("Model invocation failed: %s", type(error).__name__)
             raise
 
         content = _content_text(response.content)
         thinking = _thinking_text(response)
         if thinking:
             thinking_parts.append(thinking)
-        return {"content": content, "messages": [response]}
+        content_parts[:] = [content] if content else []
+        usage = merge_token_usage(usage, extract_token_usage(response))
 
-    # 步骤3：构建线性状态图（START → answer → END）
-    graph = StateGraph(ChatState)
-    graph.add_node("answer", answer_node)
-    graph.add_edge(START, "answer")
-    graph.add_edge("answer", END)
-
-    # 初始化对话状态，包含系统提示和用户消息
-    state = {
-        "messages": [
-            SystemMessage(content=system_prompt),
-            *build_history_messages(history, attachment_parts=history_attachment_parts),
-            HumanMessage(
-                content=build_user_content(
-                    user_message, image_parts, document_text_parts
-                )
-            ),
-        ]
-    }
-
-    # 步骤4：首次调用模型，获取初始回复
-    result = await graph.compile().ainvoke(state)
-    response = result["messages"][-1]
-    usage = extract_token_usage(response)
-    tool_calls = getattr(response, "tool_calls", []) or []
-    tool_events = []
-    pending_confirmation_id = None
-    limit = _resolve_max_iterations(max_iterations)
-    iteration_count = 1
-    wrap_up = False
-    budget_exceeded = False
-
-    # 步骤5：工具调用循环 —— 模型请求工具时执行工具并回填结果
-    while tool_calls:
+        tool_calls = getattr(response, "tool_calls", []) or []
+        if not tool_calls:
+            break
         if invoke_tool_fn is None:
+            logger.warning(
+                "Model requested tools but no tool invoker is configured"
+            )
             break
         if limit is not None and iteration_count >= limit:
             logger.warning(
@@ -1043,112 +1181,54 @@ async def run_graph(
             wrap_up = True
             break
 
-        for call in tool_calls:
-            # 根据工具名称查找对应的工具对象
-            tool = next(
-                (item for item in tools or [] if item.name == call["name"]), None
-            )
-            if tool is None:
-                continue
+        # 每轮只回填一次模型回复，避免一轮多工具时重复追加。
+        messages.append(response)
 
-            tool_event = {
-                "tool": tool.name,
-                "tool_type": classify_tool_type(tool),
-                "tool_call_id": call.get("id", tool.name),
-                "input_summary": _summarize_json(call.get("args", {}), limit=300),
-                "skill_name": getattr(tool, "skill_name", None),
-                "skill_version": getattr(tool, "skill_version", None),
-            }
-            if on_event is not None:
-                await on_event({"type": "tool_started", **tool_event})
-
-            # 区分 MCP 工具（带 server_id）和本地工具的调用方式
-            if hasattr(tool, "server_id"):
-                outcome = await invoke_tool_fn(
-                    server_id=tool.server_id,
-                    tool_name=tool.name,
-                    arguments=call.get("args", {}),
-                )
-            else:
-                outcome = await invoke_tool_fn(tool=tool, call=call)
-
-            # 记录工具调用事件
-            completed_tool_event = {**tool_event, "outcome": outcome}
-            tool_events.append(completed_tool_event)
-            if on_event is not None:
-                await on_event({"type": "tool_completed", **completed_tool_event})
-
-            # 如果工具需要用户确认，记录确认 ID 并提前返回
-            if outcome.status == "confirmation_required":
-                pending_confirmation_id = outcome.confirmation_id
-                return GraphResult(
-                    content="",
-                    citations=citation_items,
-                    knowledge_grounded=bool(citation_items),
-                    thinking_text="".join(thinking_parts),
-                    pending_confirmation_id=pending_confirmation_id,
-                    tool_events=tool_events,
-                    usage=usage,
-                )
-
-            if _is_budget_exceeded_outcome(outcome):
-                logger.warning("Page tool budget exceeded; stopping agent loop")
-                budget_exceeded = True
-                break
-
-            # 将 AI 回复和工具执行结果追加到消息列表，供下一轮推理使用
-            state["messages"].append(response)
-            state["messages"].append(
-                ToolMessage(
-                    content=_tool_result_content(tool, outcome),
-                    tool_call_id=call.get("id", tool.name),
-                )
-            )
-
+        # 执行本轮工具；工具事件经 on_event 转交（为空则丢弃）。
+        round_result = _ToolRoundResult()
+        await _drain_events(
+            _execute_tool_round(
+                tools=tools,
+                tool_calls=tool_calls,
+                invoke_tool_fn=invoke_tool_fn,
+                messages=messages,
+                content_parts=[],
+                thinking_parts=thinking_parts,
+                usage=usage,
+                tool_events=tool_events,
+                citations=citation_items,
+                result=round_result,
+            ),
+            on_event=on_event,
+        )
+        budget_exceeded = round_result.budget_exceeded
+        if round_result.confirmation_result is not None:
+            return round_result.confirmation_result
         if budget_exceeded:
             break
+        if not round_result.executed_tool:
+            break
 
-        # 步骤6：在追加工具结果后，再次调用模型继续推理
-        result = await graph.compile().ainvoke(state)
-        response = result["messages"][-1]
-        usage = merge_token_usage(usage, extract_token_usage(response))
-        # 检查模型是否还需要调用更多工具
-        tool_calls = getattr(response, "tool_calls", []) or []
-        iteration_count += 1
-
-    # 步骤6.5：达到迭代上限后追加一次不带工具的收尾调用
-    if budget_exceeded:
-        result = {"content": _PAGE_TOOL_BUDGET_EXCEEDED_MESSAGE, "messages": []}
-    elif wrap_up:
-        wrap_messages = [
-            SystemMessage(content=_MAX_ITERATIONS_WRAPUP_PROMPT),
-            *state["messages"],
-        ]
-        try:
-            response = await model.ainvoke(wrap_messages)
-        except Exception as error:
-            logger.exception("Agent wrap-up call failed: %s", type(error).__name__)
-            response = AIMessage(content="已达执行上限，本次回答可能不完整。")
-        content = _content_text(response.content)
-        thinking = _thinking_text(response)
-        if thinking:
-            thinking_parts.append(thinking)
-        usage = merge_token_usage(usage, extract_token_usage(response))
-        result = {"content": content, "messages": [response]}
-
-    # 步骤7：组装最终结果
-    graph_result = GraphResult(
-        content=rewrite_image_markdown(
-            result.get("content", ""), tool_events
+    # 收尾：预算超限/达到迭代上限的最终输出，并组装最终 GraphResult。
+    finish_result = _FinishResult()
+    await _drain_events(
+        _finish_tool_loop(
+            model=model,
+            messages=messages,
+            wrap_up=wrap_up,
+            budget_exceeded=budget_exceeded,
+            content_parts=content_parts,
+            thinking_parts=thinking_parts,
+            usage=usage,
+            tool_events=tool_events,
+            citations=citation_items,
+            stream=False,
+            with_content_blocks=True,
+            result=finish_result,
         ),
-        citations=citation_items,
-        knowledge_grounded=bool(citation_items),
-        thinking_text="".join(thinking_parts),
-        pending_confirmation_id=pending_confirmation_id,
-        tool_events=tool_events,
-        usage=usage,
-        content_blocks=image_content_blocks(tool_events),
+        on_event=on_event,
     )
+    graph_result = finish_result.graph_result
     logger.info(
         "Chat graph completed content_chars=%s citations=%s knowledge_grounded=%s usage=%s pending_confirmation_id=%s",
         len(graph_result.content),
@@ -1362,19 +1442,3 @@ def build_system_prompt(
         len(prompt),
     )
     return prompt
-
-
-def build_model(version):
-    """
-    根据 Agent 版本构建对应的大语言模型实例
-
-    委托给 build_chat_model() 工厂函数，根据版本配置创建相应的模型实例
-    （如根据 model_provider、model_name、temperature 等参数初始化）。
-
-    Args:
-        version: Agent 版本对象，包含模型配置信息
-
-    Returns:
-        LangChain 聊天模型实例（支持 invoke / astream / bind_tools 等方法）
-    """
-    return build_chat_model(version)

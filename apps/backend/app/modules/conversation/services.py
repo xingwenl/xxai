@@ -5,6 +5,7 @@ from app.core.config import get_settings
 from app.modules.conversation.repositories import ConversationRepository
 from app.modules.conversation.runtime import (
     build_system_prompt,
+    build_step_payload,
     run_graph,
     stream_graph,
     tool_step_values,
@@ -72,14 +73,22 @@ async def build_loop_payload(
     }
 
 
-async def _start_loop(
+async def build_loop_with_steps(
     repo,
     conversation,
     user_message,
     request_id: str,
     citations: list[dict],
     skill_usages: list[dict] | None = None,
+    *,
+    retrieval_input_summary: str | None = None,
 ):
+    """创建 Loop 与检索/技能初始步骤（仅 flush，不提交）。
+
+    提交时机由调用方控制：REST 路径在全部步骤创建后统一 save_loop，
+    Embed 网关路径按原逻辑在每类步骤创建后分别 save_loop，保证两边
+    落库进度一致。
+    """
     loop = await repo.create_loop(
         conversation.id,
         user_message_id=user_message.id,
@@ -93,6 +102,7 @@ async def _start_loop(
         step_type="knowledge_retrieval",
         title="检索知识库",
         status="succeeded",
+        input_summary=retrieval_input_summary,
         output_summary=(
             f"命中 {len(citations)} 条引用" if citations else "未命中知识库引用"
         ),
@@ -117,6 +127,25 @@ async def _start_loop(
                 },
             )
         )
+    return loop, retrieval, skill_steps
+
+
+async def _start_loop(
+    repo,
+    conversation,
+    user_message,
+    request_id: str,
+    citations: list[dict],
+    skill_usages: list[dict] | None = None,
+):
+    loop, retrieval, skill_steps = await build_loop_with_steps(
+        repo,
+        conversation,
+        user_message,
+        request_id,
+        citations,
+        skill_usages,
+    )
     await repo.save_loop(loop)
     return loop, retrieval, skill_steps
 
@@ -124,7 +153,8 @@ async def _start_loop(
 logger = get_logger(__name__)
 
 
-async def _load_history(repo: ConversationRepository, conversation_id: int):
+async def load_recent_history(repo: ConversationRepository, conversation_id: int):
+    """按配置窗口读取近期已完成消息，供模型上下文回填。"""
     window = get_settings().conversation_history_window_seconds
     since = datetime.now(timezone.utc) - timedelta(seconds=window)
     return await repo.list_recent_context_messages(conversation_id, since=since)
@@ -185,16 +215,9 @@ async def _finish_stream_chat(
             "assistant": assistant,
             "loop_id": loop.id,
             "step_id": tool_step.id,
-            "payload": {
-                "loopRunId": str(loop.id),
-                "stepId": str(tool_step.id),
-                "sequence": tool_step.sequence,
-                "stepType": tool_step.step_type,
-                "title": tool_step.title,
-                "status": tool_step.status,
-                "outputSummary": tool_step.output_summary,
-                "toolName": tool_step.tool_name,
-            },
+            "payload": build_step_payload(
+                tool_step, loop_run_id=loop.id, with_output=True, with_tool=True
+            ),
         }
     generation_step.sequence = next_step_sequence
     generation_step.output_summary = f"生成 {len(result.content)} 字符"
@@ -210,16 +233,13 @@ async def _finish_stream_chat(
         "assistant": assistant,
         "loop_id": loop.id,
         "step_id": generation_step.id,
-        "payload": {
-            "loopRunId": str(loop.id),
-            "stepId": str(generation_step.id),
-            "sequence": 2,
-            "stepType": "model_generation",
-            "title": generation_step.title,
-            "status": generation_step.status,
-            "outputSummary": generation_step.output_summary,
-            "thinkingText": generation_step.thinking_text,
-        },
+        "payload": build_step_payload(
+            generation_step,
+            loop_run_id=loop.id,
+            sequence=2,
+            with_output=True,
+            with_thinking=True,
+        ),
     }
     yield {
         "type": "agent_loop_completed",
@@ -356,7 +376,7 @@ async def execute_chat(
         message=message,
         conversation_id=conversation_id,
     )
-    history = await _load_history(repo, conversation.id)
+    history = await load_recent_history(repo, conversation.id)
     user_message = await repo.create_message(
         conversation.id,
         role="user",
@@ -459,7 +479,7 @@ async def stream_chat(
             platform_id, context.agent.id, user_id, message
         )
     context.conversation_id = conversation.id
-    history = await _load_history(repo, conversation.id)
+    history = await load_recent_history(repo, conversation.id)
     user_message = await repo.create_message(
         conversation.id,
         role="user",
@@ -490,16 +510,13 @@ async def stream_chat(
         "conversation": conversation,
         "loop_id": loop.id,
         "step_id": retrieval_step.id,
-        "payload": {
-            "loopRunId": str(loop.id),
-            "stepId": str(retrieval_step.id),
-            "sequence": 1,
-            "stepType": "knowledge_retrieval",
-            "title": retrieval_step.title,
-            "status": retrieval_step.status,
-            "outputSummary": retrieval_step.output_summary,
-            "citationRefs": citations,
-        },
+        "payload": build_step_payload(
+            retrieval_step,
+            loop_run_id=loop.id,
+            sequence=1,
+            citation_refs=citations,
+            with_output=True,
+        ),
     }
     for skill_step in skill_steps:
         yield {
@@ -507,17 +524,9 @@ async def stream_chat(
             "conversation": conversation,
             "loop_id": loop.id,
             "step_id": skill_step.id,
-            "payload": {
-                "loopRunId": str(loop.id),
-                "stepId": str(skill_step.id),
-                "sequence": skill_step.sequence,
-                "stepType": skill_step.step_type,
-                "title": skill_step.title,
-                "status": skill_step.status,
-                "outputSummary": skill_step.output_summary,
-                "skillName": skill_step.skill_name,
-                "skillVersion": skill_step.skill_version,
-            },
+            "payload": build_step_payload(
+                skill_step, loop_run_id=loop.id, with_output=True, with_skill=True
+            ),
         }
     generation_sequence = 2 + len(skill_steps)
     generation_step = await repo.create_loop_step(
@@ -533,14 +542,7 @@ async def stream_chat(
         "conversation": conversation,
         "loop_id": loop.id,
         "step_id": generation_step.id,
-        "payload": {
-            "loopRunId": str(loop.id),
-            "stepId": str(generation_step.id),
-            "sequence": generation_sequence,
-            "stepType": "model_generation",
-            "title": generation_step.title,
-            "status": generation_step.status,
-        },
+        "payload": build_step_payload(generation_step, loop_run_id=loop.id),
     }
     tool_steps = {}
     next_step_sequence = generation_sequence + 1
@@ -605,17 +607,12 @@ async def stream_chat(
                 "conversation": conversation,
                 "loop_id": loop.id,
                 "step_id": tool_step.id,
-                "payload": {
-                    "loopRunId": str(loop.id),
-                    "stepId": str(tool_step.id),
-                    "sequence": tool_step.sequence,
-                    "stepType": tool_step.step_type,
-                    "title": tool_step.title,
-                    "status": tool_step.status,
-                    "toolName": tool_step.tool_name,
-                    "skillName": tool_step.skill_name,
-                    "skillVersion": tool_step.skill_version,
-                },
+                "payload": build_step_payload(
+                    tool_step,
+                    loop_run_id=loop.id,
+                    with_tool=True,
+                    with_skill=True,
+                ),
             }
             yield {
                 "type": "tool_call",
@@ -637,18 +634,13 @@ async def stream_chat(
                     "conversation": conversation,
                     "loop_id": loop.id,
                     "step_id": tool_step.id,
-                    "payload": {
-                        "loopRunId": str(loop.id),
-                        "stepId": str(tool_step.id),
-                        "sequence": tool_step.sequence,
-                        "stepType": tool_step.step_type,
-                        "title": tool_step.title,
-                        "status": tool_step.status,
-                        "outputSummary": tool_step.output_summary,
-                        "toolName": tool_step.tool_name,
-                        "skillName": tool_step.skill_name,
-                        "skillVersion": tool_step.skill_version,
-                    },
+                    "payload": build_step_payload(
+                        tool_step,
+                        loop_run_id=loop.id,
+                        with_output=True,
+                        with_tool=True,
+                        with_skill=True,
+                    ),
                 }
             outcome = item["outcome"]
             yield {

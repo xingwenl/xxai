@@ -112,38 +112,6 @@ class ChatResponse(BaseModel):
     loop: dict[str, Any] | None = None
 
 
-class AgentLoopStepRead(BaseModel):
-    id: int
-    sequence: int
-    step_type: str
-    title: str
-    status: str
-    input_summary: str | None = None
-    output_summary: str | None = None
-    thinking_text: str | None = None
-    tool_name: str | None = None
-    skill_name: str | None = None
-    skill_version: str | None = None
-    citation_refs: list[dict[str, Any]] = Field(default_factory=list)
-    error: dict[str, Any] | None = None
-
-
-class AgentLoopRead(BaseModel):
-    id: int
-    request_id: str
-    status: str
-    summary: str | None = None
-    steps: list[AgentLoopStepRead] = Field(default_factory=list)
-
-
-class ChatEvent(BaseModel):
-    type: str
-    conversation_id: int
-    message_id: int | None = None
-    sequence: int
-    payload: dict[str, Any] = Field(default_factory=dict)
-
-
 class RuntimeContext(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

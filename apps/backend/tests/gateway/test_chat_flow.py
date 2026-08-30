@@ -209,7 +209,7 @@ def test_embed_chat_records_model_usage_in_independent_detail_table():
 
         completed = events[-1]
         assert completed["type"] == "message_completed"
-        assert completed["result"].usage == {
+        assert completed["payload"]["usage"] == {
             "prompt_tokens": 12,
             "completion_tokens": 5,
             "total_tokens": 17,

@@ -183,7 +183,7 @@ class RuntimeToolDispatcher:
         await self.event_queue.put(
             {
                 "type": "question_required",
-                "conversation": None,
+                "conversation_id": None,
                 "request_id": self.request_id,
                 "question_id": question_id,
                 "question": str(arguments["question"]),
@@ -245,7 +245,7 @@ class RuntimeToolDispatcher:
         await self.event_queue.put(
             {
                 "type": "confirmation_required",
-                "conversation": None,
+                "conversation_id": None,
                 "request_id": self.request_id,
                 "call_id": call_id,
                 "name": tool.name,
@@ -346,7 +346,7 @@ class RuntimeToolDispatcher:
         await self.event_queue.put(
             {
                 "type": "host_tool_call",
-                "conversation": None,
+                "conversation_id": None,
                 "request_id": self.request_id,
                 "call_id": call_id,
                 "name": tool.name,

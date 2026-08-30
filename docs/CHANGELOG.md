@@ -1,5 +1,8 @@
 # Changelog
 
+## - 2026-08-30
+- ♻️ refactor：网关事件集中注册并合并对话工具循环 `🧑‍💻 lixingwen`
+
 ## - 2026-08-28
 - ✨ feat：附件主动检索工具 attachment_search 与截断注入提示 `🧑‍💻 lixingwen`
 - ✨ feat：Agent 版本表单暴露附件能力矩阵配置 `🧑‍💻 lixingwen`

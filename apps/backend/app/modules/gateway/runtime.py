@@ -3,15 +3,18 @@
 import asyncio
 import base64
 from collections.abc import AsyncIterator
-from datetime import datetime, timedelta, timezone
-from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.modules.conversation.repositories import ConversationRepository
+from app.modules.conversation.services import build_loop_with_steps, load_recent_history
 from app.modules.conversation.runtime import (
     build_system_prompt,
     stream_graph,
     tool_step_values,
     image_content_blocks,
+)
+from app.modules.gateway.events import (
+    LoopEventBuilder,
+    build_message_started,
 )
 from app.modules.conversation.schemas import sanitize_content_blocks
 from app.modules.asset.repositories import AssetRepository
@@ -33,6 +36,23 @@ logger = get_logger(__name__)
 ATTACHMENT_TEXT_INJECT_MAX_CHARS = 16_000
 # 会话级向量检索返回的 Top-K 切块数量
 ATTACHMENT_RETRIEVAL_TOP_K = 4
+
+
+def _attachment_block(asset, *, block_type: str, alt: str | None = None) -> dict:
+    """构造附件内容块（image/file），图片额外带 alt 字段。"""
+    block = {
+        "id": f"attachment_{asset.asset_id}",
+        "type": block_type,
+        "status": "completed",
+        "asset_id": asset.asset_id,
+        "url": f"/api/v1/assets/{asset.asset_id}",
+        "fileName": asset.filename,
+        "mimeType": asset.content_type,
+        "size": asset.size_bytes,
+    }
+    if alt is not None:
+        block["alt"] = alt
+    return block
 
 
 async def _load_single_attachment_parts(
@@ -68,17 +88,7 @@ async def _load_single_attachment_parts(
         processing = await processing_repo.get_processing(asset.id, conversation_id)
         if processing is not None and processing.status != ProcessingStatus.ready:
             raise ValueError("asset_not_ready")
-        block = {
-            "id": f"attachment_{asset.asset_id}",
-            "type": "image",
-            "status": "completed",
-            "asset_id": asset.asset_id,
-            "url": f"/api/v1/assets/{asset.asset_id}",
-            "alt": asset.filename,
-            "fileName": asset.filename,
-            "mimeType": asset.content_type,
-            "size": asset.size_bytes,
-        }
+        block = _attachment_block(asset, block_type="image", alt=asset.filename)
         if capabilities is None or capabilities.image:
             path = resolve_asset_path(asset.storage_key)
             data = await asyncio.to_thread(path.read_bytes)
@@ -93,16 +103,7 @@ async def _load_single_attachment_parts(
     processing = await processing_repo.get_processing(asset.id, conversation_id)
     if processing is None or processing.status != ProcessingStatus.ready:
         raise ValueError("asset_not_ready")
-    block = {
-        "id": f"attachment_{asset.asset_id}",
-        "type": "file",
-        "status": "completed",
-        "asset_id": asset.asset_id,
-        "url": f"/api/v1/assets/{asset.asset_id}",
-        "fileName": asset.filename,
-        "mimeType": asset.content_type,
-        "size": asset.size_bytes,
-    }
+    block = _attachment_block(asset, block_type="file")
     extracted_text = processing.extracted_text or ""
     if not extracted_text and processing.extracted_text_storage_key:
         text_path = resolve_asset_path(processing.extracted_text_storage_key)
@@ -387,42 +388,6 @@ async def _resolve_embed_conversation(
     return conversation
 
 
-def _step_payload(
-    step,
-    *,
-    loop_run_id,
-    sequence: int | None = None,
-    citation_refs: list | None = None,
-    with_input: bool = False,
-    with_output: bool = False,
-    with_tool: bool = False,
-    with_skill: bool = False,
-) -> dict:
-    """构造 agent_step_* 事件的 payload，统一协议字段命名。"""
-    payload = {
-        "loopRunId": str(loop_run_id),
-        "stepId": str(step.id),
-        "sequence": step.sequence if sequence is None else sequence,
-        "stepType": step.step_type,
-        "title": step.title,
-        "status": step.status,
-    }
-    if with_input:
-        payload["inputSummary"] = step.input_summary
-    if with_output:
-        payload["outputSummary"] = step.output_summary
-    if getattr(step, "thinking_text", None):
-        payload["thinkingText"] = step.thinking_text
-    if with_tool:
-        payload["toolName"] = step.tool_name
-    if with_skill:
-        payload["skillName"] = step.skill_name
-        payload["skillVersion"] = step.skill_version
-    if citation_refs is not None:
-        payload["citationRefs"] = citation_refs
-    return payload
-
-
 async def _finish_embed_chat(
     repo: ConversationRepository,
     context,
@@ -437,6 +402,7 @@ async def _finish_embed_chat(
     platform_id: int,
     end_user_id: int,
     client_id: str | None,
+    events: LoopEventBuilder,
 ) -> AsyncIterator[dict]:
     """保存助手消息、用量和剩余工具步骤，输出收尾事件流。"""
     content_blocks = sanitize_content_blocks(
@@ -481,21 +447,12 @@ async def _finish_embed_chat(
             **tool_step_values(tool_event, offset),
         )
         await repo.save_loop(loop)
-        yield {
-            "type": "agent_step_completed",
-            "conversation": conversation,
-            "message": assistant,
-            "request_id": request_id,
-            "loop_run_id": loop.id,
-            "step_id": tool_step.id,
-            "payload": _step_payload(
-                tool_step,
-                loop_run_id=loop.id,
-                with_input=True,
-                with_output=True,
-                with_tool=True,
-            ),
-        }
+        yield events.step_completed(
+            tool_step,
+            with_input=True,
+            with_output=True,
+            with_tool=True,
+        )
     generation_step.sequence = next_step_sequence
     generation_step.status = (
         "succeeded"
@@ -522,45 +479,15 @@ async def _finish_embed_chat(
         result.usage,
     )
     for citation in result.citations:
-        yield {
-            "type": "citation",
-            "citation": citation,
-            "conversation": conversation,
-            "message": assistant,
-            "request_id": request_id,
-        }
-    yield {
-        "type": "agent_step_completed",
-        "conversation": conversation,
-        "message": assistant,
-        "request_id": request_id,
-        "loop_run_id": loop.id,
-        "step_id": generation_step.id,
-        "payload": _step_payload(
-            generation_step, loop_run_id=loop.id, with_output=True
-        ),
-    }
-    yield {
-        "type": "agent_loop_completed",
-        "conversation": conversation,
-        "message": assistant,
-        "request_id": request_id,
-        "loop_run_id": loop.id,
-        "payload": {
-            "loopRunId": str(loop.id),
-            "status": loop.status,
-            "summary": loop.summary,
-        },
-    }
-    yield {
-        "type": "message_completed",
-        "content": result.content,
-        "content_blocks": content_blocks,
-        "conversation": conversation,
-        "message": assistant,
-        "result": result,
-        "request_id": request_id,
-    }
+        yield events.citation(citation)
+    yield events.step_completed(generation_step, with_output=True)
+    yield events.loop_completed()
+    yield events.message_completed(
+        result=result,
+        content=result.content,
+        content_blocks=content_blocks,
+        loop_run_id=loop.id,
+    )
 
 
 async def stream_embed_chat(
@@ -625,12 +552,7 @@ async def stream_embed_chat(
     )
 
     # Embed SDK 只发送当前消息和可信会话 ID，历史由服务端按窗口读取。
-    history_since = datetime.now(timezone.utc) - timedelta(
-        seconds=get_settings().conversation_history_window_seconds
-    )
-    history = await repo.list_recent_context_messages(
-        conversation.id, since=history_since
-    )
+    history = await load_recent_history(repo, conversation.id)
     history_attachment_parts = await _load_history_attachment_parts(
         repo,
         conversation,
@@ -659,90 +581,38 @@ async def stream_embed_chat(
         citations=[],
         knowledge_grounded=False,
     )
-    yield {
-        # 先通知前端请求已被接受，后续模型调用可能需要等待外部服务或页面工具。
-        "type": "message_started",
-        "conversation": conversation,
-        "request_id": request_id,
-    }
-    loop = await repo.create_loop(
-        conversation.id,
-        user_message_id=user_message.id,
+    # 先通知前端请求已被接受，后续模型调用可能需要等待外部服务或页面工具；
+    # 在用户消息落库之后再通知，保证客户端中途取消时消息仍然持久化。
+    yield build_message_started(
+        conversation_id=conversation.id,
         request_id=request_id,
-        status="running",
-        summary="正在处理请求",
+    )
+    loop, retrieval_step, skill_steps = await build_loop_with_steps(
+        repo,
+        conversation,
+        user_message,
+        request_id,
+        citations,
+        getattr(context, "skill_usages", []),
+        retrieval_input_summary=f"检索当前问题（{len(message)} 字符）",
     )
     await repo.save_loop(loop)
-    yield {
-        "type": "agent_loop_started",
-        "conversation": conversation,
-        "request_id": request_id,
-        "loop_run_id": loop.id,
-        "payload": {
-            "loopRunId": str(loop.id),
-            "status": "running",
-            "summary": loop.summary,
-        },
-    }
-    retrieval_step = await repo.create_loop_step(
-        loop.id,
+    events = LoopEventBuilder(conversation, loop, request_id=request_id)
+    yield events.loop_started()
+    await repo.save_loop(loop)
+    yield events.step_completed(
+        retrieval_step,
         sequence=1,
-        step_type="knowledge_retrieval",
-        title="检索知识库",
-        status="succeeded",
-        input_summary=f"检索当前问题（{len(message)} 字符）",
-        output_summary=(
-            f"命中 {len(citations)} 条引用" if citations else "未命中知识库引用"
-        ),
         citation_refs=citations,
+        with_output=True,
     )
-    await repo.save_loop(loop)
-    yield {
-        "type": "agent_step_completed",
-        "conversation": conversation,
-        "request_id": request_id,
-        "loop_run_id": loop.id,
-        "step_id": retrieval_step.id,
-        "payload": _step_payload(
-            retrieval_step,
-            loop_run_id=loop.id,
-            sequence=1,
-            citation_refs=citations,
-            with_output=True,
-        ),
-    }
-    skill_steps = []
-    for sequence, usage in enumerate(getattr(context, "skill_usages", []), start=2):
-        skill_step = await repo.create_loop_step(
-            loop.id,
-            sequence=sequence,
-            step_type="skill_instruction",
-            title=f"应用技能：{usage['name']}",
-            status="succeeded",
-            output_summary="技能元数据已加载"
-            + ("，可调用脚本工具" if usage.get("has_script_tool") else ""),
-            skill_name=usage["name"],
-            skill_version=usage.get("version"),
-            step_metadata={
-                "slug": usage.get("slug"),
-                "hasScriptTool": usage.get("has_script_tool", False),
-            },
-        )
-        skill_steps.append(skill_step)
+    for skill_step in skill_steps:
         await repo.save_loop(loop)
-        yield {
-            "type": "agent_step_completed",
-            "conversation": conversation,
-            "request_id": request_id,
-            "loop_run_id": loop.id,
-            "step_id": skill_step.id,
-            "payload": _step_payload(
-                skill_step,
-                loop_run_id=loop.id,
-                with_output=True,
-                with_skill=True,
-            ),
-        }
+        yield events.step_completed(
+            skill_step,
+            with_output=True,
+            with_skill=True,
+        )
     generation_sequence = 2 + len(skill_steps)
     generation_step = await repo.create_loop_step(
         loop.id,
@@ -752,18 +622,10 @@ async def stream_embed_chat(
         status="running",
     )
     await repo.save_loop(loop)
-    yield {
-        "type": "agent_step_started",
-        "conversation": conversation,
-        "request_id": request_id,
-        "loop_run_id": loop.id,
-        "step_id": generation_step.id,
-        "payload": _step_payload(
-            generation_step,
-            loop_run_id=loop.id,
-            sequence=generation_sequence,
-        ),
-    }
+    yield events.step_started(
+        generation_step,
+        sequence=generation_sequence,
+    )
     result = None
     tool_steps = {}
     next_step_sequence = generation_sequence + 1
@@ -788,29 +650,14 @@ async def stream_embed_chat(
         # message_delta 立即向前端流式发送；completed 事件只保留最终 GraphResult，
         # 避免同一段回答被重复写入消息表。
         if item["type"] == "message_delta":
-            yield {
-                "type": "message_delta",
-                "content": item["content"],
-                "conversation": conversation,
-                "request_id": request_id,
-            }
+            yield events.message_delta(item["content"])
             continue
         if item["type"] == "thinking_delta":
-            yield {
-                "type": "agent_step_delta",
-                "conversation": conversation,
-                "request_id": request_id,
-                "loop_run_id": loop.id,
-                "step_id": generation_step.id,
-                "payload": {
-                    "loopRunId": str(loop.id),
-                    "stepId": str(generation_step.id),
-                    "sequence": generation_step.sequence,
-                    "stepType": "model_generation",
-                    "field": "thinking",
-                    "content": item["content"],
-                },
-            }
+            yield events.step_delta(
+                generation_step,
+                field="thinking",
+                content=item["content"],
+            )
             continue
         if item["type"] == "tool_started":
             call_id = str(item["tool_call_id"])
@@ -829,21 +676,13 @@ async def stream_embed_chat(
             next_step_sequence += 1
             tool_steps[call_id] = tool_step
             await repo.save_loop(loop)
-            yield {
-                "type": "agent_step_started",
-                "conversation": conversation,
-                "request_id": request_id,
-                "loop_run_id": loop.id,
-                "step_id": tool_step.id,
-                "payload": _step_payload(
-                    tool_step,
-                    loop_run_id=loop.id,
-                    with_input=True,
-                    with_output=True,
-                    with_tool=True,
-                    with_skill=True,
-                ),
-            }
+            yield events.step_started(
+                tool_step,
+                with_input=True,
+                with_output=True,
+                with_tool=True,
+                with_skill=True,
+            )
             continue
         if item["type"] == "tool_completed":
             call_id = str(item["tool_call_id"])
@@ -854,21 +693,13 @@ async def stream_embed_chat(
                 tool_step.output_summary = values["output_summary"]
                 tool_step.error = values["error"]
                 await repo.save_loop(loop)
-                yield {
-                    "type": "agent_step_completed",
-                    "conversation": conversation,
-                    "request_id": request_id,
-                    "loop_run_id": loop.id,
-                    "step_id": tool_step.id,
-                    "payload": _step_payload(
-                        tool_step,
-                        loop_run_id=loop.id,
-                        with_input=True,
-                        with_output=True,
-                        with_tool=True,
-                        with_skill=True,
-                    ),
-                }
+                yield events.step_completed(
+                    tool_step,
+                    with_input=True,
+                    with_output=True,
+                    with_tool=True,
+                    with_skill=True,
+                )
             continue
         if item["type"] == "error":
             generation_step.status = "failed"
@@ -877,13 +708,7 @@ async def stream_embed_chat(
             loop.status = "failed"
             loop.summary = item["payload"]["message"]
             await repo.save_loop(loop)
-            yield {
-                "type": "error",
-                "conversation": conversation,
-                "loop_run_id": loop.id,
-                "request_id": request_id,
-                "payload": item["payload"],
-            }
+            yield events.error(item["payload"])
             return
         result = item["result"]
 
@@ -902,5 +727,6 @@ async def stream_embed_chat(
         platform_id=platform_id,
         end_user_id=end_user_id,
         client_id=client_id,
+        events=events,
     ):
         yield event
