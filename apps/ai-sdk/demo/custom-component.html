@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>xxai-agent 自定义组件测试页</title>
+    <link rel="stylesheet" href="../dist/style.css" />
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        margin: 0;
+        padding: 20px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+      }
+      .container {
+        max-width: 800px;
+        margin: 0 auto;
+        background: white;
+        padding: 40px;
+        border-radius: 16px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+      }
+      code {
+        background: #f5f5f5;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>自定义组件测试页</h1>
+      <p>
+        后端需已启动，并在管理后台为 Agent 启用 <code>show_user_card</code>
+        工具。右下角打开聊天后发送“展示我的信息”，模型会调用工具并渲染
+        <code>UserInfoCard</code> 卡片；把组件名改成未注册的名称可验证 fallback。
+      </p>
+    </div>
+
+    <script src="../dist/xxai-agent.umd.cjs"></script>
+
+    <script>
+      const { createAgentClient, registerCustomComponent, h } = XXAIAgent;
+
+      // 用 render 函数定义示例卡片组件（无需 .vue 文件，适用于 UMD 页面）
+      registerCustomComponent('UserInfoCard', {
+        props: ['name', 'email', 'avatar', 'title', 'department', 'summary'],
+        render() {
+          const rows = []
+          rows.push(h('div', "个人信息！！！"))
+          if (this.avatar) {
+            rows.push(h('img', { attrs: { src: this.avatar, alt: 'avatar', style: 'width:48px;height:48px;border-radius:50%' } }))
+          }
+          if (this.name) rows.push(h('strong', this.name))
+          if (this.title || this.department) {
+            rows.push(h('div', [this.title, this.department].filter(Boolean).join(' · ')))
+          }
+          if (this.email) rows.push(h('div', this.email))
+          if (this.summary) rows.push(h('p', this.summary))
+          return h('div', { class: 'user-info-card', style: 'border:1px solid #ddd;border-radius:12px;padding:12px 16px;display:flex;flex-direction:column;gap:4px' }, rows)
+        },
+      })
+
+      // 第二个示例：店铺列表组件（对应后端 show_shop_list 工具）
+      registerCustomComponent('ShopList', {
+        props: ['shops'],
+        render() {
+          const shops = Array.isArray(this.shops) ? this.shops : []
+          const items = shops.map((shop) =>
+            h('div', { style: 'border:1px solid #eee;border-radius:8px;padding:8px 12px;display:flex;flex-direction:column;gap:2px' }, [
+              h('strong', String(shop.name || '')),
+              h('span', [shop.address, shop.status].filter(Boolean).join(' · ')),
+              typeof shop.rating === 'number' ? h('span', `评分 ${shop.rating}`) : null,
+              shop.url ? h('a', { attrs: { href: shop.url, target: '_blank' } }, '查看店铺') : null,
+            ])
+          )
+          return h('div', { style: 'display:flex;flex-direction:column;gap:8px' }, items)
+        },
+      })
+
+      const agent = createAgentClient({
+        endpoint: 'ws://127.0.0.1:8000/api/v1/ws/agents/1',
+        baseUrl: 'http://127.0.0.1:8000/api/v1',
+        agentId: '1',
+        platformId: '1',
+        getToken: async () => {
+          const response = await fetch('http://localhost:8000/api/v1/embed/tokens', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              client_id: 'client_id',
+              client_secret: 'client_secret',
+              agent_id: '1',
+              external_user_id: '101',
+              origin: window.location.origin,
+            }),
+          })
+          const result = await response.json()
+          return result.data.access_token
+        },
+        ui: { mode: 'floating', position: 'right', theme: 'auto' },
+      })
+    </script>
+  </body>
+</html>

@@ -1,0 +1,54 @@
+{
+  "id": "2026-08-30-ai-sdk-custom-component",
+  "title": "AI SDK 自定义组件（Generative UI）端到端打通",
+  "scope": "backend+frontend",
+  "phase": "acceptance",
+  "status": "active",
+  "riskLevel": "medium",
+  "changeTypes": [
+    "backend",
+    "frontend",
+    "docs"
+  ],
+  "research": {
+    "required": true,
+    "status": "done",
+    "sources": [
+      "https://ai-sdk.dev/docs/ai-sdk-ui/chatbot-tool-usage",
+      "https://agent-ready.dev/what-is-a2ui",
+      "https://www.cnblogs.com/itech/p/21609276",
+      "https://qubittool.com/zh/blog/a2ui-vs-ag-ui-vercel-agent-ui-comparison",
+      "https://adaptivecards.io/",
+      "https://api.slack.com/block-kit",
+      "https://ai-sdk.dev/docs/ai-sdk-rsc/streaming-ui"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": [
+    "API 契约变化"
+  ],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-08-30",
+      "scope": "custom 块协议字段统一为 component_name，前端兼容后端，后端不兼容前端",
+      "note": "用户确认协议统一下划线格式 component_name，并明确流程需标准化以便后续新增组件"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-08-30",
+  "updatedAt": "2026-08-30",
+  "relatedPaths": [
+    "apps/backend/app/modules/conversation/schemas.py",
+    "apps/backend/app/modules/conversation/runtime.py",
+    "apps/backend/app/modules/gateway/runtime.py",
+    "apps/backend/app/modules/tools/business/custom_component.py",
+    "apps/backend/app/modules/tools/business/registry.py",
+    "apps/ai-sdk/src/ui/components/CustomContent.vue",
+    "apps/ai-sdk/src/core/types.ts",
+    "apps/ai-sdk/README.md"
+  ],
+  "notes": "实现与验证已完成，验收结论已记录；剩余风险为端到端人工回归未执行。"
+}

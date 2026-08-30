@@ -411,6 +411,36 @@ def image_content_blocks(tool_events: list[dict] | None) -> list[dict]:
     return blocks
 
 
+def custom_content_blocks(tool_events: list[dict] | None) -> list[dict]:
+    """把业务工具返回的 custom 结果转换为消息内容块，驱动宿主渲染自定义组件。
+
+    协议约定：块字段统一使用 component_name（snake_case），SDK 按该字段查找
+    宿主注册的组件；fallback 必须非空，组件未注册时前端展示兜底文本。
+    """
+    blocks: list[dict] = []
+    for index, event in enumerate(tool_events or []):
+        outcome = event.get("outcome")
+        result = getattr(outcome, "result", None)
+        if not isinstance(result, dict) or result.get("kind") != "custom":
+            continue
+        component_name = str(result.get("component_name") or "").strip()
+        if not component_name:
+            continue
+        fallback = str(result.get("fallback") or "").strip()[:2_000]
+        props = result.get("props") if isinstance(result.get("props"), dict) else {}
+        blocks.append(
+            {
+                "id": f"custom_{component_name}_{index}",
+                "type": "custom",
+                "status": "completed",
+                "component_name": component_name,
+                "props": props,
+                "fallback": fallback or f"组件 {component_name} 暂不可用",
+            }
+        )
+    return blocks
+
+
 def rewrite_image_markdown(content: str, tool_events: list[dict] | None) -> str:
     """把模型输出的 Markdown 图片链接中误用的裸 asset_id 改写为 download_url。
 
@@ -870,7 +900,9 @@ async def _finish_tool_loop(
         tool_events=tool_events,
         usage=usage,
         content_blocks=(
-            image_content_blocks(tool_events) if with_content_blocks else []
+            image_content_blocks(tool_events) + custom_content_blocks(tool_events)
+            if with_content_blocks
+            else []
         ),
     )
 

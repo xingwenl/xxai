@@ -93,11 +93,29 @@
     </div>
 
     <script type="module">
-      import { createAgentClient } from './src/index.ts';
+      import { createAgentClient, registerCustomComponent, h } from './src/index.ts';
 
       function sleep(ms) {
         return new Promise((resolve) => setTimeout(resolve, ms));
       }
+
+      // 用 render 函数定义示例卡片组件（无需 .vue 文件，适用于 UMD 页面）
+      registerCustomComponent('UserInfoCard', {
+        props: ['name', 'email', 'avatar', 'title', 'department', 'summary'],
+        render() {
+          const rows = []
+          if (this.avatar) {
+            rows.push(h('img', { attrs: { src: this.avatar, alt: 'avatar', style: 'width:48px;height:48px;border-radius:50%' } }))
+          }
+          if (this.name) rows.push(h('strong', this.name))
+          if (this.title || this.department) {
+            rows.push(h('div', [this.title, this.department].filter(Boolean).join(' · ')))
+          }
+          if (this.email) rows.push(h('div', this.email))
+          if (this.summary) rows.push(h('p', this.summary))
+          return h('div', { class: 'user-info-card', style: 'border:1px solid #ddd;border-radius:12px;padding:12px 16px;display:flex;flex-direction:column;gap:4px' }, rows)
+        },
+      })
 
 
       const agent = createAgentClient({

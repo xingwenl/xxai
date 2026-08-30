@@ -68,6 +68,25 @@ async function render(component: Component, props: Record<string, unknown>): Pro
 }
 
 describe('ChatMessage timeline rendering', () => {
+  it('renders rich content blocks (custom) even when timeline exists', async () => {
+    const html = await render(ChatMessage, {
+      message: message({
+        contentBlocks: [
+          {
+            id: 'c1',
+            type: 'custom',
+            status: 'completed',
+            component_name: 'UserInfoCard',
+            props: { name: '张三' },
+            fallback: '张三 · zhangsan@example.com',
+          },
+        ],
+      }),
+    })
+
+    expect(html).toContain('张三 · zhangsan@example.com')
+  })
+
   it('merges leading skill steps into one collapsible group', async () => {
     const html = await render(ChatMessage, { message: message() })
 

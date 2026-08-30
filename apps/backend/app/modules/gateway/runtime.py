@@ -11,6 +11,7 @@ from app.modules.conversation.runtime import (
     stream_graph,
     tool_step_values,
     image_content_blocks,
+    custom_content_blocks,
 )
 from app.modules.gateway.events import (
     LoopEventBuilder,
@@ -415,6 +416,7 @@ async def _finish_embed_chat(
             }
         ]
         + image_content_blocks(result.tool_events)
+        + custom_content_blocks(result.tool_events)
     )
     assistant = await repo.create_message(
         conversation.id,

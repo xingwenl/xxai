@@ -32,6 +32,7 @@ export interface MessageContentBlock {
   mime_type?: string
   size?: number
   componentName?: string
+  component_name?: string
   props?: Record<string, unknown>
   fallback?: string
   metadata?: Record<string, unknown>

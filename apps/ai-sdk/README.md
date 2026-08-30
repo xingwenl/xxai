@@ -373,7 +373,101 @@ agent.registerTools([
 ])
 ```
 
-## 9. 本地开发和 Demo
+## 9. 自定义组件（Generative UI）
+
+让智能体在对话中直接展示宿主网页的自定义组件（例如用户信息卡片），而不是只能输出文本。链路为：
+
+```text
+模型调用业务工具（如 show_user_card）
+  -> 后端把工具结果转成 custom 内容块（component_name + props + fallback）
+  -> SDK 按组件名查注册表渲染
+  -> 未注册组件时展示 fallback 文本
+```
+
+### 9.1 注册组件
+
+```typescript
+import { createChatUI, registerCustomComponent } from 'xxai-agent'
+import UserInfoCard from './UserInfoCard.vue'
+
+registerCustomComponent('UserInfoCard', UserInfoCard)
+
+const chat = createChatUI({ ... })
+```
+
+- 组件名必须与后端工具返回的 `component_name` 完全一致。
+- 组件按普通 props 接收 `block.props` 中的字段（`name`、`email` 等）。
+- `custom` 块协议字段统一为下划线格式 `component_name`；SDK 同时兼容读取存量 `componentName` 数据。
+
+### 9.2 新增一个自定义组件的标准流程
+
+1. 前端：编写 Vue 组件文件，并通过 `registerCustomComponent('<组件名>', Component)` 注册。
+2. 后端：在 `apps/backend/app/modules/tools/business/` 新增一个业务工具文件（可复制 `custom_component.py` 模板），返回 `{ "kind": "custom", "component_name": "<组件名>", "props": {...}, "fallback": "..." }`。
+3. 注册页：在 `apps/backend/app/modules/tools/business/registry.py` 中 import 新模块（导入即注册）。
+4. 启用：在管理后台为对应 Agent 启用该内置工具。
+5. 验证：对话触发工具后，已注册组件正常渲染；未注册时展示 `fallback`。
+
+### 9.3 示例：用户信息卡片
+
+后端 `show_user_card` 工具返回：
+
+```json
+{
+  "kind": "custom",
+  "component_name": "UserInfoCard",
+  "props": { "name": "张三", "email": "zhangsan@example.com", "title": "前端工程师" },
+  "fallback": "张三 · zhangsan@example.com"
+}
+```
+
+前端组件 `UserInfoCard.vue`：
+
+```vue
+<script setup lang="ts">
+defineProps<{
+  name?: string
+  email?: string
+  avatar?: string
+  title?: string
+  department?: string
+  summary?: string
+}>()
+</script>
+
+<template>
+  <div class="user-info-card">
+    <img v-if="avatar" :src="avatar" alt="avatar" />
+    <div>
+      <strong>{{ name }}</strong>
+      <div>{{ title }} · {{ department }}</div>
+      <div>{{ email }}</div>
+    </div>
+  </div>
+</template>
+```
+
+> 注意：`fallback` 是安全底线，后端要求必须非空；模型未提供时后端会根据 `props` 自动生成，组件不可用时用户仍然能看到信息摘要。
+
+### 9.4 示例：店铺列表
+
+仓库已内置第二个示例工具 `show_shop_list`（`apps/backend/app/modules/tools/business/shop_list.py`），返回：
+
+```json
+{
+  "kind": "custom",
+  "component_name": "ShopList",
+  "props": {
+    "shops": [
+      { "name": "三味书屋", "address": "杭州西湖区", "status": "营业中", "rating": 4.5 }
+    ]
+  },
+  "fallback": "三味书屋"
+}
+```
+
+前端注册 `ShopList` 组件后按普通 props 接收 `shops` 数组即可。新增组件时复制 `custom_component.py` 或 `shop_list.py` 任一份模板，改 `name` / `component_name` / `input_schema` / `props` 白名单即可。
+
+## 10. 本地开发和 Demo
 
 ```bash
 cd apps/ai-sdk
@@ -393,7 +487,7 @@ npm run type-check
 
 本地 Demo 使用 `/api/agent-token?external_user_id=demo-user` 时，确认 AI Base 后端已配置 `EMBED_CLIENT_ID`、`EMBED_CLIENT_SECRET`、`EMBED_AGENT_ID` 和 `EMBED_ORIGIN`。
 
-## 10. 发布到 npm
+## 11. 发布到 npm
 
 SDK 通过 GitHub Actions 自动发布到 npm 官方仓库，工作流见 `.github/workflows/publish-ai-sdk.yml`，触发方式是 GitHub Release 创建（`release` 事件类型 `published`）。
 
@@ -411,7 +505,7 @@ SDK 通过 GitHub Actions 自动发布到 npm 官方仓库，工作流见 `.gith
 
 > 推荐长期方案：npm **Trusted Publishing**（OIDC，无需 token）。在 npmjs.com 的 `xxai-agent` 包设置中添加 Trusted Publisher，GitHub 配置填 `xingwenl` / `xxai` / 工作流 `publish-ai-sdk.yml`；配置后 CI 使用 Node ≥ 22 自带的最新 npm，`npm publish` 自动完成身份认证和 provenance。注意：首次发布仍需先用 token 完成，包存在后才能配置 Trusted Publisher。
 
-## 11. 常见问题
+## 12. 常见问题
 
 ### token 从哪里获取？
 
@@ -429,7 +523,7 @@ SDK 通过 GitHub Actions 自动发布到 npm 官方仓库，工作流见 `.gith
 
 SDK 在重连时会再次调用 `getToken`。如果主动断开后重新连接，也应重新获取短期 token，不要缓存长期 token。
 
-## 12. 安全检查清单
+## 13. 安全检查清单
 
 - 浏览器请求中没有 `client_secret`。
 - WebSocket URL 中没有 token。

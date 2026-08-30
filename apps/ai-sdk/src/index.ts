@@ -1,5 +1,6 @@
 import { AgentClient } from './core'
 import { createChatUI, registerCustomComponent } from './ui'
+import { h } from 'vue'
 import type {
   AgentClientOptions,
   AgentCallbacks,
@@ -53,5 +54,7 @@ export type {
 export type { PageElement, PageSnapshot, PageToolsOptions } from './core'
 
 export { registerCustomComponent }
+
+export { h }
 
 export { AgentClient } from './core'

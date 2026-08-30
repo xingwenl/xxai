@@ -2,6 +2,7 @@
 
 ## - 2026-08-30
 - ♻️ refactor：网关事件集中注册并合并对话工具循环 `🧑‍💻 lixingwen`
+- ✨ feat：AI SDK 自定义组件端到端打通，支持模型驱动渲染宿主组件 `🧑‍💻 lixingwen`
 
 ## - 2026-08-28
 - ✨ feat：附件主动检索工具 attachment_search 与截断注入提示 `🧑‍💻 lixingwen`
