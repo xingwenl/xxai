@@ -1,8 +1,9 @@
 services:
   db:
-    # pgvector 官方镜像（基于 PostgreSQL 16，预装 vector 扩展）；
+    # pgvector 官方镜像（基于 PostgreSQL 17，预装 vector 扩展）；
     # 官方 postgres 镜像不带 pgvector，alembic 迁移执行 CREATE EXTENSION vector 会失败
-    image: pgvector/pgvector:pg16
+    # 本地与服务器统一升级到 PG17（本地既有数据卷由 PG17 初始化，pg16 无法读取）
+    image: pgvector/pgvector:pg17
     environment:
       POSTGRES_USER: ${DB_USER:-root}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-Dd123456}
@@ -87,6 +88,7 @@ services:
       EMBED_CLIENT_SECRET: ${EMBED_CLIENT_SECRET:-}
       EMBED_AGENT_ID: ${EMBED_AGENT_ID:-0}
       EMBED_ORIGIN: ${EMBED_ORIGIN:-http://localhost:5173}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-}
       ATTACHMENT_EMBEDDING_PROVIDER: ${ATTACHMENT_EMBEDDING_PROVIDER:-}
       ATTACHMENT_EMBEDDING_MODEL: ${ATTACHMENT_EMBEDDING_MODEL:-}
       ATTACHMENT_EMBEDDING_BASE_URL: ${ATTACHMENT_EMBEDDING_BASE_URL:-}
