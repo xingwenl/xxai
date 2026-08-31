@@ -11,6 +11,12 @@ services:
   worker:
     restart: unless-stopped
 
+  skill-runner:
+    restart: unless-stopped
+
+  wechat-bot-worker:
+    restart: unless-stopped
+
   front:
     ports:
       - "127.0.0.1:5173:80"

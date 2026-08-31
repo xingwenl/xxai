@@ -1,5 +1,8 @@
 # Changelog
 
+## - 2026-08-31
+- 🐛 fix：切换国内镜像源修复容器构建，补全 skill-runner 启动 `🧑‍💻 lixingwen`
+
 ## - 2026-08-30
 - ♻️ refactor：网关事件集中注册并合并对话工具循环 `🧑‍💻 lixingwen`
 - ✨ feat：AI SDK 自定义组件端到端打通，支持模型驱动渲染宿主组件 `🧑‍💻 lixingwen`

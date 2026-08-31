@@ -5,7 +5,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN apt-get update \
+# 国内服务器 pypi.org / deb.debian.org 常被 DNS 污染，统一换国内镜像，避免构建失败
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g; s|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' \
+        /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list 2>/dev/null || true; \
+    apt-get update \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir fastapi==0.139.2 uvicorn==0.51.0 pydantic==2.13.4 \

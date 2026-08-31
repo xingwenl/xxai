@@ -2,7 +2,11 @@ FROM node:22-alpine AS build
 
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
+# 国内服务器 registry.npmjs.org 不稳定，corepack 与 pnpm 安装统一走 npmmirror
+ENV COREPACK_NPM_REGISTRY=https://registry.npmmirror.com
+RUN corepack enable \
+    && corepack prepare pnpm@10.12.1 --activate \
+    && pnpm config set registry https://registry.npmmirror.com
 
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile

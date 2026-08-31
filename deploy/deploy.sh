@@ -59,10 +59,15 @@ echo "==> 2/5 确保数据卷存在"
 docker volume create backend_postgres_data >/dev/null 2>&1 || true
 
 echo "==> 3/5 构建镜像"
-"${DC[@]}" "${COMPOSE_FILES[@]}" build api worker front
+# skill-runner 为 api 的技能沙箱，必启；wechat-bot-worker 按 WECHAT_BOT_ENABLED 决定
+EXTRA_SERVICES="skill-runner"
+if [[ "$(get_env WECHAT_BOT_ENABLED)" == "true" ]]; then
+  EXTRA_SERVICES="$EXTRA_SERVICES wechat-bot-worker"
+fi
+"${DC[@]}" "${COMPOSE_FILES[@]}" build api worker front $EXTRA_SERVICES
 
-echo "==> 4/5 启动服务（db redis api worker front）"
-"${DC[@]}" "${COMPOSE_FILES[@]}" up -d db redis api worker front
+echo "==> 4/5 启动服务（db redis api worker front $EXTRA_SERVICES）"
+"${DC[@]}" "${COMPOSE_FILES[@]}" up -d db redis api worker front $EXTRA_SERVICES
 
 echo "==> 等待后端就绪（健康检查 /api/v1/system/health）"
 ready=0

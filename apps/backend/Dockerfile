@@ -6,6 +6,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# 国内服务器 pypi.org 常被 DNS 污染导致构建失败，默认走清华镜像，可用 --build-arg PIP_INDEX_URL 覆盖
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
 RUN pip install --no-cache-dir poetry==2.4.1
 
 COPY pyproject.toml poetry.lock ./
