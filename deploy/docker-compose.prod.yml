@@ -2,9 +2,12 @@
 # 作用：
 #   1. api / front 只监听宿主机 127.0.0.1，由宿主机 nginx 反代，不直接暴露公网
 #   2. 核心服务崩溃后自动重启
+# 注意：docker compose 合并多个 -f 时 ports 是拼接而非覆盖，
+#       必须用 !override 让本文件的端口定义替换基础文件，否则 api/front 会同时绑定
+#       0.0.0.0 与 127.0.0.1 两个端口，互相冲突导致容器无法启动。
 services:
   api:
-    ports:
+    ports: !override
       - "127.0.0.1:8000:8000"
     restart: unless-stopped
 
@@ -18,7 +21,7 @@ services:
     restart: unless-stopped
 
   front:
-    ports:
+    ports: !override
       - "127.0.0.1:5173:80"
     restart: unless-stopped
 
