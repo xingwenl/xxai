@@ -28,30 +28,30 @@ services:
       timeout: 3s
       retries: 10
 
-  ollama:
-    profiles: ["local-embedding"]
-    image: ollama/ollama:latest
-    ports:
-      - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
+  # ollama:
+  #   profiles: ["local-embedding"]
+  #   image: ollama/ollama:latest
+  #   ports:
+  #     - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   healthcheck:
+  #     test: ["CMD", "ollama", "list"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 12
 
-  ollama-init:
-    profiles: ["local-embedding"]
-    image: ollama/ollama:latest
-    entrypoint: ["/bin/sh", "-c"]
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
-    command: ["ollama pull \"$${OLLAMA_EMBEDDING_MODEL}\""]
-    depends_on:
-      ollama:
-        condition: service_healthy
+  # ollama-init:
+  #   profiles: ["local-embedding"]
+  #   image: ollama/ollama:latest
+  #   entrypoint: ["/bin/sh", "-c"]
+  #   environment:
+  #     OLLAMA_HOST: http://ollama:11434
+  #     OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+  #   command: ["ollama pull \"$${OLLAMA_EMBEDDING_MODEL}\""]
+  #   depends_on:
+  #     ollama:
+  #       condition: service_healthy
 
   api:
     build:
