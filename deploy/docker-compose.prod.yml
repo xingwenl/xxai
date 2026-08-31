@@ -1,0 +1,23 @@
+# 生产环境 Compose 覆盖文件（与根目录 docker-compose.yml 叠加使用）
+# 作用：
+#   1. api / front 只监听宿主机 127.0.0.1，由宿主机 nginx 反代，不直接暴露公网
+#   2. 核心服务崩溃后自动重启
+services:
+  api:
+    ports:
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped
+
+  worker:
+    restart: unless-stopped
+
+  front:
+    ports:
+      - "127.0.0.1:5173:80"
+    restart: unless-stopped
+
+  db:
+    restart: unless-stopped
+
+  redis:
+    restart: unless-stopped
