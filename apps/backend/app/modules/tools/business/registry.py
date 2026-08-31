@@ -6,6 +6,7 @@ from app.modules.tools.business import http_post  # noqa: F401
 from app.modules.tools.business import image_generate  # noqa: F401
 from app.modules.tools.business import image_read  # noqa: F401
 from app.modules.tools.business import attachment_search  # noqa: F401
+from app.modules.tools.business import knowledge_search  # noqa: F401
 from app.modules.tools.business import custom_component  # noqa: F401
 from app.modules.tools.business import shop_list  # noqa: F401
 from app.modules.tools.business.framework import (

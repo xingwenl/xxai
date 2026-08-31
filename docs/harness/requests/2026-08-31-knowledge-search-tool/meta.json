@@ -1,0 +1,53 @@
+{
+  "id": "2026-08-31-knowledge-search-tool",
+  "title": "知识库检索内置工具 knowledge_search",
+  "scope": "backend",
+  "phase": "verify",
+  "status": "active",
+  "riskLevel": "high",
+  "changeTypes": [
+    "api_contract",
+    "permission",
+    "runtime",
+    "docs"
+  ],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "https://learn.microsoft.com/zh-tw/azure/architecture/ai-ml/guide/rag/rag-agentic",
+      "https://openai.github.io/openai-agents-python/tools/",
+      "https://developers.openai.com/api/docs/guides/tools-file-search",
+      "https://reference.langchain.com/python/langchain-core/tools/retriever/create_retriever_tool",
+      "https://docs.llamaindex.ai/en/v0.10.19/module_guides/deploying/agents/usage_pattern.html"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": [
+    "新增内置工具 knowledge_search，模型可见工具列表（API 契约）变化",
+    "模型可主动检索 Agent 绑定知识库内容，知识库可见性（权限行为）变化",
+    "新增迁移为存量 Agent 启用知识库检索工具"
+  ],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-08-31",
+      "scope": "knowledge_search 工具契约、检索范围与权限边界、存量 Agent 自动启用迁移、错误语义",
+      "note": "用户确认 spec 后授权进入实现"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-08-31",
+  "updatedAt": "2026-08-31",
+  "relatedPaths": [
+    "apps/backend/app/modules/tools/business/knowledge_search.py",
+    "apps/backend/app/modules/tools/business/attachment_search.py",
+    "apps/backend/app/modules/tools/business/registry.py",
+    "apps/backend/migrations/versions/20260831_0032_enable_knowledge_search.py",
+    "apps/backend/tests/builtin_tool/test_knowledge_search.py",
+    "docs/harness/requests/2026-08-31-knowledge-search-tool"
+  ],
+  "notes": "实现完成并通过本地验证：后端全量 451 passed（--import-mode=importlib 规避既有同名收集冲突）、ruff 0 错误、alembic heads=20260831_0032、新文件 black-clean。待服务器环境人工验证：应用迁移、真实知识库检索、真实会话模型不再误用 attachment_search。"
+}
