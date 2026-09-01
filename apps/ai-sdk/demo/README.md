@@ -1,6 +1,6 @@
 # Demo 说明
 
-本目录包含 xxai-agent SDK 的两个演示页面：
+本目录包含 xxai-agent SDK 的演示页面：
 
 ## 如何运行
 
@@ -22,6 +22,7 @@ npm run demo
 
 - UMD 版本：http://localhost:5174/index.html
 - ESM 版本：http://localhost:5174/esm.html
+- 嵌入式模式：http://localhost:5174/embedded.html
 
 ## Demo 说明
 
@@ -32,6 +33,11 @@ npm run demo
 ### esm.html (ESM 版本)
 
 使用 ES Module 格式的包，通过 `import` 语句引入 SDK。适合现代浏览器开发环境。
+
+### embedded.html (嵌入式模式)
+
+演示 `ui.container` 驱动的嵌入式模式：聊天 UI 直接渲染进页面指定容器并填满容器，
+页面提供容器高度切换与主题切换控制，右下角同时挂一个 floating 实例用于对比两种模式。
 
 ## 功能演示
 

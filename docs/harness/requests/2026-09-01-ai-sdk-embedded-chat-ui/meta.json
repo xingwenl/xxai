@@ -1,0 +1,40 @@
+{
+  "id": "2026-09-01-ai-sdk-embedded-chat-ui",
+  "title": "ai-sdk 支持将聊天 UI 挂载到指定 DOM 元素（embedded 模式）",
+  "scope": "ai-sdk",
+  "phase": "acceptance",
+  "status": "done",
+  "riskLevel": "low",
+  "changeTypes": [
+    "feat",
+    "docs"
+  ],
+  "research": {
+    "required": true,
+    "status": "done",
+    "sources": [
+      "https://alhena.gitbook.io/docs/features/chat-widget/inline-embed",
+      "https://github.com/useago/ago-sdk/blob/912f1b7d8c93c243ca3760f9890dc7cd3a795283/docs/general/widget.md",
+      "https://www.npmjs.com/package/@opiniom/web"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": false,
+  "approvalGranted": false,
+  "approvalReasons": [
+    "不涉及架构边界、数据模型、API 契约、鉴权权限变化",
+    "方案已由用户明确确认：传 container 填满容器页面级聊天，不传保持现状，样式隔离沿用现有方案"
+  ],
+  "approvalRecords": [],
+  "owner": "ai",
+  "createdAt": "2026-09-01",
+  "updatedAt": "2026-09-01",
+  "relatedPaths": [
+    "apps/ai-sdk/src/ui/components/ChatWidget.vue",
+    "apps/ai-sdk/src/ui/index.ts",
+    "apps/ai-sdk/src/ui/styles/index.css",
+    "apps/ai-sdk/src/core/types.ts",
+    "apps/ai-sdk/README.md"
+  ],
+  "notes": "上一轮『单文件 HTML 打包』已全部回退，本次只实现 embedded 模式，打包需求待用户再次提出。"
+}

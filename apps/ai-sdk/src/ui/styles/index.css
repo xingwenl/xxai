@@ -94,6 +94,17 @@
   animation: xxai-slide-in 0.3s ease;
 }
 
+/* 嵌入式模式：填满宿主容器，去掉悬浮外观（圆角、阴影、入场动画）。 */
+.xxai-chat-window--embedded {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  box-shadow: none;
+  animation: none;
+}
+
 .xxai-chat-window-drag {
   cursor: grab;
   touch-action: none;
@@ -1075,7 +1086,7 @@
 }
 
 @media (max-width: 520px) {
-  .xxai-chat-window {
+  .xxai-chat-window:not(.xxai-chat-window--embedded) {
     right: 12px;
     bottom: 12px;
     left: 12px;

@@ -292,6 +292,31 @@ agent.on('message', (message) => renderMessage(message))
 agent.on('message_updating', (message) => renderStreamingMessage(message))
 ```
 
+### 嵌入式模式（Embedded）
+
+嵌入式模式把聊天 UI 直接渲染进宿主页面指定的容器，聊天窗口默认展开并填满容器，适合侧栏、内容区等固定区域。传入 `container` 即进入嵌入式模式；不传则保持上面的悬浮窗行为，两种模式互不影响。
+
+```html
+<div id="chat-root" style="height: 600px"></div>
+```
+
+```typescript
+const agent = createAgentClient({
+  // endpoint、platformId、agentId、getToken 同上
+  ui: {
+    mode: 'embedded',
+    container: document.getElementById('chat-root')!,
+  },
+})
+```
+
+嵌入式模式的约定：
+
+- 容器必须有确定高度（如 `height: 600px`、`height: 100%` 或 flex/grid 拉伸后的固定高度），否则窗口高度会塌陷；宽度默认铺满容器。
+- 不渲染悬浮按钮、窗口拖拽与缩放手柄，头部也没有返回/关闭按钮，`open()` / `close()` / `toggle()` 不会产生开关效果。
+- `position` 与 `window`（拖拽/缩放尺寸配置）在嵌入式模式下不生效。
+- 样式隔离沿用悬浮模式的方案（`.xxai-reset` + `--xxai-*` CSS 变量），`colors` 配置同样生效。
+
 ## 8. 注册工具
 
 工具函数在浏览器执行，后端只负责转发调用。服务端 Embed Client 仍必须配置工具白名单：

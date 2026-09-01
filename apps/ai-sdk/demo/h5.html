@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>xxai-agent 嵌入式（Embedded）模式测试页</title>
+    <link rel="stylesheet" href="../dist/style.css" />
+    <style>
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        margin: 0;
+        padding: 0;
+      }
+      .container {
+        height: 100vh;
+        width: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container" id="chat-root"></div>
+
+    <script type="module">
+      import { createAgentClient } from '../dist/xxai-agent.es.js';
+
+      // Mock 配置：仅用于 UI 演示，真实接入时 getToken 需走接入项目后端代理。
+      const base = {
+        endpoint: 'ws://127.0.0.1:8000/api/v1/ws/agents/1',
+        platformId: '1',
+        agentId: '1',
+        baseUrl: 'http://127.0.0.1:8000',
+        systemPrompt: ``,
+        getToken: async () => {
+          console.log('getToken called');
+          const params = new URLSearchParams({
+            external_user_id: '2',
+            origin: window.location.origin,
+          });
+          const response = await fetch('http://localhost:8000/api/agent-token?' + params.toString());
+          const result = await response.json();
+          return result.data.access_token;
+        },
+      };
+
+      const chatRoot = document.getElementById('chat-root');
+
+      let embeddedAgent = null;
+
+      function mountEmbedded(theme) {
+        if (embeddedAgent) {
+          embeddedAgent.destroy();
+          embeddedAgent = null;
+        }
+        embeddedAgent = createAgentClient({
+          ...base,
+          ui: {
+            mode: 'embedded',
+            container: chatRoot,
+            theme,
+          },
+        });
+      }
+
+      mountEmbedded('auto');
+
+      // 右下角悬浮窗对比实例：不传 container，保持原悬浮行为。
+    //   createAgentClient({
+    //     ...base,
+    //     ui: { mode: 'floating', position: 'right' },
+    //   });
+
+      //   // 容器高度切换
+      //   document.querySelectorAll('[data-height]').forEach((btn) => {
+      //     btn.addEventListener('click', () => {
+      //       document.querySelectorAll('[data-height]').forEach((b) => b.classList.remove('active'))
+      //       btn.classList.add('active')
+      //       chatRoot.style.height = btn.dataset.height + 'px'
+      //     })
+      //   })
+
+      //   // 主题切换（重建 embedded 实例）
+      //   document.querySelectorAll('[data-theme]').forEach((btn) => {
+      //     btn.addEventListener('click', () => {
+      //       document.querySelectorAll('[data-theme]').forEach((b) => b.classList.remove('active'))
+      //       btn.classList.add('active')
+      //       mountEmbedded(btn.dataset.theme)
+      //     })
+      //   })
+
+    </script>
+  </body>
+</html>

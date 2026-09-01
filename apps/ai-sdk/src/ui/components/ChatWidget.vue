@@ -1,9 +1,18 @@
 <template>
   <div class="xxai-reset">
-    <FloatingButton v-if="!isOpen" :position="position" @click="open" />
-    <div v-if="isOpen" class="xxai-chat-window" :class="{ dark: theme === 'dark' }" :style="windowStyle">
-      <div class="xxai-chat-header xxai-chat-window-drag" @pointerdown="startDrag">
-        <button class="xxai-header-icon-btn" type="button" aria-label="返回" @click="close">
+    <FloatingButton v-if="!embedded && !isOpen" :position="position" @click="open" />
+    <div
+      v-if="isOpen"
+      class="xxai-chat-window"
+      :class="{ dark: theme === 'dark', 'xxai-chat-window--embedded': embedded }"
+      :style="windowStyle"
+    >
+      <div
+        class="xxai-chat-header"
+        :class="{ 'xxai-chat-window-drag': !embedded }"
+        @pointerdown="startDrag"
+      >
+        <button v-if="!embedded" class="xxai-header-icon-btn" type="button" aria-label="返回" @click="close">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="m15 18-6-6 6-6" />
           </svg>
@@ -35,7 +44,7 @@
             <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14ZM10 11v6M14 11v6" />
           </svg>
         </button>
-        <button class="xxai-header-icon-btn" type="button" aria-label="关闭" @click="close">
+        <button v-if="!embedded" class="xxai-header-icon-btn" type="button" aria-label="关闭" @click="close">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 6 6 18M6 6l12 12" />
           </svg>
@@ -63,6 +72,7 @@
       />
       <ChatInput ref="chatInputRef" :is-sending="isSending" @send="handleSend" @stop="handleStop" @upload-attachment="handleUploadAttachment" />
       <div
+        v-if="!embedded"
         class="xxai-window-resize-handle"
         aria-hidden="true"
         @pointerdown="startResize"
@@ -112,12 +122,17 @@ interface Props {
   title?: string
   colors?: UIColors
   window?: UIWindowBounds
+  /**
+   * 嵌入式模式：聊天窗口默认展开并填满容器，不渲染悬浮按钮、拖拽与缩放交互。
+   */
+  embedded?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   position: 'right',
   theme: 'auto',
-  title: 'AI Assistant'
+  title: 'AI Assistant',
+  embedded: false
 })
 
 const isOpen = ref(false)
@@ -153,11 +168,15 @@ const layoutContext = computed(() => ({
   bounds: resolveWindowBounds(props.window, viewport.value.width, viewport.value.height),
 }))
 const windowStyle = computed(() => ({
-  ...colorStyle.value,
-  left: `${windowRect.value.x}px`,
-  top: `${windowRect.value.y}px`,
-  width: `${windowRect.value.width}px`,
-  height: `${windowRect.value.height}px`,
+  ...(props.embedded
+    ? colorStyle.value
+    : {
+        ...colorStyle.value,
+        left: `${windowRect.value.x}px`,
+        top: `${windowRect.value.y}px`,
+        width: `${windowRect.value.width}px`,
+        height: `${windowRect.value.height}px`,
+      }),
 }))
 const windowStorageKey = computed(() => `${agent.storageKey}:window`)
 
@@ -177,10 +196,12 @@ const agentName = computed(() => agent.agentInfo?.name || props.title)
 const agentDescription = computed(() => agent.agentInfo?.description || undefined)
 
 function open() {
+  if (props.embedded) return
   isOpen.value = true
 }
 
 function close() {
+  if (props.embedded) return
   isOpen.value = false
 }
 
@@ -202,6 +223,7 @@ function onClearClick() {
 let dragState: { startX: number; startY: number; rect: WindowRect } | null = null
 
 function startDrag(event: PointerEvent) {
+  if (props.embedded) return
   if (event.button !== 0) return
   if ((event.target as HTMLElement).closest('button')) return
   dragState = { startX: event.clientX, startY: event.clientY, rect: windowRect.value }
@@ -407,9 +429,12 @@ function handleQuestionResolved(value: { questionId: string }) {
 }
 
 onMounted(() => {
-  viewport.value = { width: window.innerWidth, height: window.innerHeight }
-  windowRect.value = restoreWindowRect()
-  window.addEventListener('resize', handleViewportResize)
+  isOpen.value = props.embedded
+  if (!props.embedded) {
+    viewport.value = { width: window.innerWidth, height: window.innerHeight }
+    windowRect.value = restoreWindowRect()
+    window.addEventListener('resize', handleViewportResize)
+  }
 
   messages.value = agent.getMessages()
   connectionState.value = agent.connectionState
@@ -426,6 +451,7 @@ onMounted(() => {
   agent.on('ui_open', open)
   agent.on('ui_close', close)
   agent.on('ui_toggle', () => {
+    if (props.embedded) return
     isOpen.value = !isOpen.value
   })
 
@@ -435,7 +461,9 @@ onMounted(() => {
 onUnmounted(() => {
   if (clearTimer) clearTimeout(clearTimer)
   clearTimer = null
-  window.removeEventListener('resize', handleViewportResize)
+  if (!props.embedded) {
+    window.removeEventListener('resize', handleViewportResize)
+  }
   onDragEnd()
   onResizeEnd()
 

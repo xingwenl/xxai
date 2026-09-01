@@ -169,11 +169,16 @@ export interface UIOptions {
   position?: 'left' | 'right'
   locale?: string
   theme?: 'light' | 'dark' | 'auto'
+  /**
+   * 聊天 UI 挂载容器。传入时进入嵌入式模式：聊天窗口默认展开并填满该容器
+   * （容器需有确定高度），不渲染悬浮按钮与拖拽/缩放手柄，`open/close/toggle`
+   * 不再控制窗口开关；不传时保持悬浮窗行为。
+   */
   container?: HTMLElement
   colors?: UIColors
   /**
    * 悬浮窗拖拽与缩放配置。默认宽高 430×680，最小 320×480，
-   * 最大不超过视口减去四周留白；所有值均为 CSS 像素。
+   * 最大不超过视口减去四周留白；所有值均为 CSS 像素。嵌入式模式下不生效。
    */
   window?: UIWindowBounds
 }

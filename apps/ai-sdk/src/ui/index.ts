@@ -15,9 +15,17 @@ export function createChatUI(agent: AgentClient, options?: {
   app: App
   destroy: () => void
 } {
+  const embedded = Boolean(options?.container)
   const container = options?.container || document.body
   const mountPoint = document.createElement('div')
   container.appendChild(mountPoint)
+
+  // 嵌入式模式：挂载点铺满容器，让聊天窗口以绝对定位填满容器。
+  if (embedded) {
+    mountPoint.style.position = 'relative'
+    mountPoint.style.width = '100%'
+    mountPoint.style.height = '100%'
+  }
 
   const app = createApp(ChatWidget, {
     agent,
@@ -25,7 +33,8 @@ export function createChatUI(agent: AgentClient, options?: {
     theme: options?.theme || 'auto',
     title: options?.title || 'AI Assistant',
     colors: options?.colors,
-    window: options?.window
+    window: options?.window,
+    embedded
   })
 
   app.mount(mountPoint)
