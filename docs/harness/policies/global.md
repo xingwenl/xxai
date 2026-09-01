@@ -127,7 +127,7 @@ status: active -> done
 
 ## Skills 调用规范
 
-当执行 `/new`、`/modify` 或 `/fix` 时，AI 必须先做复杂度评估，再决定技能调用策略。
+当执行 `/new`、`/modify` 或 `/fix` 时，AI 必须先做复杂度评估，再决定技能调用策略。本仓库使用的技能来自 mattpocock/skills，安装在 `~/.agents/skills/`；引用某个技能时，读取并遵守其 `SKILL.md`，若技能未安装则按对应完成判据内联执行，不阻塞流程。
 
 ### 策略 A：轻量级变更
 
@@ -141,11 +141,11 @@ status: active -> done
 
 执行动作：
 
-- 跳过 `grill-with-docs`
+- 不调用外部技能
 - 直接读取旧 `spec.md`
 - 先写 `变更记录`
 - 同步补最小必要文档
-- 直接进入 `writing-plans`
+- 仅增量更新 `plan.md` / `verify.md` 必要段落
 
 ### 策略 B：复杂 / 架构级变更
 
@@ -157,18 +157,44 @@ status: active -> done
 - 鉴权逻辑、权限规则、API 契约、架构边界重构
 - AI 无法明确判断复杂度或影响面
 
-执行动作：
+执行动作（按序完成，满足完成判据才进入下一步）：
 
-- 强制激活 `grill-with-docs`
-- 先梳理上下文
-- 必要时向用户提问澄清
-- 确认方案后再输出或更新 `spec.md`
-- 再进入 `writing-plans`
+1. 调研：调用 `research` 技能收集业界依据，结论写入 `research.md`。
+   完成判据：`research.md` 包含来源、方案比较和最终决策。
+2. 梳理上下文：读取相关 request 的 research/spec/plan、专项规范（backend.md / frontend.md）与相关代码目录。
+   完成判据：能说清现状、约束与影响面。
+3. 方案拷问（按 `meta.json` 的 `riskLevel` 分级）：
+   - `high` 或命中审批四条件：读取并遵守 `grill-with-docs`（路由到 `grilling` 拷问方案、`domain-modeling` 沉淀 ADR 与术语），完成判据：方案被逐条拷问，被否决的选项与理由已记录
+   - `medium`：`grilling` 可选调用，以第 6 步用户确认为主
+   - `low`：不调用拷问技能
+4. 领域文档克制：ADR 只在跨 request、影响后续开发的架构决策时写入 `docs/adr/`（首次需要时创建）；`CONTEXT.md` 术语表只在出现反复使用且易混淆的领域术语时创建；平时的方案比较与不选原因写入 `spec.md` 即可，不为每个 request 新建 ADR。涉及模块或接口设计时，结合 `codebase-design` 的深模块词汇。
+5. 设计不确定时：调用 `prototype` 技能先做一次性原型，验证关键设计问题。
+6. 未决点澄清：必要时向用户提问，确认方案方向。
+7. 输出或更新 `spec.md`：记录方案比较与不选原因。
+8. 编写 `plan.md`：按 `templates/plan-template.md` 直接写入当前 request 工作区（`docs/harness/requests/<request-id>/plan.md`），不调用 `writing-plans`，不写入 `docs/superpowers/plans/`。
+
+### 实现与验证阶段（可选技能）
+
+- `implement`：按 spec 实现，建议在明确的接缝处使用 `/tdd`
+- `diagnosing-bugs`：`/fix` 遇到难以定位的问题时先诊断再修改
+- `code-review`：`verify` 阶段对本次改动做规范与 spec 双轴评审，结论不能替代真实验证命令的记录
+
+### 输出格式与落点规则
+
+技能提供执行过程，不决定正式文档的格式与落点：
+
+1. 六份正式产出（`research.md` / `spec.md` / `plan.md` / `verify.md` / `acceptance.md` / `meta.json`）以 `docs/harness/templates/` 为模板，写入 `docs/harness/requests/<request-id>/`；技能默认输出路径或格式与 Harness 冲突时，以 Harness 为准并显式覆盖（如 `research` 技能的结果写入 `research.md`，`plan.md` 一律按模板写，不采用技能的默认 plan 格式）。
+2. 跨 request 的架构决策才写 `docs/adr/`（首次需要时创建）；术语表写根目录 `CONTEXT.md`（按需创建）；交接文档写 `docs/handoff/`。
+3. 一次性产出不进 request 工作区：原型按 `prototype` 技能默认用临时分支或临时目录，诊断笔记与评审草稿不落正式文档，结论提炼后写入 `verify.md` / `acceptance.md`。
+4. AI 不得自创目录承载 Harness 正式产出（如 `docs/superpowers/`）；确需新目录时先向用户确认。
+5. 正式文档使用中文；代码、命令、路径、字段名可保留英文。
+6. 调用技能前先确认其产出物：存在默认落点时先检查冲突，冲突则先覆盖再执行。
 
 默认原则：
 
 - 能明确归入轻量模式时，优先策略 A
 - 只要存在明显的不确定性或高风险信号，升级为策略 B
+- 分级依据创建 request 时写入 `meta.json` 的 `riskLevel`（low / medium / high）
 
 ## Research 调研规范
 

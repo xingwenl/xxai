@@ -21,6 +21,7 @@ AI 默认可以连续推进，但若任务涉及以下变更，在进入实现�
 - 核心功能缺少关键业界资料，无法可靠完成方案比较
 
 AI 生成的正式文档必须使用中文。
+不产生仓库变更的问答、代码解释和讨论，不创建 request。
 
 ## 代码编写约定
 
@@ -42,38 +43,29 @@ AI 识别到以下指令时，先执行对应的最小动作；完整语义、�
 
 ## Skills 调用分流
 
-AI 执行 `/new`、`/modify` 或 `/fix` 时，必须先读取并遵守 [`docs/harness/policies/global.md`](docs/harness/policies/global.md) 中的 Skill 调用策略。
-
-最小强制动作：
-
-- 先判断任务是轻量变更还是复杂/架构级变更
-- 复杂度不明确或存在高风险信号时，采用复杂策略
-- 轻量策略可跳过 `grill-with-docs`，但仍需保留 Harness 变更记录和最小验证
-- 复杂策略必须先完成上下文梳理和方案确认，再进入实现计划
+AI 执行 `/new`、`/modify` 或 `/fix` 时，必须先读取并遵守 [`docs/harness/policies/global.md`](docs/harness/policies/global.md) 中的 Skill 调用策略：复杂度不明确或存在高风险信号时采用复杂策略（先完成上下文梳理和方案确认），轻量策略也必须保留变更记录和最小验证。
 
 ## 增量与轻量变更
 
-`/modify`、`/fix` 的 request 复用、`spec.md` 变更记录、轻量模式和升级条件，统一遵守 [`docs/harness/policies/global.md`](docs/harness/policies/global.md)。
+`/modify`、`/fix` 的 request 复用、变更记录、轻量模式和升级条件，统一遵守 [`docs/harness/policies/global.md`](docs/harness/policies/global.md)。任何增量都必须留下变更记录和最小验证证据；触发架构、数据模型、API 或权限审批条件时，先确认再实现。
 
-最小强制动作：
+## 专项规范
 
-- 先判断是否仍属于原 request 闭环
-- 在实现前确认没有触发架构、数据模型、API 或权限审批条件
-- 即使采用轻量模式，也必须留下变更记录和最小验证证据
+- 涉及 `apps/backend/`：必读 [docs/harness/backend.md](docs/harness/backend.md)
+- 涉及 `apps/front/`：必读 [docs/harness/frontend.md](docs/harness/frontend.md)
+- 仓库级技能（`.codex/skills/`）：Codex 会自动索引该目录；任务匹配其描述时，先读取并遵守对应 `SKILL.md`（如 `.codex/skills/backend-basic-crud-table/`、`.codex/skills/frontend-architecture.md`、`.codex/skills/frontend-styling.md`）
 
 ## Git 管理约定
 
-本仓库统一按**单仓库 monorepo** 管理：
+本仓库统一按**单仓库 monorepo** 管理（本地目录 `ai-base`，GitHub remote `xingwenl/xxai`）：
 
-- 根仓库 `ai-base` 是唯一 Git 仓库
-- `apps/front` 与 `apps/backend` 都是根仓库下的普通目录
-
-提交与分支规则：
-
-- 默认在根仓库创建和切换分支
+- 根仓库是唯一 Git 仓库，`apps/front`、`apps/backend`、`apps/ai-sdk` 等都是根仓库下的普通目录
+- 支持 worktree 并行开发，分支统一使用 `codex/<topic>` 前缀
 - 前端、后端、文档改动统一在根仓库提交
 - 一个任务尽量形成可独立回滚的单次提交或一组连续提交
 - 不要把无关任务的改动混入同一次提交
+
+提交信息使用 Conventional Commits 格式（`feat:`/`fix:`/`refactor:`/`docs:` 等），主题用中文概括；涉及文档改动时同步更新 `docs/CHANGELOG.md`。
 
 推荐提交流程：
 

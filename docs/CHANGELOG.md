@@ -4,6 +4,7 @@
 - 📝 docs：补充一个服务接入多个 Agent 的接入手册 `🧑‍💻 lixingwen`
 - 📝 docs：轻量策略技能引用改为 grill-with-docs `🧑‍💻 lixingwen`
 - ♻️ refactor：EmbedRepository 继承 BaseRepository `🧑‍💻 lixingwen`
+- ✨ feat：优化技能调用策略并新增 request 审计工具 `🧑‍💻 lixingwen`
 
 ## - 2026-08-31
 - 🐛 fix：切换国内镜像源修复容器构建，补全 skill-runner 启动 `🧑‍💻 lixingwen`

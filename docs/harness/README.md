@@ -11,8 +11,8 @@
 ## 适用范围
 
 - 默认适用于整个仓库
-- 当前重点覆盖 `apps/backend/` 的 FastAPI 后端开发
-- 目录与规则保留 monorepo 扩展能力，未来前端或其他服务可复用同一套 Harness
+- 当前重点覆盖 `apps/backend/` 的 FastAPI 后端开发与 `apps/front/` 前端开发（专项规范见 `backend.md` 与 `frontend.md`）
+- 目录与规则保留 monorepo 扩展能力，未来其他服务可复用同一套 Harness
 
 ## 规则读取顺序
 
@@ -33,6 +33,7 @@
 docs/harness/
   README.md
   backend.md
+  frontend.md
   policies/
     global.md
   templates/
@@ -192,6 +193,7 @@ docs/harness/
 2. 执行与风险匹配的测试、静态检查、启动检查或人工核对
 3. 在 `verify.md` 记录命令、预期结果、实际结果、失败项和例外
 4. 不得用“已测试通过”替代真实验证证据
+5. 运行 `tools/harness/audit.py`，确认无新增 ERROR 后再收尾
 
 ## `/accept` 工作方式
 
@@ -199,6 +201,7 @@ docs/harness/
 2. 汇总 `verify.md` 中已经完成的验证
 3. 记录剩余风险、人工回归或联调要求
 4. 明确当前是否达到验收标准，以及是否可以合并或归档
+5. 运行 `tools/harness/audit.py`，并同步 `meta.json` 的 phase / status（`done` 或 `blocked`）
 
 ## 增量与轻量规则
 
@@ -210,6 +213,12 @@ docs/harness/
 
 - [backend.md](backend.md)
 
+## 前端任务要求
+
+涉及 `apps/front/` 的需求，除遵守本文件外，还必须阅读并遵守：
+
+- [frontend.md](frontend.md)
+
 ## 推荐命令
 
 当前仓库尚未提供完整自动化脚本前，推荐先使用以下人工检查方式：
@@ -220,8 +229,9 @@ docs/harness/
 - `sed -n '1,220p' docs/harness/requests/<request-id>/plan.md`
 - `sed -n '1,220p' docs/harness/requests/<request-id>/verify.md`
 - `sed -n '1,220p' docs/harness/requests/<request-id>/acceptance.md`
+- `python3 tools/harness/audit.py`
 
-如果未来补充 `tools/harness/`，应继续保持 `meta.json` 为唯一结构化状态源。
+`tools/harness/audit.py` 提供 request 一致性检查（文件完整性、meta 字段枚举、阶段流转、验收积压提示），提交或验收前运行；任何情况下 `meta.json` 保持为唯一结构化状态源。
 
 ## 审批记录示例
 
