@@ -141,7 +141,7 @@ status: active -> done
 
 执行动作：
 
-- 跳过 `brainstorming`
+- 跳过 `grill-with-docs`
 - 直接读取旧 `spec.md`
 - 先写 `变更记录`
 - 同步补最小必要文档
@@ -159,7 +159,7 @@ status: active -> done
 
 执行动作：
 
-- 强制激活 `brainstorming`
+- 强制激活 `grill-with-docs`
 - 先梳理上下文
 - 必要时向用户提问澄清
 - 确认方案后再输出或更新 `spec.md`
