@@ -86,6 +86,14 @@
 
 ## 变更记录
 
+### 2026-09-01 第 4 次变更
+
+- 变更原因：接入方询问“`agent_id` 固定在 `.env` 是否意味着一个服务只能用一个 Agent”，需要澄清 Embed Client 的多 Agent 绑定能力。
+- 变更内容：`docs/runbooks/agent-sdk-usage.md` 新增「一个服务如何接入多个 Agent」章节，覆盖模式 A（单 Embed Client + 多 Agent 按场景路由）和模式 B（多 Embed Client 按服务/域名隔离）；第三节 token 代理示例补充指向多 Agent 章节的说明。
+- 影响章节：范围、验收标准。
+- 是否触发人工确认：否，仅文档补充，不改变运行时行为、API 契约或鉴权语义。
+- 关联计划更新：本次为文档补充，沿用已完成的 Embed token 与 Agent 绑定设计。
+
 ### 2026-08-10 第 3 次变更
 
 - 变更原因：将 SDK 使用方法和生产接入方法集中到 `apps/ai-sdk/README.md`，降低第三方接入时在多个文档间跳转的成本。

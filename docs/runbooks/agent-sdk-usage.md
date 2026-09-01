@@ -59,6 +59,8 @@ async def create_agent_session(current_user=Depends(get_current_user)):
     return {"token": result["data"]["access_token"]}
 ```
 
+上面的示例使用固定的默认 Agent（`settings.ai_agent_id`）；同一服务需要接入多个 Agent 时，见第八节。
+
 服务端必须校验：
 
 - 当前用户已经登录，或匿名会话由服务端创建并持有；
@@ -233,7 +235,95 @@ npm run build
 npm run demo
 ```
 
-## 八、安全检查清单
+## 八、一个服务如何接入多个 Agent
+
+`EMBED_AGENT_ID`（示例中的 `settings.ai_agent_id`）只是「默认 Agent」配置，不表示一个服务只能用一个 Agent。Embed Client 是信任边界，不是单 Agent 绑定：一个 Embed Client 可以绑定多个 Agent，token 接口按请求体中的 `agent_id` 签发，只要该 Agent 已绑定到当前 Client 就会被允许。
+
+### 模式 A：单 Embed Client + 多 Agent（同一服务内按场景路由）
+
+适合同一个接入方服务、同一个域名下需要多个 Agent 的场景，例如按租户、按业务页面、按入口渠道切换不同 Agent。
+
+服务端 token 代理按业务上下文选择 `agent_id`，其余配置不变：
+
+```python
+# 示例：按业务入口选择 Agent，映射表放在服务端配置，浏览器不能直接覆盖。
+AGENT_BY_ENTRY = {
+    "after-sale": 11,
+    "consultant": 12,
+}
+
+@router.post("/api/agent-session")
+async def create_agent_session(entry: str = "default", current_user=Depends(get_current_user)):
+    agent_id = AGENT_BY_ENTRY.get(entry, settings.ai_agent_default_id)
+    payload = {
+        "client_id": settings.ai_agent_client_id,
+        "client_secret": settings.ai_agent_client_secret,
+        "agent_id": agent_id,
+        "external_user_id": str(current_user.id),
+        "display_name": current_user.name,
+        "origin": "https://shop.example.com",
+        "host_tool_names": ["open_order_page"],
+    }
+    async with httpx.AsyncClient(base_url=settings.ai_base_url) as client:
+        response = await client.post("/api/v1/embed/tokens", json=payload)
+        response.raise_for_status()
+        result = response.json()
+    return {"token": result["data"]["access_token"]}
+```
+
+前端每个 Agent 一个 SDK 实例，`endpoint` 与 `agentId` 一一对应：
+
+```typescript
+const afterSaleAgent = createAgentClient({
+  endpoint: 'wss://ai.example.com/api/v1/ws/agents/11',
+  platformId: 'platform_123',
+  agentId: '11',
+  getToken: async () => {
+    const response = await fetch('/api/agent-session?entry=after-sale', {
+      method: 'POST',
+      credentials: 'include'
+    })
+    return (await response.json()).token
+  },
+  ui: { mode: 'headless' }
+})
+
+const consultantAgent = createAgentClient({
+  endpoint: 'wss://ai.example.com/api/v1/ws/agents/12',
+  platformId: 'platform_123',
+  agentId: '12',
+  getToken: async () => {
+    const response = await fetch('/api/agent-session?entry=consultant', {
+      method: 'POST',
+      credentials: 'include'
+    })
+    return (await response.json()).token
+  },
+  ui: { mode: 'floating' }
+})
+```
+
+要点：
+
+- `agent_id` 的选择逻辑必须在服务端（路由、租户、页面配置），token 代理不接受浏览器直接传入 `agent_id` 覆盖。
+- 模式 A 下多个 Agent 共享同一个 Embed Client 的 origin、工具白名单、token TTL 和配额策略；需要隔离时改用模式 B。
+- SDK 按 `platformId + agentId + user.id` 隔离本地存储（消息历史等），同一页面可以同时运行多个 Agent 实例，互不串扰。
+
+### 模式 B：多 Embed Client（按服务或域名隔离）
+
+适合不同业务系统、不同域名，或需要不同工具白名单、不同配额、不同管理员的场景：每个服务创建自己的 Embed Client，并绑定各自的 Agent。
+
+- 每个 Embed Client 独立配置 `allowed_origins`、工具白名单、token TTL 和限流配额。
+- 每个服务各自持有 `client_id` / `client_secret`，互不共用。
+- 前端接入方式不变，仍然按 Agent 实例化 SDK，`endpoint` 与 `agentId` 对应；Agent 绑定到哪个 Client 由平台管理端配置。
+
+### 注意事项
+
+- token 与 Agent 强绑定：JWT 内含 `agent_id`，WebSocket 路径 `/ws/agents/{agent_id}` 必须与 token 一致，不能用 A Agent 的 token 连接 B Agent 的 endpoint。
+- 「允许临时页面工具」等开关是 Embed Client 级别配置，模式 A 下多个 Agent 共用同一个开关。
+- 无论哪种模式，`EMBED_AGENT_ID` 都只作为本地联调便捷接口的默认值；生产接入的多 Agent 选择逻辑全部在服务端 token 代理中实现。
+
+## 九、安全检查清单
 
 - 浏览器网络请求中没有 `client_secret`。
 - WebSocket URL 中没有 token。

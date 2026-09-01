@@ -2,6 +2,13 @@
 
 ## 执行命令
 
+### 2026-09-01 文档增量验证
+
+- `git diff --check` - 验证 runbook 和 Harness 文档没有空白错误。
+- `rg -n "多 Agent|agent_id|embed/tokens" docs/runbooks/agent-sdk-usage.md` - 验证多 Agent 章节、token 请求字段和交叉引用存在。
+- `rg -n '^```' docs/runbooks/agent-sdk-usage.md | wc -l` - 验证 Markdown 代码围栏数量为偶数。
+- 人工核对新增章节与后端实现一致：`issue_embed_token` 按请求体 `agent_id` 校验 Client 绑定（`is_agent_allowed`），JWT 与 WebSocket 路径 `/ws/agents/{agent_id}` 强绑定。
+
 ### 2026-08-10 文档增量验证
 
 - `git diff --check` - 验证 README 和 Harness 文档没有空白错误。
@@ -29,6 +36,12 @@
 - 运行 `npm run dev` 能够正常启动 Demo 页面
 
 ## 实际结果
+
+### 2026-09-01 文档增量结果
+
+- ✅ runbook 新增「一个服务如何接入多个 Agent」，覆盖模式 A（单 Client 多 Agent 路由）和模式 B（多 Client 隔离）。
+- ✅ 示例中的服务端 `agent_id` 选择逻辑、SDK 多实例用法与后端实现一致。
+- ✅ `git diff --check` 通过，代码围栏成对。
 
 ### 2026-08-10 文档增量结果
 
