@@ -199,3 +199,141 @@ def test_usage_repository_uses_inclusive_end_date_and_returns_empty_summary():
         await engine.dispose()
 
     asyncio.run(run())
+
+
+def test_session_summary_aggregates_per_conversation():
+    async def run():
+        engine, session_factory = await _make_session()
+        async with session_factory() as session:
+            platform = Platform(name="Acme", code="acme")
+            other_platform = Platform(name="Other", code="other")
+            session.add_all([platform, other_platform])
+            await session.flush()
+            agent = Agent(platform_id=platform.id, name="客服", slug="support")
+            other_agent = Agent(
+                platform_id=other_platform.id, name="Other", slug="other"
+            )
+            session.add_all([agent, other_agent])
+            await session.flush()
+            end_user = PlatformEndUser(
+                platform_id=platform.id, external_user_id="external-1"
+            )
+            other_end_user = PlatformEndUser(
+                platform_id=other_platform.id, external_user_id="external-2"
+            )
+            session.add_all([end_user, other_end_user])
+            await session.flush()
+            conversation = Conversation(
+                platform_id=platform.id,
+                agent_id=agent.id,
+                platform_end_user_id=end_user.id,
+                title="会话A",
+            )
+            other_conversation = Conversation(
+                platform_id=platform.id,
+                agent_id=agent.id,
+                platform_end_user_id=end_user.id,
+                title="会话B",
+            )
+            session.add_all([conversation, other_conversation])
+            await session.flush()
+
+            created_at = datetime(2026, 8, 1, 12, tzinfo=UTC)
+            session.add_all(
+                [
+                    _usage(
+                        platform_id=platform.id,
+                        agent_id=agent.id,
+                        conversation_id=conversation.id,
+                        created_at=created_at,
+                        client_id=None,
+                        platform_end_user_id=None,
+                        total_tokens=10,
+                    ),
+                    _usage(
+                        platform_id=platform.id,
+                        agent_id=agent.id,
+                        conversation_id=conversation.id,
+                        created_at=created_at,
+                        client_id=None,
+                        platform_end_user_id=None,
+                        total_tokens=20,
+                    ),
+                    # 同一 Agent 的另一个会话，不应计入会话A汇总
+                    _usage(
+                        platform_id=platform.id,
+                        agent_id=agent.id,
+                        conversation_id=other_conversation.id,
+                        created_at=created_at,
+                        client_id=None,
+                        platform_end_user_id=end_user.id,
+                        total_tokens=50,
+                    ),
+                    # 另一个平台的同一会话 ID，不应跨平台串数据
+                    _usage(
+                        platform_id=other_platform.id,
+                        agent_id=other_agent.id,
+                        conversation_id=conversation.id,
+                        created_at=created_at,
+                        client_id=None,
+                        platform_end_user_id=other_end_user.id,
+                        total_tokens=99,
+                    ),
+                ]
+            )
+            await session.commit()
+
+            repository = ModelUsageRepository(session)
+            summary = await repository.session_summary(
+                platform_id=platform.id,
+                agent_id=agent.id,
+                conversation_id=conversation.id,
+            )
+
+            assert summary.record_count == 2
+            assert summary.prompt_tokens == 20
+            assert summary.completion_tokens == 10
+            assert summary.total_tokens == 30
+
+        await engine.dispose()
+
+    asyncio.run(run())
+
+
+def test_session_summary_returns_zero_for_conversation_without_usage():
+    async def run():
+        engine, session_factory = await _make_session()
+        async with session_factory() as session:
+            platform = Platform(name="Acme", code="acme")
+            session.add(platform)
+            await session.flush()
+            agent = Agent(platform_id=platform.id, name="客服", slug="support")
+            session.add(agent)
+            await session.flush()
+            end_user = PlatformEndUser(
+                platform_id=platform.id, external_user_id="external-1"
+            )
+            session.add(end_user)
+            await session.flush()
+            conversation = Conversation(
+                platform_id=platform.id,
+                agent_id=agent.id,
+                platform_end_user_id=end_user.id,
+                title="无用量会话",
+            )
+            session.add(conversation)
+            await session.commit()
+
+            repository = ModelUsageRepository(session)
+            summary = await repository.session_summary(
+                platform_id=platform.id,
+                agent_id=agent.id,
+                conversation_id=conversation.id,
+            )
+
+            assert summary.record_count == 0
+            assert summary.total_tokens == 0
+
+        await engine.dispose()
+
+    asyncio.run(run())

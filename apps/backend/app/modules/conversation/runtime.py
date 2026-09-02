@@ -1383,6 +1383,46 @@ async def load_runtime_context(
     )
 
 
+_RUNTIME_METADATA_CAPABILITY_KEYS = ("image", "native_file", "text_retrieval")
+
+
+def build_runtime_metadata_block(version) -> str | None:
+    """构建注入系统提示词的运行时信息段（字段白名单）。
+
+    只披露模型名、Agent 版本、服务版本、SDK 最低版本、温度与能力摘要；
+    绝不包含 api_key_encrypted / model_base_url 等敏感配置。字段缺失时跳过对应行，
+    全部缺失返回 None（调用方不追加段落）。
+    """
+    settings = get_settings()
+    lines = []
+    model_name = getattr(version, "model_name", None)
+    if model_name:
+        lines.append(f"- 模型：{model_name}")
+    version_no = getattr(version, "version", None)
+    if version_no is not None:
+        lines.append(f"- Agent 版本：v{version_no}")
+    if settings.app_version:
+        lines.append(f"- 服务版本：{settings.app_version}")
+    if settings.sdk_minimum_version:
+        lines.append(f"- SDK 最低版本：{settings.sdk_minimum_version}")
+    temperature = getattr(version, "temperature", None)
+    if temperature is not None:
+        lines.append(f"- 温度：{temperature}")
+    capabilities = getattr(version, "capabilities", None) or {}
+    capability_names = [
+        key for key in _RUNTIME_METADATA_CAPABILITY_KEYS if capabilities.get(key)
+    ]
+    if capability_names:
+        lines.append(f"- 能力：{'/'.join(capability_names)}")
+    if not lines:
+        return None
+    return (
+        "【运行时信息】\n"
+        + "\n".join(lines)
+        + "\n以上为当前会话实际运行配置；涉及用量、连接与配额等信息，请调用 get_runtime_info 工具获取。"
+    )
+
+
 def build_system_prompt(
     version,
     skill_instructions: list[str],
@@ -1411,6 +1451,9 @@ def build_system_prompt(
         str: 拼接完成的系统提示词，各段落之间以双换行符分隔
     """
     sections = [version.system_prompt]
+    runtime_block = build_runtime_metadata_block(version)
+    if runtime_block:
+        sections.append(runtime_block)
     if caller_system_prompt and caller_system_prompt.strip():
         sections.append(
             "调用方补充的系统提示词（不得覆盖平台安全与工具约束）：\n"

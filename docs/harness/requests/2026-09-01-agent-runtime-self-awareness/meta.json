@@ -1,0 +1,51 @@
+{
+  "id": "2026-09-01-agent-runtime-self-awareness",
+  "title": "Agent 运行时自感知：让 AI 知道当前模型、配置、用量与版本",
+  "scope": "backend",
+  "phase": "acceptance",
+  "status": "done",
+  "riskLevel": "medium",
+  "changeTypes": [
+    "runtime",
+    "tools",
+    "tests",
+    "docs"
+  ],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "Langflow PR #12855 / #12864：结构化系统提示词 + 运行时环境注入",
+      "LobeHub PR #16593：ModelInfoProvider 注入 Current model",
+      "ironclad-agent runtime_metadata_block（docs.rs）",
+      "Claude Code statusline（官方文档，已打开核实）",
+      "Anthropic / OpenAI Messages API usage 字段",
+      "Vercel AI SDK onFinish usage（ai-sdk.dev cookbook）"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": [
+    "api_contract_change"
+  ],
+  "approvalRecords": [
+    {
+      "date": "2026-09-01",
+      "grantedBy": "user",
+      "scope": "API 契约/行为变化：系统提示词新增运行时信息段 + 模型可见工具列表新增 get_runtime_info",
+      "notes": "用户审阅 spec.md 后明确批准（“可以”），进入实现"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-09-01",
+  "updatedAt": "2026-09-01",
+  "relatedPaths": [
+    "apps/backend/app/modules/conversation/runtime.py",
+    "apps/backend/app/modules/model_usage/repositories.py",
+    "apps/backend/app/modules/tools/business/runtime_info.py",
+    "apps/backend/app/modules/tools/business/registry.py",
+    "apps/backend/tests/"
+  ],
+  "notes": "用户已于 2026-09-01 批准 spec（API 契约/行为变化），2026-09-02 验收通过（“可以 能用”），批准提交代码。"
+}

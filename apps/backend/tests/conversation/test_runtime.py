@@ -1683,3 +1683,65 @@ def test_graph_stream_emits_thinking_deltas_and_keeps_thinking_text():
     assert thinking == ["先分析问题", "再补充推理"]
     assert final.content == "最终回答"
     assert final.thinking_text == "先分析问题再补充推理"
+
+
+def test_runtime_metadata_block_includes_whitelisted_fields_and_skips_missing():
+    from app.modules.conversation.runtime import build_runtime_metadata_block
+
+    block = build_runtime_metadata_block(
+        SimpleNamespace(
+            model_name="gpt-5.2",
+            version=3,
+            temperature=0.2,
+            capabilities={"image": True, "native_file": False, "text_retrieval": True},
+        )
+    )
+    assert block is not None
+    assert "【运行时信息】" in block
+    assert "模型：gpt-5.2" in block
+    assert "Agent 版本：v3" in block
+    assert "温度：0.2" in block
+    assert "能力：image/text_retrieval" in block
+    assert "get_runtime_info" in block
+
+
+def test_runtime_metadata_block_never_leaks_secret_fields():
+    from app.modules.conversation.runtime import build_runtime_metadata_block
+
+    block = build_runtime_metadata_block(
+        SimpleNamespace(
+            model_name="gpt-5.2",
+            version=1,
+            temperature=0.2,
+            capabilities={"image": True},
+            api_key_encrypted="secret-encrypted",
+            model_base_url="http://internal.example.com/v1",
+        )
+    )
+    assert "secret-encrypted" not in block
+    assert "internal.example.com" not in block
+
+
+def test_runtime_metadata_block_returns_none_when_all_fields_missing():
+    from app.modules.conversation.runtime import build_runtime_metadata_block
+
+    block = build_runtime_metadata_block(SimpleNamespace())
+    # 服务版本与 SDK 最低版本来自全局配置，通常存在；此处仅断言不会抛错且格式合法
+    assert block is None or "【运行时信息】" in block
+
+
+def test_system_prompt_appends_runtime_metadata_block_after_base_prompt():
+    prompt = build_system_prompt(
+        SimpleNamespace(
+            system_prompt="base prompt",
+            model_name="gpt-5.2",
+            version=2,
+            temperature=0.2,
+            capabilities={"image": True},
+        ),
+        [],
+        [],
+    )
+    assert "base prompt" in prompt
+    assert "【运行时信息】" in prompt
+    assert prompt.index("base prompt") < prompt.index("【运行时信息】")

@@ -115,6 +115,40 @@ class ModelUsageRepository:
             pages=self._page_count(total, page_size),
         )
 
+    async def session_summary(
+        self,
+        *,
+        platform_id: int,
+        agent_id: int,
+        conversation_id: int,
+    ) -> TokenUsageSummary:
+        """按会话汇总模型用量（conversation_id 维度，跨平台/Agent 隔离）。"""
+        filters = [
+            ModelUsageRecord.platform_id == platform_id,
+            ModelUsageRecord.agent_id == agent_id,
+            ModelUsageRecord.conversation_id == conversation_id,
+        ]
+        metrics = (
+            func.count(ModelUsageRecord.id).label("record_count"),
+            func.coalesce(func.sum(ModelUsageRecord.prompt_tokens), 0).label(
+                "prompt_tokens"
+            ),
+            func.coalesce(func.sum(ModelUsageRecord.completion_tokens), 0).label(
+                "completion_tokens"
+            ),
+            func.coalesce(func.sum(ModelUsageRecord.total_tokens), 0).label(
+                "total_tokens"
+            ),
+        )
+        row = await self.session.execute(select(*metrics).where(*filters))
+        record_count, prompt_tokens, completion_tokens, total_tokens = row.one()
+        return TokenUsageSummary(
+            record_count=record_count,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+        )
+
     async def summary(
         self,
         *,

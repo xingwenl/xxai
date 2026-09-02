@@ -9,6 +9,7 @@ from app.modules.tools.business import attachment_search  # noqa: F401
 from app.modules.tools.business import knowledge_search  # noqa: F401
 from app.modules.tools.business import custom_component  # noqa: F401
 from app.modules.tools.business import shop_list  # noqa: F401
+from app.modules.tools.business import runtime_info  # noqa: F401
 from app.modules.tools.business.framework import (
     BUSINESS_TOOL_REGISTRY,
     validate_business_tool_dependencies,
