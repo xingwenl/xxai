@@ -427,8 +427,8 @@ const chat = createChatUI({ ... })
 ### 9.2 新增一个自定义组件的标准流程
 
 1. 前端：编写 Vue 组件文件，并通过 `registerCustomComponent('<组件名>', Component)` 注册。
-2. 后端：在 `apps/backend/app/modules/tools/business/` 新增一个业务工具文件（可复制 `custom_component.py` 模板），返回 `{ "kind": "custom", "component_name": "<组件名>", "props": {...}, "fallback": "..." }`。
-3. 注册页：在 `apps/backend/app/modules/tools/business/registry.py` 中 import 新模块（导入即注册）。
+2. 后端：在 `apps/backend/app/modules/tools/business/` 新增一个业务工具文件（可复制 `custom_component.py` 模板），返回 `{ "kind": "custom", "component_name": "<组件名>", "props": {...}, "fallback": "..." }`；店铺运营项目（hua8）的分层示例见 `apps/backend/app/modules/tools/shop/`（`data/` 查数据、`ui/` 渲染组件）。
+3. 注册页：在 `apps/backend/app/modules/tools/business/registry.py` 中 import 新模块（导入即注册；shop 分层工具由 `tools/shop/registry.py` 汇总后挂到统一注册页）。
 4. 启用：在管理后台为对应 Agent 启用该内置工具。
 5. 验证：对话触发工具后，已注册组件正常渲染；未注册时展示 `fallback`。
 
@@ -475,7 +475,7 @@ defineProps<{
 
 ### 9.4 示例：店铺列表
 
-仓库已内置第二个示例工具 `show_shop_list`（`apps/backend/app/modules/tools/business/shop_list.py`），返回：
+店铺列表类组件以 `ShopList` 为例：展示工具返回 `kind=custom` 的渲染块，`props.shops` 数组条目字段与业务平台字段保持一致（本项目店铺工具返回 hua8 原字段 `platformStoreName` / `principalUserName` / `platformStoreId` / `tagList` 等），结构形如：
 
 ```json
 {
@@ -483,14 +483,19 @@ defineProps<{
   "component_name": "ShopList",
   "props": {
     "shops": [
-      { "name": "三味书屋", "address": "杭州西湖区", "status": "营业中", "rating": 4.5 }
+      {
+        "platformStoreName": "一世感•轻奢花店",
+        "principalUserName": "花笙",
+        "platformStoreId": "25518721",
+        "tagList": [{ "id": "t1", "name": "托管" }]
+      }
     ]
   },
-  "fallback": "三味书屋"
+  "fallback": "一世感•轻奢花店"
 }
 ```
 
-前端注册 `ShopList` 组件后按普通 props 接收 `shops` 数组即可。新增组件时复制 `custom_component.py` 或 `shop_list.py` 任一份模板，改 `name` / `component_name` / `input_schema` / `props` 白名单即可。
+前端注册 `ShopList` 组件后按普通 props 接收 `shops` 数组即可；数据应由后端按真实业务接口返回，不让模型编造。新增展示工具时参考 `apps/backend/app/modules/tools/shop/ui/show_shop_list.py`，改 `name` / `component_name` / `input_schema` / `props` 白名单即可。
 
 ## 10. 本地开发和 Demo
 

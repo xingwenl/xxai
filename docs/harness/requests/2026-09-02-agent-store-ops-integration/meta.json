@@ -1,0 +1,64 @@
+{
+  "id": "2026-09-02-agent-store-ops-integration",
+  "title": "智能体接入店铺运营项目（查询我的店铺）",
+  "scope": "backend+front",
+  "phase": "verify",
+  "status": "active",
+  "riskLevel": "high",
+  "changeTypes": [
+    "api_contract",
+    "permission",
+    "architecture",
+    "frontend",
+    "docs"
+  ],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "https://openai.github.io/openai-agents-js/zh/guides/tools/",
+      "https://modelcontextprotocol.io/docs/2026-07-28/getting-started/intro.md",
+      "https://blogs.mulesoft.com/agentic-perspectives/enterprise-mcp-strategy/",
+      "https://cloud.tencent.com.cn/developer/article/2721396",
+      "https://entia.systems/knowledge/es/ia-y-agentes/integracion-agentes-apis-internas-enterprise-ia/",
+      "apps/shop/docs/login-shop.md",
+      "apps/ai-sdk/README.md",
+      "docs/design/agent-sdk-flow.md"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": [
+    "架构边界变化：ai-base 新增外部系统集成面（hua8 店铺系统）与新前端项目 apps/shop/",
+    "API 契约变化：新增 POST /api/v1/shop-agent/session 与 store_ops_query 工具契约",
+    "鉴权或权限行为变化：ai-base 接收并持有店铺系统 token（Redis，TTL 跟随店铺 token 时效），按 external_user_id 签发 embed token"
+  ],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-09-02",
+      "scope": "apps/shop/ 目录作为新前端项目；Embed 配置先用现有后续再配；hua8 getInfo 接口用于 shopUserId 防伪校验",
+      "note": "用户逐点确认方案与目录/配置/校验接口三项，授权进入实现"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-09-02",
+  "updatedAt": "2026-09-02",
+  "relatedPaths": [
+    "apps/shop",
+    "apps/backend/app/modules/shop_agent",
+    "apps/backend/app/modules/tools/shop/data/store_ops_query.py",
+    "apps/backend/app/modules/tools/shop/data/client.py",
+    "apps/backend/app/modules/tools/shop/data/order_query.py",
+    "apps/backend/app/modules/tools/shop/ui/show_shop_list.py",
+    "apps/backend/app/modules/tools/shop/registry.py",
+    "apps/backend/app/modules/tools/business/registry.py",
+    "apps/backend/app/modules/tools/business/framework.py",
+    "apps/backend/app/modules/builtin_tool/services.py",
+    "apps/backend/app/core/config.py",
+    "apps/backend/.env.example",
+    "docs/harness/requests/2026-09-02-agent-store-ops-integration"
+  ],
+  "notes": "实现完成并通过本地验证：后端 480 passed（--import-mode=importlib 规避既有同名收集冲突）、ruff 0 错误、apps/shop 前端构建成功。工具已按 tools/shop/{ui,data} 分层：store_ops_query（店铺数据）、order_query（订单数据，白名单剔除手机号/骑手电话/op_desc）、show_shop_list（ui，仅用户要求展示时渲染 ShopList 卡片，hua8 原字段），通用 demo shop_list 已删除。待人工联调：配置 Embed Client 与目标 Agent（启用 store_ops_query/order_query/show_shop_list 绑定）后真实登录提问，验证文字回答与卡片展示各自按需出现、token 过期错误透传。"
+}

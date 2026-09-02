@@ -24,6 +24,7 @@ from app.modules.user.router import router as user_router
 from app.modules.conversation.router import router as conversation_router
 from app.modules.embed.router import router as embed_router
 from app.modules.embed.token_router import router as agent_token_router
+from app.modules.shop_agent import shop_agent_router
 from app.modules.gateway.router import router as gateway_router
 from app.modules.host_tool.router import router as host_tool_router
 from app.modules.model_usage.router import router as model_usage_router
@@ -75,6 +76,7 @@ def create_app() -> FastAPI:
             "http://127.0.0.1:5500",
             "http://127.0.0.1:5173",
             "http://localhost:5173",
+            "http://localhost:5174",
         ],
         allow_credentials=True,
         allow_methods=["*"],
@@ -101,6 +103,7 @@ def create_app() -> FastAPI:
     app.include_router(builtin_tool_router, prefix=settings.api_v1_prefix)
     app.include_router(asset_router, prefix=settings.api_v1_prefix)
     app.include_router(wechat_bot_router, prefix=settings.api_v1_prefix)
+    app.include_router(shop_agent_router, prefix=settings.api_v1_prefix)
     app.include_router(platform_model_router, prefix=settings.api_v1_prefix)
     app.include_router(model_binding_router, prefix=settings.api_v1_prefix)
 

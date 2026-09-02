@@ -6,7 +6,6 @@ from types import SimpleNamespace
 from app.modules.conversation.runtime import custom_content_blocks
 from app.modules.conversation.schemas import sanitize_content_blocks
 from app.modules.tools.business.custom_component import show_user_card
-from app.modules.tools.business.shop_list import show_shop_list
 
 
 def _tool_event(result: dict) -> list[dict]:
@@ -95,33 +94,3 @@ def test_show_user_card_generates_fallback_from_props():
 def test_show_user_card_fallback_fallback_text():
     result = asyncio.run(show_user_card({}, None))
     assert result["fallback"] == "用户信息暂不可用"
-
-
-def test_show_shop_list_cleans_props_and_generates_fallback():
-    result = asyncio.run(
-        show_shop_list(
-            {
-                "shops": [
-                    {"name": "三味书屋", "address": "杭州西湖区", "status": "营业中", "rating": 4.5},
-                    {"name": "六味斋", "rating": 4.8, "evil": "x"},
-                    "not-a-dict",
-                ],
-            },
-            None,
-        )
-    )
-    assert result["kind"] == "custom"
-    assert result["component_name"] == "ShopList"
-    assert result["props"] == {
-        "shops": [
-            {"name": "三味书屋", "address": "杭州西湖区", "status": "营业中", "rating": 4.5},
-            {"name": "六味斋", "rating": 4.8},
-        ]
-    }
-    assert result["fallback"] == "三味书屋、六味斋"
-
-
-def test_show_shop_list_empty_fallback():
-    result = asyncio.run(show_shop_list({}, None))
-    assert result["props"] == {"shops": []}
-    assert result["fallback"] == "暂无店铺信息"

@@ -2,6 +2,7 @@
 
 ## - 2026-09-02
 - ✨ feat：Agent 运行时自感知，系统提示词注入模型/配置/版本，新增 get_runtime_info 用量工具 `🧑‍💻 lixingwen`
+- ✨ feat：接入店铺运营系统，支持会话级店铺/订单查询与 ShopList 展示 `🧑‍💻 lixingwen`
 
 ## - 2026-09-01
 - 📝 docs：补充一个服务接入多个 Agent 的接入手册 `🧑‍💻 lixingwen`

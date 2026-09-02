@@ -69,6 +69,7 @@ from app.modules.host_tool.services import (
 from app.modules.builtin_tool.repositories import BuiltinToolRepository
 from app.modules.gateway.dispatcher import RuntimeToolDispatcher
 from app.modules.gateway.events import build_error, event_to_protocol_payload
+from app.shared.exceptions import UnauthorizedException
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -722,6 +723,35 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
         await websocket.close(code=4406)
         return
     await websocket.accept(subprotocol=PROTOCOL_SUBPROTOCOL)
+    # envelope 必须先于认证错误处理定义，否则认证失败路径会在定义前
+    # 引用它而触发 UnboundLocalError，被外层 except Exception 吞掉后
+    # 只会关闭连接，前端永远收不到 error 事件。
+    sequence = 1
+
+    def envelope(
+        event_type: str,
+        event_payload: dict,
+        *,
+        conversation_id: int | None = None,
+        request_id: str | None = None,
+    ) -> str:
+        """生成带单调 sequence 的协议事件，并统一附加关联 ID。"""
+        nonlocal sequence
+        value = {
+            "id": f"evt_{sequence}",
+            "type": event_type,
+            "protocolVersion": 1,
+            "sequence": sequence,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "payload": event_payload,
+        }
+        if conversation_id is not None:
+            value["conversationId"] = str(conversation_id)
+        if request_id is not None:
+            value["requestId"] = request_id
+        sequence += 1
+        return json.dumps(value)
+
     try:
         # 握手后必须在短时间内收到 auth，防止未认证连接长期占用资源。
         raw = await asyncio.wait_for(websocket.receive_text(), timeout=5)
@@ -738,12 +768,29 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
             await websocket.close(code=4406)
             return
         token = message.get("payload", {}).get("token")
+
         if not isinstance(token, str):
             await websocket.close(code=4401)
             return
-        payload = await authenticate_embed_token(
-            token, agent_id=agent_id, origin=origin or ""
-        )
+        try:
+            payload = await authenticate_embed_token(
+                token, agent_id=agent_id, origin=origin or ""
+            )
+        except UnauthorizedException as err:
+            logger.warning(
+                "Embed auth rejected: agent_id=%s message=%s", agent_id, err.message
+            )
+            await _send_protocol_error(
+                websocket,
+                envelope,
+                code="embed_token",
+                message=err.message,
+                retryable=False,
+            )
+            # 认证被拒属于会话终结，错误事件发出后主动关闭连接，
+            # 避免该连接悬挂占用网关资源。
+            await websocket.close(code=4401)
+            return
         record_authentication("success")
         # 客户端带上次的会话和 sequence 时，先从 Redis Stream 补发缺失事件。
         replay_redis = Redis.from_url(get_settings().celery_broker_url)
@@ -795,31 +842,6 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
         pending_host_results: dict[str, asyncio.Future] = {}
         pending_mcp_confirmations: dict[str, asyncio.Future] = {}
         pending_questions: dict[str, asyncio.Future] = {}
-        sequence = 1
-
-        def envelope(
-            event_type: str,
-            event_payload: dict,
-            *,
-            conversation_id: int | None = None,
-            request_id: str | None = None,
-        ) -> str:
-            """生成带单调 sequence 的协议事件，并统一附加关联 ID。"""
-            nonlocal sequence
-            value = {
-                "id": f"evt_{sequence}",
-                "type": event_type,
-                "protocolVersion": 1,
-                "sequence": sequence,
-                "timestamp": datetime.now(UTC).isoformat(),
-                "payload": event_payload,
-            }
-            if conversation_id is not None:
-                value["conversationId"] = str(conversation_id)
-            if request_id is not None:
-                value["requestId"] = request_id
-            sequence += 1
-            return json.dumps(value)
 
         session_info = await build_session_info(
             payload,

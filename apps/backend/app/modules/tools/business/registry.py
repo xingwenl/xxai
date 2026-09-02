@@ -1,4 +1,8 @@
-"""业务工具公共注册页：只负责收集注册，保持简洁。"""
+"""业务工具公共注册页：只负责收集注册，保持简洁。
+
+统一入口聚合通用 business 工具与店铺运营项目（shop）分层工具，
+对外 API（list_business_tools / get_business_tool）保持稳定。
+"""
 
 from app.modules.tools.basic.registry import get_basic_tool
 from app.modules.tools.business import http_get  # noqa: F401  导入即注册
@@ -8,8 +12,8 @@ from app.modules.tools.business import image_read  # noqa: F401
 from app.modules.tools.business import attachment_search  # noqa: F401
 from app.modules.tools.business import knowledge_search  # noqa: F401
 from app.modules.tools.business import custom_component  # noqa: F401
-from app.modules.tools.business import shop_list  # noqa: F401
 from app.modules.tools.business import runtime_info  # noqa: F401
+from app.modules.tools.shop import registry as _shop_registry  # noqa: F401
 from app.modules.tools.business.framework import (
     BUSINESS_TOOL_REGISTRY,
     validate_business_tool_dependencies,

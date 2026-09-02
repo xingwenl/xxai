@@ -110,6 +110,9 @@ class Settings:
     wechat_bot_state_dir: str
     wechat_bot_api_base_url: str
     wechat_bot_max_instances: int
+    store_ops_base_url: str
+    store_ops_redis_ttl_seconds: int
+    store_ops_http_timeout_seconds: float
 
 
 def _build_database_url() -> str:
@@ -268,5 +271,16 @@ def get_settings() -> Settings:
         wechat_bot_api_base_url=os.getenv("WECHAT_BOT_API_BASE_URL", "http://api:8000"),
         wechat_bot_max_instances=max(
             1, int(os.getenv("WECHAT_BOT_MAX_INSTANCES", "20"))
+        ),
+        # 店铺运营平台（hua8）接入：服务器业务工具 store_ops_query 的接口地址与
+        # 店铺 token 在 Redis 中的有效期（默认 43200 秒，跟随店铺系统登录时效）。
+        store_ops_base_url=os.getenv(
+            "STORE_OPS_BASE_URL", "http://hua8.bbtree.xyz"
+        ),
+        store_ops_redis_ttl_seconds=int(
+            os.getenv("STORE_OPS_REDIS_TTL_SECONDS", "43200")
+        ),
+        store_ops_http_timeout_seconds=float(
+            os.getenv("STORE_OPS_HTTP_TIMEOUT_SECONDS", "10")
         ),
     )

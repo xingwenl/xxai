@@ -32,6 +32,9 @@ class BusinessToolContext:
     platform_end_user_id: int | None = None
     session: Any | None = None  # DB 会话：查 asset / 模型绑定
     asset_repo: Any | None = None
+    # 店铺运营平台（hua8）会话：由 shop-agent 会话接口注入，工具用它调店铺系统接口。
+    shop_token: str | None = None
+    shop_user_id: str | None = None
 
 
 @dataclass(frozen=True)
