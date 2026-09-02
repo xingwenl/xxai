@@ -97,6 +97,8 @@ docs/harness/
 - 鉴权或权限行为变化
 - 核心功能缺少关键业界资料，无法可靠完成方案比较
 
+**spec 完成后的方案对齐检查点（强制）**：每次编写或更新 `spec.md`（含 `/modify`、`/fix` 的增量变更记录）后，AI 必须先把 spec 中的方案要点（目标、范围、关键设计决策、停点判断）发给用户确认，用户确认后才能继续 `plan` 或进入实现。未确认前不得写实现代码。
+
 推荐同时在 `meta.json` 中记录：
 
 - `approvalRequired`
@@ -126,11 +128,12 @@ docs/harness/
 1. 复制 `templates/` 中模板创建 request
 2. 先完成 `research.md`，了解官方文档、成熟开源项目或生产实践
 3. 基于调研结论完成 `spec.md`
-4. 再完成 `plan.md`
-5. 实现代码
-6. 记录 `verify.md`
-7. 输出 `acceptance.md`
-8. 最后同步更新 `meta.json`
+4. 把 `spec.md` 方案要点发给用户确认（强制检查点）
+5. 确认后再完成 `plan.md`
+6. 实现代码
+7. 记录 `verify.md`
+8. 输出 `acceptance.md`
+9. 最后同步更新 `meta.json`
 
 ### 调研阶段
 
@@ -172,7 +175,7 @@ docs/harness/
 阶段必须按以下条件流转：
 
 - `research -> spec`：调研结论、来源和方案比较已记录
-- `spec -> plan`：目标、范围、方案、风险和验收标准已确定
+- `spec -> plan`：目标、范围、方案、风险和验收标准已确定，且方案已获用户确认
 - `plan -> implement`：计划已完成，且人工确认已通过或明确不需要
 - `implement -> verify`：实现已完成，或明确记录本次只涉及文档/配置
 - `verify -> acceptance`：验证记录包含真实命令、结果、失败项和例外
