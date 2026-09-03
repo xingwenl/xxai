@@ -4,8 +4,11 @@ from app.core.logging import get_logger
 from app.core.config import get_settings
 from app.modules.conversation.repositories import ConversationRepository
 from app.modules.conversation.runtime import (
+    attach_tool_snapshots,
+    build_tool_snapshots,
     build_system_prompt,
     build_step_payload,
+    resolve_context_window_tokens,
     run_graph,
     stream_graph,
     tool_step_values,
@@ -155,9 +158,22 @@ logger = get_logger(__name__)
 
 async def load_recent_history(repo: ConversationRepository, conversation_id: int):
     """按配置窗口读取近期已完成消息，供模型上下文回填。"""
-    window = get_settings().conversation_history_window_seconds
+    settings = get_settings()
+    snapshot_retention = (
+        settings.tool_snapshot_retention_seconds
+        or settings.conversation_history_window_seconds
+    )
+    # 快照保留期大于普通历史窗口时按较大窗口读取，正文与快照各自按窗口过滤。
+    window = max(
+        settings.conversation_history_window_seconds, snapshot_retention
+    )
     since = datetime.now(timezone.utc) - timedelta(seconds=window)
     return await repo.list_recent_context_messages(conversation_id, since=since)
+
+
+def _tool_snapshot_metadata(result) -> dict:
+    """从一轮 GraphResult 构造快照并写入消息扩展元数据。"""
+    return attach_tool_snapshots({}, build_tool_snapshots(result.tool_events))
 
 
 async def _resolve_conversation(
@@ -200,6 +216,7 @@ async def _finish_stream_chat(
         content_blocks=_content_blocks(result.content, result.content_blocks),
         citations=result.citations,
         knowledge_grounded=result.knowledge_grounded,
+        message_metadata=_tool_snapshot_metadata(result),
     )
     generation_step.status = "succeeded"
     for offset, tool_event in enumerate(result.tool_events or [], start=2):
@@ -411,6 +428,7 @@ async def execute_chat(
             ),
         ],
         invoke_tool_fn=invoke_tool_fn,
+        context_window_tokens=resolve_context_window_tokens(context.version),
     )
     assistant = await repo.create_message(
         conversation.id,
@@ -419,6 +437,7 @@ async def execute_chat(
         content_blocks=_content_blocks(result.content, result.content_blocks),
         citations=result.citations,
         knowledge_grounded=result.knowledge_grounded,
+        message_metadata=_tool_snapshot_metadata(result),
     )
     tool_start = 2 + len(skill_steps)
     for offset, tool_event in enumerate(result.tool_events or [], start=tool_start):
@@ -565,6 +584,7 @@ async def stream_chat(
             ),
         ],
         invoke_tool_fn=invoke_tool_fn,
+        context_window_tokens=resolve_context_window_tokens(context.version),
     ):
         if item["type"] == "message_delta":
             yield {"type": "message_delta", "conversation": conversation, **item}

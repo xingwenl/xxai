@@ -94,6 +94,13 @@ class Settings:
     skill_runner_max_output_bytes: int
     knowledge_context_max_chars: int
     conversation_history_window_seconds: int
+    tool_snapshot_max_chars: int
+    tool_snapshot_total_chars: int
+    tool_snapshot_max_entries: int
+    tool_snapshot_retention_seconds: int | None
+    context_input_ratio: float
+    context_estimate_chars_per_token: float
+    context_exceeded_retry_enabled: bool
     celery_broker_url: str
     celery_result_backend: str
     metrics_enabled: bool
@@ -242,6 +249,25 @@ def get_settings() -> Settings:
         ),
         conversation_history_window_seconds=max(
             0, int(os.getenv("CONVERSATION_HISTORY_WINDOW_SECONDS", "3600"))
+        ),
+        tool_snapshot_max_chars=int(os.getenv("TOOL_SNAPSHOT_MAX_CHARS", "8000")),
+        tool_snapshot_total_chars=int(
+            os.getenv("TOOL_SNAPSHOT_TOTAL_CHARS", "20000")
+        ),
+        tool_snapshot_max_entries=max(
+            1, int(os.getenv("TOOL_SNAPSHOT_MAX_ENTRIES", "20"))
+        ),
+        tool_snapshot_retention_seconds=_parse_optional_int(
+            "TOOL_SNAPSHOT_RETENTION_SECONDS"
+        ),
+        context_input_ratio=max(
+            0.1, min(1.0, float(os.getenv("CONTEXT_INPUT_RATIO", "0.75")))
+        ),
+        context_estimate_chars_per_token=float(
+            os.getenv("CONTEXT_ESTIMATE_CHARS_PER_TOKEN", "1.2")
+        ),
+        context_exceeded_retry_enabled=_get_bool(
+            "CONTEXT_EXCEEDED_RETRY_ENABLED", default=True
         ),
         celery_broker_url=os.getenv("CELERY_BROKER_URL", "redis://127.0.0.1:6379/0"),
         celery_result_backend=os.getenv(

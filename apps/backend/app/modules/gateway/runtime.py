@@ -7,11 +7,14 @@ from app.core.logging import get_logger
 from app.modules.conversation.repositories import ConversationRepository
 from app.modules.conversation.services import build_loop_with_steps, load_recent_history
 from app.modules.conversation.runtime import (
+    attach_tool_snapshots,
+    build_tool_snapshots,
     build_system_prompt,
     stream_graph,
     tool_step_values,
     image_content_blocks,
     custom_content_blocks,
+    resolve_context_window_tokens,
 )
 from app.modules.gateway.events import (
     LoopEventBuilder,
@@ -425,6 +428,9 @@ async def _finish_embed_chat(
         content_blocks=content_blocks,
         citations=result.citations,
         knowledge_grounded=result.knowledge_grounded,
+        message_metadata=attach_tool_snapshots(
+            {}, build_tool_snapshots(result.tool_events)
+        ),
     )
     if result.usage is not None:
         await repo.record_model_usage(
@@ -648,6 +654,7 @@ async def stream_embed_chat(
         invoke_tool_fn=invoke_host_tool_fn,
         document_text_parts=document_text_parts,
         history_attachment_parts=history_attachment_parts,
+        context_window_tokens=resolve_context_window_tokens(context.version),
     ):
         # message_delta 立即向前端流式发送；completed 事件只保留最终 GraphResult，
         # 避免同一段回答被重复写入消息表。

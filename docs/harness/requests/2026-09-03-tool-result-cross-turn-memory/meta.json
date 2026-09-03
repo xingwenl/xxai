@@ -1,0 +1,66 @@
+{
+  "id": "2026-09-03-tool-result-cross-turn-memory",
+  "title": "工具查询结果跨轮记忆（后端智能体复用订单等查询结论）",
+  "scope": "backend",
+  "phase": "verify",
+  "status": "active",
+  "riskLevel": "medium",
+  "changeTypes": [
+    "data_model",
+    "backend",
+    "docs"
+  ],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "https://openai.github.io/openai-agents-python/sessions/",
+      "https://developers.openai.com/api/docs/guides/agents/running-agents",
+      "https://github.com/openai/openai-agents-python/issues/873",
+      "https://github.com/microsoft/semantic-kernel/discussions/8105",
+      "https://docs.langchain.com/oss/javascript/langgraph/persistence",
+      "https://docs.dify.ai/en/self-host/use-dify/build/agent",
+      "apps/backend/app/modules/conversation/models.py",
+      "apps/backend/app/modules/conversation/runtime.py",
+      "apps/backend/app/modules/conversation/repositories.py",
+      "apps/backend/app/modules/conversation/services.py",
+      "apps/backend/app/modules/gateway/runtime.py",
+      "apps/backend/app/core/config.py"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": [
+    "数据模型变化：agent_versions 新增可空列 context_window_tokens（alembic 迁移）承载上下文护栏窗口，跟随智能体版本配置的模型；主对话运行时模型本就取自 AgentVersion（build_chat_model(version)），窗口与模型同层存储",
+    "数据契约变化：conversation_messages.message_metadata 新增「工具结果快照」承载约定（不改表结构、不新增消息角色）；历史回放注入新增「快照 SystemMessage」语义"
+  ],
+  "approvalRecords": [
+    {
+      "date": "2026-09-03",
+      "channel": "chat",
+      "summary": "用户对 spec 待确认项 ①–⑪（快照方案、预算与保留期、agent_versions 加列护栏、超限降级兜底、去重/防误导/校准埋点/双链路唯一 helper）最终回复「可以」，批准进入 plan 与实现"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-09-03",
+  "updatedAt": "2026-09-03",
+  "relatedPaths": [
+    "apps/backend/app/core/config.py",
+    "apps/backend/app/modules/agent/models.py",
+    "apps/backend/app/modules/agent/schemas.py",
+    "apps/backend/app/modules/agent/services.py",
+    "apps/backend/app/modules/conversation/models.py",
+    "apps/backend/app/modules/conversation/repositories.py",
+    "apps/backend/app/modules/conversation/runtime.py",
+    "apps/backend/app/modules/conversation/services.py",
+    "apps/backend/app/modules/gateway/runtime.py",
+    "apps/backend/migrations/versions/20260903_0033_agent_version_context_window.py",
+    "apps/backend/tests/conversation/test_runtime.py",
+    "apps/backend/tests/conversation/test_tool_snapshots.py",
+    "docs/harness/requests/2026-09-03-tool-result-cross-turn-memory",
+    "docs/harness/requests/2026-09-03-tool-result-cross-turn-memory/plan.md",
+    "docs/harness/requests/2026-09-03-tool-result-cross-turn-memory/verify.md"
+  ],
+  "notes": "实现已完成并通过 bugfix：快照构造/落库/回放注入（build_tool_snapshots/attach_tool_snapshots/build_snapshot_injection_message）、同参数去重与保留期过滤、上下文护栏（agent_versions.context_window_tokens 新增可空列 + 模型名映射 + 预算裁剪 + debug 埋点）、超限降级重试一次与友好文案映射均已落地；REST/embed WebSocket 两收尾函数共用唯一公共 helper。2026-09-03 bugfix：平台工具真实成功态为 completed（MCP/Builtin/宿主/技能 runner），快照过滤器原只认 succeeded 会丢弃全部真实工具结果，已改为双状态词兼容并跳过 error/拒绝载荷。新增单测 17 项全绿，tests/agent+conversation+gateway 回归 170 passed, 1 skipped，ruff 通过。待人工验证：alembic upgrade head（沙箱网络受限）与真实 DeepSeek 两轮对话联调/护栏系数校准，详见 verify.md。"
+}

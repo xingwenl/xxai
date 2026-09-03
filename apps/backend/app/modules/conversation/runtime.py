@@ -18,6 +18,7 @@
 
 import asyncio
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 import json
 import re
 from typing import Any
@@ -35,9 +36,38 @@ from app.modules.conversation.schemas import RuntimeContext
 
 logger = get_logger(__name__)
 
+# 工具结果快照：落库键、注入文本约定与上下文护栏相关常量
+SNAPSHOT_METADATA_KEY = "tool_snapshots"
+_SNAPSHOT_SECTION_TITLE = "以下为此前工具查询到的数据快照（数据截至各自查询时间）："
+_SNAPSHOT_INJECT_TAIL = (
+    "回答与快照同范围的问题时可直接使用快照；"
+    "用户要求最新数据、变更时间/查询条件或快照未覆盖时，应重新调用工具查询。"
+)
+_SNAPSHOT_LIMIT_NOTE = "此前工具查询快照因上下文限制未保留，需要时可重新查询最新数据。"
+
+# 内置「模型名 → 已知上下文窗口」小映射：仅收录已核对的已知别名，
+# 其余模型须在智能体版本上显式填写 context_window_tokens。
+# DeepSeek 窗口事实 2026-09-03 按官方 news260424/news250821 核对。
+KNOWN_MODEL_CONTEXT_WINDOWS: dict[str, int] = {
+    "deepseek-v4-pro": 1_000_000,
+    "deepseek-v4-flash": 1_000_000,
+    "deepseek-v4-flash-vision-exp": 1_000_000,
+    # V3.1/V3.2 时代别名：官方 API 已于 2026-07-24 退役，仅镜像/代理兼容。
+    "deepseek-chat": 128_000,
+    "deepseek-reasoner": 128_000,
+}
+
+# 平台工具结果的成功状态词：MCP/Builtin/宿主工具/技能 runner 的成功态均为
+# "completed"（ToolInvocationOutcome/BuiltinToolOutcome），部分测试桩用
+# "succeeded"；两者都视为可落快照的成功结果。
+_SUCCESSFUL_OUTCOME_STATUSES = frozenset({"completed", "succeeded"})
+
 _MAX_ITERATIONS_WRAPUP_PROMPT = (
     "你已达到本次任务的最大执行轮数，请停止调用任何工具，"
     "直接基于已有信息给出最终回答；如果信息不足，请明确说明。"
+)
+_CONTEXT_DEGRADE_NOTE = (
+    "此前对话与工具查询结果因超过模型上下文上限未纳入本次计算，需要时可重新查询。"
 )
 
 
@@ -80,12 +110,20 @@ def build_history_messages(
     ``attachment_parts`` 按 asset_id 提供历史附件内容块，带附件的
     用户消息恢复为多模态内容，保证后续轮次仍能读取历史附件。
     """
+    settings = get_settings()
+    now = datetime.now(timezone.utc)
+    history_window = settings.conversation_history_window_seconds
     converted = []
     for item in history or []:
         content = getattr(item, "content", "")
         if not isinstance(content, str) or not content.strip():
             continue
         role = getattr(item, "role", None)
+        if role in ("user", "assistant", "tool") and not _message_within_window(
+            item, now, history_window
+        ):
+            # 快照保留期大于历史窗口时，超窗消息仅贡献快照、不再回放正文。
+            continue
         if role == "user":
             parts = _history_attachment_parts(item, attachment_parts)
             message_content = (
@@ -101,6 +139,10 @@ def build_history_messages(
                     tool_call_id=getattr(item, "tool_call_id", None) or "history-tool",
                 )
             )
+    # 历史末尾注入工具快照 SystemMessage（当前用户消息之前），无快照时零注入。
+    snapshot_message = build_snapshot_injection_message(history, now=now)
+    if snapshot_message is not None:
+        converted.append(snapshot_message)
     return converted
 
 
@@ -128,6 +170,410 @@ def _history_attachment_parts(
             seen.add(key)
             parts.append(part)
     return parts
+
+
+def _message_within_window(item: Any, now: datetime, window_seconds: int) -> bool:
+    """判断持久化消息正文是否在历史回放窗口内；无时间戳的消息视为窗口内。"""
+    created_at = getattr(item, "created_at", None)
+    if created_at is None:
+        return True
+    try:
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        return (now - created_at).total_seconds() <= window_seconds
+    except (TypeError, ValueError):
+        return True
+
+
+def _parse_iso_datetime(value: str) -> datetime | None:
+    """解析 ISO8601 时间；无时区按 UTC 处理，解析失败返回 None。"""
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _snapshot_entry_time(entry: dict) -> datetime:
+    """取快照查询时间用于去重/排序；缺失或解析失败退化为最早时间。"""
+    queried_at = entry.get("queried_at")
+    parsed = _parse_iso_datetime(queried_at) if queried_at else None
+    if parsed is None:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _snapshot_list_text(result: dict, list_key: str, *, max_chars: int) -> str:
+    """列表型工具结果分档保留：概要计数 + 预算内条目 + 未保留提示。"""
+    items = result.get(list_key) or []
+    total = result.get("total", len(items))
+    texts: list[str] = []
+    head = f"{list_key}: 共 {total} 条"
+    used = len(head)
+    for item in items:
+        text = _summarize_json(item, limit=max_chars)
+        if not text:
+            continue
+        if used + len(text) + 2 > max_chars:
+            break
+        texts.append(text)
+        used += len(text) + 2
+    # 未保留提示本身也占预算：若最终文本溢出，则逐步回退条目直到放得下。
+    while True:
+        kept = len(texts)
+        note = ""
+        if kept < len(items):
+            note = (
+                f"（共 {total} 条，仅保留前 {kept} 条，其余未保留；"
+                "需要具体某条时可缩小查询条件重新查询）"
+            )
+        body = "\n".join(texts)
+        final = f"{head}{note}" + (f"\n{body}" if body else "")
+        if len(final) <= max_chars or not texts:
+            return final if len(final) <= max_chars else head[:max_chars]
+        texts.pop()
+
+
+def _snapshot_summary_text(event: dict, *, max_chars: int) -> str:
+    """构造脱敏快照文本：列表型结果按计数与预算分档保留，其余按长度截断。"""
+    outcome = event.get("outcome")
+    if outcome is None:
+        return ""
+    result = getattr(outcome, "result", None)
+    if result is None:
+        return ""
+    if isinstance(result, dict):
+        list_key = next(
+            (
+                key
+                for key, value in result.items()
+                if isinstance(value, list) and value
+            ),
+            None,
+        )
+        if list_key is not None:
+            return _snapshot_list_text(result, list_key, max_chars=max_chars)
+    text = _summarize_json(result, limit=max_chars)
+    return text
+
+
+def _is_successful_outcome(outcome) -> bool:
+    """判断工具结果是否为成功态；拒绝/过期/失败与 error 载荷不落快照。"""
+    status = getattr(outcome, "status", None)
+    if status not in _SUCCESSFUL_OUTCOME_STATUSES:
+        return False
+    result = getattr(outcome, "result", None)
+    if not isinstance(result, dict):
+        return True
+    if "error" in result:
+        return False
+    inner = result.get("status")
+    return inner not in {"rejected", "expired", "failed", "error"}
+
+
+def build_tool_snapshots(
+    tool_events: list[dict] | None,
+    *,
+    now: datetime | None = None,
+    max_chars: int | None = None,
+    total_chars: int | None = None,
+    max_entries: int | None = None,
+) -> list[dict]:
+    """从一轮工具事件构造快照：只收 succeeded，按单条/合计/条数预算收敛。"""
+    settings = get_settings()
+    max_chars = max_chars or settings.tool_snapshot_max_chars
+    total_chars = total_chars or settings.tool_snapshot_total_chars
+    max_entries = max_entries or settings.tool_snapshot_max_entries
+    if max_chars <= 0 or total_chars <= 0 or max_entries <= 0:
+        return []
+    now = now or datetime.now(timezone.utc)
+    queried_at = now.isoformat()
+    entries: list[dict] = []
+    for event in tool_events or []:
+        outcome = event.get("outcome")
+        if outcome is None or not _is_successful_outcome(outcome):
+            continue
+        summary = _snapshot_summary_text(event, max_chars=max_chars)
+        if not summary:
+            continue
+        entries.append(
+            {
+                "tool": event.get("tool", "unknown"),
+                "queried_at": queried_at,
+                "params": (event.get("input_summary") or "")[:120],
+                "summary": summary,
+            }
+        )
+    return _cap_snapshot_entries(
+        entries, max_entries=max_entries, total_chars=total_chars
+    )
+
+
+def _cap_snapshot_entries(
+    entries: list[dict],
+    *,
+    max_entries: int | None = None,
+    total_chars: int | None = None,
+) -> list[dict]:
+    """按条数与合计字符预算裁剪快照：超预算时丢弃最旧条目。"""
+    settings = get_settings()
+    max_entries = (
+        max_entries if max_entries is not None else settings.tool_snapshot_max_entries
+    )
+    total_chars = (
+        total_chars if total_chars is not None else settings.tool_snapshot_total_chars
+    )
+    if max_entries <= 0 or total_chars <= 0:
+        return []
+    ascending = sorted(entries, key=_snapshot_entry_time)
+    # 最新优先保留，超出条数/合计预算时丢弃最旧条目。
+    newest_first = ascending[::-1][:max_entries]
+    kept_reversed: list[dict] = []
+    used = 0
+    for entry in newest_first:
+        summary = entry.get("summary") or ""
+        if used + len(summary) > total_chars:
+            continue
+        kept_reversed.append(entry)
+        used += len(summary)
+    kept_reversed.reverse()
+    return kept_reversed
+
+
+def attach_tool_snapshots(
+    metadata: dict | None, snapshots: list[dict]
+) -> dict:
+    """把快照写入消息扩展元数据；无快照时保持原元数据不变。"""
+    merged = dict(metadata or {})
+    if snapshots:
+        merged[SNAPSHOT_METADATA_KEY] = snapshots
+    return merged
+
+
+def collect_tool_snapshots(
+    history: list[Any] | None,
+    *,
+    now: datetime | None = None,
+    retention_seconds: int | None = None,
+) -> list[dict]:
+    """跨历史 assistant 消息收集快照：按保留期过滤并做同参数去重（保留最新）。"""
+    settings = get_settings()
+    if retention_seconds is None:
+        retention_seconds = settings.tool_snapshot_retention_seconds
+    if retention_seconds is None:
+        retention_seconds = settings.conversation_history_window_seconds
+    now = now or datetime.now(timezone.utc)
+    entries: list[dict] = []
+    for item in history or []:
+        metadata = getattr(item, "message_metadata", None) or {}
+        for entry in metadata.get(SNAPSHOT_METADATA_KEY) or []:
+            if not isinstance(entry, dict) or not entry.get("summary"):
+                continue
+            queried_at = entry.get("queried_at")
+            if queried_at and retention_seconds:
+                parsed = _parse_iso_datetime(queried_at)
+                if parsed is not None and (
+                    now - parsed
+                ).total_seconds() > retention_seconds:
+                    continue
+            entries.append(entry)
+    # 同一查询条件（tool+params）多版本并存时只保留最新一份，避免歧义并省 token。
+    best: dict[tuple[str, str], dict] = {}
+    for entry in entries:
+        key = (str(entry.get("tool", "")), str(entry.get("params", "")))
+        current = best.get(key)
+        if current is None or _snapshot_entry_time(entry) >= _snapshot_entry_time(
+            current
+        ):
+            best[key] = entry
+    return _cap_snapshot_entries(list(best.values()))
+
+
+def build_snapshot_injection_message(
+    history: list[Any] | None,
+    *,
+    now: datetime | None = None,
+) -> SystemMessage | None:
+    """把收集到的工具快照组装为轻量 SystemMessage；无快照时返回 None。"""
+    snapshots = collect_tool_snapshots(history, now=now)
+    if not snapshots:
+        return None
+    lines = [
+        _SNAPSHOT_SECTION_TITLE,
+        _SNAPSHOT_INJECT_TAIL,
+        (
+            "基于快照回答时请自然带出查询时间（如「根据您 14:02 的查询结果……」），"
+            "让用户知晓结论来自快照数据；涉及付款、改单、发货等变更动作的执行前提，"
+            "必须先调用工具查询最新数据，快照仅用于描述性回答。"
+        ),
+    ]
+    for entry in snapshots:
+        lines.append("")
+        lines.append(
+            f"[{entry.get('tool', 'unknown')}] 查询时间 {entry.get('queried_at', '未知')}"
+        )
+        params = entry.get("params")
+        if params:
+            lines.append(f"查询条件：{params}")
+        lines.append(entry["summary"])
+    return SystemMessage(content="\n".join(lines))
+
+
+def resolve_context_window_tokens(
+    version: Any, *, model_name: str | None = None
+) -> int | None:
+    """解析版本模型的上下文窗口：显式列值 > 内置模型名映射 > 未命中返回 None。"""
+    explicit = getattr(version, "context_window_tokens", None)
+    if explicit is not None and int(explicit) > 0:
+        return int(explicit)
+    name = (model_name or getattr(version, "model_name", None) or "").strip()
+    if not name:
+        return None
+    if name in KNOWN_MODEL_CONTEXT_WINDOWS:
+        return KNOWN_MODEL_CONTEXT_WINDOWS[name]
+    # 兼容镜像/代理的 provider/model 前缀写法（如 openrouter/deepseek-chat）。
+    suffix = name.rsplit("/", 1)[-1]
+    return KNOWN_MODEL_CONTEXT_WINDOWS.get(suffix)
+
+
+def is_context_length_exceeded(error: BaseException) -> bool:
+    """识别 OpenAI/DeepSeek 兼容的「输入超出模型上下文上限」错误。"""
+    code = getattr(error, "code", None)
+    if isinstance(code, str) and "context_length_exceeded" in code.lower():
+        return True
+    raw = str(error).lower()
+    return any(
+        marker in raw
+        for marker in (
+            "maximum context length",
+            "context_length_exceeded",
+            "maximum context",
+            "prompt is too long",
+        )
+    )
+
+
+def _should_degrade_context(error: BaseException) -> bool:
+    """判断是否触发超限降级重试：开关开启且命中超限错误特征。"""
+    return get_settings().context_exceeded_retry_enabled and is_context_length_exceeded(
+        error
+    )
+
+
+def _degraded_messages(system_prompt: str, user_message: str) -> list[Any]:
+    """构造超限降级重试消息：仅系统提示 + 当前用户消息并附注。"""
+    return [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=f"{user_message}\n\n{_CONTEXT_DEGRADE_NOTE}"),
+    ]
+
+
+def _messages_chars(messages: list[Any]) -> int:
+    """估算消息列表字符数，兼容文本与多模态内容块。"""
+    total = 0
+    for message in messages:
+        content = getattr(message, "content", None)
+        if isinstance(content, str):
+            total += len(content)
+        elif isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict):
+                    text = block.get("text")
+                    if isinstance(text, str):
+                        total += len(text)
+    return total
+
+
+def _snapshot_message_index(messages: list[Any]) -> int | None:
+    """定位历史末尾的快照注入消息；不存在时返回 None。"""
+    if len(messages) < 3:
+        return None
+    candidate = messages[-2]
+    if isinstance(candidate, SystemMessage) and str(candidate.content).startswith(
+        _SNAPSHOT_SECTION_TITLE
+    ):
+        return len(messages) - 2
+    return None
+
+
+def apply_context_guardrail(
+    messages: list[Any],
+    *,
+    window_tokens: int | None,
+    input_ratio: float | None = None,
+    chars_per_token: float | None = None,
+) -> list[Any]:
+    """上下文预算护栏：超预算时按「旧历史 → 快照」顺序裁剪并留下提示。
+
+    系统提示与当前用户消息永不裁剪；快照被裁时保留一条
+    「因上下文限制未保留」提示文本，引导模型在需要时重新查询。
+    """
+    if not window_tokens or window_tokens <= 0:
+        return messages
+    settings = get_settings()
+    ratio = (
+        input_ratio
+        if input_ratio is not None
+        else settings.context_input_ratio
+    )
+    chars_per_token = (
+        chars_per_token
+        if chars_per_token is not None
+        else settings.context_estimate_chars_per_token
+    )
+    budget_chars = int(window_tokens * ratio * chars_per_token)
+    original_chars = _messages_chars(messages)
+    if original_chars <= budget_chars:
+        logger.debug(
+            "Context guardrail ok window_tokens=%s budget_chars=%s messages_chars=%s",
+            window_tokens,
+            budget_chars,
+            original_chars,
+        )
+        return messages
+    dropped_history = 0
+    snapshot_reduced = False
+    while _messages_chars(messages) > budget_chars:
+        snapshot_index = _snapshot_message_index(messages)
+        removed = False
+        for index in range(1, len(messages) - 1):
+            if index == snapshot_index:
+                continue
+            del messages[index]
+            dropped_history += 1
+            removed = True
+            break
+        if removed:
+            continue
+        if snapshot_index is None:
+            break
+        if str(messages[snapshot_index].content) == _SNAPSHOT_LIMIT_NOTE:
+            del messages[snapshot_index]
+        else:
+            messages[snapshot_index].content = _SNAPSHOT_LIMIT_NOTE
+            snapshot_reduced = True
+    kept_chars = _messages_chars(messages)
+    if kept_chars > budget_chars:
+        logger.warning(
+            "Context guardrail cannot fit budget window_tokens=%s budget_chars=%s "
+            "kept_chars=%s; system+current still exceed, degraded retry will apply",
+            window_tokens,
+            budget_chars,
+            kept_chars,
+        )
+    logger.debug(
+        "Context guardrail trimmed window_tokens=%s budget_chars=%s original_chars=%s "
+        "kept_chars=%s dropped_history=%s snapshot_reduced=%s",
+        window_tokens,
+        budget_chars,
+        original_chars,
+        kept_chars,
+        dropped_history,
+        snapshot_reduced,
+    )
+    return messages
 
 
 def _strip_image_parts_from_messages(messages: list[Any]) -> list[Any]:
@@ -466,6 +912,20 @@ def rewrite_image_markdown(content: str, tool_events: list[dict] | None) -> str:
 
 def build_agent_error_payload(error: BaseException) -> dict[str, Any]:
     """将模型/Agent 异常转换为可安全展示且可重试判断的错误事件。"""
+    if is_context_length_exceeded(error):
+        return {
+            "code": "context_length_exceeded",
+            "message": (
+                "对话或本次查询结果超过模型上下文上限，"
+                "请缩小查询范围或开启新对话"
+            ),
+            "retryable": False,
+            "details": {
+                "statusCode": "",
+                "error": str(error).strip()[:500] or type(error).__name__,
+                "exceptionType": type(error).__name__,
+            },
+        }
     raw_message = str(error).strip() or type(error).__name__
     status_code = getattr(error, "status_code", None)
     response = getattr(error, "response", None)
@@ -920,6 +1380,7 @@ async def _stream_graph(
     image_parts: list[dict] | None = None,
     document_text_parts: list[dict] | None = None,
     history_attachment_parts: dict[str, list[dict]] | None = None,
+    context_window_tokens: int | None = None,
 ):
     """
     流式执行对话图，通过事件逐步输出模型回复
@@ -959,6 +1420,7 @@ async def _stream_graph(
             history=history,
             citations=citations,
             image_parts=image_parts,
+            context_window_tokens=context_window_tokens,
         )
         if result.content:
             yield {"type": "message_delta", "content": result.content}
@@ -974,6 +1436,10 @@ async def _stream_graph(
         document_text_parts=document_text_parts,
         history_attachment_parts=history_attachment_parts,
     )
+    if context_window_tokens:
+        messages = apply_context_guardrail(
+            messages, window_tokens=context_window_tokens
+        )
     content_parts: list[str] = []
     thinking_parts: list[str] = []
     tool_events: list[dict[str, Any]] = []
@@ -983,6 +1449,7 @@ async def _stream_graph(
     iteration_count = 0
     wrap_up = False
     budget_exceeded = False
+    degraded = False
 
     # 场景1/3 统一主循环：逐轮消费模型原生流，工具结果回填后继续下一轮。
     while True:
@@ -990,16 +1457,25 @@ async def _stream_graph(
 
         # 消费模型原生流并转发增量事件，随后取回本轮累积结果。
         collect_state = _AstreamCollectState()
-        async for event in _astream_collect(
-            bound_model,
-            messages,
-            user_message=user_message,
-            image_parts=image_parts,
-            content_parts=content_parts,
-            thinking_parts=thinking_parts,
-            state=collect_state,
-        ):
-            yield event
+        try:
+            async for event in _astream_collect(
+                bound_model,
+                messages,
+                user_message=user_message,
+                image_parts=image_parts,
+                content_parts=content_parts,
+                thinking_parts=thinking_parts,
+                state=collect_state,
+            ):
+                yield event
+        except Exception as error:
+            if not degraded and _should_degrade_context(error):
+                degraded = True
+                content_parts.clear()
+                thinking_parts.clear()
+                messages = _degraded_messages(system_prompt, user_message)
+                continue
+            raise
         response = collect_state.response
         usage = merge_token_usage(usage, collect_state.usage)
 
@@ -1090,6 +1566,7 @@ async def stream_graph(
     image_parts: list[dict] | None = None,
     document_text_parts: list[dict] | None = None,
     history_attachment_parts: dict[str, list[dict]] | None = None,
+    context_window_tokens: int | None = None,
 ):
     """执行流式图，并将上游异常转换为终止 error 事件。"""
     try:
@@ -1105,6 +1582,7 @@ async def stream_graph(
             image_parts=image_parts,
             document_text_parts=document_text_parts,
             history_attachment_parts=history_attachment_parts,
+            context_window_tokens=context_window_tokens,
         ):
             yield event
     except asyncio.CancelledError:
@@ -1128,6 +1606,7 @@ async def run_graph(
     image_parts: list[dict] | None = None,
     document_text_parts: list[dict] | None = None,
     history_attachment_parts: dict[str, list[dict]] | None = None,
+    context_window_tokens: int | None = None,
 ) -> GraphResult:
     """
     非流式执行对话图，支持工具调用循环
@@ -1170,6 +1649,10 @@ async def run_graph(
         document_text_parts=document_text_parts,
         history_attachment_parts=history_attachment_parts,
     )
+    if context_window_tokens:
+        messages = apply_context_guardrail(
+            messages, window_tokens=context_window_tokens
+        )
 
     thinking_parts: list[str] = []
     content_parts: list[str] = []
@@ -1179,6 +1662,7 @@ async def run_graph(
     iteration_count = 0
     wrap_up = False
     budget_exceeded = False
+    degraded = False
 
     # 工具调用循环：模型请求工具时执行工具并回填结果，直到不再请求或触达上限。
     while True:
@@ -1186,6 +1670,10 @@ async def run_graph(
         try:
             response = await bound_model.ainvoke(messages)
         except Exception as error:
+            if not degraded and _should_degrade_context(error):
+                degraded = True
+                messages = _degraded_messages(system_prompt, user_message)
+                continue
             logger.exception("Model invocation failed: %s", type(error).__name__)
             raise
 

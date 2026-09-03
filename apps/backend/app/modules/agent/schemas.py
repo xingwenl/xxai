@@ -49,6 +49,11 @@ class AgentVersionCreate(BaseModel):
     api_key: str | None = Field(default=None, min_length=1)
     temperature: float = Field(default=0.2, ge=0, le=2)
     model_options: dict[str, Any] = Field(default_factory=dict)
+    context_window_tokens: int | None = Field(
+        default=None,
+        ge=1024,
+        description="模型上下文窗口（token）；不传时按模型名映射推断或禁用护栏",
+    )
     capabilities: dict[str, Any] | None = Field(
         default=None,
         description=(
@@ -69,6 +74,7 @@ class AgentVersionRead(BaseModel):
     model_base_url: str | None = None
     temperature: float
     model_options: dict[str, Any]
+    context_window_tokens: int | None = None
     capabilities: dict[str, Any] | None = None
     created_at: datetime
     published_at: datetime | None = None

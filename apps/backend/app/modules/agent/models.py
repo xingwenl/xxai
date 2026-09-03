@@ -79,6 +79,15 @@ class AgentVersion(BaseModel):
     model_options: Mapped[dict[str, Any]] = mapped_column(
         JSON, nullable=False, default=dict, comment="模型额外配置"
     )
+    context_window_tokens: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        default=None,
+        comment=(
+            "模型上下文窗口（token），用于对话上下文预算护栏；"
+            "为空时按内置模型名映射推断，均未命中则不启用护栏"
+        ),
+    )
     capabilities: Mapped[dict[str, Any] | None] = mapped_column(
         JSON,
         nullable=True,
