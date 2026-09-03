@@ -38,7 +38,7 @@ from app.modules.tools.shop.data.client import fetch_orders
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 1000,
-                "description": "每页数量，默认 20，上限 1000",
+                "description": "每页数量，默认 100，上限 1000",
             },
             "keyword": {
                 "type": "string",

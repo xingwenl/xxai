@@ -47,7 +47,7 @@ from app.modules.tools.shop.data.client import SHOP_LIST_FILTER_KEYS, fetch_my_s
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 1000,
-                "description": "每页数量，默认 20，上限 1000",
+                "description": "每页数量，默认 100，上限 1000",
             },
             "platformType": {
                 "type": "string",
