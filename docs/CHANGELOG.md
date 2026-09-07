@@ -1,5 +1,8 @@
 # Changelog
 
+## - 2026-09-07
+- ✨ feat：Agent 主循环统一与灰度 parity 自动化 `🧑‍💻 lixingwen`
+
 ## - 2026-09-03
 - ✨ feat：工具查询结果跨轮记忆与上下文预算护栏 `🧑‍💻 lixingwen`
 

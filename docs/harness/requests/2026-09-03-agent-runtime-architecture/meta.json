@@ -1,0 +1,61 @@
+{
+  "id": "2026-09-03-agent-runtime-architecture",
+  "title": "Agent Runtime 与 Gateway 架构优化",
+  "scope": "backend",
+  "phase": "verify",
+  "status": "active",
+  "riskLevel": "high",
+  "changeTypes": [
+    "architecture",
+    "docs"
+  ],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "LangChain Agents",
+      "FastAPI WebSockets",
+      "Microsoft AutoGen AgentChat",
+      "PydanticAI Agents"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": false,
+  "approvalReasons": [
+    "架构边界变化",
+    "Agent Loop 最大轮数终态行为变化",
+    "工具状态与终态内部契约变化",
+    "工具执行边界收敛（阶段 5）：legacy 工具轮归一化与 host tool 等待超时"
+  ],
+  "approvalRecords": [
+    {
+      "time": "2026-09-03",
+      "decision": "approved",
+      "scope": "新增 agent_runtime 独立模块目录，按渐进迁移方案继续"
+    },
+    {
+      "time": "2026-09-04",
+      "decision": "approved",
+      "scope": "AgentLoop 最大轮数采用一次性禁用工具收尾调用；不修改公开协议、数据库或权限边界"
+    },
+    {
+      "time": "2026-09-04",
+      "decision": "approved",
+      "scope": "阶段 5 工具执行边界：legacy 工具轮失败结果化与 host tool 等待按审计 expires_at 超时（running 也启用），不修改公开协议、数据库或权限边界"
+    },
+    {
+      "time": "2026-09-07",
+      "decision": "approved",
+      "scope": "阶段 2 状态映射收拢：lifecycle 新增三个收尾字段助手并替换 conversation/gateway 三个收尾站点的重复推导，行为零变化，不修改公开协议、数据库或权限边界"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-09-03",
+  "updatedAt": "2026-09-07",
+  "relatedPaths": [
+    "apps/backend/app/modules/gateway/",
+    "apps/backend/app/modules/conversation/"
+  ],
+  "notes": "阶段 5（工具执行边界）已实现；阶段 6（持久化与并发）审计完成无代码变更；阶段 7 灰度 parity 自动化持续补全（2026-09-05/06/07）：修复 knowledge_grounded 引用语义、工具 step_type/input_summary 与快照参数、图片改写与 content_blocks、thinking/reasoning 透出与跨轮累积（新增 agent_runtime/message_text.py）、REST SSE astream 工具轮事件/步骤/快照 parity 与参数摘要口径统一、REST 确认/等待态灰度收尾 parity（非流式 pending_confirmation_id 透出、工具/生成步骤落 waiting_confirmation、REST SSE confirmation_required 后补齐收尾事件、AgentLoop 等待态结果携带工具事件与思考文本）、REST SSE/WS 流式模型错误收尾 parity（AgentRuntime.stream 把未表达为事件的模型级错误转为终止 error 事件，灰度下 SSE/WS 以 error 事件终结并落库 failed，取消语义不变）、REST 非流式模型错误失败落库补全（execute_chat 在模型错误时统一补 failed 步骤/loop 落库后上抛原异常，REST 公开错误响应不变）、多轮 usage 跨轮累积 parity（contracts.merge_usage 单点，AgentLoop 事件与结果均携带累计 usage）、max_turns 边界语义按 Pi/legacy 对齐（达到上限那次的模型响应请求工具时该轮工具不执行，转为 failed(max_turns_reached) 回填并执行禁工具收尾调用，参考 Pi failToolCallsFromTruncatedMessage；两路成功执行上限轮数一致，灰度仅多一条 failed 记录事件）、REST SSE max_turns 收尾 parity 补全（新增 test_stream_chat_gray_max_turns_wrapup_terminates_like_legacy：灰度与 legacy 均以收尾 completed 终结、模型调用 3 次、不卡死不丢尾；灰度达上限轮工具记录为 failed(max_turns_reached)）、WS max_turns 收尾 parity 补全（新增 test_embed_chat_gray_max_turns_wrapup_terminates_like_legacy 直接驱动 stream_embed_chat：灰度与 legacy 均以 message_completed 终结、loop 落 completed、模型调用 3 次、收尾正文一致；两路第 1 轮 lookup 步骤 succeeded，灰度第 2 轮达上限的 lookup 记为 failed 工具步骤；顺带补齐 WS 灰度工具轮事件到步骤映射的首个自动化覆盖，测试替身 create_loop_step 补 ORM 列默认字段）、WS confirmation 确认恢复 parity（模拟 dispatcher 回调内等待页面决策后放行：批准后两路都恰好调用 2 次模型、事件类型序列一致、pay 步骤 succeeded、loop completed；拒绝后两路都只把 pay 步骤记为 failed、模型正常收尾、loop completed，拒绝不升级整请求失败、不伪装成取消、不自动重试；确认事件与页面决策回传属于 dispatcher/连接层既有覆盖范围）、WS ask_user 提问恢复 parity（模拟 dispatcher 在工具回调内等待用户答复后放行：两路都以 message_completed 终结、模型调用 2 次、事件类型序列一致、ask_user 步骤 succeeded、loop completed、收尾正文一致，提问不误判为终止或失败），以及 WS 灰度取消路径 parity（灰度开关开启时在模型流式正文首条 message_delta 处取消：CancelledError 原样传播、只有用户消息落库、不写助手完成消息、loop 保持 running，取消不伪装成失败/完成终态，与 legacy 取消语义一致），全量核心回归 307 passed、1 skipped。阶段 2 状态映射收拢（用户确认后实施）：lifecycle 新增并导出 generation_step_status_for/loop_status_for/loop_summary_for 纯函数助手，conversation/services.py 流式与非流式收尾、gateway/runtime.py _finish_embed_chat 三个收尾站点统一改用助手且每个函数只解析一次 resolve_result_run_status，新增 RunStatus 全量矩阵测试；行为零变化，错误分支 failed 落库保持原样。最终验收仍需用户执行 REST 非流式与 REST SSE 的真实人工测试（灰度开关开启，含确认→continuation、模型错误与最大轮数场景），并可补充 host tool 超时与思考模型真实流式样本回归；REST 人工测试按用户要求延后，当前不阻塞后端自动化推进。"
+}

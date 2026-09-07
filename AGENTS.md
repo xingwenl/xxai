@@ -69,6 +69,10 @@ AI 执行 `/new`、`/modify` 或 `/fix` 时，必须先读取并遵守 [`docs/ha
 
 提交信息使用 Conventional Commits 格式（`feat:`/`fix:`/`refactor:`/`docs:` 等），主题用中文概括；涉及文档改动时同步更新 `docs/CHANGELOG.md`。
 
+## 重要开发
+涉及 Agent Loop、工具执行、Skill/Command 加载、上下文压缩、会话持久化、事件回放、权限边界等非局部架构决策时，先调研至少一个成熟 Agent 项目的实际实现或官方资料，再提出方案。
+   - 优先阅读本机源码，不先做网络搜索：Pi 位于 `/Users/lixingwen/xw/git/pi`
+
 推荐提交流程：
 
 1. 在根仓库确认任务范围

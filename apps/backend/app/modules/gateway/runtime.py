@@ -2,19 +2,24 @@
 
 import asyncio
 import base64
+from app.core.config import get_settings
 from collections.abc import AsyncIterator
 from app.core.logging import get_logger
 from app.modules.conversation.repositories import ConversationRepository
 from app.modules.conversation.services import build_loop_with_steps, load_recent_history
 from app.modules.conversation.runtime import (
     attach_tool_snapshots,
+    apply_runtime_context_guardrail,
     build_tool_snapshots,
     build_system_prompt,
+    build_history_messages,
     stream_graph,
     tool_step_values,
     image_content_blocks,
     custom_content_blocks,
     resolve_context_window_tokens,
+    rewrite_image_markdown,
+    GraphResult,
 )
 from app.modules.gateway.events import (
     LoopEventBuilder,
@@ -31,6 +36,21 @@ from app.modules.attachment.provider import (
 from app.modules.asset_processing.runtime import attachment_embedding_enabled
 from app.modules.asset_processing.repositories import AssetProcessingRepository
 from app.modules.asset_processing.models import ProcessingStatus
+from app.modules.agent_runtime.event_adapters import event_to_legacy
+from app.modules.agent_runtime.graph_bridge import LegacyGraphRuntimeBridge
+from app.modules.agent_runtime.conversation_adapter import stream_runtime_as_conversation
+from app.modules.agent_runtime.langchain_adapter import build_langchain_messages
+from app.modules.agent_runtime.composition import (
+    build_langchain_runtime,
+)
+from app.modules.agent_runtime.lifecycle import (
+    AgentRunLifecycle,
+    RunStatus,
+    generation_step_status_for,
+    loop_status_for,
+    loop_summary_for,
+    resolve_result_run_status,
+)
 from app.shared.exceptions import NotFoundException
 
 logger = get_logger(__name__)
@@ -328,6 +348,7 @@ class RequestRegistry:
     def __init__(self) -> None:
         self._tasks: dict[str, asyncio.Task] = {}
         self._completed: set[str] = set()
+        self._lifecycles: dict[str, AgentRunLifecycle] = {}
 
     def register(self, request_id: str, task: asyncio.Task) -> bool:
         """注册新任务；活跃或已完成的同一 requestId 都不重复执行。"""
@@ -337,11 +358,15 @@ class RequestRegistry:
         if request_id in self._completed:
             return False
         self._tasks[request_id] = task
+        self._lifecycles[request_id] = AgentRunLifecycle()
         return True
 
     def complete(self, request_id: str) -> None:
         """将请求标记为完成，释放 Task 引用并保留幂等记录。"""
         self._tasks.pop(request_id, None)
+        lifecycle = self._lifecycles.get(request_id)
+        if lifecycle is not None:
+            lifecycle.complete()
         self._completed.add(request_id)
 
     async def cancel(self, request_id: str) -> bool:
@@ -352,7 +377,35 @@ class RequestRegistry:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
         self._tasks.pop(request_id, None)
+        lifecycle = self._lifecycles.get(request_id)
+        if lifecycle is not None:
+            lifecycle.cancel()
+        self._completed.add(request_id)
         return True
+
+    def fail(self, request_id: str, error: dict | None = None) -> None:
+        """记录请求失败；失败请求同样进入终态并保持 requestId 幂等。"""
+
+        lifecycle = self._lifecycles.get(request_id)
+        if lifecycle is not None:
+            lifecycle.fail(error or {"code": "request_failed"})
+        self._tasks.pop(request_id, None)
+        self._completed.add(request_id)
+
+    def budget_exceeded(self, request_id: str) -> None:
+        """记录预算终态；对外协议仍由 Adapter 使用兼容的 completed 事件。"""
+
+        lifecycle = self._lifecycles.get(request_id)
+        if lifecycle is not None:
+            lifecycle.budget_exceeded()
+        self._tasks.pop(request_id, None)
+        self._completed.add(request_id)
+
+    def status(self, request_id: str) -> RunStatus | None:
+        """返回请求终态，供连接层日志和协议适配使用。"""
+
+        lifecycle = self._lifecycles.get(request_id)
+        return lifecycle.status if lifecycle is not None else None
 
 
 async def _resolve_embed_conversation(
@@ -462,20 +515,17 @@ async def _finish_embed_chat(
             with_tool=True,
         )
     generation_step.sequence = next_step_sequence
-    generation_step.status = (
-        "succeeded"
-        if result.pending_confirmation_id is None
-        else "waiting_confirmation"
+    result_status = resolve_result_run_status(
+        pending_confirmation_id=result.pending_confirmation_id,
+        budget_exceeded=bool(getattr(result, "budget_exceeded", False)),
+        error=getattr(result, "error", None),
     )
+    generation_step.status = generation_step_status_for(result_status)
     generation_step.output_summary = f"生成 {len(result.content)} 字符"
     generation_step.thinking_text = result.thinking_text
     loop.assistant_message_id = assistant.id
-    loop.status = (
-        "waiting_confirmation"
-        if result.pending_confirmation_id is not None
-        else "completed"
-    )
-    loop.summary = "已完成回答" if loop.status == "completed" else "等待用户确认后继续"
+    loop.status = loop_status_for(result_status)
+    loop.summary = loop_summary_for(result_status)
     await repo.save_loop(loop)
     logger.info(
         "Embed chat completed request_id=%s conversation_id=%s assistant_id=%s knowledge_grounded=%s citation_count=%s usage=%s",
@@ -637,25 +687,70 @@ async def stream_embed_chat(
     result = None
     tool_steps = {}
     next_step_sequence = generation_sequence + 1
-    async for item in stream_graph(
-        model,
-        system_prompt=build_system_prompt(
-            context.version,
-            context.skill_instructions,
-            citations,
-            host_tools=runtime_tools if runtime_tools is not None else host_tools,
-            caller_system_prompt=system_prompt,
+    graph_bridge = LegacyGraphRuntimeBridge()
+    use_agent_runtime = get_settings().agent_runtime_enabled
+    if use_agent_runtime:
+        tools = runtime_tools if runtime_tools is not None else host_tools or []
+        runtime = build_langchain_runtime(
+            model,
+            tools,
+            invoke_host_tool_fn,
+            streaming=True,
+            context_transform=lambda messages: apply_runtime_context_guardrail(
+                messages,
+                window_tokens=resolve_context_window_tokens(context.version),
+            ),
+            max_turns=get_settings().agent_max_iterations,
+        )
+        event_stream = stream_runtime_as_conversation(
+            runtime.stream(
+                build_langchain_messages(
+                    system_prompt=build_system_prompt(
+                        context.version,
+                        context.skill_instructions,
+                        citations,
+                        host_tools=tools,
+                        caller_system_prompt=system_prompt,
+                    ),
+                    history=build_history_messages(
+                        history,
+                        attachment_parts=history_attachment_parts,
+                    ),
+                    user_message=message,
+                    image_parts=image_parts,
+                    document_text_parts=document_text_parts,
+                ),
+                request_id=request_id,
+            )
+        )
+    else:
+        event_stream = graph_bridge.stream(
+            stream_graph(
+            model,
+            system_prompt=build_system_prompt(
+                context.version,
+                context.skill_instructions,
+                citations,
+                host_tools=runtime_tools if runtime_tools is not None else host_tools,
+                caller_system_prompt=system_prompt,
+            ),
+            user_message=message,
+            image_parts=image_parts,
+            history=history,
+            citations=citations,
+            tools=runtime_tools if runtime_tools is not None else host_tools,
+            invoke_tool_fn=invoke_host_tool_fn,
+            document_text_parts=document_text_parts,
+            history_attachment_parts=history_attachment_parts,
+            context_window_tokens=resolve_context_window_tokens(context.version),
         ),
-        user_message=message,
-        image_parts=image_parts,
-        history=history,
-        citations=citations,
-        tools=runtime_tools if runtime_tools is not None else host_tools,
-        invoke_tool_fn=invoke_host_tool_fn,
-        document_text_parts=document_text_parts,
-        history_attachment_parts=history_attachment_parts,
-        context_window_tokens=resolve_context_window_tokens(context.version),
-    ):
+        request_id=request_id,
+        conversation_id=conversation.id,
+            )
+    async for agent_event in event_stream:
+        # 内部先经过统一 AgentEvent seam，再还原为旧字段供现有持久化逻辑使用。
+        # 这一阶段刻意保留出口兼容，确保 WebSocket 协议和事件顺序不变。
+        item = agent_event if isinstance(agent_event, dict) else event_to_legacy(agent_event)
         # message_delta 立即向前端流式发送；completed 事件只保留最终 GraphResult，
         # 避免同一段回答被重复写入消息表。
         if item["type"] == "message_delta":
@@ -719,7 +814,23 @@ async def stream_embed_chat(
             await repo.save_loop(loop)
             yield events.error(item["payload"])
             return
-        result = item["result"]
+        # 新 runtime 结果优先；保留旧 GraphResult 回退，支持灰度和异常恢复。
+        result = item.get("agent_result") or item.get("result")
+        if result is None and item["type"] == "completed":
+            payload = item.get("payload", {})
+            payload_tool_events = payload.get("tool_events", [])
+            result = GraphResult(
+                content=rewrite_image_markdown(
+                    payload.get("content", ""), payload_tool_events
+                ),
+                citations=citations,
+                knowledge_grounded=bool(citations),
+                tool_events=payload_tool_events,
+                usage=payload.get("usage"),
+                pending_confirmation_id=payload.get("pending_confirmation_id"),
+                thinking_text=payload.get("thinking_text", "") or "",
+                loop_id=loop.id,
+            )
 
     if result is None:
         return

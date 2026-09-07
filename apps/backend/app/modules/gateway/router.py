@@ -69,6 +69,10 @@ from app.modules.host_tool.services import (
 from app.modules.builtin_tool.repositories import BuiltinToolRepository
 from app.modules.gateway.dispatcher import RuntimeToolDispatcher
 from app.modules.gateway.events import build_error, event_to_protocol_payload
+from app.modules.agent_runtime.errors import cancellation_error
+from app.modules.agent_runtime.adapters import tool_call_from_legacy
+from app.modules.agent_runtime.tools import ToolDispatcher
+from app.modules.agent_runtime.composition import build_runtime_tools
 from app.shared.exceptions import UnauthorizedException
 
 router = APIRouter()
@@ -90,6 +94,23 @@ async def _send_protocol_error(
     if details is not None:
         payload["details"] = details
     await websocket.send_text(envelope("error", payload, request_id=request_id))
+
+
+def _cancel_pending_request_futures(
+    *future_maps: dict[str, asyncio.Future],
+) -> None:
+    """取消请求取消后仍在等待外部输入的 Future。
+
+    模型 Task 被取消并不一定会自动清理连接级 Future；如果不主动处理，迟到的
+    页面回调可能唤醒一个已经不存在的请求，Future 也会一直占用内存直到连接
+    关闭。当前连接对请求串行执行，因此这里可以安全清理全部待处理 Future。
+    """
+
+    for futures in future_maps:
+        for future in futures.values():
+            if not future.done():
+                future.cancel()
+        futures.clear()
 
 async def _handle_host_tools_register(
     *,
@@ -201,12 +222,20 @@ async def _handle_confirmation_resolve(
     host_tool_repo: HostToolRepository,
     pending_mcp_confirmations: dict[str, asyncio.Future],
     pending_host_results: dict[str, asyncio.Future],
+    active_request_id: str | None = None,
 ) -> None:
     """处理页面确认结果，并重新按 token 主体校验审计归属。"""
     # 确认结果必须重新按 token 主体查询审计，不能只信任页面传来的 callId。
     call_id = message.get("payload", {}).get("callId")
     approved = message.get("payload", {}).get("approved")
     if not isinstance(call_id, str) or not isinstance(approved, bool):
+        return
+    message_request_id = message.get("requestId")
+    if (
+        isinstance(message_request_id, str)
+        and active_request_id is not None
+        and message_request_id != active_request_id
+    ):
         return
     mcp_decision = pending_mcp_confirmations.get(call_id)
     if mcp_decision is not None:
@@ -233,10 +262,18 @@ async def _handle_question_answer(
     *,
     message: dict,
     pending_questions: dict[str, asyncio.Future],
+    active_request_id: str | None = None,
 ) -> None:
     """处理用户对 AI 问题的答复，唤醒对应挂起的模型循环。"""
     question_id = message.get("payload", {}).get("questionId")
     if not isinstance(question_id, str):
+        return
+    message_request_id = message.get("requestId")
+    if (
+        isinstance(message_request_id, str)
+        and active_request_id is not None
+        and message_request_id != active_request_id
+    ):
         return
     future = pending_questions.get(question_id)
     if future is None or future.done():
@@ -262,11 +299,19 @@ async def _handle_host_tool_result(
     agent_id: int,
     host_tool_repo: HostToolRepository,
     pending_host_results: dict[str, asyncio.Future],
+    active_request_id: str | None = None,
 ) -> None:
     """处理页面宿主工具执行结果，仅接受当前主体的 running 状态调用。"""
     # 只接受当前主体下、状态为 running 的调用结果；重复或越权结果会被忽略。
     call_id = message.get("payload", {}).get("callId")
     if not isinstance(call_id, str):
+        return
+    message_request_id = message.get("requestId")
+    if (
+        isinstance(message_request_id, str)
+        and active_request_id is not None
+        and message_request_id != active_request_id
+    ):
         return
     audit = await host_tool_repo.get_call(
         call_id,
@@ -542,23 +587,34 @@ async def produce_embed_request(
                 pending_questions=pending_questions,
                 host_tool_repo=host_tool_repo,
             )
+            tool_dispatcher = ToolDispatcher([dispatcher])
+
+            async def invoke_runtime_tool(**kwargs):
+                """把旧 Graph 回调桥接到统一 ToolDispatcher。
+
+                MCP 的 server_id 调用没有完整 tool 对象，继续交给原 dispatcher
+                的专用分支；其余调用统一经过 ToolCall/ToolExecutor seam。
+                """
+                if kwargs.get("server_id") is not None:
+                    return await dispatcher.invoke(**kwargs)
+                tool = kwargs.get("tool")
+                call = kwargs.get("call")
+                if tool is None or not isinstance(call, dict):
+                    return await dispatcher.invoke(**kwargs)
+                typed_call = tool_call_from_legacy(call, name=tool.name)
+                return await tool_dispatcher.execute(tool, typed_call)
 
             context.host_tools = [
                 registered_host_policies[name]
                 for name in registered_host_tools
                 if name in registered_host_policies
             ]
-            runtime_tools = [
-                *context.builtin_tools,
-                *context.mcp_tools,
-                *context.host_tools,
-                *context.skill_script_tools,
-                *(
-                    [context.skill_instruction_tool]
-                    if context.skill_instruction_tool
-                    else []
-                ),
-            ]
+            runtime_tools = build_runtime_tools(
+                builtin_tools=context.builtin_tools,
+                mcp_tools=context.mcp_tools,
+                skill_script_tools=context.skill_script_tools,
+                skill_instruction_tool=context.skill_instruction_tool,
+            )
             runtime_tools = filter_conflicting_runtime_tools(runtime_tools)
             # 模型看到的工具集合再次取自连接级注册状态，未注册工具不会进入 bind_tools。
             logger.info(
@@ -582,11 +638,20 @@ async def produce_embed_request(
                 citations=[item.model_dump() for item in citations],
                 host_tools=context.host_tools,
                 runtime_tools=runtime_tools,
-                invoke_host_tool_fn=dispatcher.invoke,
+                invoke_host_tool_fn=invoke_runtime_tool,
                 attachments=message.get("attachments"),
             ):
                 await event_queue.put(event)
     except asyncio.CancelledError:
+        # task.cancel() 不会经过 AgentLoop 的 cancel_event 检查，因此这里补发
+        # 同一份稳定错误语义。前端可据此结束发送态，连接层随后仍会完成
+        # Future 清理和 request registry 的终态收敛。
+        await event_queue.put(
+            build_error(
+                request_id=request_id,
+                payload=cancellation_error().as_payload(),
+            )
+        )
         raise
     except Exception as exc:
         # 后台 Task 不能静默失败，否则前端会永久停留在发送中；详细堆栈只写服务端日志。
@@ -597,6 +662,9 @@ async def produce_embed_request(
                 payload=build_agent_error_payload(exc),
             )
         )
+        # 让连接层通过 Task.exception() 感知失败，而不是把已经发送 error
+        # 事件的任务误判为正常 completed。
+        raise
     finally:
         await event_queue.put(None)
 
@@ -827,12 +895,27 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
         record_connection("accepted")
         replay_conversation_id = auth_payload.get("conversationId")
         replay_cursor = auth_payload.get("lastSequence")
-        replay_result = (
-            await replay_store.replay(replay_conversation_id, replay_cursor)
-            if isinstance(replay_conversation_id, str)
-            and isinstance(replay_cursor, str)
+        normalized_replay_cursor = (
+            str(replay_cursor)
+            if isinstance(replay_cursor, (str, int)) and not isinstance(replay_cursor, bool)
             else None
         )
+        replay_result = (
+            await replay_store.replay(replay_conversation_id, normalized_replay_cursor)
+            if isinstance(replay_conversation_id, str)
+            and normalized_replay_cursor is not None
+            else None
+        )
+        # sequence 属于会话事件流，而不是单条 TCP/WS 连接。连接重建后必须
+        # 从客户端游标或 replay 最新序号继续递增，否则 SDK 会把新连接的
+        # message_started(sequence=2) 误判为已处理事件并丢弃。
+        cursor_sequence = (
+            int(normalized_replay_cursor)
+            if normalized_replay_cursor and normalized_replay_cursor.isdigit()
+            else 0
+        )
+        replay_latest = replay_result.latest_sequence if replay_result else 0
+        sequence = max(sequence, cursor_sequence + 1, int(replay_latest or 0) + 1)
         host_tool_session = get_session_factory()()
         host_tool_repo = HostToolRepository(host_tool_session)
         # 这些容器只属于当前连接：记录页面已注册的工具、对应后台策略，
@@ -873,6 +956,15 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                 await websocket.send_text(
                     json.dumps(recovered_event, ensure_ascii=False)
                 )
+            # 新连接的 envelope 序号必须接在已重放事件之后；否则 SDK 已经记录
+            # lastSequence=12，而新事件从 2 开始会被客户端按重复事件丢弃。
+            recovered_sequences = [
+                event.get("sequence")
+                for event in replay_result.events
+                if isinstance(event.get("sequence"), int)
+            ]
+            if recovered_sequences:
+                sequence = max(sequence, max(recovered_sequences) + 1)
         registry = RequestRegistry()
         active_request: str | None = None
         active_task: asyncio.Task | None = None
@@ -950,7 +1042,14 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                 await asyncio.gather(queue_task, return_exceptions=True)
             if active_task is not None and active_task in done:
                 if active_request is not None:
-                    registry.complete(active_request)
+                    task_error = active_task.exception()
+                    if task_error is None:
+                        registry.complete(active_request)
+                    else:
+                        registry.fail(
+                            active_request,
+                            build_agent_error_payload(task_error),
+                        )
                 active_task = None
                 active_request = None
             if receive_task in done:
@@ -964,6 +1063,11 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                 elif message_type == "message_cancel" and isinstance(request_id, str):
                     # 取消只作用于当前 requestId，不影响已完成或其他请求。
                     if await registry.cancel(request_id):
+                        _cancel_pending_request_futures(
+                            pending_mcp_confirmations,
+                            pending_host_results,
+                            pending_questions,
+                        )
                         active_task = None
                         active_request = None
                 elif message_type == "message_send":
@@ -1005,11 +1109,13 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                         host_tool_repo=host_tool_repo,
                         pending_mcp_confirmations=pending_mcp_confirmations,
                         pending_host_results=pending_host_results,
+                        active_request_id=active_request,
                     )
                 elif message_type == "question_answer":
                     await _handle_question_answer(
                         message=message,
                         pending_questions=pending_questions,
+                        active_request_id=active_request,
                     )
                 elif message_type in {"host_tool_result", "host_tool_error"}:
                     await _handle_host_tool_result(
@@ -1019,6 +1125,7 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                         agent_id=agent_id,
                         host_tool_repo=host_tool_repo,
                         pending_host_results=pending_host_results,
+                        active_request_id=active_request,
                     )
     except asyncio.TimeoutError:
         # auth 超时使用独立关闭码，便于 SDK 区分“未及时认证”和普通断线。
@@ -1026,19 +1133,34 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
     except WebSocketDisconnect:
         return
     except Exception:
+        logger.exception("Embed WebSocket request failed during connection lifecycle")
         record_authentication("failure")
         record_error("websocket_failure")
         await websocket.close(code=4401)
     finally:
         # 无论认证、模型或客户端哪一层失败，都释放数据库和 Redis 连接。
         active = locals().get("active_task")
-        if active is not None and not active.done():
+        active_request_id = locals().get("active_request")
+        active_registry = locals().get("registry")
+        if (
+            active_registry is not None
+            and isinstance(active_request_id, str)
+            and active is not None
+            and not active.done()
+        ):
+            # 不能只取消 asyncio Task：RequestRegistry 还需要进入 cancelled
+            # 终态并释放 requestId，否则下一次连接/请求可能看到残留 in-progress。
+            await active_registry.cancel(active_request_id)
+        elif active is not None and not active.done():
             active.cancel()
             await asyncio.gather(active, return_exceptions=True)
         for future in locals().get("pending_mcp_confirmations", {}).values():
             if not future.done():
                 future.cancel()
         for future in locals().get("pending_questions", {}).values():
+            if not future.done():
+                future.cancel()
+        for future in locals().get("pending_host_results", {}).values():
             if not future.done():
                 future.cancel()
         host_session = locals().get("host_tool_session")

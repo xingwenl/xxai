@@ -5,17 +5,37 @@ from app.core.config import get_settings
 from app.modules.conversation.repositories import ConversationRepository
 from app.modules.conversation.runtime import (
     attach_tool_snapshots,
+    build_agent_error_payload,
     build_tool_snapshots,
     build_system_prompt,
     build_step_payload,
+    apply_runtime_context_guardrail,
     resolve_context_window_tokens,
+    custom_content_blocks,
+    image_content_blocks,
+    rewrite_image_markdown,
     run_graph,
     stream_graph,
     tool_step_values,
+    GraphResult,
 )
 from app.modules.knowledge.runtime import build_embedding_model
 from app.modules.knowledge.services import build_citations, validate_embedding_dimension
 from app.modules.conversation.schemas import sanitize_content_blocks
+from app.modules.agent_runtime.event_adapters import event_to_legacy
+from app.modules.agent_runtime.graph_bridge import LegacyGraphRuntimeBridge
+from app.modules.agent_runtime.langchain_adapter import build_langchain_messages
+from app.modules.agent_runtime.conversation_adapter import stream_runtime_as_conversation
+from app.modules.agent_runtime.lifecycle import (
+    generation_step_status_for,
+    loop_status_for,
+    loop_summary_for,
+    resolve_result_run_status,
+)
+from app.modules.agent_runtime.composition import (
+    build_langchain_runtime,
+    build_runtime_tools,
+)
 from app.shared.exceptions import NotFoundException
 
 
@@ -39,9 +59,10 @@ def _rest_runtime_tools(*builtin_tools) -> list:
     ask_user 只在 embed WebSocket 链路可用（网关按客户端能力注入）；
     REST 路径即使后台绑定了该工具也不暴露，避免模型调用后无执行器。
     """
-    return [
-        tool for tool in builtin_tools if getattr(tool, "name", None) != "ask_user"
-    ]
+    return build_runtime_tools(
+        builtin_tools=builtin_tools,
+        exclude_names={"ask_user"},
+    )
 
 
 async def build_loop_payload(
@@ -218,7 +239,12 @@ async def _finish_stream_chat(
         knowledge_grounded=result.knowledge_grounded,
         message_metadata=_tool_snapshot_metadata(result),
     )
-    generation_step.status = "succeeded"
+    result_status = resolve_result_run_status(
+        pending_confirmation_id=getattr(result, "pending_confirmation_id", None),
+        budget_exceeded=bool(getattr(result, "budget_exceeded", False)),
+        error=getattr(result, "error", None),
+    )
+    generation_step.status = generation_step_status_for(result_status)
     for offset, tool_event in enumerate(result.tool_events or [], start=2):
         if str(tool_event.get("tool_call_id", tool_event["tool"])) in tool_steps:
             continue
@@ -240,8 +266,8 @@ async def _finish_stream_chat(
     generation_step.output_summary = f"生成 {len(result.content)} 字符"
     generation_step.thinking_text = result.thinking_text
     loop.assistant_message_id = assistant.id
-    loop.status = "completed"
-    loop.summary = "已完成回答"
+    loop.status = loop_status_for(result_status)
+    loop.summary = loop_summary_for(result_status)
     await repo.save_loop(loop)
     result.loop_id = loop.id
     yield {
@@ -364,6 +390,78 @@ async def retrieve_citations(knowledge_repo, knowledge_bases, query: str):
     return citations
 
 
+async def _run_execute_chat_model_round(
+    *,
+    model,
+    runtime_tools: list,
+    invoke_tool_fn,
+    use_agent_runtime: bool,
+    context,
+    history,
+    message: str,
+    citations: list[dict],
+    request_id: str,
+) -> GraphResult:
+    """执行 REST 非流式对话的模型轮次（灰度 runtime 或 legacy Graph）。
+
+    两条路径共用同一份上下文组装参数（系统提示、历史、当前消息），差异只
+    在循环执行器；把分叉收敛到这里，execute_chat 只需关心统一失败收尾，
+    避免服务层把灰度/legacy 的模型调用细节重复展开。
+    """
+
+    if use_agent_runtime:
+        runtime = build_langchain_runtime(
+            model,
+            runtime_tools,
+            invoke_tool_fn,
+            streaming=False,
+            context_transform=lambda messages: apply_runtime_context_guardrail(
+                messages,
+                window_tokens=resolve_context_window_tokens(context.version),
+            ),
+            max_turns=get_settings().agent_max_iterations,
+        )
+        messages = build_langchain_messages(
+            system_prompt=build_system_prompt(
+                context.version, context.skill_instructions, citations
+            ),
+            history=history,
+            user_message=message,
+        )
+        runtime_result = await runtime.run(messages, request_id=request_id)
+        runtime_tool_events = runtime_result.tool_events or []
+        # 灰度结果只提供纯文本与工具事件；图片 URL 改写与内容块必须与
+        # legacy Graph 收尾保持同一口径，否则 ChatResponse.content_blocks 和
+        # assistant 消息内容会在灰度开关下出现渲染差异。
+        return GraphResult(
+            content=rewrite_image_markdown(
+                runtime_result.content, runtime_tool_events
+            ),
+            citations=runtime_result.citations or citations,
+            knowledge_grounded=bool(runtime_result.citations or citations),
+            tool_events=runtime_result.tool_events,
+            usage=runtime_result.usage,
+            pending_confirmation_id=runtime_result.pending_confirmation_id,
+            thinking_text=runtime_result.thinking_text or "",
+            content_blocks=[
+                *image_content_blocks(runtime_tool_events),
+                *custom_content_blocks(runtime_tool_events),
+            ],
+        )
+    return await run_graph(
+        model,
+        system_prompt=build_system_prompt(
+            context.version, context.skill_instructions, citations
+        ),
+        user_message=message,
+        history=history,
+        citations=citations,
+        tools=runtime_tools,
+        invoke_tool_fn=invoke_tool_fn,
+        context_window_tokens=resolve_context_window_tokens(context.version),
+    )
+
+
 async def execute_chat(
     repo: ConversationRepository,
     context,
@@ -375,6 +473,7 @@ async def execute_chat(
     model,
     citations: list[dict],
     invoke_tool_fn=None,
+    use_agent_runtime: bool = False,
 ):
     logger.info(
         "Conversation chat started platform_id=%s user_id=%s agent_id=%s conversation_id=%s message_chars=%s citation_count=%s",
@@ -409,27 +508,47 @@ async def execute_chat(
         citations,
         context.skill_usages,
     )
-    result = await run_graph(
-        model,
-        system_prompt=build_system_prompt(
-            context.version, context.skill_instructions, citations
+    runtime_tools = [
+        *_rest_runtime_tools(*context.builtin_tools),
+        *context.mcp_tools,
+        *context.skill_script_tools,
+        *(
+            [context.skill_instruction_tool]
+            if context.skill_instruction_tool
+            else []
         ),
-        user_message=message,
-        history=history,
-        citations=citations,
-        tools=[
-            *_rest_runtime_tools(*context.builtin_tools),
-            *context.mcp_tools,
-            *context.skill_script_tools,
-            *(
-                [context.skill_instruction_tool]
-                if context.skill_instruction_tool
-                else []
-            ),
-        ],
-        invoke_tool_fn=invoke_tool_fn,
-        context_window_tokens=resolve_context_window_tokens(context.version),
-    )
+    ]
+    try:
+        result = await _run_execute_chat_model_round(
+            model=model,
+            runtime_tools=runtime_tools,
+            invoke_tool_fn=invoke_tool_fn,
+            use_agent_runtime=use_agent_runtime,
+            context=context,
+            history=history,
+            message=message,
+            citations=citations,
+            request_id=loop.request_id,
+        )
+    except Exception as error:
+        # REST 非流式与流式入口共用同一错误语义：模型失败不能把 loop 留在
+        # running 假象里。这里补写一条 failed 的生成步骤并把 loop 更新为
+        # failed 后继续上抛原异常，保持 REST 公开错误响应与 legacy 一致；
+        # CancelledError 属 BaseException，不会被本分支吞掉。
+        error_payload = build_agent_error_payload(error)
+        await repo.create_loop_step(
+            loop.id,
+            sequence=2 + len(skill_steps),
+            step_type="model_generation",
+            title="生成回答",
+            status="failed",
+            output_summary="模型生成失败",
+            error=error_payload,
+        )
+        loop.status = "failed"
+        loop.summary = error_payload["message"]
+        await repo.save_loop(loop)
+        raise
     assistant = await repo.create_message(
         conversation.id,
         role="assistant",
@@ -442,18 +561,25 @@ async def execute_chat(
     tool_start = 2 + len(skill_steps)
     for offset, tool_event in enumerate(result.tool_events or [], start=tool_start):
         await repo.create_loop_step(loop.id, **tool_step_values(tool_event, offset))
+    # 同一结果只解析一次请求终态，后续生成步骤/loop 落库字段统一经
+    # lifecycle 助手推导，避免三个收尾站点各自维护口径。
+    result_status = resolve_result_run_status(
+        pending_confirmation_id=getattr(result, "pending_confirmation_id", None),
+        budget_exceeded=bool(getattr(result, "budget_exceeded", False)),
+        error=getattr(result, "error", None),
+    )
     await repo.create_loop_step(
         loop.id,
         sequence=tool_start + len(result.tool_events or []),
         step_type="model_generation",
         title="生成回答",
-        status="succeeded",
+        status=generation_step_status_for(result_status),
         output_summary=f"生成 {len(result.content)} 字符",
         thinking_text=result.thinking_text,
     )
     loop.assistant_message_id = assistant.id
-    loop.status = "completed"
-    loop.summary = "已完成回答"
+    loop.status = loop_status_for(result_status)
+    loop.summary = loop_summary_for(result_status)
     await repo.save_loop(loop)
     result.loop_id = loop.id
     logger.info(
@@ -478,6 +604,7 @@ async def stream_chat(
     model,
     citations: list[dict],
     invoke_tool_fn=None,
+    use_agent_runtime: bool = False,
 ):
     logger.info(
         "Conversation stream chat started platform_id=%s user_id=%s agent_id=%s conversation_id=%s message_chars=%s citation_count=%s",
@@ -565,7 +692,39 @@ async def stream_chat(
     }
     tool_steps = {}
     next_step_sequence = generation_sequence + 1
-    async for item in stream_graph(
+    runtime_tools = [
+        *_rest_runtime_tools(*context.builtin_tools),
+        *context.mcp_tools,
+        *context.skill_script_tools,
+        *([context.skill_instruction_tool] if context.skill_instruction_tool else []),
+    ]
+    graph_bridge = LegacyGraphRuntimeBridge()
+    if use_agent_runtime:
+        runtime = build_langchain_runtime(
+            model,
+            runtime_tools,
+            invoke_tool_fn,
+            streaming=True,
+            context_transform=lambda messages: apply_runtime_context_guardrail(
+                messages,
+                window_tokens=resolve_context_window_tokens(context.version),
+            ),
+            max_turns=get_settings().agent_max_iterations,
+        )
+        runtime_stream = runtime.stream(
+            build_langchain_messages(
+                system_prompt=build_system_prompt(
+                    context.version, context.skill_instructions, citations
+                ),
+                history=history,
+                user_message=message,
+            ),
+            request_id=loop.request_id,
+        )
+        event_stream = stream_runtime_as_conversation(runtime_stream)
+    else:
+        event_stream = graph_bridge.stream(
+            stream_graph(
         model,
         system_prompt=build_system_prompt(
             context.version, context.skill_instructions, citations
@@ -584,8 +743,19 @@ async def stream_chat(
             ),
         ],
         invoke_tool_fn=invoke_tool_fn,
-        context_window_tokens=resolve_context_window_tokens(context.version),
-    ):
+            context_window_tokens=resolve_context_window_tokens(context.version),
+        ),
+        request_id=f"conversation-{conversation.id}",
+        conversation_id=conversation.id,
+            )
+    async for agent_event in event_stream:
+        # REST SSE 与 WebSocket 共用统一内部事件 seam；这里保留旧字段出口，
+        # 让后续的消息持久化和 SSE 组装可以渐进迁移而不改变公开响应格式。
+        item = (
+            agent_event
+            if isinstance(agent_event, dict)
+            else event_to_legacy(agent_event)
+        )
         if item["type"] == "message_delta":
             yield {"type": "message_delta", "conversation": conversation, **item}
             continue
@@ -672,6 +842,41 @@ async def stream_chat(
                 "conversation": conversation,
                 "payload": outcome.model_dump(),
             }
+            if str(outcome.status) == "confirmation_required":
+                # legacy stream_graph 在确认等待时会把 GraphResult 终态交给
+                # 收尾逻辑；AgentRuntime 等待态不再调用模型，事件流也自然
+                # 结束，这里补一次等效收尾，避免 loop/step 永远停在 running。
+                wait_result = GraphResult(
+                    content="",
+                    citations=citations,
+                    knowledge_grounded=bool(citations),
+                    pending_confirmation_id=getattr(
+                        outcome, "confirmation_id", None
+                    ),
+                    tool_events=[
+                        {
+                            "tool_call_id": item.get("tool_call_id"),
+                            "tool": item.get("tool"),
+                            "tool_type": item.get("tool_type"),
+                            "arguments": item.get("arguments"),
+                            "outcome": outcome,
+                        }
+                    ],
+                    usage=None,
+                    thinking_text="",
+                    loop_id=loop.id,
+                )
+                async for event in _finish_stream_chat(
+                    repo,
+                    conversation,
+                    loop,
+                    generation_step,
+                    tool_steps=tool_steps,
+                    next_step_sequence=next_step_sequence,
+                    result=wait_result,
+                ):
+                    yield event
+                return
             continue
         if item["type"] == "error":
             generation_step.status = "failed"
@@ -688,7 +893,28 @@ async def stream_chat(
                 "payload": item["payload"],
             }
             return
-        result = item["result"]
+        # Bridge 已提供统一 AgentResult；旧 GraphResult 作为 fallback，确保
+        # 灰度期间不同事件来源仍能完成同一套消息与 loop 收尾。
+        result = item.get("agent_result") or item.get("result")
+        if result is None and item["type"] == "completed":
+            payload = item.get("payload", {})
+            payload_tool_events = payload.get("tool_events", [])
+            result = GraphResult(
+                # legacy 流式 Graph 在收尾时已按工具结果改写图片 URL；runtime
+                # 事件只有纯文本，这里补一次相同改写，避免灰度流输出差异。
+                content=rewrite_image_markdown(
+                    payload.get("content", ""), payload_tool_events
+                ),
+                citations=citations,
+                knowledge_grounded=bool(citations),
+                tool_events=payload_tool_events,
+                usage=payload.get("usage"),
+                pending_confirmation_id=payload.get("pending_confirmation_id"),
+                thinking_text=payload.get("thinking_text", "") or "",
+                loop_id=loop.id,
+            )
+        if result is None:
+            continue
         async for event in _finish_stream_chat(
             repo,
             conversation,

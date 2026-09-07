@@ -27,6 +27,7 @@ from app.modules.skill.repositories import SkillRepository
 from app.modules.skill.services import load_bound_skill_instruction
 from app.modules.skill_runner.client import SkillRunnerClient
 from app.modules.skill_runner.services import execute_skill_script
+from app.modules.agent_runtime.contracts import ToolCall
 
 # 单次请求允许模型提问的次数上限，防止模型滥用提问替代正常回复。
 MAX_QUESTIONS_PER_REQUEST = 3
@@ -89,6 +90,10 @@ class RuntimeToolDispatcher:
         arguments=None,
     ):
         """按工具来源分流，并在 MCP 确认后恢复同一模型循环。"""
+        if isinstance(call, ToolCall):
+            tool_name = tool_name or call.name
+            server_id = server_id if server_id is not None else call.server_id
+            call = {"id": call.id, "args": call.arguments}
         if tool is None and server_id is not None and tool_name is not None:
             tool = self.mcp_tools_by_key.get((server_id, tool_name))
             self.mcp_call_sequence += 1
@@ -139,6 +144,25 @@ class RuntimeToolDispatcher:
                 self.loaded_skill_cache[slug] = outcome
             return outcome
         return await self._invoke_host_tool(tool, call)
+
+    def supports(self, tool: object) -> bool:
+        """声明该执行器可处理网关注册的全部运行时工具。
+
+        来源判断仍在 ``invoke`` 内部完成，因为 MCP 工具需要同时使用
+        ``server_id``；对外暴露统一 supports 接口后，Agent runtime 可以把
+        网关分发器作为单一 ToolExecutor 注册，而不复制权限和确认逻辑。
+        """
+        return tool is not None
+
+    async def execute(self, tool, call: ToolCall):
+        """实现 agent_runtime 的 ToolExecutor 形状。
+
+        网关原有 ``invoke`` 仍保留给协议层；这个薄适配方法只负责把类型化
+        ToolCall 送入同一套权限、确认、审计和页面 Future 流程，避免出现两套
+        工具安全实现。
+        """
+
+        return await self.invoke(tool=tool, call=call)
 
     async def _invoke_question_tool(self, tool, call):
         """执行询问工具：发送 question_required 事件并等待用户选择后恢复。"""
@@ -356,9 +380,71 @@ class RuntimeToolDispatcher:
                 == "awaiting_confirmation",
             }
         )
-        # 此处只暂停模型 Task；WebSocket 主循环仍可接收结果并唤醒 Future。
-        result = await future
-        self.pending_host_results.pop(call_id, None)
+        # 与 MCP 确认、ask_user 一样，host tool 等待必须有服务端上限，否则
+        # 页面或用户确认永不响应时请求会无界挂起。等待时长直接沿用审计已
+        # 写入的 expires_at（当前 10 分钟），不引入第二套超时配置。
+        timeout_seconds = 600.0
+        if existing.expires_at is not None:
+            timeout_seconds = max(
+                0.0,
+                (existing.expires_at - utc_naive_now()).total_seconds(),
+            )
+        try:
+            try:
+                # 此处只暂停模型 Task；WebSocket 主循环仍可接收结果并唤醒
+                # Future。wait_for 超时会取消底层 Future，模型 Task 取消也会
+                # 经 finally 清理，避免 pending_host_results 残留。
+                result = await asyncio.wait_for(future, timeout=timeout_seconds)
+            except asyncio.TimeoutError:
+                result = await self._expire_host_wait(call_id)
+        finally:
+            self.pending_host_results.pop(call_id, None)
+            if not future.done():
+                future.cancel()
         if isinstance(result, dict) and "error" in result:
             return SimpleNamespace(status="completed", result=result)
         return SimpleNamespace(status="completed", result=result)
+
+    async def _expire_host_wait(self, call_id: str) -> dict:
+        """处理 host tool 等待超时：先重读审计避免覆盖并发终态，再落库。
+
+        超时与页面回调可能在事件循环上交错：页面可能在同一时刻已把审计
+        推进到 succeeded/failed。因此这里先重新读取审计；只有仍处于等待或
+        运行状态时才执行转换，否则把页面已经写入的终态结果原样返回，避免
+        ``transition_call`` 的条件更新行数为 0 而抛出二次解析错误。
+        """
+
+        fresh = await self.host_tool_repo.get_call(
+            call_id,
+            platform_id=self.platform_id,
+            agent_id=self.agent_id,
+            end_user_id=self.end_user_id,
+        )
+        status = getattr(fresh, "status", None)
+        if status == "succeeded":
+            return dict(getattr(fresh, "result", None) or {})
+        if status in {"failed", "rejected", "expired"}:
+            # 页面回调与超时竞争时，Future 可能已被 wait_for 取消，结果只能
+            # 从审计终态恢复，不能凭空生成第二次成功结果。
+            return {
+                "error": "host_tool_failed",
+                "code": "host_tool_execution_failed",
+                "message": str(getattr(fresh, "error", None) or "宿主工具已结束"),
+            }
+        if status == "awaiting_confirmation":
+            await self.host_tool_repo.transition_call(fresh, "expired")
+            return {
+                "error": "host_tool_expired",
+                "code": "host_tool_expired",
+                "message": "宿主工具确认已超时，工具未执行",
+            }
+        # running 是当前唯一剩余状态；状态机允许 running -> failed，超时按
+        # 失败结果化回填模型，避免请求永久挂起在页面执行阶段。
+        await self.host_tool_repo.transition_call(
+            fresh, "failed", error="host_tool_execution_timeout"
+        )
+        return {
+            "error": "host_tool_failed",
+            "code": "host_tool_execution_timeout",
+            "message": "宿主工具执行超时，未收到页面结果",
+        }

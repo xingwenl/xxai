@@ -5,6 +5,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db_session
+from app.core.config import get_settings
 from app.core.security import require_current_active_user_or_wechat_service
 from app.modules.agent.repositories import AgentRepository
 from app.modules.agent.services import build_chat_model
@@ -32,6 +33,8 @@ from app.modules.skill.services import load_bound_skill_instruction
 from app.modules.asset.repositories import AssetRepository
 from app.modules.builtin_tool.repositories import BuiltinToolRepository
 from app.modules.builtin_tool.services import invoke_builtin_tool
+from app.modules.agent_runtime.contracts import ToolCall
+from app.modules.agent_runtime.adapters import agent_result_from_legacy
 from app.shared.exceptions import NotFoundException
 from app.shared.responses import success_response
 
@@ -67,6 +70,14 @@ async def _prepare(
     loaded_skill_cache = {}
 
     async def invoke(**kwargs):
+        typed_call = kwargs.get("call")
+        if isinstance(typed_call, ToolCall):
+            kwargs["call"] = {
+                "id": typed_call.id,
+                "args": typed_call.arguments,
+            }
+            if kwargs.get("tool") is None and typed_call.name:
+                kwargs["tool_name"] = typed_call.name
         tool = kwargs.get("tool")
         if getattr(tool, "kind", None) == "builtin":
             return await invoke_builtin_tool(
@@ -128,7 +139,7 @@ async def _execute(
     agent, context, citations, invoke = await _prepare(
         agent_id, payload, current_user, session
     )
-    return await execute_chat(
+    conversation, assistant, result = await execute_chat(
         ConversationRepository(session),
         context,
         platform_id=agent.platform_id,
@@ -138,7 +149,9 @@ async def _execute(
         model=build_chat_model(context.version),
         citations=[citation.model_dump() for citation in citations],
         invoke_tool_fn=invoke,
+        use_agent_runtime=get_settings().agent_runtime_enabled,
     )
+    return conversation, assistant, agent_result_from_legacy(result)
 
 
 @router.post("/{agent_id}/chat")
@@ -206,6 +219,7 @@ async def chat_endpoint(
                 model=build_chat_model(context.version),
                 citations=[citation.model_dump() for citation in citations],
                 invoke_tool_fn=invoke,
+                use_agent_runtime=get_settings().agent_runtime_enabled,
             ):
                 conversation = item["conversation"]
                 if item["type"] == "message_delta":

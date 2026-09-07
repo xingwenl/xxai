@@ -49,7 +49,7 @@ class ReplayStore:
         return identifier.decode() if isinstance(identifier, bytes) else identifier
 
     async def replay(
-        self, conversation_id: str | int, cursor: str | None
+        self, conversation_id: str | int, cursor: str | int | None
     ) -> ReplayResult:
         """根据客户端 cursor 读取尚未确认的事件。
 
@@ -57,6 +57,9 @@ class ReplayStore:
         因 TTL/长度限制丢失，返回 ``recovered=False``，上层可以让客户端
         重新建立完整状态，而不是伪造不完整的恢复结果。
         """
+        # SDK 的 lastSequence 是 number，旧客户端可能发送字符串或 Redis
+        # Stream ID；在 replay 边界统一成字符串，避免类型差异进入游标判断。
+        cursor = str(cursor) if cursor is not None else None
         key = self.key(conversation_id)
         info = await self.redis.xinfo_stream(key)
         first = info.get(b"first-entry") or info.get("first-entry")
@@ -65,14 +68,36 @@ class ReplayStore:
             return ReplayResult(True, [], None)
         first_id = first[0].decode() if isinstance(first[0], bytes) else first[0]
         last_id = last[0].decode() if isinstance(last[0], bytes) else last[0]
-        if cursor is not None and cursor < first_id:
-            return ReplayResult(False, [], last_id)
-        rows = await self.redis.xread({key: cursor or "0-0"}, count=STREAM_MAX_LENGTH)
+        # 客户端传入的是 envelope.sequence；早期客户端可能传 Redis Stream
+        # cursor。带连字符的值按旧格式处理，纯整数按协议序号处理，避免两种
+        # 游标直接做字符串比较导致重连误判。
+        protocol_cursor = None
+        redis_cursor = cursor or "0-0"
+        if cursor is not None and "-" not in cursor:
+            try:
+                protocol_cursor = int(cursor)
+            except ValueError:
+                return ReplayResult(False, [], last_id)
+            rows = await self.redis.xread({key: "0-0"}, count=STREAM_MAX_LENGTH)
+        else:
+            if cursor is not None and cursor < first_id:
+                return ReplayResult(False, [], last_id)
+            rows = await self.redis.xread({key: redis_cursor}, count=STREAM_MAX_LENGTH)
         events = []
         for _stream, entries in rows:
-            for _identifier, fields in entries:
+            for identifier, fields in entries:
                 raw = fields.get(b"event") or fields.get("event")
-                events.append(
-                    json.loads(raw.decode() if isinstance(raw, bytes) else raw)
-                )
-        return ReplayResult(True, events, last_id)
+                event = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+                if protocol_cursor is not None:
+                    sequence = event.get("sequence")
+                    if isinstance(sequence, int) and sequence <= protocol_cursor:
+                        continue
+                events.append(event)
+        latest = last_id
+        if protocol_cursor is not None:
+            protocol_sequences = [
+                event.get("sequence") for event in events if isinstance(event.get("sequence"), int)
+            ]
+            if protocol_sequences:
+                latest = str(max(protocol_sequences))
+        return ReplayResult(True, events, latest)

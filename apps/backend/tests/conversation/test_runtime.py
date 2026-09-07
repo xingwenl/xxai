@@ -278,6 +278,24 @@ def test_tool_step_values_keep_waiting_question_status():
     assert values["output_summary"] == "等待用户选择"
 
 
+@pytest.mark.parametrize(
+    ("status", "step_status", "summary"),
+    [
+        ("cancelled", "cancelled", "工具调用已取消"),
+        ("budget_exceeded", "budget_exceeded", "工具调用已达到预算限制"),
+    ],
+)
+def test_tool_step_values_preserve_stop_reason_status(status, step_status, summary):
+    values = tool_step_values(
+        {"tool": "browser", "outcome": SimpleNamespace(status=status)},
+        sequence=6,
+    )
+
+    assert values["status"] == step_status
+    assert values["output_summary"] == summary
+    assert values["error"]["code"] == status
+
+
 def test_summarize_json_truncates_long_values():
     assert _summarize_json({"city": "上海"}, limit=9) == '{"city":"'
     assert _summarize_json("纯文本结果", limit=3) == "纯文本"
@@ -1346,6 +1364,44 @@ def test_run_graph_unlimited_when_max_iterations_is_zero():
     assert model.calls == 3
     assert len(invocations) == 2
     assert result.content == "完成"
+
+
+def test_run_graph_unknown_tool_failure_is_returned_to_model():
+    """legacy 路径未知工具不再静默跳过，失败结果会回填模型并继续轮次。"""
+
+    tool = SimpleNamespace(
+        name="lookup",
+        description="查询",
+        input_schema={"type": "object"},
+    )
+    invocations = []
+
+    async def invoke_tool_fn(**kwargs):
+        invocations.append(kwargs)
+        return ToolInvocationOutcome(status="completed", result="ok")
+
+    model = InfiniteToolCallingModel(
+        tool_rounds=2,
+        final_response="工具不可用，我直接回答。",
+        tool_name="ghost_tool",
+    )
+    result = asyncio.run(
+        run_graph(
+            model,
+            system_prompt="回答问题",
+            user_message="查询天气",
+            tools=[tool],
+            invoke_tool_fn=invoke_tool_fn,
+        )
+    )
+
+    # 两次未知工具都变成失败结果回填；模型据此给出最终回答而不是空收尾。
+    assert model.calls == 3
+    assert invocations == []
+    assert result.content == "工具不可用，我直接回答。"
+    assert len(result.tool_events) == 2
+    assert [event["status"] for event in result.tool_events] == ["failed", "failed"]
+    assert result.tool_events[0]["error"]["code"] == "tool_not_found"
 
 
 def test_run_graph_falls_back_to_fixed_text_when_wrap_up_fails():

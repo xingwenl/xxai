@@ -163,7 +163,9 @@ status: active -> done
 
 执行动作（按序完成，满足完成判据才进入下一步）：
 
-1. 调研：调用 `research` 技能收集业界依据，结论写入 `research.md`。
+1. 调研：调用 `research` 技能收集业界依据，涉及 Agent Loop、工具执行、Skill/Command 加载、上下文压缩、会话持久化、事件回放、权限边界等非局部架构决策时，先调研至少一个成熟 Agent 项目的实际实现或官方资料，再提出方案。
+   - 优先阅读本机源码，不先做网络搜索：Pi 位于 `/Users/lixingwen/xw/git/pi`，
+   - 结论写入 `research.md`。
    完成判据：`research.md` 包含来源、方案比较和最终决策。
 2. 梳理上下文：读取相关 request 的 research/spec/plan、专项规范（backend.md / frontend.md）与相关代码目录。
    完成判据：能说清现状、约束与影响面。

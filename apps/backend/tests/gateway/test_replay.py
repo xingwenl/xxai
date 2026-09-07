@@ -72,3 +72,47 @@ def test_replay_store_reports_expired_cursor():
         assert result.events == []
 
     asyncio.run(run())
+
+
+def test_replay_store_does_not_repeat_event_at_cursor():
+    async def run():
+        redis = FakeRedis()
+        store = ReplayStore(redis)
+        first = await store.append("conv-1", {"type": "message_delta"})
+        await store.append("conv-1", {"type": "message_completed"})
+
+        result = await store.replay("conv-1", first)
+
+        assert [event["type"] for event in result.events] == ["message_completed"]
+
+    asyncio.run(run())
+
+
+def test_replay_store_supports_protocol_sequence_cursor():
+    async def run():
+        redis = FakeRedis()
+        store = ReplayStore(redis)
+        await store.append("conv-1", {"type": "message_delta", "sequence": 4})
+        await store.append("conv-1", {"type": "message_completed", "sequence": 5})
+
+        result = await store.replay("conv-1", "4")
+
+        assert result.events == [{"type": "message_completed", "sequence": 5}]
+        assert result.latest_sequence == "5"
+
+    asyncio.run(run())
+
+
+def test_replay_store_accepts_numeric_sdk_cursor():
+    async def run():
+        redis = FakeRedis()
+        store = ReplayStore(redis)
+        await store.append("conv-1", {"type": "message_delta", "sequence": 4})
+        await store.append("conv-1", {"type": "message_completed", "sequence": 5})
+
+        result = await store.replay("conv-1", 4)
+
+        assert result.latest_sequence == "5"
+        assert len(result.events) == 1
+
+    asyncio.run(run())

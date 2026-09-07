@@ -33,6 +33,18 @@ from app.modules.skill_runner.tools import (
     build_skill_script_tools,
 )
 from app.modules.conversation.schemas import RuntimeContext
+from app.modules.agent_runtime.contracts import ToolOutcome, ToolRoundState
+from app.modules.agent_runtime.tool_loop import ToolRoundExecutor
+from app.modules.agent_runtime.adapters import tool_outcome_from_legacy
+from app.modules.agent_runtime.langchain_adapter import build_langchain_messages
+from app.modules.agent_runtime.tool_events import (
+    build_tool_event as build_runtime_tool_event,
+    tool_result_content,
+    normalize_tool_step_status,
+)
+from app.modules.agent_runtime.model_stream import ModelStreamAdapter
+from app.modules.agent_runtime.adapters import tool_call_from_legacy
+from app.modules.agent_runtime.message_text import extract_thinking_text
 
 logger = get_logger(__name__)
 
@@ -302,7 +314,11 @@ def build_tool_snapshots(
             {
                 "tool": event.get("tool", "unknown"),
                 "queried_at": queried_at,
-                "params": (event.get("input_summary") or "")[:120],
+                "params": (
+                    event.get("input_summary")
+                    or _runtime_arguments_summary(event, limit=300)
+                    or ""
+                )[:120],
                 "summary": summary,
             }
         )
@@ -474,6 +490,15 @@ def _messages_chars(messages: list[Any]) -> int:
     """估算消息列表字符数，兼容文本与多模态内容块。"""
     total = 0
     for message in messages:
+        if isinstance(message, ToolOutcome):
+            # runtime 上下文中的工具结果没有 content 字段，忽略会严重低估
+            # 预算；这里按结果文本估算占用，避免护栏不触发。
+            value = message.result
+            if isinstance(value, str):
+                total += len(value)
+            elif value is not None:
+                total += len(str(value))
+            continue
         content = getattr(message, "content", None)
         if isinstance(content, str):
             total += len(content)
@@ -512,18 +537,11 @@ def apply_context_guardrail(
     """
     if not window_tokens or window_tokens <= 0:
         return messages
-    settings = get_settings()
-    ratio = (
-        input_ratio
-        if input_ratio is not None
-        else settings.context_input_ratio
+    budget_chars = _resolve_guardrail_budget(
+        window_tokens,
+        input_ratio=input_ratio,
+        chars_per_token=chars_per_token,
     )
-    chars_per_token = (
-        chars_per_token
-        if chars_per_token is not None
-        else settings.context_estimate_chars_per_token
-    )
-    budget_chars = int(window_tokens * ratio * chars_per_token)
     original_chars = _messages_chars(messages)
     if original_chars <= budget_chars:
         logger.debug(
@@ -576,6 +594,191 @@ def apply_context_guardrail(
     return messages
 
 
+def _resolve_guardrail_budget(
+    window_tokens: int,
+    *,
+    input_ratio: float | None,
+    chars_per_token: float | None,
+) -> int:
+    """按上下文窗口与估算比例计算护栏允许的字符预算。"""
+
+    settings = get_settings()
+    ratio = (
+        input_ratio
+        if input_ratio is not None
+        else settings.context_input_ratio
+    )
+    cpt = (
+        chars_per_token
+        if chars_per_token is not None
+        else settings.context_estimate_chars_per_token
+    )
+    return int(window_tokens * ratio * cpt)
+
+
+def _assistant_tool_call_ids(message: Any) -> set[str]:
+    """提取一条 assistant 消息声明的工具调用 ID。"""
+
+    calls = getattr(message, "tool_calls", None) or []
+    ids = set()
+    for call in calls:
+        call_id = call.get("id") if isinstance(call, dict) else getattr(call, "id", None)
+        if call_id:
+            ids.add(str(call_id))
+    return ids
+
+
+def _tool_result_call_id(message: Any) -> str | None:
+    """返回工具结果关联的 assistant 调用 ID，未知时返回 None。"""
+
+    if isinstance(message, ToolOutcome):
+        return message.call_id or message.metadata.get("call_id")
+    return getattr(message, "tool_call_id", None)
+
+
+def _split_guardrail_units(
+    messages: list[Any],
+) -> list[tuple[int, int]]:
+    """把历史区段划分为整轮删除单元。
+
+    assistant 工具调用与其紧随的工具结果必须属于同一单元，避免护栏单条
+    删除造成孤立工具结果回填模型。
+    """
+
+    units: list[tuple[int, int]] = []
+    index = 1
+    total = len(messages)
+    while index < total - 1:
+        call_ids = _assistant_tool_call_ids(messages[index])
+        if not call_ids:
+            units.append((index, index))
+            index += 1
+            continue
+        end = index
+        cursor = index + 1
+        consumed: set[str] = set()
+        while cursor < total:
+            if isinstance(
+                messages[cursor], (ToolMessage, ToolOutcome)
+            ) and _tool_result_call_id(messages[cursor]) in call_ids:
+                call_id = _tool_result_call_id(messages[cursor])
+                if call_id not in consumed:
+                    consumed.add(call_id)
+                    end = cursor
+                    cursor += 1
+                    continue
+            break
+        units.append((index, end))
+        index = end + 1
+    return units
+
+
+def apply_runtime_context_guardrail(
+    messages: list[Any],
+    *,
+    window_tokens: int | None,
+    input_ratio: float | None = None,
+    chars_per_token: float | None = None,
+) -> list[Any]:
+    """AgentRuntime 灰度路径的上下文护栏。
+
+    AgentLoop 的上下文包含 LangChain 消息以及内部的 ModelTurn/ToolOutcome。
+    legacy 护栏按单条消息裁剪会把工具结果与其 assistant 调用拆散，产生供应商
+    拒绝的非法消息序列；因此这里以「整轮」为最小删除单元：系统提示、快照消息
+    和最近一轮（含其工具配对）保留，超预算时整轮丢弃最旧历史。
+    """
+
+    if not window_tokens or window_tokens <= 0:
+        return messages
+    budget_chars = _resolve_guardrail_budget(
+        window_tokens,
+        input_ratio=input_ratio,
+        chars_per_token=chars_per_token,
+    )
+    original_chars = _messages_chars(messages)
+    if original_chars <= budget_chars:
+        return messages
+
+    kept = list(messages)
+    total = len(kept)
+    if total <= 2:
+        return kept
+
+    units = _split_guardrail_units(kept)
+    protected_starts = {0}
+    snapshot_indices: set[int] = set()
+    for start, end in units:
+        for index in range(start, end + 1):
+            message = kept[index]
+            if isinstance(message, SystemMessage) and str(message.content).startswith(
+                _SNAPSHOT_SECTION_TITLE
+            ):
+                snapshot_indices.add(index)
+    last_unit_start = None
+    for start, end in units:
+        if end == total - 1:
+            last_unit_start = start
+    if last_unit_start is not None:
+        protected_starts.add(last_unit_start)
+
+    dropped_units = 0
+    while _messages_chars(kept) > budget_chars:
+        removed = False
+        for start, end in units:
+            if start in protected_starts:
+                continue
+            if any(index in snapshot_indices for index in range(start, end + 1)):
+                continue
+            del kept[start : end + 1]
+            dropped_units += 1
+            removed = True
+            break
+        if not removed:
+            break
+        units = _split_guardrail_units(kept)
+        total = len(kept)
+        protected_starts = {0}
+        snapshot_indices = set()
+        for start, end in units:
+            for index in range(start, end + 1):
+                message = kept[index]
+                if isinstance(message, SystemMessage) and str(
+                    message.content
+                ).startswith(_SNAPSHOT_SECTION_TITLE):
+                    snapshot_indices.add(index)
+        last_unit_start = None
+        for start, end in units:
+            if end == total - 1:
+                last_unit_start = start
+        if last_unit_start is not None:
+            protected_starts.add(last_unit_start)
+
+    kept_chars = _messages_chars(kept)
+    if kept_chars > budget_chars and snapshot_indices:
+        for index in snapshot_indices:
+            kept[index].content = _SNAPSHOT_LIMIT_NOTE
+            kept_chars = _messages_chars(kept)
+            break
+    if kept_chars > budget_chars:
+        logger.warning(
+            "Runtime context guardrail cannot fit budget window_tokens=%s "
+            "budget_chars=%s kept_chars=%s; system+current still exceed",
+            window_tokens,
+            budget_chars,
+            kept_chars,
+        )
+    logger.debug(
+        "Runtime context guardrail trimmed window_tokens=%s budget_chars=%s "
+        "original_chars=%s kept_chars=%s dropped_units=%s",
+        window_tokens,
+        budget_chars,
+        original_chars,
+        kept_chars,
+        dropped_units,
+    )
+    return kept
+
+
 def _strip_image_parts_from_messages(messages: list[Any]) -> list[Any]:
     """重建消息列表，移除所有 image_url 内容块，保留文本和文档内容。"""
     rebuilt: list[Any] = []
@@ -590,11 +793,8 @@ def _strip_image_parts_from_messages(messages: list[Any]) -> list[Any]:
 
 
 def _tool_result_content(tool, outcome) -> str:
-    """内置 GET 允许更大的有界文本，其他工具保持既有上下文上限。"""
-    limit = 100_000 if getattr(tool, "kind", None) == "builtin" else 20_000
-    if getattr(tool, "kind", None) == "builtin":
-        return json.dumps(outcome.result, ensure_ascii=False, default=str)[:limit]
-    return str(outcome.result)[:limit]
+    """兼容旧调用方，实际规则由 agent_runtime 统一维护。"""
+    return tool_result_content(tool, outcome)
 
 
 def classify_tool_type(tool) -> str:
@@ -616,16 +816,7 @@ def _build_tool_event(
     waiting_status: str | None = None,
 ) -> dict[str, Any]:
     """构造工具调用事件的基础字段，供流式与非流式执行路径共用。"""
-    event = {
-        "tool": tool.name,
-        "tool_type": classify_tool_type(tool),
-        "tool_call_id": call.get("id", tool.name),
-        "input_summary": _summarize_json(call.get("args", {}), limit=300),
-        "skill_name": getattr(tool, "skill_name", None),
-        "skill_version": getattr(tool, "skill_version", None),
-    }
-    if waiting_status is not None:
-        event["waiting_status"] = waiting_status
+    event = build_runtime_tool_event(tool, call, waiting_status=waiting_status)
     return event
 
 
@@ -681,41 +872,10 @@ async def _astream_with_image_fallback(
 def _thinking_text(chunk: Any) -> str:
     """从模型流式块中提取思考/推理文本，与正文严格分离。
 
-    兼容两类来源：
-    - OpenAI 兼容 Chat Completions 的块级 ``additional_kwargs["reasoning_content"]``
-      （DeepSeek reasoner 等思考模型，由 ProviderThinkingChatOpenAI 从原始响应
-      补回 additional_kwargs）。
-    - 内容块列表中的 thinking/reasoning 类型块（OpenAI Responses API 风格）。
-    普通模型不返回思考内容时返回空字符串。
+    提取规则集中在 ``agent_runtime.thinking``，legacy 与 runtime 灰度路径
+    必须使用同一份兼容实现，避免推理模型在两条路径上展示不同的思考内容。
     """
-    parts: list[str] = []
-    extra = getattr(chunk, "additional_kwargs", None) or {}
-    for key in ("reasoning_content", "reasoning", "reasoning_details"):
-        reasoning = extra.get(key)
-        if isinstance(reasoning, str):
-            if reasoning:
-                parts.append(reasoning)
-        elif isinstance(reasoning, list):
-            text = "".join(
-                (
-                    item.get("text") or item.get("content") or ""
-                    if isinstance(item, dict)
-                    else str(item)
-                )
-                for item in reasoning
-            )
-            if text:
-                parts.append(text)
-    content = getattr(chunk, "content", None)
-    if isinstance(content, list):
-        for item in content:
-            if not isinstance(item, dict):
-                continue
-            if item.get("type") in {"thinking", "reasoning"}:
-                thinking = item.get("thinking") or item.get("reasoning")
-                if isinstance(thinking, str) and thinking:
-                    parts.append(thinking)
-    return "".join(parts)
+    return extract_thinking_text(chunk)
 
 
 def _summarize_json(value: Any, *, limit: int) -> str:
@@ -741,28 +901,43 @@ def _tool_result_summary(outcome) -> str:
     )
 
 
+def _runtime_arguments_summary(tool_event: dict, *, limit: int) -> str | None:
+    """灰度 runtime 工具事件没有预生成 input_summary 时的参数摘要回退。
+
+    AgentLoop 只透出结构化 ``arguments``，是否序列化由协议层决定；这里与
+    legacy 事件保持同一截断口径，确保工具步骤和快照的参数展示一致。
+    """
+
+    arguments = tool_event.get("arguments")
+    if arguments is None:
+        return None
+    return _summarize_json(arguments, limit=limit)
+
+
 def tool_step_values(tool_event: dict, sequence: int) -> dict:
     """把工具事件转换为 Loop 步骤落库字段。"""
     outcome = tool_event["outcome"]
     outcome_status = getattr(outcome, "status", "succeeded")
-    status = {
-        "confirmation_required": "waiting_confirmation",
-        "waiting_question": "waiting_question",
-        "failed": "failed",
-        "error": "failed",
-    }.get(outcome_status, "succeeded")
+    status = normalize_tool_step_status(outcome_status)
     result_detail = _tool_result_summary(outcome)
+    input_summary = tool_event.get("input_summary") or _runtime_arguments_summary(
+        tool_event, limit=300
+    )
     return {
         "sequence": sequence,
         "step_type": tool_event.get("tool_type", "host_tool"),
         "title": f"调用工具：{tool_event['tool']}",
         "status": status,
-        "input_summary": tool_event.get("input_summary"),
+        "input_summary": input_summary,
         "output_summary": (
             "等待用户确认"
             if status == "waiting_confirmation"
             else "等待用户选择"
             if status == "waiting_question"
+            else "工具调用已取消"
+            if status == "cancelled"
+            else "工具调用已达到预算限制"
+            if status == "budget_exceeded"
             else (
                 f"工具执行{'失败' if status == 'failed' else '完成'}"
                 + (f"：{result_detail}" if result_detail else "")
@@ -775,6 +950,15 @@ def tool_step_values(tool_event: dict, sequence: int) -> dict:
         "error": (
             {"code": "tool_failed", "message": "工具执行失败"}
             if status == "failed"
+            else {
+                "code": status,
+                "message": (
+                    "工具调用已取消"
+                    if status == "cancelled"
+                    else "工具调用已达到预算限制"
+                ),
+            }
+            if status in {"cancelled", "budget_exceeded"}
             else None
         ),
     }
@@ -1088,13 +1272,7 @@ class _AstreamCollectState:
     usage: dict[str, int] | None = None
 
 
-@dataclass
-class _ToolRoundResult:
-    """一轮工具调用的结果状态：是否执行了工具、预算是否超限、确认结果。"""
-
-    executed_tool: bool = False
-    budget_exceeded: bool = False
-    confirmation_result: GraphResult | None = None
+_ToolRoundResult = ToolRoundState
 
 
 @dataclass
@@ -1133,15 +1311,15 @@ def _build_initial_messages(
     history_attachment_parts: dict[str, list[dict]] | None,
 ) -> list[Any]:
     """组装对话初始消息列表：系统提示 → 历史消息 → 当前用户消息。"""
-    return [
-        SystemMessage(content=system_prompt),
-        *build_history_messages(history, attachment_parts=history_attachment_parts),
-        HumanMessage(
-            content=build_user_content(
-                user_message, image_parts, document_text_parts
-            )
+    return build_langchain_messages(
+        system_prompt=system_prompt,
+        history=build_history_messages(
+            history, attachment_parts=history_attachment_parts
         ),
-    ]
+        user_message=user_message,
+        image_parts=image_parts,
+        document_text_parts=document_text_parts,
+    )
 
 
 async def _astream_collect(
@@ -1170,9 +1348,12 @@ async def _astream_collect(
         thinking_parts: 思考文本累积列表
         state: 本轮累积状态（response / usage）
     """
-    async for chunk in _astream_with_image_fallback(
-        model, messages, user_message, image_parts
-    ):
+    def source():
+        return _astream_with_image_fallback(
+            model, messages, user_message, image_parts
+        )
+
+    async for chunk in ModelStreamAdapter.stream(source):
         state.usage = merge_token_usage(state.usage, extract_token_usage(chunk))
         if state.response is None:
             state.response = chunk
@@ -1218,40 +1399,38 @@ async def _execute_tool_round(
     - budget_exceeded：工具结果触发页面工具预算上限；
     - confirmation_result：工具要求用户确认时返回的确认态 GraphResult，否则为 None。
     """
-    for call in tool_calls:
-        tool = next((item for item in tools if item.name == call["name"]), None)
-        if tool is None:
-            logger.warning("Model requested unknown tool name=%s", call["name"])
-            continue
-
-        result.executed_tool = True
-        # 询问工具在等待用户选择期间，把 loop step 标记为等待状态，
-        # 前端可据此展示"等待用户选择"而非"运行中"。
-        tool_event = _build_tool_event(
-            tool,
-            call,
-            waiting_status=(
-                "waiting_question" if tool.name == "ask_user" else None
-            ),
-        )
-
-        # 上游消费并完成 Loop step 落库后才会恢复生成器并执行工具，
-        # 从而串行化同一个 AsyncSession 上的数据库操作。
-        yield {"type": "tool_started", **tool_event}
+    async def invoke(tool, call):
         if hasattr(tool, "server_id"):
-            outcome = await invoke_tool_fn(
+            raw = await invoke_tool_fn(
                 server_id=tool.server_id,
                 tool_name=tool.name,
-                arguments=call.get("args", {}),
+                arguments=call.arguments,
             )
         else:
-            outcome = await invoke_tool_fn(tool=tool, call=call)
+            raw = await invoke_tool_fn(
+                tool=tool,
+                call={
+                    **call.metadata,
+                    "id": call.id,
+                    "name": call.name,
+                    "args": call.arguments,
+                },
+            )
+        return tool_outcome_from_legacy(raw)
 
-        completed_tool_event = {**tool_event, "outcome": outcome}
-        tool_events.append(completed_tool_event)
-        yield {"type": "tool_completed", **completed_tool_event}
+    async def append_result(tool, call, outcome):
+        messages.append(
+            ToolMessage(
+                content=_tool_result_content(tool, outcome),
+                tool_call_id=call.id,
+            )
+        )
 
-        if outcome.status == "confirmation_required":
+    async def save_state(state):
+        result.executed_tool = state.executed_tool
+        result.budget_exceeded = state.budget_exceeded
+        if state.confirmation_result is not None:
+            outcome = state.confirmation_result
             result.confirmation_result = GraphResult(
                 content=rewrite_image_markdown("".join(content_parts), tool_events),
                 citations=citations,
@@ -1261,21 +1440,18 @@ async def _execute_tool_round(
                 tool_events=tool_events,
                 usage=usage,
             )
-            return
 
-        if _is_budget_exceeded_outcome(outcome):
-            logger.warning("Page tool budget exceeded; stopping agent loop")
-            result.budget_exceeded = True
-            break
-
-        messages.append(
-            ToolMessage(
-                content=_tool_result_content(tool, outcome),
-                tool_call_id=call.get("id", tool.name),
-            )
-        )
-
-
+    executor = ToolRoundExecutor(tools)
+    calls = [tool_call_from_legacy(call, name=call["name"]) for call in tool_calls]
+    async for event in executor.stream(
+        calls,
+        invoke=invoke,
+        append_result=append_result,
+        state_sink=save_state,
+    ):
+        if event["type"] == "tool_completed":
+            tool_events.append(event)
+        yield event
 async def _drain_events(agen, *, on_event=None):
     """消费事件型异步生成器，逐事件回调 on_event（为空则丢弃事件）。"""
     async for event in agen:

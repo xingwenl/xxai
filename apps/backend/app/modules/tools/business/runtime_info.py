@@ -12,6 +12,7 @@ from datetime import date
 from sqlalchemy import select
 
 from app.core.config import get_settings
+from app.core.logging import get_logger
 from app.modules.agent.models import Agent, AgentVersion
 from app.modules.conversation.models import ModelUsageRecord
 from app.modules.embed.models import PlatformEmbedClient
@@ -21,6 +22,8 @@ from app.modules.tools.business.framework import (
     BusinessToolContext,
     business_tool,
 )
+
+logger = get_logger(__name__)
 
 # 累计用量查询的起始日期（远早于任何真实数据）
 _TOTAL_USAGE_START_DATE = date(1970, 1, 1)
@@ -184,5 +187,14 @@ async def _safe_call(method, **kwargs):
     """查询降级：失败返回 None，不向模型抛错。"""
     try:
         return await method(**kwargs)
-    except Exception:
+    except Exception as exc:
+        # 运行时信息是诊断工具，查询失败时仍需返回稳定结构；但不能完全
+        # 吞掉异常，否则 WS/REST 两条工具链出现差异时无法定位上下文问题。
+        logger.warning(
+            "runtime info query failed method=%s conversation_id=%s agent_id=%s: %s",
+            getattr(method, "__name__", type(method).__name__),
+            kwargs.get("conversation_id"),
+            kwargs.get("agent_id"),
+            exc,
+        )
         return None

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import Any
 
 from jsonschema import ValidationError, validate
 from redis.asyncio import Redis
 
 from app.core.config import get_settings
+from app.core.database import get_session_factory
 from app.modules.builtin_tool.registry import get_builtin_tool
 from app.modules.builtin_tool.schemas import BuiltinToolOutcome
 from app.modules.tools.business.framework import BusinessToolContext, BusinessToolError
@@ -98,17 +100,38 @@ async def invoke_builtin_tool(
         shop_token=shop_token,
         shop_user_id=shop_user_id,
     )
-    try:
-        result = await handler(arguments, ctx)
-    except BusinessToolError as exc:
-        error: dict[str, Any] = {"code": exc.code}
-        if exc.message:
-            error["message"] = exc.message
-        if exc.status_code is not None:
-            error["status_code"] = exc.status_code
-        return BuiltinToolOutcome(status="failed", result={"error": error})
-    except Exception:
-        return BuiltinToolOutcome(
-            status="failed", result={"error": {"code": "tool_failed"}}
-        )
+    # 流式 AgentRuntime 会在独立的模型任务中执行工具；复用 Gateway 正在
+    # flush/commit 的 AsyncSession 会触发 asyncpg 的并发操作错误。诊断类
+    # runtime_info 只读，因此使用请求级 session 之外的独立连接，保证查询
+    # 不与消息/loop 持久化竞争同一个连接。
+    if tool.name == "get_runtime_info":
+        async with get_session_factory()() as isolated_session:
+            ctx = replace(ctx, session=isolated_session)
+            try:
+                result = await handler(arguments, ctx)
+            except BusinessToolError as exc:
+                error: dict[str, Any] = {"code": exc.code}
+                if exc.message:
+                    error["message"] = exc.message
+                if exc.status_code is not None:
+                    error["status_code"] = exc.status_code
+                return BuiltinToolOutcome(status="failed", result={"error": error})
+            except Exception:
+                return BuiltinToolOutcome(
+                    status="failed", result={"error": {"code": "tool_failed"}}
+                )
+    else:
+        try:
+            result = await handler(arguments, ctx)
+        except BusinessToolError as exc:
+            error: dict[str, Any] = {"code": exc.code}
+            if exc.message:
+                error["message"] = exc.message
+            if exc.status_code is not None:
+                error["status_code"] = exc.status_code
+            return BuiltinToolOutcome(status="failed", result={"error": error})
+        except Exception:
+            return BuiltinToolOutcome(
+                status="failed", result={"error": {"code": "tool_failed"}}
+            )
     return BuiltinToolOutcome(status="completed", result=result)
