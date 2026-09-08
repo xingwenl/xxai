@@ -13,7 +13,7 @@ from app.modules.conversation.runtime import (
     build_tool_snapshots,
     build_system_prompt,
     build_history_messages,
-    make_context_degrade_recoverer,
+    make_multimodal_degrade_recoverer,
     stream_graph,
     tool_step_values,
     image_content_blocks,
@@ -709,7 +709,7 @@ async def stream_embed_chat(
                 window_tokens=resolve_context_window_tokens(context.version),
             ),
             max_turns=get_settings().agent_max_iterations,
-            on_model_error=make_context_degrade_recoverer(
+            on_model_error=make_multimodal_degrade_recoverer(
                 ws_system_prompt, message
             ),
         )

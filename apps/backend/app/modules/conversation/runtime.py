@@ -503,6 +503,32 @@ def make_context_degrade_recoverer(system_prompt: str, user_message: str):
     return recover
 
 
+def make_multimodal_degrade_recoverer(
+    system_prompt: str, user_message: str
+):
+    """AgentRuntime 的多模态降级恢复器（WS embed 专用）。
+
+    依次处理两种真实供应商错误，各自只降级重试一次：
+    - 纯文本模型拒绝图片输入：去掉上下文中的 image_url 内容块（保留文本与
+      文档），用裁图后的上下文重试；
+    - 上下文超限：丢弃历史，仅保留系统提示与当前用户消息重试。
+    其余错误返回 None，交由 AgentLoop 原样上抛。
+    """
+
+    def recover(error, messages):
+        if _is_text_only_image_error(error):
+            stripped = _strip_image_parts_from_messages(list(messages))
+            if stripped:
+                return stripped
+            # 极端兜底：若裁图后没有剩余消息，退回“系统 + 当前用户文本”。
+            return _degraded_messages(system_prompt, user_message)
+        if _should_degrade_context(error):
+            return _degraded_messages(system_prompt, user_message)
+        return None
+
+    return recover
+
+
 def _messages_chars(messages: list[Any]) -> int:
     """估算消息列表字符数，兼容文本与多模态内容块。"""
     total = 0
