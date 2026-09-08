@@ -10,6 +10,7 @@ from app.modules.conversation.runtime import (
     build_system_prompt,
     build_step_payload,
     apply_runtime_context_guardrail,
+    make_context_degrade_recoverer,
     resolve_context_window_tokens,
     custom_content_blocks,
     image_content_blocks,
@@ -410,6 +411,9 @@ async def _run_execute_chat_model_round(
     """
 
     if use_agent_runtime:
+        system_prompt = build_system_prompt(
+            context.version, context.skill_instructions, citations
+        )
         runtime = build_langchain_runtime(
             model,
             runtime_tools,
@@ -420,11 +424,12 @@ async def _run_execute_chat_model_round(
                 window_tokens=resolve_context_window_tokens(context.version),
             ),
             max_turns=get_settings().agent_max_iterations,
+            on_model_error=make_context_degrade_recoverer(
+                system_prompt, message
+            ),
         )
         messages = build_langchain_messages(
-            system_prompt=build_system_prompt(
-                context.version, context.skill_instructions, citations
-            ),
+            system_prompt=system_prompt,
             history=history,
             user_message=message,
         )
@@ -700,6 +705,9 @@ async def stream_chat(
     ]
     graph_bridge = LegacyGraphRuntimeBridge()
     if use_agent_runtime:
+        system_prompt = build_system_prompt(
+            context.version, context.skill_instructions, citations
+        )
         runtime = build_langchain_runtime(
             model,
             runtime_tools,
@@ -710,12 +718,13 @@ async def stream_chat(
                 window_tokens=resolve_context_window_tokens(context.version),
             ),
             max_turns=get_settings().agent_max_iterations,
+            on_model_error=make_context_degrade_recoverer(
+                system_prompt, message
+            ),
         )
         runtime_stream = runtime.stream(
             build_langchain_messages(
-                system_prompt=build_system_prompt(
-                    context.version, context.skill_instructions, citations
-                ),
+                system_prompt=system_prompt,
                 history=history,
                 user_message=message,
             ),

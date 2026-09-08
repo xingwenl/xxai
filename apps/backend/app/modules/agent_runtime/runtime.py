@@ -250,6 +250,7 @@ class AgentRuntime:
             get_follow_up_messages=self._loop.hooks.get_follow_up_messages,
             on_event=on_event,
             max_turns=self._loop.hooks.max_turns,
+            on_model_error=self._loop.hooks.on_model_error,
             metadata=dict(self._loop.hooks.metadata),
         )
         return AgentLoop(

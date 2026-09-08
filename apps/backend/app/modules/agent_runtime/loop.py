@@ -162,11 +162,31 @@ class AgentLoop:
             context = await self._transform_context(context)
             pending = await resolve_messages(self.hooks.get_steering_messages)
             context.extend(pending)
-            turn = await self._await_with_cancel(
-                self.model(context, emit=emit),
-                cancel_event=cancel_event,
-                raise_if_cancelled=raise_if_cancelled,
-            )
+            # 供应商真实错误（如上下文超限）允许一次性降级重试：由调用方通过
+            # on_model_error 提供“更小上下文”，本次失败不算新增一轮，也不发布
+            # 失败/错误事件；取消按既有语义原样传播，绝不伪装成可恢复错误。
+            recovered = False
+            while True:
+                try:
+                    turn = await self._await_with_cancel(
+                        self.model(context, emit=emit),
+                        cancel_event=cancel_event,
+                        raise_if_cancelled=raise_if_cancelled,
+                    )
+                    break
+                except asyncio.CancelledError:
+                    raise
+                except Exception as error:
+                    if recovered or self.hooks.on_model_error is None:
+                        raise
+                    replacement = self.hooks.on_model_error(error, context)
+                    if hasattr(replacement, "__await__"):
+                        replacement = await replacement
+                    if replacement is None:
+                        raise
+                    recovered = True
+                    context = await self._transform_context(list(replacement))
+                    continue
             last_turn = turn
             context.append(turn)
             turn_thinking = turn.metadata.get("thinking_text", "")

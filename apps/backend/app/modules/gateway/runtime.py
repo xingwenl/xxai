@@ -13,6 +13,7 @@ from app.modules.conversation.runtime import (
     build_tool_snapshots,
     build_system_prompt,
     build_history_messages,
+    make_context_degrade_recoverer,
     stream_graph,
     tool_step_values,
     image_content_blocks,
@@ -691,6 +692,13 @@ async def stream_embed_chat(
     use_agent_runtime = get_settings().agent_runtime_enabled
     if use_agent_runtime:
         tools = runtime_tools if runtime_tools is not None else host_tools or []
+        ws_system_prompt = build_system_prompt(
+            context.version,
+            context.skill_instructions,
+            citations,
+            host_tools=tools,
+            caller_system_prompt=system_prompt,
+        )
         runtime = build_langchain_runtime(
             model,
             tools,
@@ -701,17 +709,14 @@ async def stream_embed_chat(
                 window_tokens=resolve_context_window_tokens(context.version),
             ),
             max_turns=get_settings().agent_max_iterations,
+            on_model_error=make_context_degrade_recoverer(
+                ws_system_prompt, message
+            ),
         )
         event_stream = stream_runtime_as_conversation(
             runtime.stream(
                 build_langchain_messages(
-                    system_prompt=build_system_prompt(
-                        context.version,
-                        context.skill_instructions,
-                        citations,
-                        host_tools=tools,
-                        caller_system_prompt=system_prompt,
-                    ),
+                    system_prompt=ws_system_prompt,
                     history=build_history_messages(
                         history,
                         attachment_parts=history_attachment_parts,

@@ -486,6 +486,23 @@ def _degraded_messages(system_prompt: str, user_message: str) -> list[Any]:
     ]
 
 
+def make_context_degrade_recoverer(system_prompt: str, user_message: str):
+    """构造 AgentRuntime 的 on_model_error：上下文超限时降级重试一次。
+
+    上下文超限属真实模型偶发错误：把历史全部丢弃、只保留系统提示与当前用户
+    消息后重试一次即可恢复，不必整请求失败。恢复器返回待重试的新消息列表
+    （与 build_langchain_messages 同为 LangChain 消息），非超限错误返回 None
+    让 AgentLoop 原样上抛，避免把供应商故障误判成可恢复输入。
+    """
+
+    def recover(error, messages):
+        if _should_degrade_context(error):
+            return _degraded_messages(system_prompt, user_message)
+        return None
+
+    return recover
+
+
 def _messages_chars(messages: list[Any]) -> int:
     """估算消息列表字符数，兼容文本与多模态内容块。"""
     total = 0

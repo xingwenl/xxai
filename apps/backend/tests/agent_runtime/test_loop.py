@@ -621,3 +621,66 @@ def test_loop_accumulates_usage_across_tool_rounds():
         "total_tokens": 12,
     }
     assert completed.payload["usage"] == result.metadata["usage"]
+
+
+def test_loop_recovers_once_from_model_error_with_degraded_context():
+    """模型抛上下文超限时按 on_model_error 降级重试一次，不产生错误事件。"""
+    calls = []
+    events = []
+
+    class ContextLimitError(RuntimeError):
+        pass
+
+    async def model(messages, *, emit):
+        calls.append(list(messages))
+        if len(calls) == 1:
+            raise ContextLimitError("context_length_exceeded")
+        return ModelTurn(content="基于降级上下文的回答")
+
+    def on_model_error(error, messages):
+        # 仅对上下文超限错误降级为“系统 + 当前用户”；返回 None 不重试。
+        if not isinstance(error, ContextLimitError):
+            return None
+        return [messages[0], messages[-1]]
+
+    async def on_event(event):
+        events.append(event.type)
+
+    result = asyncio.run(
+        AgentLoop(
+            model=model,
+            hooks=AgentRuntimeHooks(
+                on_event=on_event, on_model_error=on_model_error
+            ),
+        ).run(["system", "history", "user"])
+    )
+
+    assert result.content == "基于降级上下文的回答"
+    assert len(calls) == 2
+    # 第一次失败不发布错误/完成事件，只有成功那次有 completed。
+    assert events == ["completed"]
+
+
+def test_loop_does_not_retry_when_recoverer_returns_none():
+    """on_model_error 返回 None（或不匹配）时不重试，错误原样向上传播。"""
+
+    class OtherError(RuntimeError):
+        pass
+
+    async def model(messages, *, emit):
+        raise OtherError("boom")
+
+    async def on_model_error(error, messages):
+        return None
+
+    try:
+        asyncio.run(
+            AgentLoop(
+                model=model,
+                hooks=AgentRuntimeHooks(on_model_error=on_model_error),
+            ).run(["m"])
+        )
+    except OtherError:
+        pass
+    else:
+        raise AssertionError("expected OtherError to propagate")

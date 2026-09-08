@@ -13,6 +13,12 @@ from app.modules.agent_runtime.contracts import AgentEvent
 ContextTransformer = Callable[[list[Any]], Awaitable[list[Any]] | list[Any]]
 TurnPredicate = Callable[[dict[str, Any]], Awaitable[bool] | bool]
 MessageProvider = Callable[[], Awaitable[Sequence[Any]] | Sequence[Any]]
+# 模型调用失败后的上下文恢复策略：给定抛出的异常与本次尝试的消息列表，
+# 返回用于降级重试一次的新消息（如“仅保留系统提示 + 当前用户消息”），
+# 返回 None 表示不重试、让错误原样向上传播。恢复只执行一次，避免死循环。
+ModelErrorRecoverer = Callable[
+    [BaseException, list[Any]], Awaitable[list[Any] | None] | list[Any] | None
+]
 
 
 @dataclass(slots=True)
@@ -25,6 +31,7 @@ class AgentRuntimeHooks:
     get_follow_up_messages: MessageProvider | None = None
     on_event: Callable[[AgentEvent], Awaitable[None] | None] | None = None
     max_turns: int | None = None
+    on_model_error: ModelErrorRecoverer | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
