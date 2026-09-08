@@ -71,6 +71,23 @@
 
 ## 变更记录
 
+### 2026-09-08 第 13 次变更：收敛为单一 AgentLoopAgentRuntime，删除 legacy（已确认方向）
+
+- 变更原因：三协议入口已完成 AgentRuntime 灰度接入与 parity 自动化，用户
+  2026-09-08 确认后续只使用 `AgentLoopAgentRuntime`，legacy Graph 主循环
+  （`run_graph`/`_stream_graph`/`stream_graph`）可直接删除，避免双实现口径
+  漂移与双份维护，达成总目标第 1 条“Agent 主循环只有一套核心实现”。
+- 调研结论：research.md 阶段 8 预研与最终决策（8A–8E 分批）；legacy 仍有
+  两处 AgentRuntime 尚未覆盖的真实模型缓解（context-length 降级重试、纯
+  文本模型拒图降级）需先“补齐或确认等价”，8A 依赖用户选项甲/乙。
+- 变更内容：按 8A–8E 分批实施（见 plan.md 阶段 8）；本记录先锁定方向与分叉，
+  待 8A 行为分叉确认后逐批落地。
+- 影响章节：范围、验收标准、变更记录。
+- 兼容要求：不修改 REST/SSE/WS 公开协议、数据库模型、鉴权与权限边界；灰度
+  与 legacy fallback 随批次删除后不再保留第二条主循环。
+- 是否触发人工确认：是；方向已确认（删除 legacy、仅 AgentRuntime），行为
+  分叉（8A 选项甲/乙）仍待用户拍板。
+
 ### 2026-09-07 第 12 次变更：工具状态与终态映射收拢（阶段 2，已确认）
 
 - 变更原因：阶段 2 核心集中点（`RunStatus`、`resolve_result_run_status`、

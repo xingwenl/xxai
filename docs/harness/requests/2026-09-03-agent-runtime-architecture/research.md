@@ -275,15 +275,34 @@ AgentRuntime 灰度路径把 legacy `apply_context_guardrail` 作为 `context_tr
 3. 为 host tool 等待补服务端超时：沿用 `create_audit` 已写入的 `expires_at`（当前 10 分钟），`awaiting_confirmation` 超时走既有的 `expired` 转换，`running` 超时走既有的 `failed` 转换并携带 `host_tool_execution_timeout` 错误码；同时在 `finally` 中清理 pending Future，迟到页面结果继续由审计幂等逻辑忽略。
 4. 维持现状：仅记录剩余风险，把两处缺口推迟到删除 legacy Graph 的阶段 7；期间默认路径仍存在“空收尾/请求级错误”和“页面永不响应则请求无界挂起”的隐患。
 
-### 最终决策（待用户确认）
+### 最终决策（2026-09-08 用户确认）
 
-推荐采用“方案 2 + 方案 3”：
+用户确认：后续只使用 `AgentLoopAgentRuntime`，legacy Graph 主循环可直接删除，
+不做双实现双跑。据此由“方案 2 渐进收敛”转为**激进收敛**，但按仓库风险纪律
+拆成可独立回滚、逐步保持全量绿的实现批次：
 
-1. `ToolRoundExecutor`（legacy 工具轮）补齐与 runtime/Pi 一致的归一化语义：未知工具与普通异常都转为失败工具结果并发布 `tool_completed(failed)`、回填模型；取消与等待态语义不变。
-2. host tool 等待按审计 `expires_at` 收敛：`awaiting_confirmation` 超时转为 `expired`，`running` 超时转为 `failed`（错误码 `host_tool_execution_timeout`），并补齐取消/超时的 Future 清理。
-3. 不修改 REST、SSE、WS 公开事件、数据库模型、鉴权或权限边界；审计终态值（`expired`/`failed`）均为既有合法值。
+- 8A 能力对齐：把 legacy 独有的真实模型缓解行为迁入 AgentRuntime 驱动路径
+  （或按用户确认等价语义裁掉），并补对应测试；本批不删 legacy。
+- 8B 单一引擎：删除三处协议层 legacy 分支（REST 非流式、REST SSE、WS），
+  `use_agent_runtime` 判断与 `agent_runtime_enabled` 开关随之移除，
+  AgentRuntime 成为唯一执行路径。
+- 8C 清理：删除 `conversation/runtime.py` 中 legacy 主循环（`run_graph`/
+  `_stream_graph`/`stream_graph`）与仅 legacy 使用的私有助手，以及迁移后不再
+  引用的 `graph_bridge`/`legacy_adapter` 兼容桥。
+- 8D 测试收敛：parity 测试由“灰度 vs legacy”改为 AgentRuntime 单路径行为
+  断言；legacy 直接调用测试迁移到 AgentRuntime 等价入口或删除其独占行为断言。
+- 8E 验证与收尾：全量核心回归 + ruff + compileall + `git diff --check` 全绿，
+  更新 verify/acceptance/meta，形成可回滚单次提交。
 
-若不希望 `running` 中的页面工具被服务端打断，可只对 `awaiting_confirmation` 做超时（保守方案），`running` 仍由页面结果/取消/断线结束。
+行为分叉（待用户确认，决定 8A 的工作量与生产语义）：
+- legacy 在模型抛 context-length / 拒绝图片输入时自动降级重试（丢弃历史只留
+  系统+当前消息 / 去图重试）；AgentRuntime 目前把这类模型错误直接落为
+  failed/error。选项甲：迁入并保留该缓解（推荐，避免真实模型场景回归，成本
+  高）；选项乙：以 AgentRuntime 错误语义为新契约，删除 legacy 缓解及其独占
+  测试（成本低，但真实长上下文/纯文本模型下行为改变）。
+
+全程不修改 REST/SSE/WS 公开协议、数据库模型、鉴权与权限边界；8A 前先跑
+307+ 回归确认基线。
 
 ### 剩余风险
 
@@ -387,3 +406,75 @@ AgentRuntime 灰度路径把 legacy `apply_context_guardrail` 作为 `context_tr
   也落为独立 DB 状态），需先在 helper 中扩展而不是在站点局部改；
 - host tool 审计状态（`awaiting_confirmation`/`running`/`rejected`）属于
   host tool 领域状态，不属于 Agent 请求 RunStatus，本轮不收拢，避免越界。
+
+## 2026-09-07 阶段 8 预研：legacy Graph 收敛可行性
+
+### 调研问题
+
+当前 REST/SSE/WS 三入口均以 feature seam 灰度接入 AgentRuntime，legacy
+Graph（`run_graph`/`_stream_graph`）仍作为默认/兜底路径保留。预研目标：
+评估能否以及如何把两条主循环实现收敛为单一 AgentLoop，并识别删除前必须
+补齐的能力缺口。
+
+### 现状审计（日期 2026-09-07）
+
+生产调用点：
+
+- `conversation/services.py`：`execute_chat` 的
+  `_run_execute_chat_model_round` legacy 分支（`use_agent_runtime=False`）
+  与 `stream_chat` 的 `stream_graph` legacy 分支，共 2 处；
+- `gateway/runtime.py`：`stream_embed_chat` legacy 分支，1 处。
+
+legacy 实现规模与职责（conversation/runtime.py）：
+
+- `run_graph`（非流式）：自带 while 主循环（模型 ainvoke、上下文降级重试、
+  thinking/content/usage 累积、工具轮执行、上限检查、收尾），约 180 行；
+- `_stream_graph`（流式）：同样的自维护主循环（逐轮 `_astream_collect`），
+  约 200 行；`stream_graph` 为外层异常 → error 事件包装；
+- 与 AgentRuntime 已共享的底层：`_execute_tool_round`/ToolRoundExecutor、
+  `_bind_tools_schema`、`_build_initial_messages`、
+  `apply_context_guardrail`、`normalize_tool_step_status` 等。
+
+测试依赖：`tests/conversation/test_runtime.py`、`test_tool_snapshots.py`、
+`tests/builtin_tool/test_runtime_integration.py` 直接调用 legacy 引擎 25+
+处；REST parity 测试还依赖 legacy 作为对照基准。
+
+能力缺口（AgentLoop 尚缺、legacy 独有，删除前必须补齐或确认等价）：
+
+- 上下文超限降级重试：legacy 在模型抛 context-length 类错误时降级为
+  “系统提示 + 当前消息”重试一次（`_should_degrade_context` /
+  `_degraded_messages`）；`agent_runtime` 目前没有等价处理；
+- 纯文本模型对图片消息的错误降级（`_is_text_only_image_error` 相关分支）
+  未在 AgentRuntime 侧确认；
+- legacy `_finish_tool_loop` 负责 GraphResult 最终组装（content_blocks、
+  citations、tool_events、usage、pending_confirmation_id）；灰度侧目前由
+  conversation/gateway Adapter 组装 GraphResult，存在双份收尾组装。
+
+### 方案比较
+
+1. 激进收敛（灰度常开并直接删除 legacy 两条函数）：一次到位，但能力缺口
+   （降级重试、收尾组装单点）未补齐前会改变真实模型场景行为；25+ 个 legacy
+   直接测试需重写，且 REST 人工测试尚未执行。风险最高，不推荐先行。
+2. 渐进收敛（推荐）：分四步，每步保持 307+ 全量绿与可回滚。
+   - 8.1 差距清单与对照测试：为能力缺口各写灰度/legacy 对照用例，先补
+     AgentLoop 缺失行为（不修改公开协议）；
+   - 8.2 收尾组装单点：把 legacy `_finish_tool_loop` 的 GraphResult 组装
+     收敛为 AgentRuntime 结果 Adapter（行为逐字不变）；
+   - 8.3 薄壳转调：`run_graph`/`stream_graph` 改为兼容薄壳，内部转调
+     AgentLoop，事件经既有 Adapter 还原 legacy 形状；生产逻辑只剩一条主循环；
+   - 8.4 收尾：REST/WS 真实��工回归通过后，删除薄壳与 legacy 专用测试
+     （或标记 deprecated 后按仓库节奏移除）。
+3. 维持现状：双实现双跑，灰度开关保留；成本是口径漂移风险与双份维护。
+
+### 最终决策（待用户确认）
+
+建议采用方案 2 渐进收敛，但本轮只做预研与计划；用户确认方向后先进入 8.1
+差距清单（写测试、补 AgentLoop 缺失行为），不直接删除任何 legacy 代码。
+全程不修改 REST/SSE/WS 公开协议、数据库模型、鉴权与权限边界。
+
+### 剩余风险
+
+- 降级重试语义（何时允许降级、降级后是否重试工具轮）需要与 Pi/业界对齐，
+  避免 AgentRuntime 与 legacy 在真实供应商错误下行为分叉；
+- parity 自动化都基于替身模型，供应商真实错误（context length、图片
+  不支持）只能靠人工测试补足，收敛前必须完成 REST 人工测试。

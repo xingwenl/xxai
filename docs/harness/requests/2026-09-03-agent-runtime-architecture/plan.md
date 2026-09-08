@@ -23,6 +23,55 @@
 5. ~~SDK/后端全量验证~~（已完成后端自动化部分：`307 passed, 1 skipped`；SDK 自动化此前已通过）。
 6. 完成 `verify.md`、`acceptance.md` 和 request 状态更新（进行中：文档随增量持续更新，最终状态等人工测试反馈）。
 
+## 阶段 8 实施计划：收敛单一 AgentLoopAgentRuntime 并删除 legacy（2026-09-08）
+
+### 背景与决策
+
+用户 2026-09-08 确认：后续只使用 `AgentLoopAgentRuntime`，legacy Graph 可
+直接删除。基线：全量核心回归 `307 passed, 1 skipped`（HEAD `1ae78ed`）。
+
+### 生产收敛点（8B 目标）
+
+| 文件 | 现状 | 收敛后 |
+|---|---|---|
+| conversation/services.py `_run_execute_chat_model_round` | `if use_agent_runtime` 走 runtime，else `run_graph` | 只走 runtime，删 legacy 分支 |
+| conversation/services.py `stream_chat` | `if use_agent_runtime` 走 runtime，else `graph_bridge.stream(stream_graph(...))` | 只走 runtime |
+| gateway/runtime.py `stream_embed_chat` | 同上 | 只走 runtime |
+| core/config.py | `agent_runtime_enabled` 开关（默认 False） | 删除开关与 `use_agent_runtime` 参数 |
+
+### 8A 行为分叉（待用户确认后执行）
+
+- legacy 独有、AgentRuntime 尚未覆盖：context-length 降级重试与纯文本模型
+  拒图降级（`_should_degrade_context`/`_degraded_messages`/`_is_text_only_
+  image_error`/`_astream_with_image_fallback` 仅被 legacy 主循环调用）。
+- 选项甲（推荐）：迁入 AgentRuntime 驱动路径并补测试，保留真实模型行为；
+- 选项乙：以 AgentRuntime 模型错误 → failed/error 语义为新契约，删除 legacy
+  缓解及其独占测试。
+
+### 8C 清理范围（候选，待 8A/8D 确认后精确化）
+
+- conversation/runtime.py 删除：`run_graph`、`_stream_graph`、`stream_graph`、
+  `_finish_tool_loop`、`_astream_collect`、`_drain_events` 及仅其使用的私有
+  助手（`_astream_with_image_fallback` 等）；保留供 AgentRuntime 复用的
+  build_*/tool_step/GraphResult/错误 payload 等共享函数。
+- agent_runtime/graph_bridge.py、legacy_adapter.py 若迁移后不再被引用则删除。
+
+### 8D 测试收敛方向（待 8A/8B 后细化）
+
+- `tests/conversation/test_rest_parity.py`：parity 用例由“灰度 vs legacy”改为
+  AgentRuntime 单路径行为断言（复用既有预期）。
+- `tests/gateway/test_chat_flow.py` 灰度开关翻转用例：改为常开单路径或删除
+  legacy 对照臂。
+- 直连 legacy 引擎测试（test_runtime.py/test_tool_snapshots.py/
+  test_runtime_integration.py）：迁移到 services/AgentRuntime 等价入口；仅
+  legacy 独占缓解的用例随 8A 选项乙一并删除。
+
+### 执行顺序与验证
+
+1. 8A（视用户选项）→ 2. 8B → 3. 8C → 4. 8D → 5. 8E 全量验证：
+`pytest tests/agent_runtime tests/conversation tests/gateway -q`、ruff、
+compileall、`git diff --check`；结果写入 verify.md，最终写 acceptance/meta。
+
 ## 本轮执行记录
 
 | 步骤 | 结果 | 验证或结论 |
