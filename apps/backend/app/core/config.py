@@ -77,7 +77,6 @@ class Settings:
     agent_max_upload_bytes: int
     agent_fetch_timeout_seconds: int
     agent_max_iterations: int
-    agent_runtime_enabled: bool
     embedding_batch_size: int
     attachment_embedding_provider: str | None
     attachment_embedding_model: str | None
@@ -203,8 +202,6 @@ def get_settings() -> Settings:
         ),
         agent_fetch_timeout_seconds=int(os.getenv("AGENT_FETCH_TIMEOUT_SECONDS", "15")),
         agent_max_iterations=int(os.getenv("AGENT_MAX_ITERATIONS", "20")),
-        # 新 Agent runtime 灰度开关，默认关闭；开启前应完成 REST/WS 回归。
-        agent_runtime_enabled=_get_bool("AGENT_RUNTIME_ENABLED", default=False),
         embedding_batch_size=int(os.getenv("EMBEDDING_BATCH_SIZE", "10")),
         attachment_embedding_provider=os.getenv("ATTACHMENT_EMBEDDING_PROVIDER"),
         attachment_embedding_model=os.getenv("ATTACHMENT_EMBEDDING_MODEL"),

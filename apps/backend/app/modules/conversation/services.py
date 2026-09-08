@@ -15,8 +15,6 @@ from app.modules.conversation.runtime import (
     custom_content_blocks,
     image_content_blocks,
     rewrite_image_markdown,
-    run_graph,
-    stream_graph,
     tool_step_values,
     GraphResult,
 )
@@ -24,7 +22,6 @@ from app.modules.knowledge.runtime import build_embedding_model
 from app.modules.knowledge.services import build_citations, validate_embedding_dimension
 from app.modules.conversation.schemas import sanitize_content_blocks
 from app.modules.agent_runtime.event_adapters import event_to_legacy
-from app.modules.agent_runtime.graph_bridge import LegacyGraphRuntimeBridge
 from app.modules.agent_runtime.langchain_adapter import build_langchain_messages
 from app.modules.agent_runtime.conversation_adapter import stream_runtime_as_conversation
 from app.modules.agent_runtime.lifecycle import (
@@ -396,74 +393,58 @@ async def _run_execute_chat_model_round(
     model,
     runtime_tools: list,
     invoke_tool_fn,
-    use_agent_runtime: bool,
     context,
     history,
     message: str,
     citations: list[dict],
     request_id: str,
 ) -> GraphResult:
-    """执行 REST 非流式对话的模型轮次（灰度 runtime 或 legacy Graph）。
+    """执行 REST 非流式对话的模型轮次（统一 AgentRuntime）。
 
-    两条路径共用同一份上下文组装参数（系统提示、历史、当前消息），差异只
-    在循环执行器；把分叉收敛到这里，execute_chat 只需关心统一失败收尾，
-    避免服务层把灰度/legacy 的模型调用细节重复展开。
+    AgentLoop 是唯一主循环实现：这里只负责按上下文组装 LangChain 消息、
+    构建 runtime（含上下文护栏与 context-length 降级恢复），并把统一结果
+    收敛为 REST 的 GraphResult，供 execute_chat 统一失败收尾。
     """
 
-    if use_agent_runtime:
-        system_prompt = build_system_prompt(
-            context.version, context.skill_instructions, citations
-        )
-        runtime = build_langchain_runtime(
-            model,
-            runtime_tools,
-            invoke_tool_fn,
-            streaming=False,
-            context_transform=lambda messages: apply_runtime_context_guardrail(
-                messages,
-                window_tokens=resolve_context_window_tokens(context.version),
-            ),
-            max_turns=get_settings().agent_max_iterations,
-            on_model_error=make_context_degrade_recoverer(
-                system_prompt, message
-            ),
-        )
-        messages = build_langchain_messages(
-            system_prompt=system_prompt,
-            history=history,
-            user_message=message,
-        )
-        runtime_result = await runtime.run(messages, request_id=request_id)
-        runtime_tool_events = runtime_result.tool_events or []
-        # 灰度结果只提供纯文本与工具事件；图片 URL 改写与内容块必须与
-        # legacy Graph 收尾保持同一口径，否则 ChatResponse.content_blocks 和
-        # assistant 消息内容会在灰度开关下出现渲染差异。
-        return GraphResult(
-            content=rewrite_image_markdown(
-                runtime_result.content, runtime_tool_events
-            ),
-            citations=runtime_result.citations or citations,
-            knowledge_grounded=bool(runtime_result.citations or citations),
-            tool_events=runtime_result.tool_events,
-            usage=runtime_result.usage,
-            pending_confirmation_id=runtime_result.pending_confirmation_id,
-            thinking_text=runtime_result.thinking_text or "",
-            content_blocks=[
-                *image_content_blocks(runtime_tool_events),
-                *custom_content_blocks(runtime_tool_events),
-            ],
-        )
-    return await run_graph(
+    system_prompt = build_system_prompt(
+        context.version, context.skill_instructions, citations
+    )
+    runtime = build_langchain_runtime(
         model,
-        system_prompt=build_system_prompt(
-            context.version, context.skill_instructions, citations
+        runtime_tools,
+        invoke_tool_fn,
+        streaming=False,
+        context_transform=lambda messages: apply_runtime_context_guardrail(
+            messages,
+            window_tokens=resolve_context_window_tokens(context.version),
         ),
-        user_message=message,
+        max_turns=get_settings().agent_max_iterations,
+        on_model_error=make_context_degrade_recoverer(system_prompt, message),
+    )
+    messages = build_langchain_messages(
+        system_prompt=system_prompt,
         history=history,
-        citations=citations,
-        tools=runtime_tools,
-        invoke_tool_fn=invoke_tool_fn,
-        context_window_tokens=resolve_context_window_tokens(context.version),
+        user_message=message,
+    )
+    runtime_result = await runtime.run(messages, request_id=request_id)
+    runtime_tool_events = runtime_result.tool_events or []
+    # runtime 结果只提供纯文本与工具事件；图片 URL 改写与内容块必须与收尾
+    # 保持同一口径，否则 ChatResponse.content_blocks 和 assistant 消息内容
+    # 会与既有 REST 行为不一致。
+    return GraphResult(
+        content=rewrite_image_markdown(
+            runtime_result.content, runtime_tool_events
+        ),
+        citations=runtime_result.citations or citations,
+        knowledge_grounded=bool(runtime_result.citations or citations),
+        tool_events=runtime_result.tool_events,
+        usage=runtime_result.usage,
+        pending_confirmation_id=runtime_result.pending_confirmation_id,
+        thinking_text=runtime_result.thinking_text or "",
+        content_blocks=[
+            *image_content_blocks(runtime_tool_events),
+            *custom_content_blocks(runtime_tool_events),
+        ],
     )
 
 
@@ -478,7 +459,6 @@ async def execute_chat(
     model,
     citations: list[dict],
     invoke_tool_fn=None,
-    use_agent_runtime: bool = False,
 ):
     logger.info(
         "Conversation chat started platform_id=%s user_id=%s agent_id=%s conversation_id=%s message_chars=%s citation_count=%s",
@@ -528,7 +508,6 @@ async def execute_chat(
             model=model,
             runtime_tools=runtime_tools,
             invoke_tool_fn=invoke_tool_fn,
-            use_agent_runtime=use_agent_runtime,
             context=context,
             history=history,
             message=message,
@@ -609,7 +588,6 @@ async def stream_chat(
     model,
     citations: list[dict],
     invoke_tool_fn=None,
-    use_agent_runtime: bool = False,
 ):
     logger.info(
         "Conversation stream chat started platform_id=%s user_id=%s agent_id=%s conversation_id=%s message_chars=%s citation_count=%s",
@@ -703,26 +681,23 @@ async def stream_chat(
         *context.skill_script_tools,
         *([context.skill_instruction_tool] if context.skill_instruction_tool else []),
     ]
-    graph_bridge = LegacyGraphRuntimeBridge()
-    if use_agent_runtime:
-        system_prompt = build_system_prompt(
-            context.version, context.skill_instructions, citations
-        )
-        runtime = build_langchain_runtime(
-            model,
-            runtime_tools,
-            invoke_tool_fn,
-            streaming=True,
-            context_transform=lambda messages: apply_runtime_context_guardrail(
-                messages,
-                window_tokens=resolve_context_window_tokens(context.version),
-            ),
-            max_turns=get_settings().agent_max_iterations,
-            on_model_error=make_context_degrade_recoverer(
-                system_prompt, message
-            ),
-        )
-        runtime_stream = runtime.stream(
+    system_prompt = build_system_prompt(
+        context.version, context.skill_instructions, citations
+    )
+    runtime = build_langchain_runtime(
+        model,
+        runtime_tools,
+        invoke_tool_fn,
+        streaming=True,
+        context_transform=lambda messages: apply_runtime_context_guardrail(
+            messages,
+            window_tokens=resolve_context_window_tokens(context.version),
+        ),
+        max_turns=get_settings().agent_max_iterations,
+        on_model_error=make_context_degrade_recoverer(system_prompt, message),
+    )
+    event_stream = stream_runtime_as_conversation(
+        runtime.stream(
             build_langchain_messages(
                 system_prompt=system_prompt,
                 history=history,
@@ -730,33 +705,8 @@ async def stream_chat(
             ),
             request_id=loop.request_id,
         )
-        event_stream = stream_runtime_as_conversation(runtime_stream)
-    else:
-        event_stream = graph_bridge.stream(
-            stream_graph(
-        model,
-        system_prompt=build_system_prompt(
-            context.version, context.skill_instructions, citations
-        ),
-        user_message=message,
-        history=history,
-        citations=citations,
-        tools=[
-            *_rest_runtime_tools(*context.builtin_tools),
-            *context.mcp_tools,
-            *context.skill_script_tools,
-            *(
-                [context.skill_instruction_tool]
-                if context.skill_instruction_tool
-                else []
-            ),
-        ],
-        invoke_tool_fn=invoke_tool_fn,
-            context_window_tokens=resolve_context_window_tokens(context.version),
-        ),
-        request_id=f"conversation-{conversation.id}",
-        conversation_id=conversation.id,
-            )
+    )
+
     async for agent_event in event_stream:
         # REST SSE 与 WebSocket 共用统一内部事件 seam；这里保留旧字段出口，
         # 让后续的消息持久化和 SSE 组装可以渐进迁移而不改变公开响应格式。

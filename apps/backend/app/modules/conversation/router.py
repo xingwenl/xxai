@@ -5,7 +5,6 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db_session
-from app.core.config import get_settings
 from app.core.security import require_current_active_user_or_wechat_service
 from app.modules.agent.repositories import AgentRepository
 from app.modules.agent.services import build_chat_model
@@ -149,7 +148,6 @@ async def _execute(
         model=build_chat_model(context.version),
         citations=[citation.model_dump() for citation in citations],
         invoke_tool_fn=invoke,
-        use_agent_runtime=get_settings().agent_runtime_enabled,
     )
     return conversation, assistant, agent_result_from_legacy(result)
 
@@ -219,7 +217,6 @@ async def chat_endpoint(
                 model=build_chat_model(context.version),
                 citations=[citation.model_dump() for citation in citations],
                 invoke_tool_fn=invoke,
-                use_agent_runtime=get_settings().agent_runtime_enabled,
             ):
                 conversation = item["conversation"]
                 if item["type"] == "message_delta":

@@ -14,7 +14,6 @@ from app.modules.conversation.runtime import (
     build_system_prompt,
     build_history_messages,
     make_multimodal_degrade_recoverer,
-    stream_graph,
     tool_step_values,
     image_content_blocks,
     custom_content_blocks,
@@ -38,7 +37,6 @@ from app.modules.asset_processing.runtime import attachment_embedding_enabled
 from app.modules.asset_processing.repositories import AssetProcessingRepository
 from app.modules.asset_processing.models import ProcessingStatus
 from app.modules.agent_runtime.event_adapters import event_to_legacy
-from app.modules.agent_runtime.graph_bridge import LegacyGraphRuntimeBridge
 from app.modules.agent_runtime.conversation_adapter import stream_runtime_as_conversation
 from app.modules.agent_runtime.langchain_adapter import build_langchain_messages
 from app.modules.agent_runtime.composition import (
@@ -688,70 +686,44 @@ async def stream_embed_chat(
     result = None
     tool_steps = {}
     next_step_sequence = generation_sequence + 1
-    graph_bridge = LegacyGraphRuntimeBridge()
-    use_agent_runtime = get_settings().agent_runtime_enabled
-    if use_agent_runtime:
-        tools = runtime_tools if runtime_tools is not None else host_tools or []
-        ws_system_prompt = build_system_prompt(
-            context.version,
-            context.skill_instructions,
-            citations,
-            host_tools=tools,
-            caller_system_prompt=system_prompt,
-        )
-        runtime = build_langchain_runtime(
-            model,
-            tools,
-            invoke_host_tool_fn,
-            streaming=True,
-            context_transform=lambda messages: apply_runtime_context_guardrail(
-                messages,
-                window_tokens=resolve_context_window_tokens(context.version),
-            ),
-            max_turns=get_settings().agent_max_iterations,
-            on_model_error=make_multimodal_degrade_recoverer(
-                ws_system_prompt, message
-            ),
-        )
-        event_stream = stream_runtime_as_conversation(
-            runtime.stream(
-                build_langchain_messages(
-                    system_prompt=ws_system_prompt,
-                    history=build_history_messages(
-                        history,
-                        attachment_parts=history_attachment_parts,
-                    ),
-                    user_message=message,
-                    image_parts=image_parts,
-                    document_text_parts=document_text_parts,
-                ),
-                request_id=request_id,
-            )
-        )
-    else:
-        event_stream = graph_bridge.stream(
-            stream_graph(
-            model,
-            system_prompt=build_system_prompt(
-                context.version,
-                context.skill_instructions,
-                citations,
-                host_tools=runtime_tools if runtime_tools is not None else host_tools,
-                caller_system_prompt=system_prompt,
-            ),
-            user_message=message,
-            image_parts=image_parts,
-            history=history,
-            citations=citations,
-            tools=runtime_tools if runtime_tools is not None else host_tools,
-            invoke_tool_fn=invoke_host_tool_fn,
-            document_text_parts=document_text_parts,
-            history_attachment_parts=history_attachment_parts,
-            context_window_tokens=resolve_context_window_tokens(context.version),
+    tools = runtime_tools if runtime_tools is not None else host_tools or []
+    ws_system_prompt = build_system_prompt(
+        context.version,
+        context.skill_instructions,
+        citations,
+        host_tools=tools,
+        caller_system_prompt=system_prompt,
+    )
+    runtime = build_langchain_runtime(
+        model,
+        tools,
+        invoke_host_tool_fn,
+        streaming=True,
+        context_transform=lambda messages: apply_runtime_context_guardrail(
+            messages,
+            window_tokens=resolve_context_window_tokens(context.version),
         ),
-        request_id=request_id,
-        conversation_id=conversation.id,
-            )
+        max_turns=get_settings().agent_max_iterations,
+        on_model_error=make_multimodal_degrade_recoverer(
+            ws_system_prompt, message
+        ),
+    )
+    event_stream = stream_runtime_as_conversation(
+        runtime.stream(
+            build_langchain_messages(
+                system_prompt=ws_system_prompt,
+                history=build_history_messages(
+                    history,
+                    attachment_parts=history_attachment_parts,
+                ),
+                user_message=message,
+                image_parts=image_parts,
+                document_text_parts=document_text_parts,
+            ),
+            request_id=request_id,
+        )
+    )
+
     async for agent_event in event_stream:
         # 内部先经过统一 AgentEvent seam，再还原为旧字段供现有持久化逻辑使用。
         # 这一阶段刻意保留出口兼容，确保 WebSocket 协议和事件顺序不变。

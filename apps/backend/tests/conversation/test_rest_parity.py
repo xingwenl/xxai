@@ -338,8 +338,7 @@ def test_execute_chat_gray_plain_answer_matches_legacy():
             conversation_id=None,
             model=PlainAnswerModel(),
             citations=CITATIONS,
-            use_agent_runtime=gray,
-        )
+                    )
         return conversation, assistant, result, repo
 
     legacy = asyncio.run(run(False))
@@ -376,8 +375,7 @@ def test_execute_chat_gray_tool_round_persists_same_steps_as_legacy():
             model=ToolThenAnswerModel(),
             citations=CITATIONS,
             invoke_tool_fn=invoke_lookup,
-            use_agent_runtime=gray,
-        )
+                    )
         return result, repo
 
     legacy_result, legacy_repo = asyncio.run(run(False))
@@ -411,8 +409,7 @@ def test_stream_chat_gray_event_sequence_and_result_match_legacy():
             conversation_id=None,
             model=PlainStreamingModel(),
             citations=CITATIONS,
-            use_agent_runtime=gray,
-        ):
+                    ):
             events.append(event)
         return events, repo
 
@@ -453,8 +450,7 @@ def test_execute_chat_gray_thinking_text_matches_legacy():
             conversation_id=None,
             model=ThinkingAnswerModel(),
             citations=CITATIONS,
-            use_agent_runtime=gray,
-        )
+                    )
         generation_step = next(
             step for step in repo.steps if step.step_type == "model_generation"
         )
@@ -481,8 +477,7 @@ def test_stream_chat_gray_thinking_deltas_and_result_match_legacy():
             conversation_id=None,
             model=ThinkingStreamingModel(),
             citations=CITATIONS,
-            use_agent_runtime=gray,
-        ):
+                    ):
             events.append(event)
         return events, repo
 
@@ -557,8 +552,7 @@ def test_stream_chat_gray_tool_round_events_and_steps_match_legacy():
             model=StreamingToolThenAnswerModel(),
             citations=CITATIONS,
             invoke_tool_fn=invoke_lookup,
-            use_agent_runtime=gray,
-        ):
+                    ):
             events.append(event)
         return events, repo
 
@@ -609,8 +603,7 @@ def test_execute_chat_gray_confirmation_waiting_matches_legacy():
             model=ToolThenConfirmModel(),
             citations=CITATIONS,
             invoke_tool_fn=confirm_invoke,
-            use_agent_runtime=gray,
-        )
+                    )
         return result, repo
 
     legacy_result, legacy_repo = asyncio.run(run(False))
@@ -637,8 +630,7 @@ def test_stream_chat_gray_confirmation_waiting_terminates_like_legacy():
             model=StreamingToolThenConfirmModel(),
             citations=CITATIONS,
             invoke_tool_fn=confirm_invoke,
-            use_agent_runtime=gray,
-        ):
+                    ):
             events.append(event)
         return events, repo
 
@@ -690,8 +682,7 @@ def test_stream_chat_gray_model_error_terminates_like_legacy():
             conversation_id=None,
             model=FailingStreamingModel(),
             citations=CITATIONS,
-            use_agent_runtime=gray,
-        ):
+                    ):
             events.append(event)
         return events, repo
 
@@ -739,8 +730,7 @@ def test_execute_chat_gray_model_error_propagates_like_legacy():
                 conversation_id=None,
                 model=FailingNonStreamingModel(),
                 citations=CITATIONS,
-                use_agent_runtime=gray,
-            )
+                            )
         except RuntimeError as error:
             return str(error), repo
         raise AssertionError("expected model error")
@@ -828,8 +818,7 @@ def test_execute_chat_gray_max_turns_wrapup_matches_legacy(monkeypatch):
             model=model,
             citations=CITATIONS,
             invoke_tool_fn=invoke_lookup,
-            use_agent_runtime=gray,
-        )
+                    )
         return model, result, repo
 
     try:
@@ -854,8 +843,13 @@ def test_execute_chat_gray_max_turns_wrapup_matches_legacy(monkeypatch):
         gray_result.tool_events[-1]["outcome"].error["code"]
         == "max_turns_reached"
     )
-    assert len(legacy_result.tool_events or []) == 1
-    assert str(legacy_result.tool_events[0]["outcome"].status) == "completed"
+    # 单一 AgentLoop 下 legacy 臂与灰度臂同源：上限轮同样记录为 failed，
+    # 不再存在“legacy 不记录该轮调用”的口径差异。
+    legacy_statuses = [
+        str(event["outcome"].status)
+        for event in (legacy_result.tool_events or [])
+    ]
+    assert legacy_statuses == ["completed", "failed"]
     # 成功执行（completed）的工具轮数两路一致为 1；模型调用总数同为 3：
     # 第 1 轮执行工具、第 2 轮达到上限拒绝执行、第 3 轮收尾直接回答。
     assert gray_model.calls == 3
@@ -929,8 +923,7 @@ def test_stream_chat_gray_max_turns_wrapup_terminates_like_legacy():
                 model=model,
                 citations=CITATIONS,
                 invoke_tool_fn=invoke_lookup,
-                use_agent_runtime=gray,
-            ):
+                            ):
                 events.append(event)
         finally:
             object.__setattr__(
@@ -977,8 +970,11 @@ def test_stream_chat_gray_max_turns_wrapup_terminates_like_legacy():
     # tool_result 的服务层 payload 是 outcome.model_dump() 后的 dict，
     # 失败原因位于 payload["error"]["code"]（键名保留 dataclass 字段名 error）。
     assert gray_failed[0]["payload"]["error"]["code"] == "max_turns_reached"
-    assert not any(
-        event["type"] == "tool_result"
-        and event["payload"].get("status") == "failed"
+    # 单一 AgentLoop 下 legacy 臂与灰度臂同源：上限轮同样记录为 failed。
+    legacy_failed = [
+        event
         for event in legacy_events
-    )
+        if event["type"] == "tool_result"
+        and event["payload"].get("status") == "failed"
+    ]
+    assert len(legacy_failed) == 1

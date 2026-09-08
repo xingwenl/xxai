@@ -114,12 +114,19 @@ class GrayStreamingModel:
 
 
 class FakeUsageStreamingModel:
+    """流式模型：携带 usage_metadata 的 AIMessageChunk（真实供应商形状）。
+
+    运行时通过模型响应累积 usage；用 AIMessageChunk 而不是 SimpleNamespace，
+    与 AgentLoop 的 LangChain 适配器（模型调用即 AIMessage/AIMessageChunk）
+    保持一致，确保 message_completed 能透出 token 用量并落独立用量表。
+    """
+
     async def astream(self, _messages):
-        yield SimpleNamespace(
+        yield AIMessageChunk(
             content="你好",
             usage_metadata={
-                "prompt_tokens": 12,
-                "completion_tokens": 5,
+                "input_tokens": 12,
+                "output_tokens": 5,
                 "total_tokens": 17,
             },
         )
@@ -628,9 +635,7 @@ def test_embed_chat_gray_max_turns_wrapup_terminates_like_legacy():
 
     async def run(gray):
         settings = get_settings()
-        original_enabled = settings.agent_runtime_enabled
         original_max_turns = settings.agent_max_iterations
-        object.__setattr__(settings, "agent_runtime_enabled", gray)
         object.__setattr__(settings, "agent_max_iterations", 2)
         repo = FakeConversationRepository()
         model = MaxTurnsEmbedStreamingModel()
@@ -656,9 +661,6 @@ def test_embed_chat_gray_max_turns_wrapup_terminates_like_legacy():
             ):
                 events.append(event)
         finally:
-            object.__setattr__(
-                settings, "agent_runtime_enabled", original_enabled
-            )
             object.__setattr__(
                 settings, "agent_max_iterations", original_max_turns
             )
@@ -706,7 +708,11 @@ def test_embed_chat_gray_max_turns_wrapup_terminates_like_legacy():
         "succeeded",
         "failed",
     ]
-    assert [step["payload"]["status"] for step in legacy_steps] == ["succeeded"]
+    # 单一 AgentLoop 下 legacy 臂与灰度臂同源：上限轮同样记录为 failed。
+    assert [step["payload"]["status"] for step in legacy_steps] == [
+        "succeeded",
+        "failed",
+    ]
 
 
 class ConfirmWaitStreamingModel:
@@ -782,9 +788,6 @@ def _run_embed_confirm_scenario(gray, approved):
     """执行一次 WS 确认场景，返回 (model, events, repo)。"""
 
     async def run():
-        settings = get_settings()
-        original_enabled = settings.agent_runtime_enabled
-        object.__setattr__(settings, "agent_runtime_enabled", gray)
         repo = FakeConversationRepository()
         model = ConfirmWaitStreamingModel()
         invoke, entered, gate = make_blocking_confirm_invoke(approved=approved)
@@ -821,9 +824,6 @@ def _run_embed_confirm_scenario(gray, approved):
         finally:
             if not task.done():
                 task.cancel()
-            object.__setattr__(
-                settings, "agent_runtime_enabled", original_enabled
-            )
         return model, events, repo
 
     return asyncio.run(run())
@@ -943,9 +943,6 @@ def test_embed_chat_gray_ask_user_resumes_like_legacy():
     """
 
     async def run(gray):
-        settings = get_settings()
-        original_enabled = settings.agent_runtime_enabled
-        object.__setattr__(settings, "agent_runtime_enabled", gray)
         repo = FakeConversationRepository()
         model = AskUserWaitStreamingModel()
         invoke, entered, gate = make_blocking_question_invoke()
@@ -982,9 +979,6 @@ def test_embed_chat_gray_ask_user_resumes_like_legacy():
         finally:
             if not task.done():
                 task.cancel()
-            object.__setattr__(
-                settings, "agent_runtime_enabled", original_enabled
-            )
         return model, events, repo
 
     legacy_model, legacy_events, legacy_repo = asyncio.run(run(False))
