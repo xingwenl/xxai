@@ -904,3 +904,44 @@ WS 的 ask_user 由 dispatcher 在工具回调内等待连接层回传用户答�
 
 - host tool 审计状态（`awaiting_confirmation` 等）属于另一领域状态机，按
   方案范围未收拢；REST/WS 真实人工测试继续按用户要求延后。
+
+## 2026-09-08 阶段 8 验证（8A：真实模型缓解迁入 AgentRuntime）
+
+### 背景与结论
+
+用户确认仅保留 `AgentLoopAgentRuntime` 并最终删除 legacy（选项甲：先迁入两处
+真实模型缓解再删）。基线重跑全量核心回归 `307 passed, 1 skipped`（HEAD
+`955a3dd`）。
+
+### 8A-1：AgentLoop 模型错误降级重试钩子 + context-length 接入
+
+- `agent_runtime/hooks.py` 新增 `on_model_error` 恢复器钩子（ModelErrorRecoverer）；
+- `agent_runtime/loop.py` 每次模型调用包一层“一次性降级重试”：失败不算新增一轮、
+  不发布错误事件，取消（`CancelledError`）原样传播，重试仅一次防死循环；
+- `agent_runtime/runtime.py` `_new_loop` 与 `composition.py`
+  `build_langchain_runtime` 透传 `on_model_error`；
+- `conversation/runtime.py` 新增 `make_context_degrade_recoverer`；
+  services（REST 非流式 + REST SSE）与 gateway（WS）三处灰度调用注入该恢复器，
+  模型抛 context-length 时丢弃历史、只保留系统提示 + 当前用户消息重试一次；
+- 测试：`tests/agent_runtime/test_loop.py` 新增重试一次 / 返回 None 不重试两用例。
+
+### 8A-2：WS 纯文本拒图降级恢复
+
+- `conversation/runtime.py` 新增 `make_multimodal_degrade_recoverer`：先判拒图
+  错误（`_is_text_only_image_error`），裁掉 image_url 内容块（保留文本/文档）
+  重试；再判 context-length 降级；其余错误返回 None；
+- `gateway/runtime.py` WS 灰度改用该恢复器（保留文档文本与上下文降级两路）；
+- 测试：新增 `tests/conversation/test_model_recover.py` 覆盖拒图裁图、保留文本/
+  文档、context-length 降级与非匹配错误不重试。
+
+### 实际结果
+
+- 定向：`tests/agent_runtime/test_loop.py` + `tests/conversation/test_model_recover.py`
+  `24 passed`；
+- 全量核心回归：`312 passed, 1 skipped`；Ruff、compileall、`git diff --check` 通过；
+- 提交：`efb64f3`（8A-1）、`14dcac4`（8A-2）。
+
+### 失败项与例外
+
+- legacy 引擎仍未删除（8B/8C 后续）；8D parity/直连测试迁移与 8E 全量收尾待做；
+  legacy 独有的真实模型缓解语义已通过选项甲迁入 AgentRuntime 灰度路径。

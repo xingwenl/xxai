@@ -23,6 +23,19 @@
 5. ~~SDK/后端全量验证~~（已完成后端自动化部分：`307 passed, 1 skipped`；SDK 自动化此前已通过）。
 6. 完成 `verify.md`、`acceptance.md` 和 request 状态更新（进行中：文档随增量持续更新，最终状态等人工测试反馈）。
 
+## 阶段 8 实施进度（2026-09-08）
+
+- [x] 8A 真实模型缓解迁入 AgentRuntime（选项甲已实现，全量 312 绿）：
+  - 8A-1 AgentLoop `on_model_error` 一次性降级重试钩子，REST 非流式 / REST SSE
+    / WS 三协议注入 context-length 降级（`efb64f3`）；
+  - 8A-2 WS 纯文本拒图降级（裁图保留文本/文档）`make_multimodal_degrade_recoverer`
+    （`14dcac4`）。
+- [ ] 8B 删除三处 legacy 分支与 `agent_runtime_enabled` 开关（单一引擎）。
+- [ ] 8C 删除 legacy 主循环（run_graph/_stream_graph/stream_graph）与仅 legacy
+  使用的私有助手及不再引用的 graph_bridge/legacy_adapter。
+- [ ] 8D parity 改单路径断言 + legacy 直连测试迁移。
+- [ ] 8E 全量验证与验收文档收尾。
+
 ## 阶段 8 实施计划：收敛单一 AgentLoopAgentRuntime 并删除 legacy（2026-09-08）
 
 ### 背景与决策
