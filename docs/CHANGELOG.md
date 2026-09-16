@@ -1,5 +1,8 @@
 # Changelog
 
+## - 2026-09-09
+- ♻️ refactor：阶段 8 收敛单一 AgentRuntime——删除 legacy 主循环死代码与 graph_bridge/legacy_adapter，直连 legacy 测试迁移到新引擎/共享函数入口 `🧑‍💻 lixingwen`
+
 ## - 2026-09-07
 - ✨ feat：Agent 主循环统一与灰度 parity 自动化 `🧑‍💻 lixingwen`
 

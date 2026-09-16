@@ -181,6 +181,27 @@
 - [ ] REST 非流式与 REST SSE 的真实人工测试（灰度开关开启）待最终统一测试执行。
 - [ ] WS 断线重连后的前端消息列表渲染问题按用户要求延期，不属于本 request 后端验收范围。
 
+## 阶段 8 增量进度（2026-09-08/09：收敛单一 AgentLoopAgentRuntime 并删除 legacy）
+
+- [x] 8A 真实模型缓解迁入 AgentRuntime（用户确认选项甲）：AgentLoop
+  `on_model_error` 一次性降级重试钩子，REST 非流式/REST SSE/WS 三协议接入
+  context-length 降级与 WS 纯文本拒图降级；`efb64f3`/`14dcac4`。全量核心
+  回归 `312 passed, 1 skipped`。
+- [x] 8B REST/SSE/WS 生产三协议统一只走 `AgentLoopAgentRuntime`，删除三处
+  legacy 分支与 `agent_runtime_enabled` 配置开关；`82c48f5`。
+- [x] 8C 删除 legacy 主循环（run_graph/_stream_graph/stream_graph/
+  _finish_tool_loop 等）及仅其引用的私有助手、graph_bridge/legacy_adapter 与
+  其测试；runtime.py 2226 → 约 1395 行。选项甲删除两处不复现的 legacy 独占
+  行为（页面工具预算超限即停 + 固定文案；max_turns 收尾失败回退固定文案）。
+- [x] 8D 直连 legacy 测试收敛：已覆盖→删冗余；未覆盖→迁移到新入口单测
+  （build_langchain_messages 多模态 user content、build_history_messages 历史
+  注入/附件还原）；thinking 提取收口到 message_text.extract_thinking_text。
+  收敛后全量核心回归 `283 passed, 1 skipped`，Ruff（任务范围）、compileall、
+  `git diff --check` 通过。
+- [x] 8E 自动化收尾记录完成（本小节 + verify.md + plan.md + meta.json）。
+- [ ] 最终 REST 非流式 / REST SSE 真实人工测试仍待用户执行（按用户要求延后，
+  不阻塞自动化）。
+
 ## 当前阻塞与解除条件
 
 - 最终验收前置项：REST 非流式与 REST SSE 的真实人工测试（灰度开启），以及

@@ -945,3 +945,86 @@ WS 的 ask_user 由 dispatcher 在工具回调内等待连接层回传用户答�
 
 - legacy 引擎仍未删除（8B/8C 后续）；8D parity/直连测试迁移与 8E 全量收尾待做；
   legacy 独有的真实模型缓解语义已通过选项甲迁入 AgentRuntime 灰度路径。
+
+## 2026-09-09 阶段 8 验证（8C：删除 legacy 主循环死代码；8D：直连测试收敛；8E 自动化收尾）
+
+### 背景与结论
+
+8B 已把 REST/SSE/WS 三协议生产入口统一只走 `AgentLoopAgentRuntime`
+（提交 `82c48f5`）。本批删除 legacy 主循环死代码，并把直连
+`run_graph`/`stream_graph`/`apply_context_guardrail` 的测试收敛到新引擎与
+保留的共享函数入口，全量核心回归保持绿。
+
+### 8C 删除范围（实际）
+
+- `conversation/runtime.py` 删除：`run_graph`、`_stream_graph`、
+  `stream_graph`、`_finish_tool_loop`、`_astream_collect`、`_drain_events`、
+  `_execute_tool_round`、`_astream_with_image_fallback`、
+  `apply_context_guardrail`、`_bind_tools_schema`、`_build_initial_messages`、
+  `_resolve_max_iterations`、`_is_budget_exceeded_outcome`、state/常量类
+  `_AstreamCollectState`/`_FinishResult`/`_ToolRoundResult` 等仅被它们引用的
+  私有助手（module 约 2226 → 1395 行，ruff 顺带清理 9 处未用 import）。
+- 删除 `agent_runtime/graph_bridge.py`、`legacy_adapter.py` 及测试
+  `test_graph_bridge.py`、`test_legacy_adapter.py`。
+- 保留 AgentRuntime/服务层/8A 复用的共享函数（build_history_messages、
+  build_tool_snapshots、tool_step_values、build_step_payload、GraphResult、
+  extract/merge_token_usage、build_agent_error_payload、image/custom_content_
+  blocks、rewrite_image_markdown、make_*_degrade_recoverer、load_runtime_context、
+  build_system_prompt、apply_runtime_context_guardrail 等）。
+- 删除行为（用户确认的选项甲，不复现则不保留）：页面工具预算超限即停 +
+  固定文案；max_turns 收尾模型失败回退固定文案。
+
+### 8D 测试收敛（实际）
+
+- 反查每个 legacy 直连用例锁定行为在 AgentRuntime/服务/WS parity 的覆盖：
+  - 已覆盖（删冗余）：未知工具 `tool_not_found` 回填、多工具单次回填、
+    tool_started→completed 顺序、流关闭后不执行工具、max_turns 收尾/
+    wrapup 失败转 `max_turns_reached`/非正上限无限、跨轮 usage、thinking、
+    context-length 与纯文本拒图降级、确认等待、citations/knowledge_grounded
+    等——均已在 `test_loop.py`/`test_tool_loop.py`/`test_model_recover.py`/
+    `test_rest_parity.py`/`test_chat_flow.py` 覆盖。
+  - 未覆盖（迁移到新入口单测）：多模态 user content 构造与文档/图片顺序迁到
+    `agent_runtime/langchain_adapter.build_langchain_messages`
+    （`test_langchain_context.py`）；历史角色/工具配对注入与历史附件内容还原
+    迁到 `conversation/runtime.build_history_messages`
+    （`test_tool_snapshots.py`）。
+  - thinking 提取收口到 `agent_runtime.message_text.extract_thinking_text`
+    （`test_runtime.py` 用例改用该 canonical 入口）。
+- `test_runtime.py` 收敛为共享函数单测集（28 个）；删除的 run_graph/stream 直连
+  用例不迁移为死代码驱动。
+- `test_runtime_context.py` 移除 legacy `apply_context_guardrail`（旧消息格式
+  断言不再适用），仅保留 `apply_runtime_context_guardrail` 整轮单元覆盖。
+- `test_runtime_integration.py`（builtin local invoker 单测）判定已由 composition/
+  parity 覆盖，整文件删除。
+
+### 执行命令
+
+- `apps/backend/.venv/bin/pytest apps/backend/tests/agent_runtime apps/backend/tests/conversation apps/backend/tests/gateway -q`
+- `apps/backend/.venv/bin/ruff check apps/backend/app/modules/agent_runtime apps/backend/app/modules/conversation apps/backend/tests/agent_runtime apps/backend/tests/conversation`
+- `apps/backend/.venv/bin/python -m compileall -q apps/backend/app apps/backend/tests`
+- `git diff --check`
+
+### 预期结果
+
+- legacy 主循环及仅其引用的私有助手、graph_bridge/legacy_adapter 全部删除，
+  生产与测试不再引用已删符号（仅保留描述 parity 的注释）。
+- 收敛后全量核心回归通过；不再有 collection error。
+- Ruff（任务范围）、compileall、`git diff --check` 通过。
+
+### 实际结果
+
+- 定向新入口测试：`test_runtime.py` + `test_tool_snapshots.py` +
+  `test_runtime_context.py` + `test_langchain_context.py` 定向 `50 passed`；
+- 全量核心回归：`283 passed, 1 skipped`（较 8A 基线 312 的减少来自选项甲删除
+  的 legacy 独占用例与冗余直连用例的收敛，非覆盖缺失——等价行为已由新引擎/
+  parity 用例保留或在迁移后的单测中继续断言）。
+- Ruff（任务范围）`All checks passed!`；compileall 通过；`git diff --check` 通过。
+- 遗留一项与本任务无关、位于 `embed/repositories.py` 的既有无用 import（HEAD
+  即存在，不属于本 request 范围，未改动）。
+
+### 失败项与例外
+
+- 8E 最终 REST 非流式 / REST SSE 真实人工测试仍待用户执行（按用户要求延后，
+  不阻塞自动化；因此 phase 保持 `verify/active`，不置 `done`）。
+- WS 断线重连后的前端消息列表渲染问题继续按用户要求延期，不属于本 request
+  后端验收范围。

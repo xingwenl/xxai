@@ -71,6 +71,33 @@
 
 ## 变更记录
 
+### 2026-09-09 第 14 次变更：删除 legacy 主循环死代码并收敛直连测试（8C/8D 已实现，8E 待人工验收）
+
+- 变更原因：三协议生产入口已在 8B 统一走 `AgentLoopAgentRuntime`，legacy
+  `run_graph`/`_stream_graph`/`stream_graph` 成为生产不可达、仅测试引用的死
+  代码；删除并收敛其直连测试，避免双实现口径漂移。
+- 调研结论：逐条反查 legacy 直连用例锁定行为在 AgentRuntime/服务/WS parity
+  的覆盖；两处 legacy 独占、当下不复现的行为（页面工具预算超限即停 + 固定
+  文案；max_turns 收尾模型失败回退固定文案）按用户确认的选项甲不迁入、不
+  保留，随死代码一并删除，收敛到新引擎契约。
+- 变更内容：8C 删除 conversation/runtime.py 的 legacy 主循环及其仅被引用的
+  私有助手（runtime.py 2226 → 约 1395 行），删除 graph_bridge.py、
+  legacy_adapter.py 及其测试；保留 AgentRuntime/服务层复用的共享函数。8D 把
+  直连 legacy 的测试（test_runtime.py/test_tool_snapshots.py/
+  test_runtime_integration.py/test_runtime_context.py）按“已覆盖→删冗余，
+  未覆盖→迁移到新入口”收敛：多模态 user content 构造迁到
+  `build_langchain_messages` 单测，历史注入与附件还原迁到
+  `build_history_messages` 单测；thinking 提取改收口到
+  `agent_runtime.message_text.extract_thinking_text`。
+- 影响章节：范围、验收标准、变更记录。
+- 兼容要求：不修改 REST/SSE/WS 公开协议、数据库模型、鉴权与权限边界；删除
+  后不保留第二条主循环，真实模型缓解（8A）已迁入 AgentRuntime 不回退。
+- 验证：核心回归 `283 passed, 1 skipped`（原直连用例已删/迁移），Ruff（任务
+  范围）、compileall、`git diff --check` 均通过；最终 REST 人工测试待用户执行
+  （不阻塞，phase 保持 verify/active）。
+- 是否触发人工确认：是；方向与选项甲已在 2026-09-08 与用户确认，本记录为
+  落地结果存档。
+
 ### 2026-09-08 第 13 次变更：收敛为单一 AgentLoopAgentRuntime，删除 legacy（已确认方向）
 
 - 变更原因：三协议入口已完成 AgentRuntime 灰度接入与 parity 自动化，用户

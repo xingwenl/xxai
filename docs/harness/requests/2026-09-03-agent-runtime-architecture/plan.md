@@ -12,7 +12,7 @@
 | WebSocket 生命周期 | 已完成 | 取消事件、失败、断线清理和 replay 已统一并补充回归测试 |
 | AgentLoop 接管 WebSocket | 已完成（灰度） | WS 灰度已接入 AgentRuntime 并完成 max_turns、confirmation、ask_user、cancel 的事件流 parity 自动化；legacy Graph 保留为 fallback |
 | REST 入口迁移 | 已完成（灰度） | REST 非流式与 REST SSE 已接入 AgentRuntime 灰度并完成 parity 自动化；真实人工测试按用户要求延后 |
-| 全量验证与验收 | 进行中 | 后端自动化 `307 passed, 1 skipped`；最终验收等待用户执行 REST 人工测试 |
+| 全量验证与验收 | 自动化完成，验收待人工 | 阶段 8 收敛后核心回归 `283 passed, 1 skipped`（legacy 直连用例已删/迁移）；Ruff、compileall 与 `git diff --check` 通过；最终验收等待用户执行 REST 人工测试（不阻塞，phase 保持 verify/active） |
 
 ## 后续执行队列
 
@@ -20,8 +20,8 @@
 2. ~~WebSocket AgentLoop 兼容接入~~（已完成：WS 灰度接入 AgentRuntime，Embed 事件适配不变；runtime 终态去重与取消兼容已落地）。
 3. ~~工具确认、ask_user、取消和断线专项回归~~（已完成：自动化 parity + 用户真实验证）。
 4. ~~REST 非流式与 SSE 入口迁移~~（已完成灰度接入与 parity 自动化；真实人工测试延后）。
-5. ~~SDK/后端全量验证~~（已完成后端自动化部分：`307 passed, 1 skipped`；SDK 自动化此前已通过）。
-6. 完成 `verify.md`、`acceptance.md` 和 request 状态更新（进行中：文档随增量持续更新，最终状态等人工测试反馈）。
+5. ~~SDK/后端全量验证~~（已完成后端自动化部分；SDK 自动化此前已通过）。
+6. 阶段 8 收敛后更新 `verify.md`/`acceptance.md`/`meta.json`（自动化完成并记录；最终状态仍等人工测试反馈）。
 
 ## 阶段 8 实施进度（2026-09-08）
 
@@ -30,11 +30,21 @@
     / WS 三协议注入 context-length 降级（`efb64f3`）；
   - 8A-2 WS 纯文本拒图降级（裁图保留文本/文档）`make_multimodal_degrade_recoverer`
     （`14dcac4`）。
-- [ ] 8B 删除三处 legacy 分支与 `agent_runtime_enabled` 开关（单一引擎）。
-- [ ] 8C 删除 legacy 主循环（run_graph/_stream_graph/stream_graph）与仅 legacy
-  使用的私有助手及不再引用的 graph_bridge/legacy_adapter。
-- [ ] 8D parity 改单路径断言 + legacy 直连测试迁移。
-- [ ] 8E 全量验证与验收文档收尾。
+- [x] 8B 删除三处 legacy 分支与 `agent_runtime_enabled` 开关（单一引擎，
+  提交 `82c48f5`）。
+- [x] 8C 删除 legacy 主循环：`run_graph`/`_stream_graph`/`stream_graph`/
+  `_finish_tool_loop`/`_astream_collect`/`_drain_events` 及其仅被它们引用的
+  私有助手（`_execute_tool_round`/`_bind_tools_schema`/`_build_initial_messages`/
+  `_resolve_max_iterations`/`_is_budget_exceeded_outcome` 等），并删除不再引用
+  的 graph_bridge/legacy_adapter 及其测试；runtime.py 从 2226 行收敛到约
+  1395 行，保留仍被 AgentRuntime/服务层复用的共享函数。
+- [x] 8D legacy 直连测试收敛：删除仅锁已裁行为的用例（页面工具预算超限即停 +
+  固定文案、max_turns 收尾模型失败回退固定文案，均按选项甲不再保留）；其余
+  run_graph/stream_graph 直连用例按“已在 AgentRuntime/服务/WS parity 覆盖 →
+  删冗余”收敛；未覆盖的消息构造行为迁移到新入口单测（多模态 user content →
+  `build_langchain_messages`；历史注入与附件还原 → `build_history_messages`）。
+- [ ] 8E 全量验证与验收文档收尾（自动化已完成；最终人工 REST 测试待用户执行，
+  phase 保持 verify/active，不置 done）。
 
 ## 阶段 8 实施计划：收敛单一 AgentLoopAgentRuntime 并删除 legacy（2026-09-08）
 

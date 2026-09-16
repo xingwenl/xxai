@@ -44,9 +44,7 @@ from app.modules.agent_runtime.errors import (
     cancellation_error,
     error_from_exception,
 )
-from app.modules.agent_runtime.legacy_adapter import LegacyGraphEventAdapter
 from app.modules.agent_runtime.model_stream import ModelStreamAdapter
-from app.modules.agent_runtime.graph_bridge import LegacyGraphRuntimeBridge
 from app.modules.agent_runtime.tool_loop import ToolRoundExecutor
 from app.modules.agent_runtime.langchain_adapter import build_langchain_messages
 from app.modules.agent_runtime.adapters import (
@@ -85,9 +83,7 @@ __all__ = [
     "summarize_tool_value",
     "AgentRuntimeError",
     "cancellation_error",
-    "LegacyGraphEventAdapter",
     "ModelStreamAdapter",
-    "LegacyGraphRuntimeBridge",
     "ToolRoundExecutor",
     "build_langchain_messages",
     "error_from_exception",
