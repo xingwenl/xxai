@@ -151,6 +151,29 @@ class PlainAnswerModel:
         )
 
 
+class SessionProbeModel:
+    """在每次模型调用时记录上下文里的会话 id。
+
+    用于锁定「先解析/创建会话，再调用模型」这一前置条件：OpenCode 会话头
+    （``x-opencode-session``）依赖它才能在开启新会话的第一轮就取到真实 id。
+    """
+
+    def __init__(self, context):
+        self.context = context
+        self.seen_conversation_ids: list[int | None] = []
+
+    async def ainvoke(self, messages):
+        self.seen_conversation_ids.append(self.context.conversation_id)
+        return AIMessage(
+            content="退款规则是 30 天内申请。",
+            usage_metadata={
+                "input_tokens": 1,
+                "output_tokens": 1,
+                "total_tokens": 2,
+            },
+        )
+
+
 class ToolThenAnswerModel:
     """非流式模型：第一轮请求工具，第二轮基于工具结果给出正文。"""
 
@@ -324,6 +347,37 @@ def snapshots_without_time(message_metadata):
         }
         for entry in (message_metadata or {}).get("tool_snapshots", [])
     ]
+
+
+def test_execute_chat_resolves_conversation_before_first_model_call():
+    """新会话第一轮也要在模型调用前拿到真实会话 id。
+
+    OpenCode 的 ``x-opencode-session`` 由 ``build_chat_model`` 的
+    ``session_id_provider`` 在发请求时惰性求值，读的就是 ``context.conversation_id``；
+    若会话解析被挪到模型轮次之后，这个断言会立刻失败。
+    """
+
+    async def run():
+        repo = FakeConversationRepository()
+        context = make_context()
+        model = SessionProbeModel(context)
+        await execute_chat(
+            repo,
+            context,
+            platform_id=3,
+            user_id=5,
+            message="退款规则？",
+            conversation_id=None,
+            model=model,
+            citations=CITATIONS,
+        )
+        return context, model, repo
+
+    context, model, repo = asyncio.run(run())
+
+    assert repo.conversation is not None
+    assert model.seen_conversation_ids == [repo.conversation.id]
+    assert context.conversation_id == repo.conversation.id
 
 
 def test_execute_chat_gray_plain_answer_matches_legacy():

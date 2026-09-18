@@ -1,6 +1,7 @@
 """ask_user 询问链路的协议与分发测试。"""
 
 import asyncio
+import inspect
 import json
 from types import SimpleNamespace
 
@@ -9,7 +10,12 @@ import pytest
 from app.modules.gateway.connection import validate_incoming_message
 from app.modules.gateway.dispatcher import RuntimeToolDispatcher
 from app.modules.gateway.events import event_to_protocol_payload
-from app.modules.gateway.router import _handle_question_answer
+from app.modules.gateway.router import (
+    _cancel_pending_request_futures,
+    _handle_confirmation_resolve,
+    _handle_host_tool_result,
+    _handle_question_answer,
+)
 from app.modules.gateway.schemas import ProtocolEnvelope
 
 
@@ -147,8 +153,13 @@ def test_handle_question_answer_wakes_only_matching_future():
         future = asyncio.get_running_loop().create_future()
         pending_questions = {"q_1": future}
 
+        # SDK 把入站 requestId 填成问题 ID（sendQuestionAnswer），网关不能拿它
+        # 反查聊天请求，否则合法答复会被静默丢弃、模型挂起到超时。
         await _handle_question_answer(
-            message={"payload": {"questionId": "q_1", "selectedOptionId": "opt_a"}},
+            message={
+                "requestId": "q_1",
+                "payload": {"questionId": "q_1", "selectedOptionId": "opt_a"},
+            },
             pending_questions=pending_questions,
         )
         assert future.done()
@@ -169,6 +180,47 @@ def test_handle_question_answer_wakes_only_matching_future():
         assert other.result() == {"freeText": "自定义答案"}
 
     asyncio.run(scenario())
+
+
+def test_handle_question_answer_after_request_cleanup_is_noop():
+    """请求取消/结束后容器被清空，迟到的答复只能是 no-op。"""
+
+    async def scenario():
+        future = asyncio.get_running_loop().create_future()
+        pending_questions = {"q_1": future}
+        # 复用 router 在 message_cancel / 断连时对连接级 Future 的真实清理语义。
+        _cancel_pending_request_futures(pending_questions)
+
+        await _handle_question_answer(
+            message={
+                "requestId": "q_1",
+                "payload": {"questionId": "q_1", "freeText": "迟到的答复"},
+            },
+            pending_questions=pending_questions,
+        )
+
+        assert future.cancelled()
+        assert pending_questions == {}
+
+    asyncio.run(scenario())
+
+
+def test_inbound_item_id_is_not_used_as_request_filter():
+    """回归：入站 requestId 是条目 ID，不能用来过滤请求归属。
+
+    SDK 对 `question_answer` / `confirmation_resolve` / `host_tool_result` 都把
+    `requestId` 填成 questionId/callId（websocket.ts）。一旦网关拿它和聊天
+    请求 ID 比对，合法回调会被静默丢弃，模型循环挂起到超时。
+    """
+
+    for handler in (
+        _handle_question_answer,
+        _handle_confirmation_resolve,
+        _handle_host_tool_result,
+    ):
+        assert "active_request_id" not in inspect.signature(handler).parameters, (
+            f"{handler.__name__} 不得按入站 requestId 过滤请求归属"
+        )
 
 
 def test_event_to_protocol_payload_converts_question_required():

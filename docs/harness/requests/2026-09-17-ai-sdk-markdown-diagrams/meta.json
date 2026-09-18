@@ -1,0 +1,60 @@
+{
+  "id": "2026-09-17-ai-sdk-markdown-diagrams",
+  "title": "AI SDK Markdown 内联图表渲染",
+  "scope": "frontend",
+  "phase": "acceptance",
+  "status": "active",
+  "riskLevel": "medium",
+  "changeTypes": [
+    "frontend",
+    "docs"
+  ],
+  "research": {
+    "required": true,
+    "status": "done",
+    "sources": [
+      "apps/ai-sdk/node_modules/markdown-it/dist/markdown-it.mjs",
+      "/Users/lixingwen/xw/git/BuildingAI-master/node_modules/.pnpm/mermaid@11.12.3/node_modules/mermaid",
+      "/Users/lixingwen/xw/git/dify/web/app/components/base/mermaid",
+      "/Users/lixingwen/xw/git/BuildingAI-master/node_modules/.pnpm/@streamdown+mermaid@1.0.2_react@19.2.4/node_modules/@streamdown/mermaid/dist/index.js",
+      "apps/ai-sdk/node_modules/dompurify/dist/purify.es.mjs",
+      "/Users/lixingwen/xw/sibo/ui/node_modules/echarts",
+      "apps/ai-sdk/vite.config.ts",
+      "/Users/lixingwen/xw/git/pi/packages/coding-agent/src/modes/interactive/components/mermaid.ts"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": [
+    "架构边界变化：新增 SDK 公开扩展点与可选依赖策略"
+  ],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-09-17",
+      "scope": "接受「引擎外置 + 失败降级」的依赖策略，并要求支持其他围栏语言",
+      "note": "据此在 spec 第 1 次变更中扩展为：围栏语言不设白名单，内置 mermaid 与 echarts 两个渲染器"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-09-17",
+  "updatedAt": "2026-09-17",
+  "relatedPaths": [
+    "apps/ai-sdk/src/ui/markdown/fence-registry.ts",
+    "apps/ai-sdk/src/ui/markdown/mermaid-renderer.ts",
+    "apps/ai-sdk/src/ui/markdown/echarts-renderer.ts",
+    "apps/ai-sdk/src/ui/markdown/pipeline.ts",
+    "apps/ai-sdk/src/ui/markdown/index.ts",
+    "apps/ai-sdk/src/ui/components/MarkdownDiagram.vue",
+    "apps/ai-sdk/src/ui/components/MarkdownContent.vue",
+    "apps/ai-sdk/src/ui/styles/index.css",
+    "apps/ai-sdk/src/ui/index.ts",
+    "apps/ai-sdk/src/index.ts",
+    "apps/ai-sdk/vite.config.ts",
+    "apps/ai-sdk/scripts/verify-package.mjs",
+    "apps/ai-sdk/package.json",
+    "apps/ai-sdk/README.md"
+  ],
+  "notes": "实现与验证已完成，验收结论已记录。剩余风险：真实 mermaid/echarts 引擎与浏览器引擎级验证未执行（环境限制），package-lock.json 需联网同步 jsdom。"
+}

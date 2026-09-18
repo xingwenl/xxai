@@ -3,6 +3,27 @@ import ChatWidget from './components/ChatWidget.vue'
 import type { AgentClient } from '../core'
 import type { UIColors, UIWindowBounds } from '../core'
 export { registerCustomComponent } from './registry'
+export { default as MarkdownContent } from './components/MarkdownContent.vue'
+export {
+  configureMarkdownDiagrams,
+  getMarkdownFenceRenderer,
+  isMermaidSourceReady,
+  listMarkdownFenceLanguages,
+  normalizeFenceLanguage,
+  parseEChartsOption,
+  registerMarkdownFenceRenderer,
+  resolveDiagramTheme,
+  sanitizeMermaidSource,
+  unregisterMarkdownFenceRenderer,
+  type EChartsInstanceLike,
+  type EChartsLike,
+  type MarkdownDiagramOptions,
+  type MarkdownFenceCleanup,
+  type MarkdownFenceContext,
+  type MarkdownFenceRenderer,
+  type MarkdownFenceRendererInput,
+  type MermaidLike
+} from './markdown'
 
 export function createChatUI(agent: AgentClient, options?: {
   position?: 'left' | 'right'

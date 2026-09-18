@@ -1,0 +1,46 @@
+{
+  "id": "2026-09-18-agent-session-concurrency",
+  "title": "修复流式请求 Session 跨 Task 并发与生命周期不闭环",
+  "scope": "backend",
+  "phase": "acceptance",
+  "status": "active",
+  "riskLevel": "high",
+  "changeTypes": ["runtime", "tests", "docs"],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "Pi session-backends/sqlite-node（同步事务 + writer lease）",
+      "SQLAlchemy 2.0 IllegalStateChangeError 状态机源码",
+      "本仓库 2026-08-05-agent-loop-observability 并发 fix 记录",
+      "async generator 终结语义本地实验（Python 3.12）"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": false,
+  "approvalGranted": false,
+  "approvalReasons": [],
+  "approvalRecords": [
+    {
+      "date": "2026-09-18",
+      "grantedBy": "user",
+      "scope": "确认 P0+P1 一起修，并认可新建本 request",
+      "notes": "用户在诊断结论（跨 Task 共用 Session + 内层 Task 未 join）后回复“可以 帮我修吧，一起修”"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-09-18",
+  "updatedAt": "2026-09-18",
+  "relatedPaths": [
+    "apps/backend/app/modules/gateway/router.py",
+    "apps/backend/app/modules/gateway/runtime.py",
+    "apps/backend/app/modules/conversation/router.py",
+    "apps/backend/app/modules/conversation/services.py",
+    "apps/backend/app/modules/agent_runtime/runtime.py",
+    "apps/backend/app/modules/agent_runtime/composition.py",
+    "apps/backend/tests/agent_runtime/test_stream_task_ownership.py",
+    "apps/backend/tests/gateway/test_stream_session_teardown.py",
+    "apps/backend/tests/conversation/test_tool_session_isolation.py"
+  ],
+  "notes": "起因：WS 流式请求返回 agent_request_failed / IllegalStateChangeError（close() 在 commit() 进行中被调用）。根因：请求级 AsyncSession 被消费方与内层模型 Task 共用，且内层 Task 只在生成器 finally 中才被取消，提前 return 时不执行。实现方式由「逐层 aclosing」细化为「Model Task 登记 + 持有 Session 的作用域负责 join」；验证与反向验证结论见 verify.md / acceptance.md。与 2026-08-24-ai-sdk-question-flow 的 2026-09-18 修复是两个独立缺陷，均尚未提交。"
+}

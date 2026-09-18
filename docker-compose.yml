@@ -196,7 +196,7 @@ services:
       args:
         VITE_API_URL: /api/v1
     ports:
-      - "${FRONT_PORT:-5173}:80"
+      - "${FRONT_PORT:-8080}:80"
     depends_on:
       api:
         condition: service_started

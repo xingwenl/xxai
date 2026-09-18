@@ -5,7 +5,7 @@
 """
 
 import asyncio
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Iterable, Sequence
 from typing import Any
 
 from app.modules.agent_runtime.contracts import (
@@ -23,6 +23,22 @@ from app.modules.agent_runtime.persistence import (
 from app.modules.agent_runtime.errors import error_from_exception
 
 
+async def cancel_and_join_tasks(tasks: Iterable[asyncio.Task]) -> None:
+    """取消并等待一批任务真正收尾。
+
+    调用方（请求任务）持有请求级数据库 Session，必须在关闭 Session 前调用
+    本函数；否则内层模型任务仍可能在 `commit()` 中被 `close()` 撞上，抛出
+    SQLAlchemy 的 `IllegalStateChangeError`。
+    """
+
+    pending = [task for task in tasks if not task.done()]
+    for task in pending:
+        task.cancel()
+    if pending:
+        # gather 会等到任务真正结束（包含它自己的清理逻辑），不是只发出取消。
+        await asyncio.gather(*pending, return_exceptions=True)
+
+
 class AgentRuntime:
     """一次请求范围内的 Agent 执行门面。"""
 
@@ -35,6 +51,7 @@ class AgentRuntime:
         persistence: AgentRunPersistence | None = None,
         persistence_factory: Callable[[str | None], AgentRunPersistence]
         | None = None,
+        on_task_started: Callable[[asyncio.Task], None] | None = None,
     ) -> None:
         self._loop = AgentLoop(
             model=model,
@@ -43,6 +60,7 @@ class AgentRuntime:
         )
         self._persistence = persistence or NullAgentRunPersistence()
         self._persistence_factory = persistence_factory
+        self._on_task_started = on_task_started
 
     @classmethod
     def from_langchain(
@@ -55,6 +73,7 @@ class AgentRuntime:
         persistence: AgentRunPersistence | None = None,
         persistence_factory: Callable[[str | None], AgentRunPersistence]
         | None = None,
+        on_task_started: Callable[[asyncio.Task], None] | None = None,
         streaming: bool = False,
     ) -> "AgentRuntime":
         """用 LangChain 模型创建 runtime，集中收口供应商 Adapter 组合。"""
@@ -67,6 +86,7 @@ class AgentRuntime:
             hooks=hooks,
             persistence=persistence,
             persistence_factory=persistence_factory,
+            on_task_started=on_task_started,
         )
 
     async def run(
@@ -187,6 +207,11 @@ class AgentRuntime:
                 cancel_event=cancel_event,
             )
         )
+        # 消费方可能提前放弃本生成器（流内 error 事件、结果为空、取消或断连），
+        # 此时生成器的 finally 不保证执行，内层模型 Task 会变成孤儿继续写库。
+        # 把 Task 交给调用方登记，由请求任务在关闭数据库 Session 前显式 join。
+        if self._on_task_started is not None:
+            self._on_task_started(task)
         try:
             while True:
                 if task.done() and queue.empty():

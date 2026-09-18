@@ -64,6 +64,7 @@ def build_langchain_runtime(
     context_transform: Callable[[list[Any]], Any] | None = None,
     max_turns: int | None = None,
     on_model_error=None,
+    on_task_started=None,
 ):
     """统一创建 LangChain runtime，避免入口层重复配置 streaming 语义。"""
 
@@ -79,5 +80,6 @@ def build_langchain_runtime(
             max_turns=max_turns,
             on_model_error=on_model_error,
         ),
+        on_task_started=on_task_started,
         streaming=streaming,
     )

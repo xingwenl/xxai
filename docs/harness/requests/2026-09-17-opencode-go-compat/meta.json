@@ -1,0 +1,59 @@
+{
+  "id": "2026-09-17-opencode-go-compat",
+  "title": "OpenCode Zen Go 接入兼容（会话头与客户端标识）",
+  "scope": "backend",
+  "phase": "acceptance",
+  "status": "active",
+  "riskLevel": "low",
+  "changeTypes": [
+    "backend",
+    "docs"
+  ],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "https://opencode.ai/docs/go/",
+      "/Users/lixingwen/xw/git/pi/packages/coding-agent/src/core/provider-attribution.ts",
+      "/Users/lixingwen/xw/git/pi/packages/ai/scripts/generate-models.ts",
+      "apps/backend/.venv/lib/python3.12/site-packages/openai/_base_client.py",
+      "apps/backend/.venv/lib/python3.12/site-packages/langchain_openai/chat_models/base.py",
+      "apps/backend/app/modules/agent/services.py",
+      "apps/backend/app/modules/conversation/router.py",
+      "apps/backend/app/modules/gateway/router.py",
+      "apps/backend/app/modules/tools/basic/vision.py",
+      "apps/backend/app/modules/tools/basic/image_gen.py"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": [
+    "仓库强制的「spec 后方案对齐检查点」：进入 plan 与实现前需用户确认方案要点"
+  ],
+  "approvalRecords": [
+    {
+      "date": "2026-09-17",
+      "channel": "chat",
+      "summary": "用户先质疑「新会话首轮为何没有 conversation_id」，复核代码确认会话在模型调用前创建、只是 build_chat_model 在 router 入口构造更早；方案随即由「首轮兜底占位值」改为「懒取值 session_id_provider」。用户回复「可以」，批准进入 plan 与实现"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-09-17",
+  "updatedAt": "2026-09-17",
+  "relatedPaths": [
+    "apps/backend/app/modules/agent/provider_headers.py",
+    "apps/backend/app/modules/agent/services.py",
+    "apps/backend/app/modules/conversation/router.py",
+    "apps/backend/app/modules/gateway/router.py",
+    "apps/backend/app/modules/tools/basic/vision.py",
+    "apps/backend/app/modules/tools/basic/image_gen.py",
+    "apps/backend/readme.md",
+    "apps/backend/tests/agent/test_provider_headers.py",
+    "apps/backend/tests/conversation/test_rest_parity.py",
+    ".env.example",
+    "docs/CHANGELOG.md",
+    "docs/harness/requests/2026-09-17-opencode-go-compat"
+  ],
+  "notes": "本任务不涉及架构边界、数据模型、API 契约、鉴权四类审批条件，风险等级 low；research 阶段已用本机一次性原型实测 UA 大小写陷阱与 LangChain 注入通道（结论记入 research.md，原型产物不入仓库）。首版 spec 曾假设「新会话首轮拿不到 conversation_id」并设计兜底占位值，经用户质疑后复核代码确认该假设错误——会话在模型调用之前创建（_resolve_conversation/_resolve_embed_conversation 写入 context.conversation_id），只是 build_chat_model 在 router 入口构造得更早；方案已改为懒取值 session_id_provider，取消兜底值。实现已完成：新增 provider_headers 工具模块、build_chat_model 支持 session_id_provider、三处调用点接入、读图/生图复用同一 helper、新增 10 项单测与 1 项会话解析顺序护栏测试；相关四目录 213 passed/1 skipped，--import-mode=importlib 全量 633 passed/1 skipped，ruff 通过。验收标准 1–7 达成；验收标准 8（真实 OpenCode Go API Key 联调）未执行，是 request 保持 active 的唯一原因，详见 verify.md 与 acceptance.md。"
+}

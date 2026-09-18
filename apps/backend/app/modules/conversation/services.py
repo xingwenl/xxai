@@ -588,6 +588,7 @@ async def stream_chat(
     model,
     citations: list[dict],
     invoke_tool_fn=None,
+    on_model_task_started=None,
 ):
     logger.info(
         "Conversation stream chat started platform_id=%s user_id=%s agent_id=%s conversation_id=%s message_chars=%s citation_count=%s",
@@ -695,6 +696,7 @@ async def stream_chat(
         ),
         max_turns=get_settings().agent_max_iterations,
         on_model_error=make_context_degrade_recoverer(system_prompt, message),
+        on_task_started=on_model_task_started,
     )
     event_stream = stream_runtime_as_conversation(
         runtime.stream(

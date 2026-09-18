@@ -130,3 +130,18 @@
 - 变更内容：移除网关 embed 路径的无条件注入与客户端能力门控（`_runtime_tools_with_ask_user` 与 `supports_questions` 参数删除）；ask_user 仅在后台启用后进入 `runtime_tools`；SDK 保留 `capabilities: ["questions"]` 协议声明但不作为注入门控；REST 路径 `_rest_runtime_tools` 过滤保留（REST 无实时问答通道，属功能缺口兜底，非启用门控）
 - 影响章节：范围（工具定义、能力协商→能力声明）、验收标准
 - 是否触发人工确认：是，用户本次明确指示（后台启用模型），视同已确认
+
+### 2026-09-18 修复：入站 requestId 被误当作聊天请求 ID，问答与确认回调被静默丢弃
+
+- 变更原因：`1ae78ed`（Agent 主循环统一与灰度 parity 自动化）为三个入站处理器加入
+  `message["requestId"] != active_request_id` 早退校验，但 SDK 对 `question_answer`、
+  `confirmation_resolve`、`host_tool_result` 都把 `requestId` 填成 questionId/callId
+  （`apps/ai-sdk/src/core/websocket.ts`），与聊天请求 ID 永不相等，导致合法回调被静默丢弃。
+  现象：用户回答 ask_user 后前端无响应，模型挂起到 600 秒超时才继续；MCP 确认与宿主工具结果同样失效。
+- 变更内容：删除 `_handle_question_answer` / `_handle_confirmation_resolve` /
+  `_handle_host_tool_result` 的 `active_request_id` 参数与该早退校验；
+  `_handle_host_tool_result` 把「等待中的 Future 必须存在」提升为第一道校验，作为请求归属的
+  权威信号——请求结束/取消后连接级容器会被清空，迟到回调整体 no-op，不再改写已不属于当前请求的审计行。
+  SDK 协议与 wire 字段不变，仅修正网关的消费方式。
+- 影响章节：范围（网关入站处理与悬挂 Future 的唤醒条件）、验收标准（不回归项）
+- 是否触发人工确认：是（定级为 bugfix，不扩大契约），用户已确认方案 A 后进入实现

@@ -1,6 +1,11 @@
 import { AgentClient } from './core'
-import { createChatUI, registerCustomComponent } from './ui'
-import { h } from 'vue'
+import {
+  configureMarkdownDiagrams,
+  createChatUI,
+  registerCustomComponent,
+  registerMarkdownFenceRenderer
+} from './ui'
+import { createApp, h } from 'vue'
 import type {
   AgentClientOptions,
   AgentCallbacks,
@@ -53,8 +58,19 @@ export type {
 
 export type { PageElement, PageSnapshot, PageToolsOptions } from './core'
 
-export { registerCustomComponent }
+export { ChatWidget, MarkdownContent } from './ui'
 
-export { h }
+export { configureMarkdownDiagrams, registerCustomComponent, registerMarkdownFenceRenderer }
+
+export type {
+  EChartsLike,
+  MarkdownDiagramOptions,
+  MarkdownFenceContext,
+  MarkdownFenceRenderer,
+  MarkdownFenceRendererInput,
+  MermaidLike
+} from './ui'
+
+export { createApp, h }
 
 export { AgentClient } from './core'

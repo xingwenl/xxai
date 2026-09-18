@@ -39,7 +39,6 @@ http.interceptors.request.use((config) => {
     config.headers = headers
   }
   clearEmptyDataInterceptor(config)
-  console.log('config.clearEmptyData', config)
   return config
 })
 

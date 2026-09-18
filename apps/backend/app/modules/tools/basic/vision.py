@@ -12,6 +12,7 @@ import binascii
 import logging
 from pathlib import Path
 
+from app.modules.agent.provider_headers import merge_default_headers
 from app.modules.tools.basic.framework import BasicToolError, basic_tool
 
 logger = logging.getLogger(__name__)
@@ -103,6 +104,12 @@ async def describe_image(inputs: dict) -> dict:
             api_key=model.get("api_key"),
             timeout=float(inputs.get("timeout_seconds", 60)),
             max_retries=0,
+            # 读图链路没有会话上下文，只补客户端标识与自有 UA；OpenCode 端点
+            # 之外返回 None，不改变既有请求头。
+            default_headers=merge_default_headers(
+                model.get("base_url"),
+                (model.get("options") or {}).get("default_headers"),
+            ),
         )
         response = await chat.ainvoke(
             [

@@ -70,6 +70,7 @@ from app.modules.builtin_tool.repositories import BuiltinToolRepository
 from app.modules.gateway.dispatcher import RuntimeToolDispatcher
 from app.modules.gateway.events import build_error, event_to_protocol_payload
 from app.modules.agent_runtime.errors import cancellation_error
+from app.modules.agent_runtime.runtime import cancel_and_join_tasks
 from app.modules.agent_runtime.adapters import tool_call_from_legacy
 from app.modules.agent_runtime.tools import ToolDispatcher
 from app.modules.agent_runtime.composition import build_runtime_tools
@@ -222,20 +223,12 @@ async def _handle_confirmation_resolve(
     host_tool_repo: HostToolRepository,
     pending_mcp_confirmations: dict[str, asyncio.Future],
     pending_host_results: dict[str, asyncio.Future],
-    active_request_id: str | None = None,
 ) -> None:
     """处理页面确认结果，并重新按 token 主体校验审计归属。"""
     # 确认结果必须重新按 token 主体查询审计，不能只信任页面传来的 callId。
     call_id = message.get("payload", {}).get("callId")
     approved = message.get("payload", {}).get("approved")
     if not isinstance(call_id, str) or not isinstance(approved, bool):
-        return
-    message_request_id = message.get("requestId")
-    if (
-        isinstance(message_request_id, str)
-        and active_request_id is not None
-        and message_request_id != active_request_id
-    ):
         return
     mcp_decision = pending_mcp_confirmations.get(call_id)
     if mcp_decision is not None:
@@ -262,18 +255,15 @@ async def _handle_question_answer(
     *,
     message: dict,
     pending_questions: dict[str, asyncio.Future],
-    active_request_id: str | None = None,
 ) -> None:
-    """处理用户对 AI 问题的答复，唤醒对应挂起的模型循环。"""
+    """处理用户对 AI 问题的答复，唤醒对应挂起的模型循环。
+
+    入站 ``requestId`` 由客户端填成问题 ID（见 SDK ``sendQuestionAnswer``），
+    因此这里不能用它反查聊天请求；请求归属由 ``pending_questions`` 的存活
+    状态保证：请求结束或取消后容器会被清空，找不到 Future 即为 no-op。
+    """
     question_id = message.get("payload", {}).get("questionId")
     if not isinstance(question_id, str):
-        return
-    message_request_id = message.get("requestId")
-    if (
-        isinstance(message_request_id, str)
-        and active_request_id is not None
-        and message_request_id != active_request_id
-    ):
         return
     future = pending_questions.get(question_id)
     if future is None or future.done():
@@ -299,19 +289,18 @@ async def _handle_host_tool_result(
     agent_id: int,
     host_tool_repo: HostToolRepository,
     pending_host_results: dict[str, asyncio.Future],
-    active_request_id: str | None = None,
 ) -> None:
     """处理页面宿主工具执行结果，仅接受当前主体的 running 状态调用。"""
     # 只接受当前主体下、状态为 running 的调用结果；重复或越权结果会被忽略。
     call_id = message.get("payload", {}).get("callId")
     if not isinstance(call_id, str):
         return
-    message_request_id = message.get("requestId")
-    if (
-        isinstance(message_request_id, str)
-        and active_request_id is not None
-        and message_request_id != active_request_id
-    ):
+    # 等待中的 Future 是"该调用仍属于当前请求"的唯一权威信号：请求结束或
+    # 取消后容器会被清空、Future 会被取消，此时迟到的结果必须整体 no-op，
+    # 不能改写已经不属于当前请求的审计行。入站 requestId 由客户端填成
+    # callId（见 SDK sendHostToolResult），不能用于反查聊天请求。
+    future = pending_host_results.get(call_id)
+    if future is None or future.done():
         return
     audit = await host_tool_repo.get_call(
         call_id,
@@ -331,9 +320,7 @@ async def _handle_host_tool_result(
             await host_tool_repo.transition_call(
                 audit, "succeeded", result=result
             )
-            future = pending_host_results.get(call_id)
-            if future is not None and not future.done():
-                future.set_result(result)
+            future.set_result(result)
     else:
         code = str(message.get("payload", {}).get("code", "host_tool_failed"))
         message_text = str(
@@ -344,11 +331,9 @@ async def _handle_host_tool_result(
             "failed",
             error=message_text,
         )
-        future = pending_host_results.get(call_id)
-        if future is not None and not future.done():
-            future.set_result(
-                {"error": "host_tool_failed", "code": code, "message": message_text}
-            )
+        future.set_result(
+            {"error": "host_tool_failed", "code": code, "message": message_text}
+        )
 
 
 async def _handle_message_send(
@@ -527,7 +512,6 @@ async def _handle_message_send(
             pending_mcp_confirmations=pending_mcp_confirmations,
             pending_host_results=pending_host_results,
             pending_questions=pending_questions,
-            host_tool_repo=host_tool_repo,
             registered_host_tools=registered_host_tools,
             registered_host_policies=registered_host_policies,
         )
@@ -546,17 +530,24 @@ async def produce_embed_request(
     pending_mcp_confirmations: dict[str, asyncio.Future],
     pending_host_results: dict[str, asyncio.Future],
     pending_questions: dict[str, asyncio.Future],
-    host_tool_repo: HostToolRepository,
     registered_host_tools: set[str],
     registered_host_policies: dict[str, object],
 ) -> None:
     """执行一次模型请求，并把中间事件放入连接级队列。
 
-    该函数运行在独立 Task 中，使用独立数据库 session。模型等待页面
+    该函数运行在独立 Task 中，并持有请求级与工具两个数据库 Session；
+    连接级宿主工具 Session 只由外层 WebSocket 循环使用。模型等待页面
     工具期间，外层 WebSocket 循环仍能处理结果消息并设置对应 Future。
     """
     try:
-        async with get_session_factory()() as session:
+        # 请求级 Session 只服务本任务内的会话/消息落库；工具执行使用独立的
+        # 工具 Session，避免模型 Task 与消费本任务并发操作同一个 AsyncSession。
+        async with (
+            get_session_factory()() as session,
+            get_session_factory()() as tool_session,
+        ):
+            # 模型 Task 由 runtime 内部启动，必须登记后在 Session 关闭前 join。
+            model_tasks: set[asyncio.Task] = set()
             agent_repo = AgentRepository(session)
             skill_repo = SkillRepository(session)
             builtin_tool_repo = BuiltinToolRepository(session)
@@ -575,7 +566,7 @@ async def produce_embed_request(
                 message["text"],
             )
             dispatcher = RuntimeToolDispatcher(
-                session=session,
+                session=tool_session,
                 context=context,
                 request_id=request_id,
                 agent_id=agent_id,
@@ -585,7 +576,7 @@ async def produce_embed_request(
                 pending_mcp_confirmations=pending_mcp_confirmations,
                 pending_host_results=pending_host_results,
                 pending_questions=pending_questions,
-                host_tool_repo=host_tool_repo,
+                host_tool_repo=HostToolRepository(tool_session),
             )
             tool_dispatcher = ToolDispatcher([dispatcher])
 
@@ -622,26 +613,38 @@ async def produce_embed_request(
                 request_id,
                 [tool.name for tool in runtime_tools],
             )
-            async for event in stream_embed_chat(
-                ConversationRepository(session),
-                context,
-                model=build_chat_model(context.version),
-                platform_id=payload["platform_id"],
-                client_id=str(payload["client_id"]),
-                end_user_id=int(payload["sub"]),
-                message=message["text"],
-                system_prompt=message.get("systemPrompt")
-                if isinstance(message.get("systemPrompt"), str)
-                else None,
-                conversation_id=message.get("conversationId"),
-                request_id=request_id,
-                citations=[item.model_dump() for item in citations],
-                host_tools=context.host_tools,
-                runtime_tools=runtime_tools,
-                invoke_host_tool_fn=invoke_runtime_tool,
-                attachments=message.get("attachments"),
-            ):
-                await event_queue.put(event)
+            try:
+                async for event in stream_embed_chat(
+                    ConversationRepository(session),
+                    context,
+                    # 会话在 stream_embed_chat 内解析后才写入 context，因此延迟求值。
+                    model=build_chat_model(
+                        context.version,
+                        session_id_provider=lambda: getattr(
+                            context, "conversation_id", None
+                        ),
+                    ),
+                    platform_id=payload["platform_id"],
+                    client_id=str(payload["client_id"]),
+                    end_user_id=int(payload["sub"]),
+                    message=message["text"],
+                    system_prompt=message.get("systemPrompt")
+                    if isinstance(message.get("systemPrompt"), str)
+                    else None,
+                    conversation_id=message.get("conversationId"),
+                    request_id=request_id,
+                    citations=[item.model_dump() for item in citations],
+                    host_tools=context.host_tools,
+                    runtime_tools=runtime_tools,
+                    invoke_host_tool_fn=invoke_runtime_tool,
+                    on_model_task_started=model_tasks.add,
+                    attachments=message.get("attachments"),
+                ):
+                    await event_queue.put(event)
+            finally:
+                # 无论正常结束、异常还是被取消，都必须在请求级 Session 关闭前
+                # 等内层模型 Task 收尾；否则工具写库会与 close() 撞车。
+                await cancel_and_join_tasks(model_tasks)
     except asyncio.CancelledError:
         # task.cancel() 不会经过 AgentLoop 的 cancel_event 检查，因此这里补发
         # 同一份稳定错误语义。前端可据此结束发送态，连接层随后仍会完成
@@ -1109,13 +1112,11 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                         host_tool_repo=host_tool_repo,
                         pending_mcp_confirmations=pending_mcp_confirmations,
                         pending_host_results=pending_host_results,
-                        active_request_id=active_request,
                     )
                 elif message_type == "question_answer":
                     await _handle_question_answer(
                         message=message,
                         pending_questions=pending_questions,
-                        active_request_id=active_request,
                     )
                 elif message_type in {"host_tool_result", "host_tool_error"}:
                     await _handle_host_tool_result(
@@ -1125,7 +1126,6 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                         agent_id=agent_id,
                         host_tool_repo=host_tool_repo,
                         pending_host_results=pending_host_results,
-                        active_request_id=active_request,
                     )
     except asyncio.TimeoutError:
         # auth 超时使用独立关闭码，便于 SDK 区分“未及时认证”和普通断线。

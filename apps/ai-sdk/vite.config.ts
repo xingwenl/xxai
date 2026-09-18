@@ -35,7 +35,9 @@ export default defineConfig({
     },
     rollupOptions: {
       // 不把 Vue external 化，直接打包进 SDK
-      external: [],
+      // mermaid / echarts 保持外置：SDK 通过运行时动态解析加载图表引擎，
+      // 一旦被内联会让产物从约 1M 涨到约 4M，也不利于宿主固定引擎版本
+      external: ['mermaid', 'echarts'],
       output: {
         globals: {},
         exports: 'named',
@@ -43,6 +45,7 @@ export default defineConfig({
     },
   },
   server: {
+    // port: 8083,
     proxy: {
       '/api': {
         changeOrigin: true,

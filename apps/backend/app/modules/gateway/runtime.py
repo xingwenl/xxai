@@ -563,6 +563,7 @@ async def stream_embed_chat(
     host_tools: list | None = None,
     runtime_tools: list | None = None,
     invoke_host_tool_fn=None,
+    on_model_task_started=None,
     attachments: list[dict] | None = None,
 ) -> AsyncIterator[dict]:
     """把一次 Embed 消息转换为网关事件流。
@@ -707,6 +708,7 @@ async def stream_embed_chat(
         on_model_error=make_multimodal_degrade_recoverer(
             ws_system_prompt, message
         ),
+        on_task_started=on_model_task_started,
     )
     event_stream = stream_runtime_as_conversation(
         runtime.stream(

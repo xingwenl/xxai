@@ -4,8 +4,16 @@ from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
 from langchain_openai import ChatOpenAI
+from pydantic import Field
 
 from app.core.config import get_settings
+from app.modules.agent.provider_headers import (
+    SessionIdProvider,
+    is_opencode_endpoint,
+    merge_default_headers,
+    resolve_session_id,
+    session_headers,
+)
 from app.modules.agent.repositories import AgentRepository
 from app.modules.agent.schemas import AgentCreate, AgentUpdate, AgentVersionCreate
 from app.shared.exceptions import (
@@ -148,7 +156,58 @@ class ProviderThinkingChatOpenAI(ChatOpenAI):
     langchain-openai 只按官方 OpenAI 规范解析响应，会丢弃 DeepSeek/GLM 等厂商
     在流式 delta 或完整 message 中返回的 reasoning_content。该子类在标准解析
     结果上把这些字段补回 additional_kwargs，供 stream_graph 实时提取并落库。
+
+    同时负责按次注入 OpenCode 兼容的会话头：会话 id 必须在每次请求时求值，
+    因此在调用期（而不是客户端构造期）写入 ``extra_headers``。
     """
+
+    # 无参可调用对象，返回当前请求的会话 id；非 OpenCode 端点不会用到。
+    # 排除序列化与 repr：可调用对象不可 JSON 序列化，避免污染日志与追踪链路。
+    session_id_provider: Any = Field(default=None, exclude=True, repr=False)
+
+    def _with_session_headers(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """在 kwargs 中补上 OpenCode 会话头；不适用时原样返回。"""
+
+        base_url = self.openai_api_base
+        if not is_opencode_endpoint(base_url):
+            return kwargs
+        extra = session_headers(
+            base_url,
+            resolve_session_id(self.session_id_provider),
+            configured=self.default_headers,
+        )
+        if not extra:
+            return kwargs
+        # 调用方已给出的 per-call header 优先，避免覆盖上层显式意图。
+        kwargs["extra_headers"] = {**extra, **(kwargs.get("extra_headers") or {})}
+        return kwargs
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs: Any):
+        return super()._generate(
+            messages,
+            stop=stop,
+            run_manager=run_manager,
+            **self._with_session_headers(kwargs),
+        )
+
+    # 基类的 _stream/_astream 使用 (*args, **kwargs) 签名，这里保持同样形式，
+    # 避免破坏以位置参数调用 stop/run_manager 的场景。
+    def _stream(self, *args: Any, **kwargs: Any):
+        return super()._stream(*args, **self._with_session_headers(kwargs))
+
+    async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs: Any):
+        return await super()._agenerate(
+            messages,
+            stop=stop,
+            run_manager=run_manager,
+            **self._with_session_headers(kwargs),
+        )
+
+    async def _astream(self, *args: Any, **kwargs: Any):
+        async for chunk in super()._astream(
+            *args, **self._with_session_headers(kwargs)
+        ):
+            yield chunk
 
     def _convert_chunk_to_generation_chunk(
         self, chunk, default_chunk_class, base_generation_info
@@ -190,22 +249,36 @@ class ProviderThinkingChatOpenAI(ChatOpenAI):
         return result
 
 
-def build_chat_model(version) -> ChatOpenAI:
+def build_chat_model(
+    version, *, session_id_provider: SessionIdProvider | None = None
+) -> ChatOpenAI:
+    """按 Agent 版本构造 ChatOpenAI 客户端。
+
+    ``session_id_provider`` 为可选的会话 id 惰性求值入口，用于 OpenCode 兼容头；
+    非 OpenCode 端点不会产生任何额外请求头。
+    """
+
     settings = get_settings()
     api_key = (
         decrypt_secret(version.api_key_encrypted) if version.api_key_encrypted else None
     )
+    base_url = version.model_base_url or settings.model_default_base_url
+    # default_headers 单独取出后再合并，避免直接展开时与兼容头互相覆盖。
+    raw_options = dict(version.model_options or {})
+    configured_headers = raw_options.pop("default_headers", None)
     # 默认关闭 SDK 自动重试，确保上游 502/连接异常能在本轮超时前进入统一 error 事件。
     model_options = {
         "timeout": settings.model_request_timeout_seconds,
         "stream_chunk_timeout": settings.model_request_timeout_seconds,
         "max_retries": settings.model_max_retries,
-        **(version.model_options or {}),
+        **raw_options,
+        "default_headers": merge_default_headers(base_url, configured_headers),
     }
     return ProviderThinkingChatOpenAI(
         model=version.model_name or settings.model_default_name,
-        base_url=version.model_base_url or settings.model_default_base_url,
+        base_url=base_url,
         api_key=api_key,
         temperature=version.temperature,
+        session_id_provider=session_id_provider,
         **model_options,
     )

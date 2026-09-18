@@ -62,3 +62,62 @@ pnpm build
 - 手工端到端验证（真实模型调用 `ask_user`、前端卡片交互、超时与旧客户端降级）未在本次自动验证中覆盖；验收阶段建议本地起后端 + SDK 示例观察一次完整"提问 → 选择 → 继续执行"链路。
 - SDK 版本号（`package.json` 0.1.5 与 `protocol.ts` SDK_VERSION 0.1.0 不一致）为既有状态，本次未调整。
 - 全量收集冲突（3 个文件同名模块）为既有问题，未在本次修复。
+
+## 2026-09-18 追加验证（fix：入站 requestId 校验导致回调被丢弃）
+
+### 缺陷复现（修复前，使用真实 handler）
+
+```bash
+cd apps/backend && poetry run python - <<'PY'
+# active_request_id="req_1_1726" + message.requestId=questionId="call_abc"
+PY
+# 结果：future resolved? False None   → 答案被静默丢弃，模型挂起到 600 秒超时
+```
+
+同一构造下 `_handle_confirmation_resolve` 返回 `mcp confirmation resolved? False`，即 MCP 确认同样失效。
+
+### 回归测试（新增，先在旧实现上确认会失败）
+
+```bash
+# 临时用 git show HEAD:...router.py 覆盖后运行
+poetry run pytest tests/gateway/test_question_flow.py tests/gateway/test_host_tool_result_idempotency.py -q
+# 结果：2 failed, 14 passed
+#   FAILED test_inbound_item_id_is_not_used_as_request_filter
+#   FAILED test_late_callback_after_request_cleanup_does_not_wake_waiter
+```
+
+即新增用例确实能拦住该回归，而不是"改完就过"。
+
+### 修复后验证
+
+```bash
+cd apps/backend
+poetry run pytest tests/gateway -q
+# 结果：101 passed, 1 skipped
+
+poetry run pytest tests/gateway/test_question_flow.py \
+  tests/gateway/test_host_tool_result_idempotency.py \
+  tests/gateway/test_chat_flow.py tests/conversation/test_runtime.py tests/builtin_tool -q
+# 结果：106 passed
+
+poetry run pytest tests -q \
+  --ignore=tests/embed/test_models.py \
+  --ignore=tests/user/test_routes.py \
+  --ignore=tests/user/test_services.py \
+  --ignore=tests/model_registry/test_models.py \
+  --ignore=tests/skill_runner/test_services.py
+# 结果：610 passed, 1 skipped
+
+poetry run ruff check app/modules/gateway/router.py \
+  tests/gateway/test_question_flow.py tests/gateway/test_host_tool_result_idempotency.py
+# 结果：All checks passed
+```
+
+说明：本次全量比 2026-08-24 记录多出 2 个同名模块收集冲突
+（`tests/model_registry/test_models.py`、`tests/skill_runner/test_services.py`，与
+`tests/builtin_tool/` 下同名文件冲突），属仓库既有问题，已一并跳过，未在本次修复。
+
+### 本次验证边界
+
+- SDK 侧未改动（协议与 wire 字段不变），沿用原记录中的 SDK 测试结论。
+- 仍未覆盖真实浏览器 + 真实模型的端到端"提问 → 选择 → 继续"链路，验收阶段建议手工确认一次。

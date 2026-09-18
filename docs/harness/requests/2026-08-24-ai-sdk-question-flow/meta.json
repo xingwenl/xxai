@@ -30,7 +30,7 @@
   ],
   "owner": "ai",
   "createdAt": "2026-08-24",
-  "updatedAt": "2026-08-24",
+  "updatedAt": "2026-09-18",
   "relatedPaths": [
     "apps/backend/app/modules/builtin_tool/registry.py",
     "apps/backend/app/modules/gateway/dispatcher.py",
@@ -42,5 +42,5 @@
     "apps/ai-sdk/src/core/websocket.ts",
     "apps/ai-sdk/src/ui/components/QuestionCard.vue"
   ],
-  "notes": "实现完成：ask_user 内置工具 + question_required/question_answer 协议 + dispatcher 挂起恢复 + QuestionCard UI + 单测。启用模型按用户要求改为后台绑定（普通内置工具语义，移除无条件/能力门控注入）；REST 路径过滤 ask_user（无实时问答通道）。验证：后端 gateway/conversation/builtin_tool 101 通过、全量 287 通过（跳过 3 个既有收集冲突文件）、ruff 通过；SDK 76 测试通过、type-check 与 build 通过。待验收。"
+  "notes": "实现完成：ask_user 内置工具 + question_required/question_answer 协议 + dispatcher 挂起恢复 + QuestionCard UI + 单测。启用模型按用户要求改为后台绑定（普通内置工具语义，移除无条件/能力门控注入）；REST 路径过滤 ask_user（无实时问答通道）。验证：后端 gateway/conversation/builtin_tool 101 通过、全量 287 通过（跳过 3 个既有收集冲突文件）、ruff 通过；SDK 76 测试通过、type-check 与 build 通过。待验收。2026-09-18 fix：1ae78ed 引入的入站 requestId 早退校验把 question_answer/confirmation_resolve/host_tool_result 合法回调静默丢弃（SDK 的 requestId 填的是条目 ID），已删除该三处校验并补齐回归测试；gateway 101 通过、全量 610 通过（跳过 5 个既有同名模块收集冲突）、ruff 通过。"
 }

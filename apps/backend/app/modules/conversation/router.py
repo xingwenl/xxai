@@ -1,10 +1,11 @@
+import asyncio
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db_session
+from app.core.database import get_db_session, get_session_factory
 from app.core.security import require_current_active_user_or_wechat_service
 from app.modules.agent.repositories import AgentRepository
 from app.modules.agent.services import build_chat_model
@@ -34,6 +35,7 @@ from app.modules.builtin_tool.repositories import BuiltinToolRepository
 from app.modules.builtin_tool.services import invoke_builtin_tool
 from app.modules.agent_runtime.contracts import ToolCall
 from app.modules.agent_runtime.adapters import agent_result_from_legacy
+from app.modules.agent_runtime.runtime import cancel_and_join_tasks
 from app.shared.exceptions import NotFoundException
 from app.shared.responses import success_response
 
@@ -45,6 +47,7 @@ async def _prepare(
     payload: ChatRequest,
     current_user,
     session: AsyncSession,
+    tool_session: AsyncSession | None = None,
 ):
     agent_repo = AgentRepository(session)
     agent = await agent_repo.get_published_agent_for_user(agent_id, current_user.id)
@@ -65,8 +68,14 @@ async def _prepare(
     citations = await retrieve_citations(
         knowledge_repo, context.knowledge_bases, payload.message
     )
-    mcp_repo = McpRepository(session)
     loaded_skill_cache = {}
+    # 工具执行使用独立 Session：模型循环跑在 runtime 内部启动的独立 Task 中，
+    # 与消费方的会话/消息落库共用同一个 AsyncSession 会触发 SQLAlchemy 并发
+    # 状态错误（另一操作进行中 / close 与 commit 相撞）。
+    tool_session = tool_session if tool_session is not None else session
+    tool_builtin_repo = BuiltinToolRepository(tool_session)
+    tool_skill_repo = SkillRepository(tool_session)
+    tool_mcp_repo = McpRepository(tool_session)
 
     async def invoke(**kwargs):
         typed_call = kwargs.get("call")
@@ -80,19 +89,19 @@ async def _prepare(
         tool = kwargs.get("tool")
         if getattr(tool, "kind", None) == "builtin":
             return await invoke_builtin_tool(
-                builtin_tool_repo,
-                AssetRepository(session),
+                tool_builtin_repo,
+                AssetRepository(tool_session),
                 tool=tool,
                 call=kwargs["call"],
                 platform_id=agent.platform_id,
                 agent_id=agent_id,
                 conversation_id=context.conversation_id,
                 user_id=current_user.id,
-                session=session,
+                session=tool_session,
             )
         if getattr(tool, "kind", None) == "skill_script":
             return await execute_skill_script(
-                skill_repo,
+                tool_skill_repo,
                 SkillRunnerClient(),
                 tool=tool,
                 call=kwargs["call"],
@@ -105,7 +114,7 @@ async def _prepare(
             if isinstance(slug, str) and slug in loaded_skill_cache:
                 return loaded_skill_cache[slug]
             outcome = await load_bound_skill_instruction(
-                skill_repo,
+                tool_skill_repo,
                 agent.platform_id,
                 agent_id,
                 slug,
@@ -114,8 +123,8 @@ async def _prepare(
                 loaded_skill_cache[slug] = outcome
             return outcome
         return await invoke_tool(
-            mcp_repo,
-            RepositoryMcpExecutor(mcp_repo),
+            tool_mcp_repo,
+            RepositoryMcpExecutor(tool_mcp_repo),
             platform_id=agent.platform_id,
             agent_id=agent_id,
             user_id=current_user.id,
@@ -145,7 +154,11 @@ async def _execute(
         user_id=current_user.id,
         message=payload.message,
         conversation_id=payload.conversation_id,
-        model=build_chat_model(context.version),
+        # 会话 id 在 execute_chat 内解析会话后才可用，因此延迟到发请求时求值。
+        model=build_chat_model(
+            context.version,
+            session_id_provider=lambda: getattr(context, "conversation_id", None),
+        ),
         citations=[citation.model_dump() for citation in citations],
         invoke_tool_fn=invoke,
     )
@@ -182,10 +195,17 @@ async def chat_endpoint(
         )
         return success_response(data=data)
 
-    async def events() -> AsyncIterator[str]:
+    async def _events_impl(
+        tool_session: AsyncSession,
+        model_tasks: set[asyncio.Task],
+    ) -> AsyncIterator[str]:
         try:
             agent, context, citations, invoke = await _prepare(
-                agent_id, payload, current_user, session
+                agent_id,
+                payload,
+                current_user,
+                session,
+                tool_session=tool_session,
             )
             sequence = 0
 
@@ -214,9 +234,16 @@ async def chat_endpoint(
                 user_id=current_user.id,
                 message=payload.message,
                 conversation_id=payload.conversation_id,
-                model=build_chat_model(context.version),
+                # 同上：会话在 stream_chat 内解析，这里只传求值入口。
+                model=build_chat_model(
+                    context.version,
+                    session_id_provider=lambda: getattr(
+                        context, "conversation_id", None
+                    ),
+                ),
                 citations=[citation.model_dump() for citation in citations],
                 invoke_tool_fn=invoke,
+                on_model_task_started=model_tasks.add,
             ):
                 conversation = item["conversation"]
                 if item["type"] == "message_delta":
@@ -281,5 +308,21 @@ async def chat_endpoint(
                     "payload": build_agent_error_payload(error),
                 }
             )
+
+    async def events() -> AsyncIterator[str]:
+        """SSE 出口，负责工具 Session 与模型 Task 的生命周期收口。
+
+        客户端断开或生成器被提前关闭时，内层模型 Task 可能仍在写库；必须先
+        取消并等它收尾，再退出 `async with` 关闭工具 Session，否则会出现
+        close() 与 commit() 相撞的 SQLAlchemy 状态错误。
+        """
+
+        model_tasks: set[asyncio.Task] = set()
+        async with get_session_factory()() as tool_session:
+            try:
+                async for chunk in _events_impl(tool_session, model_tasks):
+                    yield chunk
+            finally:
+                await cancel_and_join_tasks(model_tasks)
 
     return StreamingResponse(events(), media_type="text/event-stream")

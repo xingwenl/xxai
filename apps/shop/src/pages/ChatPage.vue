@@ -17,8 +17,7 @@ const platformId = import.meta.env.VITE_PLATFORM_ID ?? '1'
 
 let agent: AgentClient | null = null
  
-const host = '127.0.0.1:8000'
-
+// const host = '8.153.87.79:8088'
 onMounted(async () => {
   if (!session || !agentId) {
     await router.replace('/login')
@@ -26,8 +25,9 @@ onMounted(async () => {
   }
   registerCustomComponent('ShopList', ShopList)
 
-
   const wsProtocol = location.protocol === 'https:' ? 'wss' : 'ws'
+  const host = location.host
+  // const host = '127.0.0.1:8000'
   agent = createAgentClient({
     endpoint: `${wsProtocol}://${host}/api/v1/ws/agents/${agentId}`,
     baseUrl: `${location.origin}/api/v1`,

@@ -497,7 +497,97 @@ defineProps<{
 
 前端注册 `ShopList` 组件后按普通 props 接收 `shops` 数组即可；数据应由后端按真实业务接口返回，不让模型编造。新增展示工具时参考 `apps/backend/app/modules/tools/shop/ui/show_shop_list.py`，改 `name` / `component_name` / `input_schema` / `props` 白名单即可。
 
-## 10. 本地开发和 Demo
+## 10. Markdown 图表
+
+消息正文按 Markdown 渲染。围栏代码块命中已注册的图表语言时，SDK 会在气泡内把源码渲染成图表；否则保持普通代码块展示，内容始终可读、可复制。
+
+内置语言：
+
+| 围栏语言 | 图表类型 | 说明 |
+| --- | --- | --- |
+| ` ```mermaid ` | 流程图、时序图、状态图、思维导图等 | 渲染为 SVG |
+| ` ```echarts ` | 柱状图、折线图、饼图等 | 围栏内容必须是 JSON 配置对象（容忍注释与尾随逗号，但不会执行 JS） |
+
+### 10.1 启用内置图表渲染
+
+SDK 不把图表引擎打进产物（mermaid 单文件约 2.8M、echarts 约 1.0M），引擎按「显式注入 → 全局变量 → 动态 `import()`」的顺序解析，都拿不到时降级为代码块。三种启用方式任选其一：
+
+```bash
+# 方式一：接入项目安装引擎，打包器会自动解析动态 import
+npm install mermaid echarts
+```
+
+```html
+<!-- 方式二：全局脚本（适合直接用 dist/xxai-agent.umd.cjs 或浏览器直连 ESM 的场景） -->
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+```
+
+```ts
+// 方式三：显式注入，适合需要固定引擎版本或按需加载的场景
+import { configureMarkdownDiagrams } from 'xxai-agent'
+import mermaid from 'mermaid'
+import * as echarts from 'echarts'
+
+configureMarkdownDiagrams({ mermaid, echarts })
+
+// 只启用其中一个、或临时关闭图表渲染
+configureMarkdownDiagrams({ mermaid, echarts: null })
+configureMarkdownDiagrams({ enabled: false })
+```
+
+`configureMarkdownDiagrams` 还支持 `theme: 'light' | 'dark' | 'auto'`（默认 `auto`：先看最近的 `.dark` 容器，再跟随系统偏好）。
+
+### 10.2 接入其它图表语言
+
+任何语言都可以用同一接缝注册，SDK 不做语言白名单。渲染器可以同步返回清理函数，也可以异步返回：
+
+```ts
+import { registerMarkdownFenceRenderer } from 'xxai-agent'
+import vegaEmbed from 'vega-embed'
+
+registerMarkdownFenceRenderer('vega', {
+  async mount(element, code, context) {
+    const result = await vegaEmbed(element, JSON.parse(code), {
+      actions: false,
+      theme: context.theme === 'dark' ? 'dark' : undefined
+    })
+    return () => result.view.finalize()
+  }
+})
+```
+
+- `mount(element, code, context)`：把源码渲染到占位容器，`context` 提供 `theme` 与归一化后的 `language`。
+- 返回值是清理函数，组件卸载或消息更新时会调用；抛错或返回空表示无法渲染，SDK 自动降级为代码块并提示「图表渲染不可用，已显示源码」。
+- 语言名大小写不敏感（`Mermaid` / `mermaid` 等价）；未注册语言不做任何处理。
+
+### 10.3 安全边界
+
+图表源码来自模型输出，属于未受信输入，SDK 做了三层防护：
+
+1. Mermaid 以 `securityLevel: 'strict'`、`startOnLoad: false`、`suppressErrorRendering: true` 初始化，并关闭流程图 HTML 标签。
+2. 渲染前按行剔除 `%%{...}%%`（可覆盖安全配置）与 `click`（可挂 JS 回调或链接）指令；超过 20000 字符的源码直接降级。
+3. Mermaid 产出的 SVG 在写入页面前会经 `DOMPurify` 以 SVG profile 再清洗一次。
+
+ECharts 只接受 `JSON.parse` 得到的对象，不会执行围栏里的 JS 表达式。需要额外说明的是：SDK 不修复图表引擎自身的安全问题，接入方应保持引擎版本更新；高安全要求的场景建议自行实现渲染器或在沙箱中渲染。
+
+### 10.4 降级原因排查
+
+渲染失败时消息里会显示源码，并给出具体原因：
+
+| 提示 | 含义 | 处理 |
+| --- | --- | --- |
+| 未检测到 Mermaid / ECharts 引擎 | 引擎既没有注入，也没有出现在全局变量中，动态 `import()` 也失败 | 按 10.1 引入引擎；宿主打包器无法解析动态 `import()` 时用显式注入或全局脚本 |
+| 图表配置不是合法的 JSON 对象 | ECharts 围栏内容不是 JSON 对象（例如写了 `echarts.init(...)`、单引号、无引号键名） | 让模型输出纯 JSON；注释与尾随逗号已被容忍 |
+| 图表定义尚未完整 | Mermaid 源码为空、超长，或还没形成图定义（流式输出中途） | 等消息输出完成；确认首行是 `graph TD` 之类的图类型声明 |
+
+### 10.5 已知限制
+
+- 主题在图表挂载时确定，切换 `.dark` 类或系统主题后，已渲染的图表要等消息重新渲染才会换色。
+- 流式输出过程中围栏可能只有半截语法，此时保持代码块展示，等源码形成可渲染的图定义后再渲染。
+- 浏览器直接 `import '../dist/xxai-agent.es.js'` 且未提供全局引擎时，动态 `import('mermaid')` 会失败并降级为代码块，这属于预期行为。
+
+## 11. 本地开发和 Demo
 
 ```bash
 cd apps/ai-sdk
@@ -517,7 +607,7 @@ npm run type-check
 
 本地 Demo 使用 `/api/agent-token?external_user_id=demo-user` 时，确认 AI Base 后端已配置 `EMBED_CLIENT_ID`、`EMBED_CLIENT_SECRET`、`EMBED_AGENT_ID` 和 `EMBED_ORIGIN`。
 
-## 11. 发布到 npm
+## 12. 发布到 npm
 
 SDK 通过 GitHub Actions 自动发布到 npm 官方仓库，工作流见 `.github/workflows/publish-ai-sdk.yml`，触发方式是 GitHub Release 创建（`release` 事件类型 `published`）。
 
@@ -535,7 +625,7 @@ SDK 通过 GitHub Actions 自动发布到 npm 官方仓库，工作流见 `.gith
 
 > 推荐长期方案：npm **Trusted Publishing**（OIDC，无需 token）。在 npmjs.com 的 `xxai-agent` 包设置中添加 Trusted Publisher，GitHub 配置填 `xingwenl` / `xxai` / 工作流 `publish-ai-sdk.yml`；配置后 CI 使用 Node ≥ 22 自带的最新 npm，`npm publish` 自动完成身份认证和 provenance。注意：首次发布仍需先用 token 完成，包存在后才能配置 Trusted Publisher。
 
-## 12. 常见问题
+## 13. 常见问题
 
 ### token 从哪里获取？
 
@@ -553,7 +643,7 @@ SDK 通过 GitHub Actions 自动发布到 npm 官方仓库，工作流见 `.gith
 
 SDK 在重连时会再次调用 `getToken`。如果主动断开后重新连接，也应重新获取短期 token，不要缓存长期 token。
 
-## 13. 安全检查清单
+## 14. 安全检查清单
 
 - 浏览器请求中没有 `client_secret`。
 - WebSocket URL 中没有 token。

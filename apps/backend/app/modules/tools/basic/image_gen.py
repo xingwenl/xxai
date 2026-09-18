@@ -12,6 +12,7 @@ from openai import AsyncOpenAI
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.modules.agent.provider_headers import merge_default_headers
 from app.modules.tools.basic.framework import BasicToolError, basic_tool
 
 logger = get_logger(__name__)
@@ -64,6 +65,11 @@ async def generate_images(inputs: dict) -> dict:
             inputs.get("timeout_seconds", settings.image_generation_timeout_seconds)
         ),
         max_retries=0,
+        # 生图链路同样没有会话上下文，只补客户端标识与自有 UA。
+        default_headers=merge_default_headers(
+            model.get("base_url"),
+            (model.get("options") or {}).get("default_headers"),
+        ),
     )
     params = {
         "model": model_name,
