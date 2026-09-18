@@ -3,6 +3,7 @@
 ## - 2026-09-18
 - 🐛 fix：修复 ask_user 回答与 MCP/宿主工具回调被入站 requestId 校验静默丢弃，问答链路挂起到超时 `🧑‍💻 lixingwen`
 - 🐛 fix：修复流式对话请求级数据库 Session 被跨 Task 并发使用导致 close/commit 相撞（agent_request_failed / IllegalStateChangeError），模型 Task 在 Session 关闭前显式取消并 join，工具执行改用独立 Session `🧑‍💻 lixingwen`
+- 🧰 chore：清理调试日志与本机调试残留 `🧑‍💻 lixingwen`
 
 ## - 2026-09-17
 - ✨ feat：AI SDK 支持 Markdown 内联图表，内置 mermaid/echarts 渲染器与自定义语言注册接缝 `🧑‍💻 lixingwen`

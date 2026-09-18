@@ -190,13 +190,6 @@ export class WebSocketTransport extends EventEmitter implements Transport {
     try {
       const event = parseProtocolEvent(JSON.parse(raw));
       if (event.type === 'unknown') return;
-      console.info('[xxai-agent][reconnect-debug] transport event', {
-        type: event.type,
-        sequence: event.sequence,
-        lastSequenceBefore: this._lastSequence,
-        requestId: event.requestId,
-        conversationId: event.conversationId,
-      });
       if (event.conversationId) {
         console.info(
           '[xxai-agent][conversation] transport received conversation id',
@@ -236,23 +229,9 @@ export class WebSocketTransport extends EventEmitter implements Transport {
         }
         queued.forEach((message) => this.send(message));
       } else {
-        if (event.sequence <= this._lastSequence) {
-          console.warn('[xxai-agent][reconnect-debug] event dropped by sequence', {
-            type: event.type,
-            sequence: event.sequence,
-            lastSequence: this._lastSequence,
-            requestId: event.requestId,
-          });
-          return;
-        }
+        if (event.sequence <= this._lastSequence) return;
         this._lastSequence = event.sequence;
       }
-      console.info('[xxai-agent][reconnect-debug] event forwarded to client', {
-        type: event.type,
-        sequence: event.sequence,
-        lastSequenceAfter: this._lastSequence,
-        requestId: event.requestId,
-      });
       if (event.type === 'error') {
         const payload = event.payload as Record<string, unknown>;
         const code = payload.code;

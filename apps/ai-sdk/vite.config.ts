@@ -45,7 +45,6 @@ export default defineConfig({
     },
   },
   server: {
-    // port: 8083,
     proxy: {
       '/api': {
         changeOrigin: true,

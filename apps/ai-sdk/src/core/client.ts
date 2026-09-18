@@ -177,15 +177,6 @@ export class AgentClient {
   }
 
   private handleTransportMessage(msg: WebSocketMessage): void {
-    console.info('[xxai-agent][reconnect-debug] client reducer input', {
-      type: msg.type,
-      sequence: msg.sequence,
-      requestId: msg.requestId,
-      conversationId: msg.conversationId,
-      pendingAssistant: Boolean(this.pendingAssistantMessage),
-      pendingTextLength: this.pendingAssistantMessage?.text.length || 0,
-      messageCount: this.messageStore.getMessages().length,
-    })
     // 网关在每个会话事件的顶层返回 conversationId；同步到 Client，保证
     // UI 消息、宿主工具上下文和后续重连看到的是同一个会话标识。
     if (typeof msg.conversationId === 'string' && msg.conversationId) {
@@ -243,12 +234,6 @@ export class AgentClient {
           }
           this.pendingCitations = []
         }
-        console.info('[xxai-agent][reconnect-debug] message_started handled', {
-          requestId: this.currentRequestId,
-          isSameRequest,
-          pendingAssistant: Boolean(this.pendingAssistantMessage),
-          messageCount: this.messageStore.getMessages().length,
-        })
         this.updatePendingMessage()
         break
       case 'agent_loop_started':
@@ -436,13 +421,6 @@ export class AgentClient {
             }
           }
           this.messageStore.addMessage(message)
-          console.info('[xxai-agent][reconnect-debug] message_completed persisted', {
-            requestId: this.currentRequestId,
-            messageId: message.id,
-            finalTextLength: finalText.length,
-            messageCountBefore: this.messageStore.getMessages().length - 1,
-            messageCountAfter: this.messageStore.getMessages().length,
-          })
           this.persistState()
           this.pendingAssistantMessage = null
           this.activeRequestId = undefined
@@ -468,12 +446,6 @@ export class AgentClient {
 
   private updatePendingMessage(): void {
     if (this.pendingAssistantMessage) {
-      console.info('[xxai-agent][reconnect-debug] pending message updated', {
-        requestId: this.currentRequestId,
-        textLength: this.pendingAssistantMessage.text.length,
-        timelineLength: this.pendingAssistantMessage.timeline?.length || 0,
-        messageCount: this.messageStore.getMessages().length,
-      })
       // 这里可以触发 UI 更新
       this.eventEmitter.emit('message_updating', {
         id: this.pendingAssistantMessage.id,
@@ -794,17 +766,7 @@ export class AgentClient {
   }
 
   addMessage(message: Message): void {
-    console.info('[xxai-agent][reconnect-debug] addMessage called', {
-      id: message.id,
-      role: message.role,
-      requestId: message.requestId,
-      messageCountBefore: this.messageStore.getMessages().length,
-    })
     this.messageStore.addMessage(message)
-    console.info('[xxai-agent][reconnect-debug] addMessage completed', {
-      id: message.id,
-      messageCountAfter: this.messageStore.getMessages().length,
-    })
     this.persistState()
     this._callbacks.onMessage?.(message)
     this.eventEmitter.emit('message', message)
@@ -915,20 +877,12 @@ export class AgentClient {
     const callId = String(msg.payload.callId || '')
     const name = String(msg.payload.name || '')
     const tool = this.toolRegistry.getTool(name)
-    console.info('[xxai-agent][host-tool-debug] received', {
-      callId,
-      name,
-      registered: Boolean(tool),
-      connectionState: this.transport.state,
-    })
     if (!callId || !tool) {
-      console.warn('[xxai-agent][host-tool-debug] tool not registered', { callId, name })
       this.sendHostToolError(callId, 'host_tool_not_registered', 'Host tool is not registered')
       return
     }
     try {
       this.toolRegistry.validate(name, msg.payload.arguments)
-      console.info('[xxai-agent][host-tool-debug] arguments validated', { callId, name })
       if (msg.payload.requiresConfirmation) {
         this.pendingConfirmations.add(callId)
         this.pendingHostCalls.set(callId, { name, arguments: msg.payload.arguments })
@@ -956,27 +910,11 @@ export class AgentClient {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeout)
     try {
-      console.info('[xxai-agent][host-tool-debug] executing', { callId, name })
       const result = await tool.execute(params, { conversationId: this.conversationId, requestId: callId, signal: controller.signal } as any)
-      console.info('[xxai-agent][host-tool-debug] executed', {
-        callId,
-        name,
-        resultType: typeof result,
-        resultKeys: result && typeof result === 'object' ? Object.keys(result as object) : [],
-        connectionState: this.transport.state,
-      })
       const encoded = JSON.stringify(result)
       if (encoded.length > 32 * 1024) throw new Error('host_tool_result_too_large')
-      if (this.transport instanceof WebSocketTransport) {
-        this.transport.sendHostToolResult(callId, result)
-        console.info('[xxai-agent][host-tool-debug] result sent', { callId, name })
-      }
+      if (this.transport instanceof WebSocketTransport) this.transport.sendHostToolResult(callId, result)
     } catch (error) {
-      console.error('[xxai-agent][host-tool-debug] execution failed', {
-        callId,
-        name,
-        error: error instanceof Error ? error.message : String(error),
-      })
       this.sendHostToolError(callId, 'host_tool_execution_failed', error instanceof Error ? error.message : 'Tool execution failed')
     } finally {
       clearTimeout(timer)
