@@ -1,18 +1,45 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from app.modules.host_tool.schemas import HostToolPolicyCreate
 from app.modules.host_tool.services import (
     allowed_host_tool_names,
+    as_utc,
     build_temporary_host_tool_policy,
     transition_status,
-    utc_naive_now,
+    wait_timeout_seconds,
 )
 
 
-def test_database_timestamp_is_utc_and_timezone_naive():
-    value = utc_naive_now()
+def test_as_utc_normalizes_naive_and_aware_database_values():
+    """审计时间列两种建表来源都必须能安全参与时间运算。
 
-    assert value.tzinfo is None
+    alembic 建出的列是 ``TIMESTAMP WITH TIME ZONE``（读回 aware），
+    ``create_all`` 建出的列是 naive；两者都要归一到 UTC 后才允许与
+    ``datetime.now(UTC)`` 相减，否则直接抛 TypeError。
+    """
+
+    naive = datetime(2026, 9, 19, 1, 40, 0)
+    aware = datetime(2026, 9, 19, 9, 40, 0, tzinfo=UTC)
+
+    assert as_utc(None) is None
+    assert as_utc(naive) == naive.replace(tzinfo=UTC)
+    assert as_utc(aware) == aware
+
+
+def test_wait_timeout_seconds_accepts_both_column_shapes():
+    """等待上限计算不能因时间列 naive/aware 差异抛错。"""
+
+    aware = datetime.now(UTC) + timedelta(minutes=10)
+    naive = (datetime.now(UTC) + timedelta(minutes=10)).replace(tzinfo=None)
+
+    assert wait_timeout_seconds(None, default=600.0) == 600.0
+    assert 590 < wait_timeout_seconds(aware, default=600.0) <= 600
+    assert 590 < wait_timeout_seconds(naive, default=600.0) <= 600
+    # 已过期的审计按 0 处理，交给 wait_for 立即进入超时分支。
+    expired = datetime.now(UTC) - timedelta(seconds=5)
+    assert wait_timeout_seconds(expired, default=600.0) == 0.0
 
 
 def test_policy_requires_object_input_schema_and_valid_tool_name():

@@ -1,11 +1,13 @@
 """网关模型循环内的运行时工具分发。"""
 
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 from jsonschema import ValidationError, validate
 
+from app.core.logging import get_logger
 from app.modules.asset.repositories import AssetRepository
 from app.modules.builtin_tool.repositories import BuiltinToolRepository
 from app.modules.builtin_tool.registry import get_builtin_tool
@@ -14,7 +16,7 @@ from app.modules.host_tool.repositories import HostToolRepository
 from app.modules.host_tool.services import (
     canonical_fingerprint,
     redact_sensitive,
-    utc_naive_now,
+    wait_timeout_seconds,
 )
 from app.modules.mcp.repositories import McpRepository
 from app.modules.mcp.runtime import RepositoryMcpExecutor
@@ -33,6 +35,38 @@ from app.modules.agent_runtime.contracts import ToolCall
 MAX_QUESTIONS_PER_REQUEST = 3
 # 问题等待用户回答的超时时间（秒），超时后注入结果让模型自行收尾。
 QUESTION_TIMEOUT_SECONDS = 600.0
+# 日志里工具参数/错误信息的最长字符数，避免一条日志被超长快照撑爆。
+LOG_SUMMARY_LIMIT = 300
+
+logger = get_logger(__name__)
+
+
+def summarize_for_log(value: object, *, limit: int = LOG_SUMMARY_LIMIT) -> str:
+    """把任意工具参数或结果压缩成有界字符串，供排障日志使用。"""
+
+    try:
+        encoded = json.dumps(value, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        encoded = str(value)
+    return encoded if len(encoded) <= limit else f"{encoded[:limit]}…"
+
+
+def host_tool_outcome_log_fields(result: object) -> tuple[int, str, str]:
+    """提取宿主工具日志需要的字段：结果字节数、错误码、错误信息。
+
+    页面回传的失败结果是 ``{"error", "code", "message"}`` 形状，直接看
+    日志即可区分“页面没回结果（超时）”和“页面回了失败原因”。
+    """
+
+    try:
+        size = len(json.dumps(result, ensure_ascii=False, default=str))
+    except (TypeError, ValueError):
+        size = -1
+    if not isinstance(result, dict):
+        return size, "", ""
+    code = str(result.get("code") or ("host_tool_failed" if "error" in result else ""))
+    message = str(result.get("message") or result.get("error") or "")
+    return size, code, message[:LOG_SUMMARY_LIMIT]
 
 
 class RuntimeToolDispatcher:
@@ -260,12 +294,8 @@ class RuntimeToolDispatcher:
         decision = asyncio.get_running_loop().create_future()
         self.pending_mcp_confirmations[call_id] = decision
         expires_at = outcome.expires_at
-        timeout_seconds = 600.0
-        if expires_at is not None:
-            timeout_seconds = max(
-                0.0,
-                (expires_at - datetime.now(UTC)).total_seconds(),
-            )
+        # 与宿主工具共用同一套时间归一化：MCP 确认过期时间同样来自数据库。
+        timeout_seconds = wait_timeout_seconds(expires_at, default=600.0)
         await self.event_queue.put(
             {
                 "type": "confirmation_required",
@@ -318,6 +348,7 @@ class RuntimeToolDispatcher:
         """执行宿主工具：先审计落库，再等待页面回传结果并唤醒模型循环。"""
         call_id = str(call.get("id") or f"{self.request_id}_{tool.name}")
         arguments = call.get("args", {})
+        started_at = datetime.now(UTC)
         existing = await self.host_tool_repo.get_call(
             call_id,
             platform_id=self.platform_id,
@@ -327,6 +358,15 @@ class RuntimeToolDispatcher:
         if existing is not None:
             # 终态调用直接复用历史结果，避免页面函数被重复执行。
             if existing.arguments_fingerprint != canonical_fingerprint(arguments):
+                # 同一 callId 携带不同参数说明模型重试或页面重放，必须留痕，
+                # 否则模型只会看到一句“工具执行失败”而无从定位。
+                logger.error(
+                    "Host tool call id reused with different arguments request_id=%s call_id=%s tool=%s audit_status=%s",
+                    self.request_id,
+                    call_id,
+                    tool.name,
+                    existing.status,
+                )
                 raise ValueError(
                     "host tool call id reused with different arguments"
                 )
@@ -336,6 +376,14 @@ class RuntimeToolDispatcher:
                 "rejected",
                 "expired",
             }:
+                logger.info(
+                    "Host tool audit reused request_id=%s call_id=%s tool=%s audit_status=%s result=%s",
+                    self.request_id,
+                    call_id,
+                    tool.name,
+                    existing.status,
+                    summarize_for_log(existing.result),
+                )
                 return SimpleNamespace(
                     status="completed", result=existing.result
                 )
@@ -361,48 +409,141 @@ class RuntimeToolDispatcher:
                     if requires_confirmation
                     else "running"
                 ),
-                expires_at=utc_naive_now() + timedelta(minutes=10),
+                # 列类型是 TIMESTAMP WITH TIME ZONE：必须写入带时区的 UTC 值。
+                # asyncpg 对 timestamptz 使用 ``obj.astimezone(utc)`` 编码，传入
+                # naive 值会被当成**本地时间**，让过期时间整整差一个时区偏移。
+                expires_at=datetime.now(UTC) + timedelta(minutes=10),
             )
         future = self.pending_host_results.get(call_id)
         if future is None:
             future = asyncio.get_running_loop().create_future()
             self.pending_host_results[call_id] = future
-        await self.event_queue.put(
-            {
-                "type": "host_tool_call",
-                "conversation_id": None,
-                "request_id": self.request_id,
-                "call_id": call_id,
-                "name": tool.name,
-                "arguments": arguments,
-                "side_effect": tool.side_effect,
-                "requires_confirmation": existing.status
-                == "awaiting_confirmation",
-            }
-        )
-        # 与 MCP 确认、ask_user 一样，host tool 等待必须有服务端上限，否则
-        # 页面或用户确认永不响应时请求会无界挂起。等待时长直接沿用审计已
-        # 写入的 expires_at（当前 10 分钟），不引入第二套超时配置。
-        timeout_seconds = 600.0
-        if existing.expires_at is not None:
-            timeout_seconds = max(
-                0.0,
-                (existing.expires_at - utc_naive_now()).total_seconds(),
+            # 关键排障日志：注册时打印仍在等待的 callId 集合，便于和页面回传的
+            # callId 对照，也能与下面的 released 日志拼出完整的 Future 生命周期。
+            logger.info(
+                "Host tool future registered request_id=%s call_id=%s tool=%s pending_keys=%s",
+                self.request_id,
+                call_id,
+                tool.name,
+                sorted(self.pending_host_results),
+            )
+        else:
+            logger.warning(
+                "Host tool reused pending future request_id=%s call_id=%s tool=%s",
+                self.request_id,
+                call_id,
+                tool.name,
             )
         try:
+            # 与 MCP 确认、ask_user 一样，host tool 等待必须有服务端上限，否则
+            # 页面或用户确认永不响应时请求会无界挂起。等待时长直接沿用审计已
+            # 写入的 expires_at（当前 10 分钟），不引入第二套超时配置；时间
+            # 单位换算必须走 wait_timeout_seconds，避免 naive/aware 相减抛错。
+            timeout_seconds = wait_timeout_seconds(
+                getattr(existing, "expires_at", None), default=600.0
+            )
+            if timeout_seconds <= 0:
+                # 审计行的过期时间已经在过去：等待会立即超时，页面结果必然被
+                # 当成迟到结果丢弃。时间列写入口径（aware/naive）出错时就是这
+                # 一行，因此把原始 expires_at 一起打出来。
+                logger.warning(
+                    "Host tool wait window already expired request_id=%s call_id=%s tool=%s audit_status=%s expires_at=%s now_utc=%s",
+                    self.request_id,
+                    call_id,
+                    tool.name,
+                    existing.status,
+                    getattr(existing, "expires_at", None),
+                    datetime.now(UTC),
+                )
+            # 关键排障日志：一行内同时给出 callId、工具名、是否需要确认、审计
+            # 状态、等待上限和参数摘要；此后要么出现 Host tool completed/
+            # failed，要么页面没回结果只能靠 Host tool wait timed out 定位。
+            logger.info(
+                "Host tool dispatched request_id=%s call_id=%s tool=%s side_effect=%s requires_confirmation=%s audit_status=%s wait_timeout_seconds=%.1f args=%s",
+                self.request_id,
+                call_id,
+                tool.name,
+                tool.side_effect,
+                existing.status == "awaiting_confirmation",
+                existing.status,
+                timeout_seconds,
+                summarize_for_log(redact_sensitive(arguments)),
+            )
+            await self.event_queue.put(
+                {
+                    "type": "host_tool_call",
+                    "conversation_id": None,
+                    "request_id": self.request_id,
+                    "call_id": call_id,
+                    "name": tool.name,
+                    "arguments": arguments,
+                    "side_effect": tool.side_effect,
+                    "requires_confirmation": existing.status
+                    == "awaiting_confirmation",
+                }
+            )
             try:
                 # 此处只暂停模型 Task；WebSocket 主循环仍可接收结果并唤醒
                 # Future。wait_for 超时会取消底层 Future，模型 Task 取消也会
                 # 经 finally 清理，避免 pending_host_results 残留。
                 result = await asyncio.wait_for(future, timeout=timeout_seconds)
             except asyncio.TimeoutError:
+                logger.warning(
+                    "Host tool wait timed out request_id=%s call_id=%s tool=%s waited_seconds=%.1f",
+                    self.request_id,
+                    call_id,
+                    tool.name,
+                    timeout_seconds,
+                )
                 result = await self._expire_host_wait(call_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # 工具执行链路的异常会被 AgentRuntime 归一成 failed 步骤，若不在这里
+            # 记录堆栈，前端只会显示“执行失败”，无法区分是数据库、审计还是超时。
+            logger.exception(
+                "Host tool invocation failed request_id=%s call_id=%s tool=%s",
+                self.request_id,
+                call_id,
+                tool.name,
+            )
+            raise
         finally:
-            self.pending_host_results.pop(call_id, None)
+            released = self.pending_host_results.pop(call_id, None) is not None
             if not future.done():
                 future.cancel()
-        if isinstance(result, dict) and "error" in result:
-            return SimpleNamespace(status="completed", result=result)
+            # 关键排障日志：这一行说明 Future 何时、是否被回收；页面随后回传的
+            # 结果若找不到 callId，就能在这里看到它已经被释放。
+            logger.info(
+                "Host tool future released request_id=%s call_id=%s tool=%s released=%s pending_keys=%s",
+                self.request_id,
+                call_id,
+                tool.name,
+                released,
+                sorted(self.pending_host_results),
+            )
+        duration_ms = int((datetime.now(UTC) - started_at).total_seconds() * 1000)
+        result_size, error_code, error_message = host_tool_outcome_log_fields(result)
+        if error_code:
+            logger.warning(
+                "Host tool failed request_id=%s call_id=%s tool=%s error_code=%s error_message=%s result_bytes=%s duration_ms=%s",
+                self.request_id,
+                call_id,
+                tool.name,
+                error_code,
+                error_message,
+                result_size,
+                duration_ms,
+            )
+        else:
+            logger.info(
+                "Host tool completed request_id=%s call_id=%s tool=%s result_bytes=%s duration_ms=%s",
+                self.request_id,
+                call_id,
+                tool.name,
+                result_size,
+                duration_ms,
+            )
         return SimpleNamespace(status="completed", result=result)
 
     async def _expire_host_wait(self, call_id: str) -> dict:
@@ -422,10 +563,22 @@ class RuntimeToolDispatcher:
         )
         status = getattr(fresh, "status", None)
         if status == "succeeded":
+            logger.info(
+                "Host tool wait expired but page already succeeded request_id=%s call_id=%s",
+                self.request_id,
+                call_id,
+            )
             return dict(getattr(fresh, "result", None) or {})
         if status in {"failed", "rejected", "expired"}:
             # 页面回调与超时竞争时，Future 可能已被 wait_for 取消，结果只能
             # 从审计终态恢复，不能凭空生成第二次成功结果。
+            logger.warning(
+                "Host tool wait expired with terminal audit request_id=%s call_id=%s audit_status=%s audit_error=%s",
+                self.request_id,
+                call_id,
+                status,
+                getattr(fresh, "error", None),
+            )
             return {
                 "error": "host_tool_failed",
                 "code": "host_tool_execution_failed",
@@ -433,6 +586,12 @@ class RuntimeToolDispatcher:
             }
         if status == "awaiting_confirmation":
             await self.host_tool_repo.transition_call(fresh, "expired")
+            logger.warning(
+                "Host tool confirmation expired request_id=%s call_id=%s audit_status=%s",
+                self.request_id,
+                call_id,
+                status,
+            )
             return {
                 "error": "host_tool_expired",
                 "code": "host_tool_expired",
@@ -442,6 +601,12 @@ class RuntimeToolDispatcher:
         # 失败结果化回填模型，避免请求永久挂起在页面执行阶段。
         await self.host_tool_repo.transition_call(
             fresh, "failed", error="host_tool_execution_timeout"
+        )
+        logger.warning(
+            "Host tool execution timed out waiting for page result request_id=%s call_id=%s audit_status=%s",
+            self.request_id,
+            call_id,
+            status,
         )
         return {
             "error": "host_tool_failed",

@@ -22,9 +22,34 @@ _TRANSITIONS: dict[str, set[str]] = {
 }
 
 
-def utc_naive_now() -> datetime:
-    """Return UTC time for legacy PostgreSQL timestamp-without-time-zone columns."""
-    return datetime.now(UTC).replace(tzinfo=None)
+def as_utc(value: datetime | None) -> datetime | None:
+    """把数据库读回的时间统一成带时区的 UTC，屏蔽列类型的差异。
+
+    审计时间列是 ``TIMESTAMP WITH TIME ZONE``，asyncpg 读回 aware 值；但历史
+    数据或由 ``create_all`` 建出的 naive 列会读回 naive 值。读取侧必须同时兼容：
+    否则 aware 值与 naive 值相减会直接抛
+    ``TypeError: can't subtract offset-naive and offset-aware datetimes``。
+    """
+
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        # 历史 naive 值按 UTC 解释（写入侧统一使用带时区的 UTC）。
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def wait_timeout_seconds(expires_at: datetime | None, *, default: float) -> float:
+    """计算“距离过期还剩多少秒”，用于等待页面的超时上限。
+
+    缺失过期时间时回退 ``default``；已经过期时按 0 处理，让
+    ``asyncio.wait_for`` 立即超时并走既有的过期分支，而不是等待负数时长。
+    """
+
+    normalized = as_utc(expires_at)
+    if normalized is None:
+        return default
+    return max(0.0, (normalized - datetime.now(UTC)).total_seconds())
 
 
 def allowed_host_tool_names(

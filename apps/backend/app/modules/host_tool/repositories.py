@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,7 +12,6 @@ from app.modules.host_tool.models import (
 from app.modules.host_tool.services import (
     canonical_fingerprint,
     transition_status,
-    utc_naive_now,
 )
 
 
@@ -153,9 +154,11 @@ class HostToolRepository:
         transition_status(audit.status, target)
         values = {"status": target}
         if target == "running":
-            values["started_at"] = utc_naive_now()
+            values["started_at"] = datetime.now(UTC)
         if target in {"succeeded", "failed", "rejected", "expired"}:
-            values["completed_at"] = utc_naive_now()
+            # 审计时间列是 TIMESTAMP WITH TIME ZONE，必须写带时区的 UTC 值：
+            # asyncpg 会把 naive 值当作本地时间编码，导致落库时间偏移一个时区。
+            values["completed_at"] = datetime.now(UTC)
         if result is not None:
             values["result"] = result
         if error is not None:

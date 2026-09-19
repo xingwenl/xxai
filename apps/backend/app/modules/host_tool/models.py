@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    DateTime,
     ForeignKey,
     JSON,
     String,
@@ -103,6 +104,15 @@ class HostToolCallAudit(BaseModel):
     status: Mapped[str] = mapped_column(String(30), nullable=False)
     result: Mapped[Any | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    expires_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    started_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    completed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    # 三列在迁移里都是 TIMESTAMP WITH TIME ZONE，映射必须与之一致：若映射成裸
+    # datetime，asyncpg 会把写入的 naive 值当作本地时间，读回值再带时区，
+    # 时间语义会整体偏移一个时区（曾导致等待上限直接变成已过期）。
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="调用过期时间（UTC）"
+    )
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="调用开始执行时间（UTC）"
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="调用进入终态时间（UTC）"
+    )
