@@ -1,0 +1,119 @@
+{
+  "id": "2026-09-18-ai-sdk-desktop-client-integration",
+  "title": "xxai-agent 桌面客户端（Electron）接入支持",
+  "scope": "backend, frontend, sdk, docs, external-client",
+  "phase": "acceptance",
+  "status": "active",
+  "riskLevel": "high",
+  "changeTypes": [
+    "backend",
+    "api-contract",
+    "config",
+    "docs",
+    "external-client"
+  ],
+  "research": {
+    "required": true,
+    "status": "done",
+    "sources": [
+      "https://www.electronjs.org/docs/latest/tutorial/security",
+      "/private/tmp/origin-probe (Electron 37.10.3 / Chromium 138 一次性探针实验)",
+      "https://www.rfc-editor.org/rfc/rfc8252.txt",
+      "https://www.rfc-editor.org/rfc/rfc9700.txt",
+      "/Users/lixingwen/xw/git/dify/web/app/components/base/chat/embedded-chatbot",
+      "apps/backend/app/modules/embed/schemas.py",
+      "apps/backend/app/modules/embed/services.py",
+      "apps/backend/app/modules/embed/models.py",
+      "apps/backend/app/modules/gateway/auth.py",
+      "apps/backend/app/__init__.py",
+      "apps/front/src/features/embed-clients/index.tsx"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": [
+    "API 契约变化：POST /api/v1/shop-agent/session 新增可选的 agent_id（向后兼容）",
+    "鉴权或权限行为变化：CORS 允许来源改为可配置并新增桌面来源；会话接口可为目标 Agent 签发 token"
+  ],
+  "approvalRecords": [
+    {
+      "by": "user",
+      "at": "2026-09-18",
+      "scope": "接入来源路线：选择「保留 file://，由 AI Base 支持桌面来源」，否决客户端伪造 Origin 头与托管聊天页路线",
+      "note": "同时确认 external_user_id 取花伴 userId、首版工具范围限定只读工具"
+    },
+    {
+      "by": "user",
+      "at": "2026-09-18",
+      "scope": "来源路线调整：允许接入方把渲染层改为 http origin 加载，替代 file:// 白名单方案",
+      "note": "据此把方案从 A 改为 E，AI Base 侧不再改动数据模型与 Embed 接口契约"
+    },
+    {
+      "by": "user",
+      "at": "2026-09-18",
+      "scope": "接入链路调整：复用 apps/shop 的 hua8 身份链路，不下发 client_secret，不对接接入方后端",
+      "note": "据此把方案从 E 调整为 F（http origin 加载 + shop-agent 会话接口），风险项由 secret 分发转为 CORS 放宽与契约扩展"
+    },
+    {
+      "by": "user",
+      "at": "2026-09-18",
+      "scope": "确认 spec 第 2 次变更：桌面端口固定 5390、桌面 Agent 与 shop 共用同一个 Embed Client 并用 agent_id 区分、首版包含 4 个只读桌面工具",
+      "note": "同时确认 shop-agent/session 为支持宿主工具需要新增 host_tool_names 参数（否则 token 的 host_tools 恒为空、工具会被静默拒绝）"
+    },
+    {
+      "by": "user",
+      "at": "2026-09-18",
+      "scope": "接入链路再调整：Embed Client 的 client_id / client_secret 放到 hua8 后端，由 hua8 后端代签（标准 /api/v1/embed/tokens 路径）",
+      "note": "多平台各建一个 Embed Client；secret 只留在 hua8 服务端，不下发任何客户端。AI Base 侧是否需要改动取决于后续确认（标准路径本身零改动，但不会注入店铺 token Redis 上下文）。"
+    },
+    {
+      "by": "user",
+      "at": "2026-09-18",
+      "scope": "签发链路最终定案：不改动 zhoudan/hua8，由 shop-agent/session 接收调用方携带的 client_id / client_secret 并透传给 issue_configured_agent_token",
+      "note": "支持一个部署接入多个 Embed Client；env 配置保留为缺省回退，既有调用方零改动。凭证只能由可信服务端持有。"
+    },
+    {
+      "by": "user",
+      "at": "2026-09-18",
+      "scope": "签发链路最终定案：凭证直接固定留在 AI Base 后端（shop_agent/router.py 的 PROJECT_EMBED_* 常量），未来新项目在 AI Base 新增独立后端签发方法",
+      "note": "优先级为请求凭证 > 项目常量 > 环境变量；secret 全程不出服务端。"
+    },
+    {
+      "by": "user",
+      "at": "2026-09-19",
+      "scope": "首次真机联调报错定位：桌面端 AI Base 站点根被填成业务平台地址（hua8），已改为必填并给出明确提示",
+      "note": "AI Base 实际站点根待用户确认；其余后台配置项（Embed Client 常量、origin 登记、工具绑定）清单见 acceptance.md。"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-09-18",
+  "updatedAt": "2026-09-18",
+  "relatedPaths": [
+    "/Users/lixingwen/xw/zhoudan/client/operations-desktop/electron/agent-config.ts",
+    "/Users/lixingwen/xw/zhoudan/client/operations-desktop/electron/agent-ipc.ts",
+    "/Users/lixingwen/xw/zhoudan/client/operations-desktop/electron/agent-session.ts",
+    "/Users/lixingwen/xw/zhoudan/client/operations-desktop/electron/agent-tools.ts",
+    "/Users/lixingwen/xw/zhoudan/client/operations-desktop/electron/main.ts",
+    "/Users/lixingwen/xw/zhoudan/client/operations-desktop/electron/renderer-server.ts",
+    "/Users/lixingwen/xw/zhoudan/client/operations-desktop/electron/renderer-target.ts",
+    "/Users/lixingwen/xw/zhoudan/client/operations-desktop/src/components/AgentChatPanel.tsx",
+    "apps/ai-sdk/README.md",
+    "apps/backend/app/__init__.py",
+    "apps/backend/app/core/config.py",
+    "apps/backend/app/modules/embed/services.py",
+    "apps/backend/app/modules/shop_agent/router.py",
+    "apps/backend/app/modules/shop_agent/schemas.py",
+    "apps/backend/tests/shop_agent/test_router_project_client.py",
+    "apps/backend/tests/shop_agent/test_session_params.py",
+    "apps/backend/tests/system/test_cors_config.py",
+    "apps/shop/src/pages/ChatPage.vue",
+    "docs/CHANGELOG.md",
+    "docs/harness/requests/2026-09-18-ai-sdk-desktop-client-integration/acceptance.md",
+    "docs/harness/requests/2026-09-18-ai-sdk-desktop-client-integration/plan.md",
+    "docs/harness/requests/2026-09-18-ai-sdk-desktop-client-integration/research.md",
+    "docs/harness/requests/2026-09-18-ai-sdk-desktop-client-integration/spec.md",
+    "docs/harness/requests/2026-09-18-ai-sdk-desktop-client-integration/verify.md"
+  ],
+  "notes": "实现、自动化验证与验收结论已写入 verify.md / acceptance.md，结论为「条件通过」：本仓库后端参数扩展、CORS 配置化、项目固定 Embed Client 常量与 SDK 文档已完成，全量 665 passed；接入方桌面端编译、单测与构建通过。剩余为人工环境项：新建该项目 Embed Client 后填 PROJECT_EMBED_*、绑定桌面 Agent、登记 4 个宿主工具策略（schema 指纹须逐字对齐）、登记桌面 origin，随后完成真机端到端联调并转为完全通过。 2026-09-19 真机联调：确认报错源于站点根填成了业务平台地址，接入方已改为必填 + 明确提示，待确认 AI Base 实际地址。"
+}

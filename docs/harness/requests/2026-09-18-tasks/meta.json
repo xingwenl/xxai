@@ -1,0 +1,58 @@
+{
+  "id": "2026-09-18-tasks",
+  "title": "任务功能：定时触发、无人值守跑一轮 Agent",
+  "scope": "backend,front",
+  "phase": "spec",
+  "status": "active",
+  "riskLevel": "high",
+  "changeTypes": ["data-model", "api", "runtime", "frontend", "docs"],
+  "research": {
+    "required": true,
+    "status": "completed",
+    "sources": [
+      "Kubernetes 官方文档 CronJob（concurrencyPolicy / startingDeadlineSeconds / 错过语义）",
+      "GitHub Docs schedule 事件（POSIX cron、UTC 默认、最短 5 分钟、DST 顺延）",
+      "Celery 官方文档 Periodic Tasks（beat 单点、重复触发风险）",
+      "本机 Codex automations / heartbeat 官方资料（status PAUSED、notificationPolicy）",
+      "Pi session-backends writer lease（/Users/lixingwen/xw/git/pi）",
+      "本仓库微信机器人常驻 worker 与内部 REST 调用范式"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": false,
+  "approvalReasons": [
+    "架构边界变化：新增常驻调度容器、tasks 模块与 conversation 模块的系统执行入口",
+    "数据模型变化：新增 tasks 与 task_runs 两张表及迁移",
+    "API 契约变化：新增 /api/v1/platforms/{platform_id}/tasks 接口族",
+    "鉴权与权限行为变化：任务可见性按平台管理员/普通用户过滤；无人值守运行以任务执行身份发起；新增智能体创建任务的内置工具"
+  ],
+  "approvalRecords": [
+    {
+      "date": "2026-09-18",
+      "grantedBy": "user",
+      "scope": "方案拷问阶段逐条确认设计决策（未确认 spec 全文）",
+      "notes": "用户在多轮拷问中确认：任务模型按触发器+动作抽象、平台级与用户级两侧同时支持、允许裸 cron 且最小间隔 1 分钟、错过不补跑、同一任务串行、失败不重试、每次运行新建会话、独立调度容器 + 数据库抢占、v1 仅平台管理员 JWT、命名用 tasks 并删除 shadcn 示例页、无人值守默认自动批准但 financial 不自动批准、无人值守遇到需要用户回答的工具立即失败"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-09-18",
+  "updatedAt": "2026-09-18",
+  "relatedPaths": [
+    "docs/harness/requests/2026-09-18-tasks/research.md",
+    "docs/harness/requests/2026-09-18-tasks/spec.md",
+    "CONTEXT.md",
+    "docs/adr/0001-task-scheduling-and-unattended-execution.md",
+    "apps/backend/app/modules/tasks/",
+    "apps/backend/app/modules/tools/business/",
+    "apps/backend/app/modules/conversation/services.py",
+    "apps/backend/migrations/versions/",
+    "apps/backend/migrations/env.py",
+    "docker-compose.yml",
+    "apps/front/src/features/tasks/",
+    "apps/front/src/routes/_authenticated/tasks/",
+    "apps/front/src/api/task.ts",
+    "apps/front/src/components/layout/data/sidebar-data.ts"
+  ],
+  "notes": "调研事实：仓库当前无任何调度器（app/ 下 cron|schedul|trigger|automation 零命中），Celery 仅服务知识库且无 beat；conversation 侧没有任何兜底超时清理，进程被杀会留下永久 running，因此任务自带看门狗；内置工具未透传 side_effect（builtin_tool/registry.py:33-40）导致内置工具恒不确认，属既有缺口，本 request 只记录不修复。待确认项见 spec.md 末尾四点。"
+}
