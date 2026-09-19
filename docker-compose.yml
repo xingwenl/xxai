@@ -181,6 +181,29 @@ services:
         condition: service_started
     logging: *default-logging
 
+  # 任务调度：常驻进程，按 tick 抢占到期任务并发起无人值守的一轮 Agent 运行。
+  # 与 api/worker 分开部署，避免 API 重启中断调度、也避免多副本重复触发。
+  task-scheduler:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    command: python -m app.modules.tasks.scheduler
+    environment:
+      <<: *backend-environment
+      # 调度进程单独落盘，避免与 api/worker 日志互相穿插
+      LOG_FILE_PATH: /app/logs/task-scheduler/app.log
+      TASK_SCHEDULER_ENABLED: ${TASK_SCHEDULER_ENABLED:-true}
+      TASK_SCHEDULER_TICK_SECONDS: ${TASK_SCHEDULER_TICK_SECONDS:-30}
+      TASK_DEFAULT_TIMEOUT_SECONDS: ${TASK_DEFAULT_TIMEOUT_SECONDS:-600}
+      TASK_MAX_PER_PLATFORM: ${TASK_MAX_PER_PLATFORM:-100}
+    volumes:
+      - ./apps/backend/logs:/app/logs
+      - ./apps/backend/storage:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
+    logging: *default-logging
+
   skill-runner:
     build:
       context: ./apps/backend

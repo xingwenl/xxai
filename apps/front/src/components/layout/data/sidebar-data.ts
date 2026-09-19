@@ -1,6 +1,7 @@
 import {
   Bell,
   Bot,
+  CalendarClock,
   Cpu,
   Cable,
   Database,
@@ -104,6 +105,11 @@ export const sidebarData: SidebarData = {
           title: '模型用量',
           url: '/ai/model-usage',
           icon: BarChart3,
+        },
+        {
+          title: '任务',
+          url: '/tasks',
+          icon: CalendarClock,
         },
       ],
     },

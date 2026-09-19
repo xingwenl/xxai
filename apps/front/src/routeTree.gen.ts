@@ -34,6 +34,7 @@ import { Route as AuthenticatedAppsIndexRouteImport } from './routes/_authentica
 import { Route as ClerkAuthenticatedUserManagementRouteImport } from './routes/clerk/_authenticated/user-management'
 import { Route as ClerkauthSignUpRouteImport } from './routes/clerk/(auth)/sign-up'
 import { Route as ClerkauthSignInRouteImport } from './routes/clerk/(auth)/sign-in'
+import { Route as AuthenticatedTasksTaskIdRouteImport } from './routes/_authenticated/tasks/$taskId'
 import { Route as AuthenticatedSystemUsersRouteImport } from './routes/_authenticated/system/users'
 import { Route as AuthenticatedSystemRolesRouteImport } from './routes/_authenticated/system/roles'
 import { Route as AuthenticatedSystemMcpServersRouteImport } from './routes/_authenticated/system/mcp-servers'
@@ -180,6 +181,12 @@ const ClerkauthSignInRoute = ClerkauthSignInRouteImport.update({
   path: '/sign-in',
   getParentRoute: () => ClerkauthRouteRoute,
 } as any)
+const AuthenticatedTasksTaskIdRoute =
+  AuthenticatedTasksTaskIdRouteImport.update({
+    id: '/tasks/$taskId',
+    path: '/tasks/$taskId',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedSystemUsersRoute =
   AuthenticatedSystemUsersRouteImport.update({
     id: '/system/users',
@@ -324,6 +331,7 @@ export interface FileRoutesByFullPath {
   '/system/mcp-servers': typeof AuthenticatedSystemMcpServersRoute
   '/system/roles': typeof AuthenticatedSystemRolesRoute
   '/system/users': typeof AuthenticatedSystemUsersRoute
+  '/tasks/$taskId': typeof AuthenticatedTasksTaskIdRoute
   '/clerk/sign-in': typeof ClerkauthSignInRoute
   '/clerk/sign-up': typeof ClerkauthSignUpRoute
   '/clerk/user-management': typeof ClerkAuthenticatedUserManagementRoute
@@ -366,6 +374,7 @@ export interface FileRoutesByTo {
   '/system/mcp-servers': typeof AuthenticatedSystemMcpServersRoute
   '/system/roles': typeof AuthenticatedSystemRolesRoute
   '/system/users': typeof AuthenticatedSystemUsersRoute
+  '/tasks/$taskId': typeof AuthenticatedTasksTaskIdRoute
   '/clerk/sign-in': typeof ClerkauthSignInRoute
   '/clerk/sign-up': typeof ClerkauthSignUpRoute
   '/clerk/user-management': typeof ClerkAuthenticatedUserManagementRoute
@@ -413,6 +422,7 @@ export interface FileRoutesById {
   '/_authenticated/system/mcp-servers': typeof AuthenticatedSystemMcpServersRoute
   '/_authenticated/system/roles': typeof AuthenticatedSystemRolesRoute
   '/_authenticated/system/users': typeof AuthenticatedSystemUsersRoute
+  '/_authenticated/tasks/$taskId': typeof AuthenticatedTasksTaskIdRoute
   '/clerk/(auth)/sign-in': typeof ClerkauthSignInRoute
   '/clerk/(auth)/sign-up': typeof ClerkauthSignUpRoute
   '/clerk/_authenticated/user-management': typeof ClerkAuthenticatedUserManagementRoute
@@ -458,6 +468,7 @@ export interface FileRouteTypes {
     | '/system/mcp-servers'
     | '/system/roles'
     | '/system/users'
+    | '/tasks/$taskId'
     | '/clerk/sign-in'
     | '/clerk/sign-up'
     | '/clerk/user-management'
@@ -500,6 +511,7 @@ export interface FileRouteTypes {
     | '/system/mcp-servers'
     | '/system/roles'
     | '/system/users'
+    | '/tasks/$taskId'
     | '/clerk/sign-in'
     | '/clerk/sign-up'
     | '/clerk/user-management'
@@ -546,6 +558,7 @@ export interface FileRouteTypes {
     | '/_authenticated/system/mcp-servers'
     | '/_authenticated/system/roles'
     | '/_authenticated/system/users'
+    | '/_authenticated/tasks/$taskId'
     | '/clerk/(auth)/sign-in'
     | '/clerk/(auth)/sign-up'
     | '/clerk/_authenticated/user-management'
@@ -751,6 +764,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ClerkauthSignInRouteImport
       parentRoute: typeof ClerkauthRouteRoute
     }
+    '/_authenticated/tasks/$taskId': {
+      id: '/_authenticated/tasks/$taskId'
+      path: '/tasks/$taskId'
+      fullPath: '/tasks/$taskId'
+      preLoaderRoute: typeof AuthenticatedTasksTaskIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/system/users': {
       id: '/_authenticated/system/users'
       path: '/system/users'
@@ -926,6 +946,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedSystemMcpServersRoute: typeof AuthenticatedSystemMcpServersRoute
   AuthenticatedSystemRolesRoute: typeof AuthenticatedSystemRolesRoute
   AuthenticatedSystemUsersRoute: typeof AuthenticatedSystemUsersRoute
+  AuthenticatedTasksTaskIdRoute: typeof AuthenticatedTasksTaskIdRoute
   AuthenticatedAppsIndexRoute: typeof AuthenticatedAppsIndexRoute
   AuthenticatedChatsIndexRoute: typeof AuthenticatedChatsIndexRoute
   AuthenticatedHelpCenterIndexRoute: typeof AuthenticatedHelpCenterIndexRoute
@@ -951,6 +972,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedSystemMcpServersRoute: AuthenticatedSystemMcpServersRoute,
   AuthenticatedSystemRolesRoute: AuthenticatedSystemRolesRoute,
   AuthenticatedSystemUsersRoute: AuthenticatedSystemUsersRoute,
+  AuthenticatedTasksTaskIdRoute: AuthenticatedTasksTaskIdRoute,
   AuthenticatedAppsIndexRoute: AuthenticatedAppsIndexRoute,
   AuthenticatedChatsIndexRoute: AuthenticatedChatsIndexRoute,
   AuthenticatedHelpCenterIndexRoute: AuthenticatedHelpCenterIndexRoute,

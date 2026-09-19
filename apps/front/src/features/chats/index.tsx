@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { getRouteApi } from '@tanstack/react-router'
 import { ArrowLeft, Plus, Settings2, Trash2, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -107,6 +108,9 @@ export function Chats() {
   const currentUserId = auth.user?.id
   const token = auth.accessToken
 
+  const routeApi = getRouteApi('/_authenticated/chats/')
+  const search = routeApi.useSearch()
+
   const [tab, setTab] = useState<TabKey>('conversations')
   const [selectedConversationId, setSelectedConversationId] = useState<
     number | null
@@ -121,6 +125,13 @@ export function Chats() {
   const [groupName, setGroupName] = useState('')
   const [groupMemberIds, setGroupMemberIds] = useState<string[]>([])
   const [inviteMemberIds, setInviteMemberIds] = useState<string[]>([])
+
+  // 支持外部入口（如任务执行记录）通过 ?conversation=<id> 直接定位会话。
+  useEffect(() => {
+    if (search.conversation != null) {
+      setSelectedConversationId(search.conversation)
+    }
+  }, [search.conversation])
 
   const conversationsQuery = useQuery({
     queryKey: ['chat', 'conversations', { page: 1, pageSize: 50 }],
@@ -210,7 +221,11 @@ export function Chats() {
     onSuccess: async (_, conversationId) => {
       await qc.invalidateQueries({ queryKey: ['chat', 'conversations'] })
       qc.removeQueries({
-        queryKey: ['chat', 'messages', { id: conversationId, page: 1, pageSize: 50 }],
+        queryKey: [
+          'chat',
+          'messages',
+          { id: conversationId, page: 1, pageSize: 50 },
+        ],
       })
       if (Number(selectedConversationId) === Number(conversationId)) {
         setSelectedConversationId(null)
@@ -778,7 +793,9 @@ export function Chats() {
                         <Avatar className='size-8'>
                           <AvatarImage src={friend.avatar ?? ''} alt={name} />
                           <AvatarFallback>
-                            {String(name || '?').charAt(0).toUpperCase()}
+                            {String(name || '?')
+                              .charAt(0)
+                              .toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
                         <div className='min-w-0 flex-1'>
@@ -855,7 +872,9 @@ export function Chats() {
                             alt={name}
                           />
                           <AvatarFallback>
-                            {String(name || '?').charAt(0).toUpperCase()}
+                            {String(name || '?')
+                              .charAt(0)
+                              .toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
                         <div className='min-w-0 flex-1'>
@@ -879,7 +898,9 @@ export function Chats() {
                 <ScrollArea className='h-48 rounded-md border'>
                   <div className='grid gap-2 p-3'>
                     {availableFriendsForGroup.map((friend) => {
-                      const checked = inviteMemberIds.includes(String(friend.id))
+                      const checked = inviteMemberIds.includes(
+                        String(friend.id)
+                      )
                       const name = displayName(friend)
                       return (
                         <label
@@ -898,7 +919,9 @@ export function Chats() {
                           <Avatar className='size-8'>
                             <AvatarImage src={friend.avatar ?? ''} alt={name} />
                             <AvatarFallback>
-                              {String(name || '?').charAt(0).toUpperCase()}
+                              {String(name || '?')
+                                .charAt(0)
+                                .toUpperCase()}
                             </AvatarFallback>
                           </Avatar>
                           <div className='min-w-0 flex-1'>
