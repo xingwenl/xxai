@@ -1,6 +1,9 @@
 import asyncio
 
+from redis.exceptions import ResponseError
+
 from app.modules.gateway.replay import ReplayStore
+from app.modules.gateway.router import _numeric_sequence_floor
 
 
 class FakeRedis:
@@ -116,3 +119,35 @@ def test_replay_store_accepts_numeric_sdk_cursor():
         assert len(result.events) == 1
 
     asyncio.run(run())
+
+
+class MissingStreamRedis(FakeRedis):
+    """模拟会话尚无事件流时 Redis 的 "no such key" 行为。"""
+
+    async def xinfo_stream(self, key):
+        raise ResponseError("no such key")
+
+
+def test_replay_store_skips_missing_stream():
+    """Stream 不存在时按「无可重放事件」处理，不能抛异常打断建连。"""
+
+    async def run():
+        store = ReplayStore(MissingStreamRedis())
+
+        result = await store.replay("conv-missing", "3")
+
+        assert result.recovered is True
+        assert result.events == []
+        assert result.latest_sequence is None
+
+    asyncio.run(run())
+
+
+def test_numeric_sequence_floor_accepts_redis_stream_id():
+    """旧客户端把 Redis Stream ID 当游标时，序号计算不得抛 ValueError。"""
+
+    assert _numeric_sequence_floor("1789749522980-0") == 0
+    assert _numeric_sequence_floor("12") == 12
+    assert _numeric_sequence_floor(7) == 7
+    assert _numeric_sequence_floor(None) == 0
+    assert _numeric_sequence_floor(True) == 0

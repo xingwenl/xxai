@@ -97,6 +97,30 @@ async def _send_protocol_error(
     await websocket.send_text(envelope("error", payload, request_id=request_id))
 
 
+def _numeric_sequence_floor(value: object) -> int:
+    """把重放的 ``latestSequence`` 归一到可安全参与 max 计算的整数。
+
+    正常路径返回的是协议序号；旧客户端用 Redis Stream ID（形如
+    ``1789749522980-0``）作游标时，重放会原样返回 stream ID。此处直接
+    ``int()`` 会抛 ``ValueError`` 并让整个连接在建连阶段失败，因此非数字值
+    降级为 0 并留下告警日志，供排查「连接建不起来」类问题。
+    """
+
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return max(0, value)
+    if isinstance(value, str):
+        try:
+            return max(0, int(value))
+        except ValueError:
+            logger.warning(
+                "Replay latest sequence is not numeric, fallback to 0: value=%s",
+                value,
+            )
+    return 0
+
+
 def _cancel_pending_request_futures(
     *future_maps: dict[str, asyncio.Future],
 ) -> None:
@@ -609,9 +633,10 @@ async def produce_embed_request(
             runtime_tools = filter_conflicting_runtime_tools(runtime_tools)
             # 模型看到的工具集合再次取自连接级注册状态，未注册工具不会进入 bind_tools。
             logger.info(
-                "Starting embed chat request %s with host tools=%s",
+                "Starting embed chat request %s runtime_tools=%s host_tools=%s",
                 request_id,
                 [tool.name for tool in runtime_tools],
+                [tool.name for tool in context.host_tools],
             )
             try:
                 async for event in stream_embed_chat(
@@ -903,12 +928,27 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
             if isinstance(replay_cursor, (str, int)) and not isinstance(replay_cursor, bool)
             else None
         )
-        replay_result = (
-            await replay_store.replay(replay_conversation_id, normalized_replay_cursor)
-            if isinstance(replay_conversation_id, str)
+        if (
+            isinstance(replay_conversation_id, str)
             and normalized_replay_cursor is not None
-            else None
-        )
+        ):
+            try:
+                replay_result = await replay_store.replay(
+                    replay_conversation_id, normalized_replay_cursor
+                )
+            except Exception as exc:
+                # 重放只是断线续传的增强能力：Redis 抖动、Stream 过期等异常
+                # 不能让整个连接在建连阶段失败（否则页面会表现为连不上、
+                # 注册页面工具等后续流程全部不发生），降级为「不重放」。
+                logger.warning(
+                    "Replay skipped conversation_id=%s cursor=%s error=%s",
+                    replay_conversation_id,
+                    normalized_replay_cursor,
+                    exc,
+                )
+                replay_result = None
+        else:
+            replay_result = None
         # sequence 属于会话事件流，而不是单条 TCP/WS 连接。连接重建后必须
         # 从客户端游标或 replay 最新序号继续递增，否则 SDK 会把新连接的
         # message_started(sequence=2) 误判为已处理事件并丢弃。
@@ -918,7 +958,9 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
             else 0
         )
         replay_latest = replay_result.latest_sequence if replay_result else 0
-        sequence = max(sequence, cursor_sequence + 1, int(replay_latest or 0) + 1)
+        sequence = max(
+            sequence, cursor_sequence + 1, _numeric_sequence_floor(replay_latest) + 1
+        )
         host_tool_session = get_session_factory()()
         host_tool_repo = HostToolRepository(host_tool_session)
         # 这些容器只属于当前连接：记录页面已注册的工具、对应后台策略，

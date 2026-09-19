@@ -5,7 +5,11 @@ from types import SimpleNamespace
 from langchain_core.messages import AIMessageChunk
 
 from app.core.config import get_settings
-from app.modules.gateway.runtime import filter_conflicting_runtime_tools, stream_embed_chat
+from app.modules.gateway.runtime import (
+    filter_conflicting_runtime_tools,
+    merge_model_tools,
+    stream_embed_chat,
+)
 from app.modules.gateway.runtime import _finish_embed_chat
 from app.modules.gateway.events import LoopEventBuilder
 
@@ -138,6 +142,20 @@ class FailingStreamingModel:
         yield  # pragma: no cover
 
 
+class RecordingBindModel:
+    """记录 bind_tools 收到的工具 Schema，用于验证模型可见的工具集合。"""
+
+    def __init__(self):
+        self.bound_tools = None
+
+    def bind_tools(self, tools):
+        self.bound_tools = tools
+        return self
+
+    async def astream(self, _messages):
+        yield SimpleNamespace(content="已收到")
+
+
 def test_runtime_tool_name_conflicts_exclude_all_duplicates():
     tools = [
         SimpleNamespace(name="same", kind="builtin"),
@@ -148,6 +166,166 @@ def test_runtime_tool_name_conflicts_exclude_all_duplicates():
     filtered = filter_conflicting_runtime_tools(tools)
 
     assert [tool.name for tool in filtered] == ["read_only"]
+
+
+def test_merge_model_tools_keeps_runtime_and_host_tools():
+    """入口工具与宿主工具必须同时保留，同名工具统一剔除。"""
+
+    runtime_tools = [
+        SimpleNamespace(name="http_get", kind="builtin"),
+        SimpleNamespace(name="share_name", kind="builtin"),
+    ]
+    host_tools = [
+        SimpleNamespace(name="debug_ping"),
+        SimpleNamespace(name="share_name"),
+    ]
+
+    merged = merge_model_tools(runtime_tools, host_tools)
+
+    assert [tool.name for tool in merged] == ["http_get", "debug_ping"]
+
+
+def test_embed_chat_binds_host_tools_to_model():
+    """注册的页面宿主工具必须进入 bind_tools。
+
+    回归用例：此前 ``runtime_tools`` 与 ``host_tools`` 被写成二选一，宿主工具
+    只出现在 system prompt 里，模型无法产生 tool_call，表现为"页面注册成功但
+    工具永远不被调用"。
+    """
+
+    model = RecordingBindModel()
+    host_tool = SimpleNamespace(
+        name="debug_ping",
+        description="调试用页面方法",
+        input_schema={"type": "object", "properties": {}},
+    )
+    runtime_tool = SimpleNamespace(
+        name="http_get",
+        description="请求网页",
+        input_schema={"type": "object"},
+        kind="builtin",
+    )
+
+    async def run():
+        events = []
+        async for event in stream_embed_chat(
+            FakeConversationRepository(),
+            SimpleNamespace(
+                agent=SimpleNamespace(id=11),
+                version=SimpleNamespace(system_prompt="回答"),
+                skill_instructions=[],
+                mcp_tools=[],
+            ),
+            model=model,
+            platform_id=1,
+            end_user_id=2,
+            message="调用 debug_ping",
+            conversation_id=None,
+            request_id="req-host-bind",
+            citations=[],
+            host_tools=[host_tool],
+            runtime_tools=[runtime_tool],
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(run())
+
+    assert [item["function"]["name"] for item in model.bound_tools] == [
+        "http_get",
+        "debug_ping",
+    ]
+    assert any(event["type"] == "message_completed" for event in events)
+
+
+class HostToolCallStreamingModel:
+    """第一轮请求宿主工具，第二轮基于工具结果作答。"""
+
+    def __init__(self):
+        self.calls = 0
+
+    async def astream(self, _messages):
+        self.calls += 1
+        if self.calls == 1:
+            yield AIMessageChunk(
+                content="",
+                tool_call_chunks=[
+                    {
+                        "name": "debug_ping",
+                        "args": "{}",
+                        "id": "call-host-1",
+                        "index": 0,
+                    }
+                ],
+            )
+            return
+        yield AIMessageChunk(content="页面标题是 repro-page。")
+
+
+def test_embed_chat_dispatches_registered_host_tool_call():
+    """注册的宿主工具必须能被模型调用，并把页面结果回填给模型。
+
+    覆盖"注册 -> 绑定 -> 模型 tool_call -> 页面结果回传 -> 继续作答"整条链路，
+    防止再次出现只注册、不绑定导致工具永不被调用的回归。
+    """
+
+    invoked: list[tuple[str, dict]] = []
+
+    async def invoke_host_tool(tool=None, call=None, **_kwargs):
+        invoked.append((tool.name, dict(call or {})))
+        return {"status": "completed", "result": {"title": "repro-page"}}
+
+    host_tool = SimpleNamespace(
+        name="debug_ping",
+        description="调试用页面方法",
+        input_schema={"type": "object", "properties": {}},
+    )
+
+    async def run():
+        model = HostToolCallStreamingModel()
+        events = []
+        async for event in stream_embed_chat(
+            FakeConversationRepository(),
+            SimpleNamespace(
+                agent=SimpleNamespace(id=11),
+                version=SimpleNamespace(system_prompt="回答"),
+                skill_instructions=[],
+                mcp_tools=[],
+            ),
+            model=model,
+            platform_id=1,
+            end_user_id=2,
+            message="调用 debug_ping",
+            conversation_id=None,
+            request_id="req-host-call",
+            citations=[],
+            host_tools=[host_tool],
+            runtime_tools=[lookup_runtime_tool()],
+            invoke_host_tool_fn=invoke_host_tool,
+        ):
+            events.append(event)
+        return model, events
+
+    model, events = asyncio.run(run())
+
+    assert [name for name, _ in invoked] == ["debug_ping"]
+    assert model.calls == 2
+
+    host_steps = [
+        event
+        for event in events
+        if event["type"] == "agent_step_completed"
+        and event["payload"].get("toolName") == "debug_ping"
+    ]
+    assert [step["payload"]["status"] for step in host_steps] == ["succeeded"]
+    assert host_steps[0]["payload"]["stepType"] == "host_tool"
+
+    final_text = next(
+        event["payload"]["content"]
+        for event in events
+        if event["type"] == "message_completed"
+    )
+    assert "repro-page" in final_text
 
 
 def test_embed_stream_sends_terminal_error_and_marks_loop_failed():

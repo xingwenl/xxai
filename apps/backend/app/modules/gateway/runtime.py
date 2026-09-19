@@ -336,6 +336,20 @@ def filter_conflicting_runtime_tools(tools: list | None) -> list:
     return [tool for tool in tools or [] if str(tool.name) not in conflicts]
 
 
+def merge_model_tools(runtime_tools: list | None, host_tools: list | None) -> list:
+    """合并入口工具与页面宿主工具，得到模型真正可调用的工具集合。
+
+    两类工具都必须进入 ``bind_tools`` 才能被模型调用：只把宿主工具写进
+    system prompt 时，模型"知道"工具存在却无法生成对应 tool_call，表现为
+    页面注册成功但模型永远不调用。同名工具按 ``filter_conflicting_runtime_tools``
+    统一剔除，避免调用被分发到另一类执行器。
+    """
+
+    return filter_conflicting_runtime_tools(
+        [*(runtime_tools or []), *(host_tools or [])]
+    )
+
+
 class RequestRegistry:
     """按 requestId 管理连接内任务，提供幂等和取消能力。
 
@@ -687,12 +701,26 @@ async def stream_embed_chat(
     result = None
     tool_steps = {}
     next_step_sequence = generation_sequence + 1
-    tools = runtime_tools if runtime_tools is not None else host_tools or []
+    runtime_tool_list = list(runtime_tools or [])
+    host_tool_list = list(host_tools or [])
+    # 入口工具与页面宿主工具必须同时绑定：此前二者被写成二选一，导致连接
+    # 已注册的宿主工具既不进 bind_tools 也不进工具调用器，模型无法调用。
+    tools = merge_model_tools(runtime_tool_list, host_tool_list)
+    # 关键排障日志：页面注册成功但模型调不到时，先看这行的三个集合。
+    logger.info(
+        "Model tools bound request_id=%s runtime_tools=%s host_tools=%s bound=%s",
+        request_id,
+        [tool.name for tool in runtime_tool_list],
+        [tool.name for tool in host_tool_list],
+        [tool.name for tool in tools],
+    )
     ws_system_prompt = build_system_prompt(
         context.version,
         context.skill_instructions,
         citations,
-        host_tools=tools,
+        # 只有连接注册了宿主工具时才追加"可用工具清单"段落，避免无宿主工具的
+        # 请求提示词变化；清单取实际绑定集合，保证提示词与 bind_tools 一致。
+        host_tools=tools if host_tool_list else None,
         caller_system_prompt=system_prompt,
     )
     runtime = build_langchain_runtime(

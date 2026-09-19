@@ -4,6 +4,11 @@ import json
 from dataclasses import dataclass
 
 from redis.asyncio import Redis
+from redis.exceptions import ResponseError
+
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 STREAM_TTL_SECONDS = 900
 STREAM_MAX_LENGTH = 1000
@@ -61,7 +66,18 @@ class ReplayStore:
         # Stream ID；在 replay 边界统一成字符串，避免类型差异进入游标判断。
         cursor = str(cursor) if cursor is not None else None
         key = self.key(conversation_id)
-        info = await self.redis.xinfo_stream(key)
+        try:
+            info = await self.redis.xinfo_stream(key)
+        except ResponseError as exc:
+            # 会话尚未产生过事件、或 Stream 已过 TTL 时，Redis 对不存在的 key
+            # 直接抛 "no such key"。这在重放语义上等价于「没有可重放事件」，
+            # 返回空结果即可；否则异常会冒到连接层，让整个 WebSocket 建连失败。
+            logger.warning(
+                "Replay stream missing, skip recovery: conversation_id=%s error=%s",
+                conversation_id,
+                exc,
+            )
+            return ReplayResult(True, [], None)
         first = info.get(b"first-entry") or info.get("first-entry")
         last = info.get(b"last-entry") or info.get("last-entry")
         if not first or not last:
