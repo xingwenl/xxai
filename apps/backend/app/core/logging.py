@@ -7,7 +7,13 @@ from pathlib import Path
 
 
 class DatedFileHandler(logging.FileHandler):
-    """按自然日期写入 app-YYYY-MM-DD.log，避免当前日志永远停留在 app.log。"""
+    """按自然日期写入 app-YYYY-MM-DD.log，避免当前日志永远停留在 app.log。
+
+    同一目录只会被一个服务写入（Compose 中按服务区分 ``LOG_FILE_PATH``）：
+    Python 标准库不支持多进程写同一个日志文件，共写会导致日志互相穿插、
+    各自按自己的策略删除历史文件，因此清理范围严格限制在当前目录的
+    ``<stem>-*<suffix>`` 文件内。
+    """
 
     def __init__(
         self,
@@ -16,7 +22,8 @@ class DatedFileHandler(logging.FileHandler):
         encoding: str | None = None,
         delay: bool = False,
         errors: str | None = None,
-        backupCount: int = 5,
+        backupCount: int = 14,
+        cleanupOnInit: bool = True,
     ) -> None:
         self.base_log_path = Path(filename)
         self.backup_count = backupCount
@@ -28,6 +35,10 @@ class DatedFileHandler(logging.FileHandler):
             delay=delay,
             errors=errors,
         )
+        # 只在跨天时清理会导致长期不重启的进程永不回收历史日志，
+        # 因此进程启动时先清理一次过期文件。
+        if cleanupOnInit:
+            self._remove_expired_logs()
 
     def emit(self, record: logging.LogRecord) -> None:
         today = date.today()
@@ -57,19 +68,36 @@ class DatedFileHandler(logging.FileHandler):
             return
 
         log_pattern = f"{self.base_log_path.stem}-*{self.base_log_path.suffix}"
+        # 只按文件名比较：baseFilename 是绝对路径，而配置的目录可能是相对路径，
+        # 直接比较 Path 对象会因解析基准不同而误判当前文件。
+        current_name = Path(self.baseFilename).name
+        # 文件名内嵌 ISO 日期，按名称倒序即为由新到旧；只处理普通文件，
+        # 避免把同名目录或软链接误删。
         log_files = sorted(
-            self.base_log_path.parent.glob(log_pattern),
+            (
+                path
+                for path in self.base_log_path.parent.glob(log_pattern)
+                if path.is_file()
+            ),
             key=lambda path: path.name,
             reverse=True,
         )
         for log_file in log_files[self.backup_count :]:
-            log_file.unlink(missing_ok=True)
+            # 时钟回拨或切换时区时，当前写入的文件可能不再是最新的，
+            # 必须显式跳过，避免删掉正在写的日志。
+            if log_file.name == current_name:
+                continue
+            # 清理失败不应影响正常写日志（例如文件被其他进程持有）。
+            try:
+                log_file.unlink()
+            except OSError:
+                continue
 
 
 def build_logging_config(
     level: str = "INFO",
     log_file_path: str | None = None,
-    log_file_backup_count: int = 5,
+    log_file_backup_count: int = 14,
 ) -> dict:
     handlers: dict[str, dict] = {
         "console": {
@@ -114,7 +142,7 @@ def build_logging_config(
 def setup_logging(
     level: str = "INFO",
     log_file_path: str | None = None,
-    log_file_backup_count: int = 5,
+    log_file_backup_count: int = 14,
 ) -> None:
     if log_file_path:
         Path(log_file_path).parent.mkdir(parents=True, exist_ok=True)

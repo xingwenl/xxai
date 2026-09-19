@@ -1,6 +1,8 @@
 # Changelog
 
 ## - 2026-09-19
+- 🐛 fix：Docker 后端日志按服务分文件落盘（`/app/logs/{api,worker,wechat-bot}/app-<日期>.log`），统一容器时区为 Asia/Shanghai，并给容器 stdout 补充 json-file 体积上限 `🧑‍💻 lixingwen`
+- 🐛 fix：微信机器人每分钟心跳改为状态变化时才打 INFO（未变化降为 DEBUG），避免淹没同文件内的真实业务日志 `🧑‍💻 lixingwen`
 - 📝 docs：补充桌面接入排错说明——AI Base 站点根不能填业务平台地址（路径前缀相同，填错会拿到业务平台的 404 响应） `🧑‍💻 lixingwen`
 
 ## - 2026-09-18

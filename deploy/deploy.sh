@@ -58,6 +58,10 @@ echo "==> 2/5 确保数据卷存在"
 # 根目录 compose 把 postgres 卷声明为 external，首次部署必须先创建
 docker volume create backend_postgres_data >/dev/null 2>&1 || true
 
+# 日志目录按服务分开（api / worker / wechat-bot），提前创建避免 Docker 以 root 身份生成目录；
+# 应用内 app-<date>.log 由后端自行按天轮转与清理，这里只准备目录。
+mkdir -p apps/backend/logs/api apps/backend/logs/worker apps/backend/logs/wechat-bot
+
 echo "==> 3/5 构建镜像"
 # skill-runner 为 api 的技能沙箱，必启；wechat-bot-worker 按 WECHAT_BOT_ENABLED 决定
 EXTRA_SERVICES="skill-runner"
@@ -106,6 +110,7 @@ echo "================ 部署完成 ================"
 echo "前端页面 : http://${IP:-服务器IP}/   （经 nginx）"
 echo "API 健康 : curl http://127.0.0.1:8000/api/v1/system/health"
 echo "日志查看 : ${DC[*]} ${COMPOSE_FILES[*]} logs -f api worker"
+echo "文件日志 : apps/backend/logs/{api,worker,wechat-bot}/app-<日期>.log（容器内按服务分开）"
 echo "备份数据 : bash deploy/backup.sh（首次建议先做一次）"
 echo "=========================================="
 echo "下一步（有域名时开启 HTTPS）："

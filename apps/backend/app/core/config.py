@@ -39,6 +39,22 @@ def _get_cors_origins() -> list[str]:
     return [item for item in origins if item] or list(DEFAULT_CORS_ORIGINS)
 
 
+def _resolve_log_file_path() -> str:
+    """解析日志落盘路径。
+
+    容器工作目录与本地开发目录不一定一致，``LOG_FILE_PATH`` 若为相对路径，统一按
+    ``BASE_DIR``（``apps/backend``）解析，避免日志落到不可预期的位置；Docker 部署时
+    由 Compose 按服务分别指定绝对路径，防止多个服务写同一个文件。
+    """
+    raw = os.getenv("LOG_FILE_PATH")
+    if not raw or not raw.strip():
+        return str(BASE_DIR / "logs" / "app.log")
+    candidate = Path(raw.strip()).expanduser()
+    if candidate.is_absolute():
+        return str(candidate)
+    return str(BASE_DIR / candidate)
+
+
 def _parse_optional_int(name: str) -> int | None:
     value = os.getenv(name)
     if value is None or not value.strip():
@@ -170,8 +186,9 @@ def get_settings() -> Settings:
         cors_origins=_get_cors_origins(),
         api_v1_prefix=os.getenv("API_V1_PREFIX", "/api/v1"),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
-        log_file_path=os.getenv("LOG_FILE_PATH", str(BASE_DIR / "logs" / "app.log")),
-        log_file_backup_count=int(os.getenv("LOG_FILE_BACKUP_COUNT", "5")),
+        log_file_path=_resolve_log_file_path(),
+        # 按天保留最近 N 天的日志文件（每个服务各自一个目录，互不影响）
+        log_file_backup_count=int(os.getenv("LOG_FILE_BACKUP_COUNT", "14")),
         database_url=_build_database_url(),
         database_echo=_get_bool("DATABASE_ECHO", default=False),
         docs_url="/docs" if docs_enabled else None,

@@ -11,6 +11,7 @@ WeChatBot 实例（单账号单实例长轮询）；收到消息后以绑定用�
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 from pathlib import Path
 
@@ -157,9 +158,21 @@ async def _wait_stop(bot, stop_event: asyncio.Event) -> None:
     bot.stop()
 
 
+def _heartbeat_log_level(
+    previous: tuple[int, int] | None, current: tuple[int, int]
+) -> int:
+    """心跳日志级别：实例数/绑定数变化时才用 INFO，未变化降到 DEBUG。
+
+    心跳原本每分钟一条 INFO，在多服务共用的日志文件里会淹没真实业务日志；
+    降级后仍保留 DEBUG 供排查，同时避免稳态运行时的无效噪音。
+    """
+    return logging.INFO if current != previous else logging.DEBUG
+
+
 async def _supervise(settings, session_factory) -> None:
     """周期加载 active 绑定：新增实例拉起、移除/停用实例停止，上限 WECHAT_BOT_MAX_INSTANCES。"""
     tasks: dict[int, tuple[asyncio.Task, asyncio.Event]] = {}
+    last_heartbeat: tuple[int, int] | None = None
     try:
         while True:
             async with session_factory() as session:
@@ -184,10 +197,14 @@ async def _supervise(settings, session_factory) -> None:
                 )
                 tasks[binding.id] = (task, stop_event)
 
-            logger.info(
+            heartbeat = (len(tasks), len(bindings))
+            level = _heartbeat_log_level(last_heartbeat, heartbeat)
+            last_heartbeat = heartbeat
+            logger.log(
+                level,
                 "wechat bot supervise running=%s active_bindings=%s",
-                len(tasks),
-                len(bindings),
+                heartbeat[0],
+                heartbeat[1],
             )
             await asyncio.sleep(REFRESH_INTERVAL_SECONDS)
     except asyncio.CancelledError:

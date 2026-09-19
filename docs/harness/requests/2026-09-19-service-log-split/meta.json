@@ -1,0 +1,53 @@
+{
+  "id": "2026-09-19-service-log-split",
+  "title": "Docker 多服务日志按服务分文件并统一时区",
+  "scope": "deploy+backend",
+  "phase": "acceptance",
+  "status": "done",
+  "riskLevel": "low",
+  "changeTypes": [
+    "config",
+    "backend",
+    "docs"
+  ],
+  "research": {
+    "required": true,
+    "status": "done",
+    "sources": [
+      "Python 标准库 logging.handlers（本机源码，Python 3.9.6）",
+      "Python 官方文档 Logging Cookbook: Logging to a single file from multiple processes",
+      "Docker 官方文档 Configure logging drivers / JSON File logging driver / Compose services logging",
+      "本机生产实践：store-ops-web 与 middleground 的 docker-compose 日志限额配置",
+      "Twelve-Factor App: Logs"
+    ],
+    "decisionRecorded": true
+  },
+  "approvalRequired": true,
+  "approvalGranted": true,
+  "approvalReasons": [
+    "spec 后方案对齐检查点（强制）：需确认按服务分文件路径、时区统一、保留天数三个决策点"
+  ],
+  "approvalRecords": [
+    {
+      "at": "2026-09-19",
+      "by": "user",
+      "decision": "approved",
+      "scope": "按服务分文件 + 时区 Asia/Shanghai + 保留 14 天 + 相对路径按 BASE_DIR 解析"
+    }
+  ],
+  "owner": "ai",
+  "createdAt": "2026-09-19",
+  "updatedAt": "2026-09-19",
+  "relatedPaths": [
+    "docker-compose.yml",
+    "deploy/docker-compose.prod.yml",
+    "deploy/deploy.sh",
+    "apps/backend/app/core/logging.py",
+    "apps/backend/app/core/config.py",
+    "apps/backend/app/modules/wechat_bot/worker.py",
+    "apps/backend/tests/system/test_logging.py",
+    ".env.example",
+    "deploy/.env.prod.example"
+  ],
+  "notes": "用户已确认“写文件 + 按服务分文件”方向；待确认时区与保留天数后进入 plan。"
+}
