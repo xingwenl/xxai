@@ -269,10 +269,23 @@ async def _handle_confirmation_resolve(
         await host_tool_repo.transition_call(
             audit, "running" if approved else "rejected"
         )
+        logger.info(
+            "Host tool confirmation resolved call_id=%s tool=%s approved=%s",
+            call_id,
+            getattr(audit, "tool_name", None),
+            approved,
+        )
         if not approved:
             future = pending_host_results.get(call_id)
             if future is not None and not future.done():
                 future.set_result({"error": "host_tool_rejected"})
+    else:
+        logger.warning(
+            "Host tool confirmation ignored call_id=%s approved=%s audit_status=%s",
+            call_id,
+            approved,
+            getattr(audit, "status", None),
+        )
 
 
 async def _handle_question_answer(
@@ -318,6 +331,10 @@ async def _handle_host_tool_result(
     # 只接受当前主体下、状态为 running 的调用结果；重复或越权结果会被忽略。
     call_id = message.get("payload", {}).get("callId")
     if not isinstance(call_id, str):
+        logger.warning(
+            "Host tool result ignored reason=missing_call_id message_type=%s",
+            message_type,
+        )
         return
     # 等待中的 Future 是"该调用仍属于当前请求"的唯一权威信号：请求结束或
     # 取消后容器会被清空、Future 会被取消，此时迟到的结果必须整体 no-op，
@@ -325,6 +342,19 @@ async def _handle_host_tool_result(
     # callId（见 SDK sendHostToolResult），不能用于反查聊天请求。
     future = pending_host_results.get(call_id)
     if future is None or future.done():
+        # 迟到结果不能改写审计，但必须留痕：页面在请求结束后才回传时，
+        # 只看到“执行失败”而没有任何服务端记录会极难定位。
+        # 同时打印当前连接仍在等待的 callId：如果 keys 里是另一个 callId，
+        # 说明页面回传的 callId 与下发的不一致；如果 keys 为空，说明请求已经
+        # 结束（超时/异常/取消）并释放了 Future，属于迟到结果。
+        logger.warning(
+            "Host tool result ignored reason=no_pending_future call_id=%s message_type=%s future_found=%s future_done=%s pending_keys=%s",
+            call_id,
+            message_type,
+            future is not None,
+            bool(future is not None and future.done()),
+            sorted(pending_host_results),
+        )
         return
     audit = await host_tool_repo.get_call(
         call_id,
@@ -333,14 +363,34 @@ async def _handle_host_tool_result(
         end_user_id=int(payload["sub"]),
     )
     if audit is None or audit.status != "running":
+        logger.warning(
+            "Host tool result ignored reason=audit_not_running call_id=%s message_type=%s audit_status=%s",
+            call_id,
+            message_type,
+            getattr(audit, "status", None),
+        )
         return
     if message_type == "host_tool_result":
         result = redact_sensitive(message.get("payload", {}).get("result"))
-        if len(json.dumps(result, ensure_ascii=False)) > 32 * 1024:
+        result_size = len(json.dumps(result, ensure_ascii=False, default=str))
+        if result_size > 32 * 1024:
+            logger.warning(
+                "Host tool result too large call_id=%s tool=%s result_bytes=%s limit=%s",
+                call_id,
+                getattr(audit, "tool_name", None),
+                result_size,
+                32 * 1024,
+            )
             await host_tool_repo.transition_call(
                 audit, "failed", error="host_tool_result_too_large"
             )
         else:
+            logger.info(
+                "Host tool result received call_id=%s tool=%s result_bytes=%s",
+                call_id,
+                getattr(audit, "tool_name", None),
+                result_size,
+            )
             await host_tool_repo.transition_call(
                 audit, "succeeded", result=result
             )
@@ -349,6 +399,16 @@ async def _handle_host_tool_result(
         code = str(message.get("payload", {}).get("code", "host_tool_failed"))
         message_text = str(
             message.get("payload", {}).get("message", "host tool failed")
+        )
+        # 页面执行失败（如 page_unavailable / page_tool_budget_exceeded /
+        # host_tool_result_too_large）只有这一行日志能还原，前端展示统一是
+        # “执行失败”，因此这里必须把错误码和原因完整写出来。
+        logger.warning(
+            "Host tool error received call_id=%s tool=%s code=%s message=%s",
+            call_id,
+            getattr(audit, "tool_name", None),
+            code,
+            message_text,
         )
         await host_tool_repo.transition_call(
             audit,
@@ -624,6 +684,14 @@ async def produce_embed_request(
                 for name in registered_host_tools
                 if name in registered_host_policies
             ]
+            # 关键排障日志：请求开始时连接级已注册/已授权的宿主工具集合，
+            # 与后续 "Model tools bound" 行对照即可判断是注册被拒还是未绑定。
+            logger.info(
+                "Embed request host tools request_id=%s registered=%s bound=%s",
+                request_id,
+                sorted(registered_host_tools),
+                [tool.name for tool in context.host_tools],
+            )
             runtime_tools = build_runtime_tools(
                 builtin_tools=context.builtin_tools,
                 mcp_tools=context.mcp_tools,

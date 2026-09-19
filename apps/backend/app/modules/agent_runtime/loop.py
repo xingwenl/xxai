@@ -20,6 +20,9 @@ from app.modules.agent_runtime.contracts import (
 from app.modules.agent_runtime.hooks import AgentRuntimeHooks, resolve_messages
 from app.modules.agent_runtime.errors import cancellation_error
 from app.modules.agent_runtime.errors import error_from_exception
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass(slots=True)
@@ -355,6 +358,14 @@ class AgentLoop:
                     # 结果事件，便于 loop step、审计和前端统一消费。普通工具
                     # 失败只影响当前调用，不应连带跳过同一 assistant 消息中
                     # 的其他独立工具；模型会在下一轮同时看到成功和失败结果。
+                    # 协议层只会把失败归一成“工具执行失败”，堆栈必须在这里留痕。
+                    logger.warning(
+                        "Tool invocation raised tool=%s call_id=%s error=%s",
+                        call.name,
+                        call.id,
+                        error,
+                        exc_info=True,
+                    )
                     outcome = ToolOutcome(
                         status="failed",
                         error=error_from_exception(error).as_payload(),

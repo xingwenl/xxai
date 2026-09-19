@@ -9,6 +9,9 @@ from app.modules.agent_runtime.contracts import ToolCall, ToolOutcome, ToolRound
 from app.modules.agent_runtime.errors import error_from_exception
 from app.modules.agent_runtime.tool_events import build_tool_completed_event, build_tool_event
 from app.modules.agent_runtime.tools import ToolCatalog
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 def _budget_exceeded(outcome: ToolOutcome) -> bool:
@@ -32,6 +35,13 @@ def _unknown_tool_stub(name: str) -> SimpleNamespace:
 def _unknown_tool_outcome(call: ToolCall) -> ToolOutcome:
     """未知工具与 runtime 主路径保持一致：失败结果化而非静默跳过。"""
 
+    # 模型调用了执行器目录里不存在的工具（工具未注册或名称不符）时，前端只能
+    # 看到“执行失败”，因此这里必须把工具名和目录成员写进日志。
+    logger.warning(
+        "Tool not registered for execution tool=%s call_id=%s",
+        call.name,
+        call.id,
+    )
     return ToolOutcome(
         status="failed",
         error={
@@ -172,8 +182,18 @@ class ToolRoundExecutor:
         except asyncio.CancelledError:
             raise
         except Exception as error:
+            payload = error_from_exception(error).as_payload()
+            # 工具异常会被归一化成 failed 步骤，异常堆栈只在这里可见。
+            logger.warning(
+                "Tool invocation raised tool=%s call_id=%s code=%s message=%s",
+                getattr(tool, "name", None),
+                call.id,
+                payload.get("code"),
+                payload.get("message"),
+                exc_info=True,
+            )
             return ToolOutcome(
                 status="failed",
-                error=error_from_exception(error).as_payload(),
+                error=payload,
                 call_id=call.id,
             )

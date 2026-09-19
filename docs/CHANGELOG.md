@@ -1,8 +1,11 @@
 # Changelog
 
 ## - 2026-09-19
+- 🐛 fix：修复宿主工具"页面执行成功但模型总是收到工具执行失败/超时"——审计时间列读写口径统一为带时区 UTC（读侧归一化 + 写侧 aware，ORM 映射对齐迁移），消除"naive 与 aware 相减抛 TypeError"和"naive 写入 timestamptz 偏移 8 小时导致等待窗口为 0"两类静默失败，并补齐 `wait_timeout_seconds` / `Host tool wait window already expired` / `Host tool future registered|released` / `pending_keys` / `Tool step failed detail` / `Tool invocation raised` 日志 `🧑‍💻 lixingwen`
 - 🐛 fix：Docker 后端日志按服务分文件落盘（`/app/logs/{api,worker,wechat-bot}/app-<日期>.log`），统一容器时区为 Asia/Shanghai，并给容器 stdout 补充 json-file 体积上限 `🧑‍💻 lixingwen`
 - 🐛 fix：微信机器人每分钟心跳改为状态变化时才打 INFO（未变化降为 DEBUG），避免淹没同文件内的真实业务日志 `🧑‍💻 lixingwen`
+- 🔍 observability：宿主工具执行链路全量关键日志（网关下发/结果/失败/超时/忽略、工具步骤终态、SDK `[xxai-agent][host-tool]`），并修复 SDK 执行前工具丢失时静默返回导致服务端空等超时 `🧑‍💻 lixingwen`
+- 🐛 fix：修复页面注册的宿主工具未绑定给模型导致模型永远无法调用（`merge_model_tools` 合并入口工具与宿主工具），并新增注册/绑定关键排障日志与重放失败降级 `🧑‍💻 lixingwen`
 - 📝 docs：补充桌面接入排错说明——AI Base 站点根不能填业务平台地址（路径前缀相同，填错会拿到业务平台的 404 响应） `🧑‍💻 lixingwen`
 
 ## - 2026-09-18

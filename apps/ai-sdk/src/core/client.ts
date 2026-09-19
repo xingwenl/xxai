@@ -876,8 +876,17 @@ export class AgentClient {
   private async executeHostTool(msg: WebSocketMessage): Promise<void> {
     const callId = String(msg.payload.callId || '')
     const name = String(msg.payload.name || '')
+    // 关键排障日志：页面收到的宿主工具调用与本地注册清单必须同时可见，
+    // 否则“注册成功但执行失败”只能靠服务端审计反推。
+    console.info('[xxai-agent][host-tool] call received', {
+      callId,
+      name,
+      requiresConfirmation: msg.payload.requiresConfirmation === true,
+      registered: this.toolRegistry.getToolNames()
+    })
     const tool = this.toolRegistry.getTool(name)
     if (!callId || !tool) {
+      console.warn('[xxai-agent][host-tool] tool not registered', { callId, name })
       this.sendHostToolError(callId, 'host_tool_not_registered', 'Host tool is not registered')
       return
     }
@@ -899,13 +908,21 @@ export class AgentClient {
       }
       await this.runHostTool(callId, name, msg.payload.arguments)
     } catch (error) {
-      this.sendHostToolError(callId, 'host_tool_arguments_invalid', error instanceof Error ? error.message : 'Invalid arguments')
+      const message = error instanceof Error ? error.message : 'Invalid arguments'
+      console.warn('[xxai-agent][host-tool] invalid arguments', { callId, name, message })
+      this.sendHostToolError(callId, 'host_tool_arguments_invalid', message)
     }
   }
 
   private async runHostTool(callId: string, name: string, params: unknown): Promise<void> {
     const tool = this.toolRegistry.getTool(name)
-    if (!tool) return
+    if (!tool) {
+      // 静默返回会让服务端一直等到工具超时（10 分钟）才判定失败，这里显式
+      // 回报错误码，保证服务端日志与前端提示都能看到真实原因。
+      console.warn('[xxai-agent][host-tool] tool disappeared before execution', { callId, name })
+      this.sendHostToolError(callId, 'host_tool_not_registered', 'Host tool is not registered')
+      return
+    }
     const timeout = tool.timeoutMs ?? 10000
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeout)
@@ -914,8 +931,13 @@ export class AgentClient {
       const encoded = JSON.stringify(result)
       if (encoded.length > 32 * 1024) throw new Error('host_tool_result_too_large')
       if (this.transport instanceof WebSocketTransport) this.transport.sendHostToolResult(callId, result)
+      console.info('[xxai-agent][host-tool] result sent', { callId, name, bytes: encoded.length })
     } catch (error) {
-      this.sendHostToolError(callId, 'host_tool_execution_failed', error instanceof Error ? error.message : 'Tool execution failed')
+      const message = error instanceof Error ? error.message : 'Tool execution failed'
+      // 页面侧失败（page_unavailable / page_snapshot_stale / page_tool_budget_exceeded
+      // / host_tool_result_too_large 等）只有这行日志能看到具体原因。
+      console.warn('[xxai-agent][host-tool] execution failed', { callId, name, message })
+      this.sendHostToolError(callId, 'host_tool_execution_failed', message)
     } finally {
       clearTimeout(timer)
       this.pendingHostCalls.delete(callId)

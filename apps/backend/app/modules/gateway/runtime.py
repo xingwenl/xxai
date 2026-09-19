@@ -38,6 +38,7 @@ from app.modules.asset_processing.repositories import AssetProcessingRepository
 from app.modules.asset_processing.models import ProcessingStatus
 from app.modules.agent_runtime.event_adapters import event_to_legacy
 from app.modules.agent_runtime.conversation_adapter import stream_runtime_as_conversation
+from app.modules.agent_runtime.tool_events import summarize_tool_value
 from app.modules.agent_runtime.langchain_adapter import build_langchain_messages
 from app.modules.agent_runtime.composition import (
     build_langchain_runtime,
@@ -804,12 +805,47 @@ async def stream_embed_chat(
                 tool_step.output_summary = values["output_summary"]
                 tool_step.error = values["error"]
                 await repo.save_loop(loop)
+                # 关键排障日志：这一步决定前端工具卡片显示“执行完成/执行失败”，
+                # 失败时把归一化后的状态和原因码写进日志，避免只能看到 UI 文案。
+                logger.info(
+                    "Tool step completed request_id=%s tool=%s call_id=%s status=%s error_code=%s error_message=%s",
+                    request_id,
+                    item.get("tool"),
+                    call_id,
+                    values["status"],
+                    (values["error"] or {}).get("code"),
+                    (values["error"] or {}).get("message"),
+                )
+                if values["status"] == "failed":
+                    # 落库的 failed 步骤统一使用 tool_failed/“工具执行失败”文案，
+                    # 真实原因（工具返回的 error payload 或调用器异常）只在
+                    # outcome 里，必须单独留痕，否则日志无法区分“页面报错”
+                    # “工具抛异常”“等待超时”这几类失败。
+                    outcome = item.get("outcome")
+                    logger.warning(
+                        "Tool step failed detail request_id=%s tool=%s call_id=%s outcome_status=%s outcome_error=%s",
+                        request_id,
+                        item.get("tool"),
+                        call_id,
+                        getattr(outcome, "status", None)
+                        or item.get("status"),
+                        summarize_tool_value(
+                            getattr(outcome, "error", None), limit=500
+                        ),
+                    )
                 yield events.step_completed(
                     tool_step,
                     with_input=True,
                     with_output=True,
                     with_tool=True,
                     with_skill=True,
+                )
+            else:
+                logger.warning(
+                    "Tool step completed without started step request_id=%s tool=%s call_id=%s",
+                    request_id,
+                    item.get("tool"),
+                    call_id,
                 )
             continue
         if item["type"] == "error":

@@ -9,6 +9,9 @@ from typing import Any
 
 from app.modules.agent_runtime.adapters import tool_outcome_from_legacy
 from app.modules.agent_runtime.hooks import AgentRuntimeHooks
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 def build_runtime_tools(
@@ -38,6 +41,14 @@ def make_legacy_tool_invoker(
     async def invoke(call):
         tool = tool_by_name.get(call.name)
         if tool is None:
+            # 只把工具名写进日志：模型调用了不在绑定/执行集合里的工具时，
+            # 前端看到的只有“执行失败”。
+            logger.warning(
+                "Tool not found in invoker catalog tool=%s call_id=%s available=%s",
+                call.name,
+                call.id,
+                sorted(tool_by_name),
+            )
             return tool_outcome_from_legacy(
                 {"status": "failed", "error": {"code": "tool_not_found"}}
             )
