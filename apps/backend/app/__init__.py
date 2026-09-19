@@ -72,12 +72,9 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://127.0.0.1:5500",
-            "http://127.0.0.1:5173",
-            "http://localhost:5173",
-            "http://localhost:5174",
-        ],
+        # 允许来源由 CORS_ORIGINS 配置（默认沿用本地开发来源）；
+        # 桌面客户端等新来源需显式登记，见 apps/ai-sdk/README.md。
+        allow_origins=settings.cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

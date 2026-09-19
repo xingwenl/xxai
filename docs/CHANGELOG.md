@@ -1,6 +1,14 @@
 # Changelog
 
+## - 2026-09-19
+- 📝 docs：补充桌面接入排错说明——AI Base 站点根不能填业务平台地址（路径前缀相同，填错会拿到业务平台的 404 响应） `🧑‍💻 lixingwen`
+
 ## - 2026-09-18
+- ✨ feat：shop-agent 会话接口支持项目固定的 Embed Client 常量（PROJECT_EMBED_*），凭证只留在服务端，优先级为请求凭证 > 项目常量 > 环境变量 `🧑‍💻 lixingwen`
+- ✨ feat：shop-agent 会话接口支持调用方携带自己的 Embed Client 凭证（clientId/clientSecret），一个部署可接入多个 Client，缺省仍沿用服务端配置 `🧑‍💻 lixingwen`
+- ✨ feat：shop-agent 会话接口支持可选 agentId 与 hostToolNames，桌面/多 Agent 接入可按调用方选择 Agent 并启用宿主工具 `🧑‍💻 lixingwen`
+- ✨ feat：CORS 允许来源改为 CORS_ORIGINS 配置，默认保持原有本地开发来源，便于登记桌面客户端等新来源 `🧑‍💻 lixingwen`
+- 📝 docs：补充 AI SDK 桌面客户端（Electron）接入章节：http origin 要求、来源登记、主进程换取 token 与宿主工具生效条件 `🧑‍💻 lixingwen`
 - 🐛 fix：修复 ask_user 回答与 MCP/宿主工具回调被入站 requestId 校验静默丢弃，问答链路挂起到超时 `🧑‍💻 lixingwen`
 - 🐛 fix：修复流式对话请求级数据库 Session 被跨 Task 并发使用导致 close/commit 相撞（agent_request_failed / IllegalStateChangeError），模型 Task 在 Session 关闭前显式取消并 join，工具执行改用独立 Session `🧑‍💻 lixingwen`
 - 🧰 chore：清理调试日志与本机调试残留 `🧑‍💻 lixingwen`

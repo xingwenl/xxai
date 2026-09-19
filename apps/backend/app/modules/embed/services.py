@@ -110,21 +110,43 @@ async def issue_configured_agent_token(
     display_name: str | None = None,
     origin: str | None = None,
     host_tool_names: list[str] | None = None,
+    agent_id: int | None = None,
+    client_id: str | None = None,
+    client_secret: str | None = None,
 ):
     """使用服务端 Embed 配置为受信任业务入口签发短期 Agent token。
 
     浏览器只携带后台登录态，Embed Client secret 和默认 Agent 配置始终留在服务端。
+    ``agent_id`` 缺省时使用服务端配置的默认 Agent；显式传入时仍必须通过
+    Embed Client 的 Agent 绑定校验（见 ``issue_embed_token``），调用方无法越权
+    指定未绑定到该 Client 的 Agent。
+
+    调用方也可以携带自己的 Embed Client 凭证（``client_id`` + ``client_secret``），
+    用于一个部署接入多个 Embed Client。这两个值共同构成凭证，必须同时提供；
+    由于它们等同于签发权限，只能由服务端持有，不能下发给浏览器或客户端。
+    此时必须显式给出 ``agent_id`` 与 ``origin``，避免默认 Agent 或默认来源与
+    目标 Client 不匹配而拿到难以理解的报错。
     """
     settings = get_settings()
-    if not settings.embed_client_id or not settings.embed_client_secret:
+    if (client_id is None) != (client_secret is None):
+        raise BadRequestException("client_id 与 client_secret 必须同时提供")
+    effective_client_id = client_id or settings.embed_client_id
+    effective_client_secret = client_secret or settings.embed_client_secret
+    if not effective_client_id or not effective_client_secret:
         raise BadRequestException(
             "EMBED_CLIENT_ID and EMBED_CLIENT_SECRET are not configured"
         )
-    if settings.embed_agent_id < 1 or not (origin or settings.embed_origin):
+    if client_id is not None:
+        if agent_id is None:
+            raise BadRequestException("携带 client_id 时必须显式指定 agent_id")
+        if not origin:
+            raise BadRequestException("携带 client_id 时必须显式指定 origin")
+    target_agent_id = agent_id if agent_id is not None else settings.embed_agent_id
+    if target_agent_id < 1 or not (origin or settings.embed_origin):
         raise BadRequestException("EMBED_AGENT_ID and EMBED_ORIGIN are not configured")
 
     embed_repo = EmbedRepository(session)
-    client = await embed_repo.get_client_by_id(settings.embed_client_id)
+    client = await embed_repo.get_client_by_id(effective_client_id)
     if client is None:
         raise NotFoundException("configured embed client not found")
 
@@ -136,9 +158,9 @@ async def issue_configured_agent_token(
             embed_repo,
             AgentRepository(session),
             EmbedTokenRequest(
-                client_id=settings.embed_client_id,
-                client_secret=settings.embed_client_secret,
-                agent_id=settings.embed_agent_id,
+                client_id=effective_client_id,
+                client_secret=effective_client_secret,
+                agent_id=target_agent_id,
                 external_user_id=external_user_id,
                 display_name=display_name,
                 origin=(origin or settings.embed_origin),

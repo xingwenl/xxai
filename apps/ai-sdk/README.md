@@ -654,6 +654,153 @@ SDK 在重连时会再次调用 `getToken`。如果主动断开后重新连接�
 - 不把 token、secret、完整 prompt 或工具敏感参数写入日志。
 - 高风险工具有明确的用户确认和服务端授权。
 
+## 15. 桌面客户端（Electron）接入
+
+桌面壳应用可以复用同一套 SDK，但来源约束与网页不同，接入前需要满足下面四点。
+
+### 15.1 渲染层必须由 http(s) origin 承载
+
+`file://` 加载的页面无法接入：
+
+- Embed token 的来源只接受无路径的 `http(s)` origin，`file://` 无法登记到 `allowed_origins`；
+- 实测（Electron 37.10.3 / Chromium 138）：`file://` 页面建立 WebSocket 时请求头是字面值 `Origin: file://`，与网关的来源校验对不上；`fetch` 请求则完全不带 `Origin` 头，服务端无法据此判断来源。
+
+推荐做法：由 Electron 主进程内建一个只监听 `127.0.0.1` 的静态服务承载前端产物，窗口从固定端口加载，例如 `http://127.0.0.1:5390`；开发环境端口（如 `http://127.0.0.1:5190`）也按同一规则登记。
+
+Electron 官方安全清单同样建议不要用 `file://` 承载本地页面（[Security 第 18 条](https://www.electronjs.org/docs/latest/tutorial/security)），改用 http origin 会一并消除这条技术债。
+
+### 15.2 桌面来源需要同时登记到两个地方
+
+| 位置 | 作用 | 漏登记的后果 |
+| --- | --- | --- |
+| Embed Client 的 `allowed_origins` | 决定能否签发 token | 换取 token 时返回 `origin is not allowed` |
+| 服务端 `CORS_ORIGINS` 环境变量 | 决定浏览器能否读取 HTTP 响应 | 聊天可用，但附件上传/下载、消息快照等接口被浏览器拦截 |
+
+另需注意：桌面端配置的 AI Base 站点根必须是 **AI Base 自己的地址**，不要填业务平台的地址。业务平台（如 hua8）与 AI Base 的接口路径前缀都是 `/api/v1`，填错时会打到业务平台并拿到它自身的 404（常见形态是 HTTP 200 + `{code,msg}`），表现为「会话凭证获取失败」这类与真实原因无关的报错。
+
+### 15.3 token 由主进程换取，登录态不下发
+
+以店铺运营平台登录态为例，推荐链路：
+
+```text
+渲染层 getToken --> 主进程 IPC
+主进程 -- 平台登录态 token --> POST /api/v1/shop-agent/session?origin=http://127.0.0.1:5390
+AI Base 校验登录态 --> 签发短期 embed access_token
+主进程 --> 渲染层：只把 access_token 交给 SDK
+```
+
+- 桌面端**不需要** `client_secret`，它始终留在 AI Base 服务端；把 `client_secret` 打包进客户端属于反模式（RFC 8252 §8.5），不能当作安全方案。
+- 平台登录态 token 不下发到渲染层，渲染层只持有短期（默认 10 分钟）embed token。
+- 需要为桌面端指定独立 Agent 或启用宿主工具时，在会话请求里带上 `agentId` 与 `hostToolNames`：
+
+```json
+{
+  "shopToken": "平台登录态 token",
+  "shopUserId": "1001",
+  "agentId": 12,
+  "hostToolNames": ["get_current_shop", "list_shops"]
+}
+```
+
+需要在一个部署里接入多个 Embed Client 时（例如每个平台一个 Client），由**可信服务端**在会话请求里带上自己的 `clientId` 与 `clientSecret`：
+
+```json
+{
+  "shopToken": "平台登录态 token",
+  "shopUserId": "1001",
+  "agentId": 12,
+  "hostToolNames": ["get_current_shop", "list_shops"],
+  "clientId": "client_xxx",
+  "clientSecret": "xxx"
+}
+```
+
+- 两者必须**成对提供**；携带时还必须显式给出 `agentId` 与 `origin`，不会回退到服务端默认 Agent 或默认来源；
+- 缺省时仍沿用服务端 `EMBED_CLIENT_ID` / `EMBED_CLIENT_SECRET` / `EMBED_AGENT_ID` / `EMBED_ORIGIN`，既有调用方行为不变；
+- 凭证等同于签发权限，只能由平台自己的服务端持有并转发，不要下发到浏览器或打包进客户端；
+- 该 Client 自己的 `allowed_origins`、Agent 绑定、宿主工具绑定与配额仍然逐条生效。
+
+如果希望凭证**固定留在 AI Base 后端**、任何客户端都不携带（推荐做法），直接在 `apps/backend/app/modules/shop_agent/router.py` 顶部的 `PROJECT_EMBED_*` 常量里填该项目的 Embed Client 与该项目的 Agent、来源：
+
+```python
+PROJECT_EMBED_CLIENT_ID = "client_xxx"      # 该项目专用的 Embed Client
+PROJECT_EMBED_CLIENT_SECRET = "xxx"        # 只留在服务端
+PROJECT_EMBED_AGENT_ID = 12                # 该项目专用的 Agent
+PROJECT_EMBED_ORIGIN = "http://127.0.0.1:5390"
+```
+
+取值优先级为「请求携带的凭证 > `PROJECT_EMBED_*` 常量 > `EMBED_*` 环境变量」；常量留空时行为与不使用该机制完全一致。接入新项目时新增一组同名前缀的常量与独立接口方法，避免项目之间互相影响。
+
+### 15.4 宿主工具生效的三个条件
+
+桌面端注册的工具必须同时满足以下条件，缺一会被网关静默忽略：
+
+1. 工具策略已在后台绑定到目标 Agent 与目标 Embed Client；
+2. 换取 token 时 `hostToolNames` 包含该工具名，否则 token 的 `host_tools` 为空；
+3. 前端 `registerTool` 的 `name` 与 `inputSchema` 与后台策略指纹完全一致。
+
+### 15.5 已知限制
+
+- 端口必须固定，否则来源登记会失效；
+- 主进程只信任登记过的来源，窗口导航守卫需要同步更新；
+- 桌面来源是本地端口，任何本机程序理论上都能占用同一端口，真正的访问控制仍然是 token 签发环节；
+- 需要跨进程使用桌面能力时，建议通过 preload IPC 暴露白名单能力，而不是给渲染层注入 Node 能力。
+
+### 15.6 后台策略与前端注册的 Schema 对齐
+
+宿主工具策略的 `input_schema` 必须与前端 `registerTool` 提交的 JSON 在字段与取值集合上完全一致（键顺序无关）；网关按「JSON 键排序 + 无空白分隔」的 sha256 指纹比对，不一致的工具会被静默忽略，只在服务端日志里留 `Host tool registration rejected`。
+
+以运营工作台首批只读工具为例，可直接照抄下表：
+
+| 工具名 | `input_schema` | 指纹（sha256） |
+| --- | --- | --- |
+| `get_current_shop` | `{"type":"object","properties":{},"additionalProperties":false}` | `99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa` |
+| `list_shops` | `{"type":"object","properties":{"keyword":{"type":"string"},"limit":{"type":"integer"}},"additionalProperties":false}` | `b5498e7cd696fdec4c0282d60f5f3d595eaf862425fe7806d87d81cc8d5c3e39` |
+| `get_session_health` | `{"type":"object","properties":{"platform":{"type":"string"}},"additionalProperties":false}` | `11da5b1dfb0962a6a936d9f01531060d5a05384f59f58f374b53ab6c28646be0` |
+| `list_local_tasks` | `{"type":"object","properties":{"status":{"type":"string"},"limit":{"type":"integer"}},"additionalProperties":false}` | `c506136f7b08cd50b699c8fce14c0b920825baca6002dfdd97267860e7fc0b12` |
+
+排障顺序建议：先看 token 的 `host_tools` claim 是否包含该工具（为空说明 `hostToolNames` 没带上或没绑定到 Embed Client），再看服务端日志里该工具是被 `policy_found=false` 跳过还是被 `host tool schema does not match policy` 拒绝。
+
+工具"注册成功但模型从不调用"时，按以下三行日志定位（均带 `request_id`，可直接 `rg` 关键字）：
+
+1. `Host tools active for connection` / `Temporary host tools enabled for connection`：注册是否被网关接受；
+2. `Embed request host tools request_id=... registered=[...] bound=[...]`：本次请求开始时连接级已注册、已授权的工具集合；
+3. `Model tools bound request_id=... runtime_tools=[...] host_tools=[...] bound=[...]`：模型实际拿到的工具表；`host_tools` 有值但 `bound` 里没有它，说明工具被同名冲突剔除。
+
+连接建不起来（页面完全没有反应）时，看 `Replay stream missing` 与 `Replay latest sequence is not numeric` 告警：二者都已降级为"不重放"，不会再中断建连。
+
+工具"已经被模型调用，但结果是执行失败"时，按下面两张日志表定位。服务端日志在 `apps/backend/logs/app-YYYY-MM-DD.log`，浏览器日志在宿主页面的 DevTools 控制台（Electron 应用是渲染进程 DevTools）：
+
+| 场景 | 服务端关键字 | 浏览器控制台关键字 |
+| --- | --- | --- |
+| 工具调用已下发到页面 | `Host tool dispatched request_id=... call_id=... tool=... wait_timeout_seconds=...` | `[xxai-agent][host-tool] call received` |
+| 页面回传成功结果 | `Host tool result received call_id=... tool=... result_bytes=...` | `[xxai-agent][host-tool] result sent` |
+| 页面回传失败原因 | `Host tool error received call_id=... tool=... code=... message=...` | `[xxai-agent][host-tool] execution failed` |
+| 结果超过 32KiB 被拒 | `Host tool result too large call_id=... result_bytes=...` | `[xxai-agent][host-tool] execution failed`（`message=host_tool_result_too_large`） |
+| 页面一直没回结果 | `Host tool execution timed out waiting for page result call_id=...` | 无（说明页面侧没执行到发送结果） |
+| 页面回传了但结果被忽略 | `Host tool result ignored reason=... pending_keys=[...]` | 无 |
+| 工具步骤最终状态 | `Tool step completed request_id=... tool=... status=... error_code=...` | 工具卡片文案 |
+| 工具步骤以失败收尾（真实原因） | `Tool step failed detail request_id=... tool=... outcome_status=... outcome_error=...` | 工具卡片文案 |
+
+注意：`Tool step completed ... status=succeeded` 只代表"工具调用这一轮结束了"，页面回传的错误会作为结果回填模型，因此仍需看 `Host tool error received` / `Host tool failed` 两行里的 `code` / `message`。
+
+`Tool step completed ... status=failed` 落库与前端文案统一是"工具执行失败"，真实原因写在紧随其后的 `Tool step failed detail`：`outcome_error` 为空说明是调用器抛出的运行时异常（此时上方会有 `Host tool invocation failed` 或 `Tool invocation raised` 的堆栈），有 `code` 说明是工具自身返回的失败结果。`wait_timeout_seconds` 是本次等待页面的服务端上限，它异常小（如 0）说明审计行已过期或时间列类型不匹配（`TIMESTAMP WITH TIME ZONE` 与 naive 时间相减会抛 `can't subtract offset-naive and offset-aware datetimes`）。
+
+工具"下发后立刻失败、页面结果被丢弃"时按下面这段顺序读（都是单条 `rg` 即可定位）：
+
+1. `Host tool future registered ... pending_keys=[...]`：下发时 Future 已登记，`pending_keys` 里应含本次 `call_id`；
+2. `Host tool wait window already expired ... expires_at=... now_utc=...`：等待上限算成了过去 —— 审计时间列读写口径不一致（naive 值被 asyncpg 当成本地时间写进 `TIMESTAMP WITH TIME ZONE`，东八区相差 8 小时）；
+3. `Host tool future released ... pending_keys=[...]`：Future 在这一刻被回收，之后到达的页面结果必然被判为迟到；
+4. `Host tool result ignored reason=no_pending_future ... future_found=... future_done=... pending_keys=[...]`：`pending_keys=[]` 说明请求已经结束（结果迟到），`pending_keys` 里是别的 `callId` 说明页面回传的 `callId` 与下发的不一致。
+
+页面工具自身的常见失败码（来自 SDK 内部校验，日志里以 `message=` 出现）：
+
+- `page_unavailable`：页面没有可用 `document`（工具执行在非渲染上下文）。
+- `page_tool_budget_exceeded`：页面工具调用预算用尽（默认 `maxCalls: 20`、`maxDurationMs: 120000`，硬上限分别为 100 / 600000；预算窗口从本次 SDK 实例的**第一次**页面工具调用开始计时，不随用户消息重置，长时间不刷新页面会一直失败，刷新页面后恢复）。
+- `page_snapshot_stale` / `page_element_not_visible`：`page_click` / `page_type` 使用的 `snapshotId`/`ref` 已过期，需要先重新 `page_snapshot`。
+- `page_action_not_allowed`：目标元素是密码框、文件框或不可编辑元素。
+- `host_tool_result_too_large`：结果超过 32KiB，需要缩小返回内容（例如减少快照元素或文本长度）。
+
 ## License
 
 MIT

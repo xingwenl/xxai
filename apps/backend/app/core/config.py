@@ -20,6 +20,25 @@ def _get_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+DEFAULT_CORS_ORIGINS = (
+    "http://127.0.0.1:5500",
+    "http://127.0.0.1:5173",
+    "http://localhost:5173",
+    "http://localhost:5174",
+)
+
+
+def _get_cors_origins() -> list[str]:
+    """读取允许跨域访问的来源列表。
+
+    通过 ``CORS_ORIGINS``（逗号分隔）配置；未配置时沿用内置的本地开发来源，
+    保证既有部署的跨域行为不变。条目按 origin 规范去掉尾部斜杠。
+    """
+    raw = os.getenv("CORS_ORIGINS", "")
+    origins = [item.strip().rstrip("/") for item in raw.split(",")]
+    return [item for item in origins if item] or list(DEFAULT_CORS_ORIGINS)
+
+
 def _parse_optional_int(name: str) -> int | None:
     value = os.getenv(name)
     if value is None or not value.strip():
@@ -38,6 +57,7 @@ class Settings:
     app_host: str
     app_port: int
     app_debug: bool
+    cors_origins: list[str]
     api_v1_prefix: str
     log_level: str
     log_file_path: str
@@ -147,6 +167,7 @@ def get_settings() -> Settings:
         app_host=os.getenv("APP_HOST", "0.0.0.0"),
         app_port=int(os.getenv("APP_PORT", "8000")),
         app_debug=_get_bool("APP_DEBUG", default=False),
+        cors_origins=_get_cors_origins(),
         api_v1_prefix=os.getenv("API_V1_PREFIX", "/api/v1"),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
         log_file_path=os.getenv("LOG_FILE_PATH", str(BASE_DIR / "logs" / "app.log")),
