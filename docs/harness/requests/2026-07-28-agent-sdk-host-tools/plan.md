@@ -18,6 +18,46 @@
 
 ---
 
+## 2026-09-19 宿主工具审计时间列读写口径修复计划
+
+1. 读侧：在 `app/modules/host_tool/services.py` 新增 `as_utc()`（naive/aware 统一为带时区 UTC）与 `wait_timeout_seconds()`（缺失回退默认值，已过期归零），并删除只服务 naive 列的 `utc_naive_now()`。
+2. 写侧：`app/modules/gateway/dispatcher.py` 的 `expires_at` 改为 `datetime.now(UTC) + 10min`；`app/modules/host_tool/repositories.py` 的 `started_at`/`completed_at` 改为 `datetime.now(UTC)`；`app/modules/host_tool/models.py` 把这三列显式声明为 `DateTime(timezone=True)`（对齐迁移，无 DDL）。
+3. 在 `app/modules/gateway/dispatcher.py` 用 `wait_timeout_seconds()` 替换宿主工具与 MCP 确认两处手写换算；把"计算等待上限 → 下发 host_tool_call → 等待 Future"整段纳入同一 `try/except Exception`（`CancelledError` 仍原样抛出），消除"下发后无任何日志却失败"的静默窗口。
+4. 补齐时间/Future 生命周期日志：`Host tool dispatched`（含 `wait_timeout_seconds`）、`Host tool wait window already expired`（含 `expires_at`/`now_utc`）、`Host tool future registered` / `Host tool future released`（含 `pending_keys`）。
+5. 在 `app/modules/gateway/router.py` 的 `no_pending_future` 分支补 `future_found`/`future_done`/`pending_keys`；在 `app/modules/gateway/runtime.py` 的 `failed` 步骤后补 `Tool step failed detail`；在 `app/modules/agent_runtime/loop.py` 补 `Tool invocation raised`（含堆栈）。
+6. 单元测试（`tests/gateway/test_host_tool_timeout.py` 的假仓库按 asyncpg 语义模拟两种列类型）：
+   - TIMESTAMPTZ 形状下写入必须带时区，等待窗口保持 ~600s，页面结果能回填、Future 被回收；
+   - 历史 naive 列读回值仍能正常工作；
+   - `as_utc`/`wait_timeout_seconds` 覆盖 naive、aware、None、已过期（`tests/host_tool/test_services.py`）。
+7. 验证：`ruff`、`pytest tests/gateway tests/host_tool tests/mcp tests/agent_runtime tests/conversation tests/embed`、全量 `pytest`；结果写入 `verify.md`（含"修复前必失败"的证据）。
+8. 同步 `apps/ai-sdk/README.md` 15.6 日志表：补 `wait_timeout_seconds`、`Host tool wait window already expired`、`Host tool future registered/released`、`Tool step failed detail` 与对应排障顺序。
+
+---
+
+## 2026-09-19 宿主工具执行失败排障增量计划
+
+1. 网关分发器补齐宿主工具全生命周期日志：下发（工具名/sideEffect/确认态/审计状态/参数摘要）、成功（结果字节数/耗时）、失败（错误码/错误信息/字节数/耗时）、等待超时、异常堆栈、callId 复用参数不一致。
+2. 网关路由补齐页面回调日志：成功回传、失败回传（错误码+原因）、结果过大、以及三条静默忽略路径（缺 callId、无待唤醒 Future、审计非 running）与确认结果。
+3. 请求编排在工具步骤落库处记录 `Tool step completed`（status + error_code + error_message），与前端工具卡片文案同源。
+4. AgentRuntime 在"工具不在执行目录"与"工具抛异常"两处记录工具名/错误码/堆栈。
+5. SDK 客户端补齐 `[xxai-agent][host-tool]` 日志，并把执行前工具丢失的静默返回改为 `host_tool_not_registered` 错误回传。
+6. 更新 `apps/ai-sdk/README.md` 15.6：新增"工具被调用但执行失败"的服务端/浏览器日志对照表与常见失败码说明。
+7. 验证：后端 `tests/gateway tests/host_tool tests/agent_runtime tests/conversation tests/embed`、SDK `vitest` + `type-check`、Ruff；结果写入 `verify.md`。
+8. 待确认项（不在本次实现范围）：页面工具预算窗口重置语义（每次请求重置 vs 滑动窗口）。
+
+---
+
+## 2026-09-19 修复增量实施计划
+
+1. 在 `app/modules/gateway/runtime.py` 新增 `merge_model_tools()`，把入口工具与宿主工具合并后绑定给模型；同名冲突沿用既有整体剔除策略。
+2. 在 `stream_embed_chat()` 使用合并结果，补 `Model tools bound` 日志（runtime/host/bound 三个集合 + requestId），system prompt 清单改为实际绑定集合。
+3. 在 `app/modules/gateway/router.py` 补 `Embed request host tools` 日志，并把 `int(replay_latest)` 改为容错解析；重放异常降级为不重放。
+4. 在 `app/modules/gateway/replay.py` 捕获 Stream 不存在（`no such key`），按「无可重放事件」返回并记录告警。
+5. 补回归测试：`tests/gateway/test_chat_flow.py`（合并工具、模型 `bind_tools` 含宿主工具）、`tests/gateway/test_replay.py`（缺失 Stream、非数字游标）。
+6. 执行 focused/full 后端测试、Ruff/Black，更新 `verify.md` 与 `acceptance.md`。
+
+---
+
 ## 文件结构
 
 - 后端新增 `app/modules/host_tool/{models,schemas,repositories,services,router}.py`，分别负责持久化模型、HTTP/WS 数据契约、数据库访问、授权/状态机和管理路由。
