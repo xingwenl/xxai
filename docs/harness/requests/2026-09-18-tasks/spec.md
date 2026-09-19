@@ -29,7 +29,7 @@
 | `id` | 主键 |
 | `platform_id` | 所属平台，外键 `platforms.id`，级联删除 |
 | `agent_id` | 任务使用的 Agent，外键 `agents.id` |
-| `owner_user_id` | 任务归属用户；为空表示平台级任务（平台级只有平台管理员可管理） |
+| `owner_user_id` | 任务归属后台用户；为空表示平台级任务或终端用户任务（平台级只有平台管理员可管理） |
 | `name` | 任务名称，用于列表展示 |
 | `prompt` | 到点发给 Agent 的指令内容 |
 | `model_id` | 可选，覆盖该 Agent 默认模型；为空则沿用 Agent 配置 |
@@ -43,8 +43,9 @@
 | `created_by_type` | 创建者类型：`user` / `agent` / `integration` |
 | `created_by_user_id` | 创建者用户（`created_by_type=user` 时） |
 | `created_by_agent_id` | 创建者 Agent（`created_by_type=agent` 时） |
-| `run_as_type` | 执行身份类型：`user` / `platform` |
-| `run_as_user_id` | 以哪个用户身份执行（`run_as_type=user` 时） |
+| `run_as_type` | 执行身份类型：`user`（后台用户，`run_as_user_id`）/ `end_user`（终端用户，`run_as_end_user_id`）/ `platform`（预留，v1 不支持） |
+| `run_as_user_id` | 以哪个后台用户身份执行（`run_as_type=user` 时） |
+| `run_as_end_user_id` | 以哪个终端用户身份执行（`run_as_type=end_user` 时） |
 | `auto_approve` | 无人值守时是否自动批准需要确认的工具，默认开启 |
 | `strict_approval` | 严格模式：只自动批准 `side_effect=navigation` 的工具，默认关闭 |
 | `timeout_seconds` | 单次执行超时秒数，默认 600 |
@@ -77,7 +78,7 @@
 
 | 方法与路径 | 用途 |
 |---|---|
-| `GET /tasks` | 列表（分页）；平台管理员返回该平台全部任务，普通用户只返回自己名下的任务 |
+| `GET /tasks` | 列表（分页）；平台管理员返回该平台全部任务，后台用户只返回自己名下的任务。终端用户在 Embed 会话中创建的任务没有后台归属，因此只对平台管理员可见（终端用户侧不提供任务管理接口） |
 | `POST /tasks` | 创建任务 |
 | `GET /tasks/{task_id}` | 任务详情 |
 | `PATCH /tasks/{task_id}` | 更新任务（含暂停 `status=paused` / 恢复 `status=active`） |
@@ -97,7 +98,7 @@
 - 时区与夏令时：`timezone` 存 IANA 时区名，计算触发点用该时区；存储统一 UTC；夏令时「春季跳变」导致某时刻不存在时顺延到下一个有效时刻。
 - 超时与看门狗：每次执行最多 `timeout_seconds`；调度进程在启动时与每个 tick 都会把 `status=running` 且超过超时的执行记录标记为 `failed`（`error_message` 写明超时），避免进程被杀后留下永久 `running`。
 - 失败处理：不自动重试；失败可在任务详情页手动「立即运行一次」重跑。
-- 执行链路：每轮执行**新建会话**（不传 `conversation_id` 即自动新建），执行身份由 `run_as_type` / `run_as_user_id` 决定，执行入口为 conversation 模块内的系统调用入口（进程内调用，不经过 HTTP，也不引入新的机器身份 token）。
+- 执行链路：每轮执行**新建会话**（不传 `conversation_id` 即自动新建），执行身份由 `run_as_type` 决定（`user` 用 `run_as_user_id`，`end_user` 用 `run_as_end_user_id`），执行入口为 conversation 模块内的系统调用入口（进程内调用，不经过 HTTP，也不引入新的机器身份 token）。两种身份都使用既有的 `create_for_principal` / `get_for_principal` 会话机制，`conversations` 表的「恰有一个 principal」约束保持不变。
 
 ### 后端：无人值守下的工具审批边界
 
@@ -111,7 +112,7 @@
 ### 后端：让智能体能创建任务
 
 - 新增一个内置业务工具（`app/modules/tools/business/`，命名建议 `create_task`），让 Agent 在会话中创建任务；工具需要在 Agent 的内置工具绑定中启用后可用（沿用 `agent_builtin_tools` 机制，不做全局默认开启）。
-- Agent 创建的任务：`created_by_type=agent`，归属为当前会话所属用户，`run_as_type=user`，`status=active`（创建即启用）。
+- Agent 创建的任务：`created_by_type=agent`，归属与执行身份都取当前会话的 principal——后台会话取会话用户（`run_as_type=user`），Embed 会话取终端用户（`run_as_type=end_user`），`status=active`（创建即启用）。
 - 约束：Agent 只能创建自己的任务，不能修改或删除非它创建的任务；创建同样受最小间隔下限与平台任务数上限约束。
 
 ### 前端
@@ -173,12 +174,46 @@
 - 看门狗：人为制造一条超过 `timeout_seconds` 的 `running` 记录后，调度进程能将其标记为 `failed` 并写明超时。
 - 工具审批：任务运行中遇到 `side_effect=financial` 的确认请求时不自动批准，执行记录与会话中能看到跳过痕迹；开启严格模式后只有 `navigation` 类自动批准；自动批准次数能在执行记录上读到。
 - 智能体创建：Agent 在会话中通过内置工具创建的任务出现在任务列表中，`created_by_type` 为 `agent`，归属为会话用户，且用户可暂停或删除它。
-- 权限：普通用户看不到他人任务；平台管理员能看到该平台全部任务；删除他人的任务被拒绝。
+- 权限：普通用户看不到他人任务；平台管理员能看到该平台全部任务；删除他人的任务被拒绝。终端用户在 Embed 会话中创建的任务对平台管理员可见、对普通后台用户不可见。
 - 前端：`/tasks` 列表与详情可用，示例页删除后 `pnpm --dir apps/front build`（含类型检查）与 lint 通过；任务详情能跳转到执行记录对应的会话。
 - 文档：`CONTEXT.md` 与 `docs/adr/0001-*.md` 已建立且与实现一致。
 - 验证记录：`verify.md` 记录真实执行的命令与结果（迁移、并发抢占、看门狗、接口权限、前端构建）。
 
 ## 变更记录
+
+### 2026-09-19 第 3 次变更（fix：手动运行永不执行 + 执行过程不可见）
+
+- 时间：2026-09-19
+- 变更原因：用户反馈「立即运行一次」的任务报「执行超时：超过 600 秒仍未结束，由看门狗标记失败」，且执行过程看不到。
+- 根因（两个独立问题）：
+  1. **手动运行永不执行**：调度器每个 tick 只派发**它自己在本 tick 内创建**的执行记录（`_claim_and_dispatch` 只把 `create_run` 的返回值加入 `pending`）。而「立即运行一次」走的是 `enqueue_manual_run`，它只写一条 `running` 记录就返回，**没有任何人认领**。该记录于是永远停在 `running`，最终被看门狗判为超时失败——**任务实际从未执行过**（`conversation_id` / `agent_loop_run_id` 均为空即为铁证）。同一缺陷也影响「进程重启后遗留的待执行记录」。
+  2. **执行过程没有入口**：执行过程其实一直完整落库在 `agent_loop_steps`（含 `thinking_text`、`tool_name`、`input/output_summary`、`error`），且 `task_runs.agent_loop_run_id` 就是入口指针，但前端只做了「跳转到会话」，没有利用该字段展示这一轮的过程。
+- 变更内容：
+  1. **明确执行记录的口径**：`status='running'` 且 `started_at IS NULL` 表示「已排队、等待执行」；`started_at` 有值才代表真正在执行。不新增状态值，避免执行记录状态语义漂移。
+  2. `enqueue_manual_run` 入队时**不再写 `started_at`**（此前写入导致调度器与看门狗都误认为它已在执行）。
+  3. 调度器 tick 增加第二步：认领所有已排队的执行记录（手动触发 + 重启遗留），用 `FOR UPDATE SKIP LOCKED` 保证多副本下同一条只被认领一次；「到点触发」与「手动触发」由此走同一条执行路径。
+  4. 每轮认领数量受并发上限约束（`MAX_CONCURRENT_RUNS - 在途数`），避免认领后排队等待的记录因 `started_at` 已被写入而被误判超时。
+  5. 新增接口 `GET /tasks/{task_id}/runs/{run_id}/detail`：返回单次运行的执行过程（逐步的思考、工具调用、结果与错误），复用 conversation 模块既有的 `build_loop_payload`。
+  6. 前端「执行历史」支持展开查看过程；对「无步骤」的记录给出明确提示（区分「从未执行」与「执行到一半失败」）。
+- 影响章节：API 契约（新增一个只读接口）、调度语义、前端交互、验收标准
+- 是否触发人工确认：**否**。本次为原 spec 范围内的 bug 修复：不新增数据表或字段、不改变既有接口字段语义、不改变权限规则；新增的是只读接口，沿用既有鉴权与可见性口径。已按 `/fix` 复用原 request 并记录变更。
+- 关联计划更新：已同步更新 `plan.md`（第 3 次变更的实施与测试步骤）、`verify.md`、`acceptance.md`。
+
+### 2026-09-19 第 2 次变更（fix：Embed 链路无法创建任务）
+
+- 时间：2026-09-19
+- 变更原因：用户在 Embed/AI SDK 链路（WebSocket）中让智能体创建定时任务，工具返回 `task_requires_user_identity`，创建失败。
+- 根因：`create_task` 要求 `BusinessToolContext.user_id` 存在，但 Embed 链路的上下文只填 `platform_end_user_id`（终端用户），从不填后台 `user_id`（`gateway/dispatcher.py:145-155`）。原实现只考虑了后台用户链路，导致该工具在 Embed 链路必然失败。`tasks.run_as_user_id` 外键指向 `sys_users`，与 `platform_end_users.id` 无法互换，因此不是补一个参数就能解决。
+- 变更内容：
+  1. `tasks` 表新增 `run_as_end_user_id` 列（外键 `platform_end_users.id`），`run_as_type` 取值扩充为 `user` / `end_user` / `platform`（`platform` 仍为预留、v1 不支持）。
+  2. `create_task` 工具在 Embed 链路以会话的终端用户作为归属与执行身份：`owner_user_id` 为空、`run_as_type=end_user`、`run_as_end_user_id=会话终端用户`；后台链路维持 `run_as_type=user` 不变。
+  3. 无人值守执行链路支持以终端用户 principal 运行：复用既有 `create_for_principal` / `get_for_principal` 会话机制，每轮新建终端用户会话；工具审计沿用既有的 `platform_end_user_id` 记账。
+  4. `create_task` 的错误语义改为可操作的中文说明：当两种身份都拿不到时，返回明确原因（缺少可绑定的身份），而不是让模型自行编造解释。
+  5. 权限口径：终端用户创建的任务对平台管理员可见（管理员需要能管理它们），对普通后台用户不可见；终端用户侧不提供任务管理接口。
+- 影响章节：数据模型、API 契约、无人值守执行、智能体创建路径、权限、验收标准
+- 是否触发人工确认：**是（数据模型变更 + 权限行为变化）**。已就方案方向取得用户确认（选择「新增终端用户级别的任务」），本文档为确认后的方案定稿。
+- 关联计划更新：需同步更新 `plan.md`（新增实施步骤与测试步骤）、`verify.md`（补充 Embed 链路验证）、`acceptance.md`。
+- 关联迁移：新增迁移 `20260919_0035`（在 `20260919_0034` 之后追加列）。
 
 ### 初始版本
 

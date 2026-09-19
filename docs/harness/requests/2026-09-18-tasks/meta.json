@@ -2,10 +2,16 @@
   "id": "2026-09-18-tasks",
   "title": "任务功能：定时触发、无人值守跑一轮 Agent",
   "scope": "backend,front",
-  "phase": "spec",
+  "phase": "acceptance",
   "status": "active",
   "riskLevel": "high",
-  "changeTypes": ["data-model", "api", "runtime", "frontend", "docs"],
+  "changeTypes": [
+    "data-model",
+    "api",
+    "runtime",
+    "frontend",
+    "docs"
+  ],
   "research": {
     "required": true,
     "status": "completed",
@@ -20,7 +26,7 @@
     "decisionRecorded": true
   },
   "approvalRequired": true,
-  "approvalGranted": false,
+  "approvalGranted": true,
   "approvalReasons": [
     "架构边界变化：新增常驻调度容器、tasks 模块与 conversation 模块的系统执行入口",
     "数据模型变化：新增 tasks 与 task_runs 两张表及迁移",
@@ -33,26 +39,47 @@
       "grantedBy": "user",
       "scope": "方案拷问阶段逐条确认设计决策（未确认 spec 全文）",
       "notes": "用户在多轮拷问中确认：任务模型按触发器+动作抽象、平台级与用户级两侧同时支持、允许裸 cron 且最小间隔 1 分钟、错过不补跑、同一任务串行、失败不重试、每次运行新建会话、独立调度容器 + 数据库抢占、v1 仅平台管理员 JWT、命名用 tasks 并删除 shadcn 示例页、无人值守默认自动批准但 financial 不自动批准、无人值守遇到需要用户回答的工具立即失败"
+    },
+    {
+      "date": "2026-09-19",
+      "grantedBy": "user",
+      "scope": "确认 spec.md 方案要点，授权进入 plan 阶段；确认 cron 依赖选用 croniter",
+      "notes": "用户选择「确认，写 plan.md」，并选择「新增 croniter 依赖」。plan.md 中记录了两处实现级事实修正（无人值守自动批准需新增分派层、run_as_type=platform 在现有数据模型下无可用 principal，v1 收敛为以创建任务的管理员身份执行），两点仍需在 plan 确认时拍板。"
     }
   ],
   "owner": "ai",
   "createdAt": "2026-09-18",
-  "updatedAt": "2026-09-18",
+  "updatedAt": "2026-09-19",
   "relatedPaths": [
     "docs/harness/requests/2026-09-18-tasks/research.md",
     "docs/harness/requests/2026-09-18-tasks/spec.md",
+    "docs/harness/requests/2026-09-18-tasks/plan.md",
     "CONTEXT.md",
     "docs/adr/0001-task-scheduling-and-unattended-execution.md",
     "apps/backend/app/modules/tasks/",
-    "apps/backend/app/modules/tools/business/",
+    "apps/backend/app/modules/tools/business/create_task.py",
+    "apps/backend/app/modules/tools/business/registry.py",
     "apps/backend/app/modules/conversation/services.py",
-    "apps/backend/migrations/versions/",
+    "apps/backend/app/modules/conversation/router.py",
+    "apps/backend/migrations/versions/20260919_0034_tasks.py",
     "apps/backend/migrations/env.py",
+    "apps/backend/app/core/config.py",
+    "apps/backend/pyproject.toml",
+    "apps/backend/tests/tasks/",
     "docker-compose.yml",
     "apps/front/src/features/tasks/",
     "apps/front/src/routes/_authenticated/tasks/",
     "apps/front/src/api/task.ts",
-    "apps/front/src/components/layout/data/sidebar-data.ts"
+    "apps/front/src/components/layout/data/sidebar-data.ts",
+    "apps/front/src/features/chats/index.tsx",
+    "apps/front/src/routes/_authenticated/chats/index.tsx",
+    "apps/backend/app/modules/conversation/tool_dispatch.py",
+    "apps/backend/app/modules/tools/business/create_task.py",
+    "docs/harness/requests/2026-09-18-tasks/verify.md",
+    "docs/harness/requests/2026-09-18-tasks/acceptance.md",
+    "apps/backend/migrations/versions/20260919_0035_task_end_user_identity.py",
+    "apps/front/src/features/tasks/task-detail-page.tsx",
+    "apps/backend/app/modules/tasks/repositories.py"
   ],
-  "notes": "调研事实：仓库当前无任何调度器（app/ 下 cron|schedul|trigger|automation 零命中），Celery 仅服务知识库且无 beat；conversation 侧没有任何兜底超时清理，进程被杀会留下永久 running，因此任务自带看门狗；内置工具未透传 side_effect（builtin_tool/registry.py:33-40）导致内置工具恒不确认，属既有缺口，本 request 只记录不修复。待确认项见 spec.md 末尾四点。"
+  "notes": "调研事实：仓库当前无任何调度器（app/ 下 cron|schedul|trigger|automation 零命中），Celery 仅服务知识库且无 beat；conversation 侧没有任何兜底超时清理，进程被杀会留下永久 running，因此任务自带看门狗；内置工具未透传 side_effect（builtin_tool/registry.py:33-40）导致内置工具恒不确认，属既有缺口，本 request 只记录不修复。待确认项见 spec.md 末尾四点。plan.md 阶段核实出两处实现级事实修正：(1) 工具确认等待只存在于 WebSocket 连接层（gateway/dispatcher.py:294-332、347-547），REST 路径的 invoke 闭包（conversation/router.py:80-136）没有宿主工具分支也没有确认等待器，因此任务运行若只复用 execute_chat，auto_approve/strict_approval/financial 三条规则无代码路径可依，计划改为抽出可复用工具分派构造函数 + 新增无人值守分派层；(2) conversations 表有 ck_conversations_exactly_one_principal 约束、工具审计表有 ck_mcp_tool_call_audits_exactly_one_principal 约束，现有数据模型下不存在「平台」执行身份，run_as_type=platform 在 v1 收敛为以创建任务的管理员身份执行（字段保留但拒绝该取值）。这两点不改变 spec 的目标与行为语义，但改变了落地位置。依赖 croniter 经用户确认引入。实现与验收结果：后端全量测试 749 passed / 1 skipped（需 --import-mode=importlib 绕过仓库既有的重复 basename 收集问题）；迁移 20260919_0034 升级/回滚往返通过；FOR UPDATE SKIP LOCKED 多副本并发抢占已用真实 Postgres 验证（research.md 遗留假设已收敛）；端到端真实模型调用跑完一轮并写回 completed + 新会话；无人值守审批矩阵、看门狗、权限边界均用真实 Postgres 验证；前端 build（含 tsc）通过。验收结论为「可合并」，仍有 4 项需人工完成：重建 task-scheduler 容器并观察日志、浏览器走查 /tasks 交互、服务端真实 1 分钟间隔自动触发、以及修复既有的 tests 收集与 embed lint 问题（另开 request）。 第 2 次变更（fix）：用户报告 Embed/AI SDK 链路创建定时任务返回 task_requires_user_identity。根因是 create_task 只认后台 user_id，而 Embed 链路只有 platform_end_user_id（gateway/dispatcher.py:145-155），且 tasks.run_as_user_id 外键指向 sys_users 无法与终端用户互换。经用户确认采用「新增终端用户级别的任务」：tasks 新增 run_as_end_user_id 列（迁移 20260919_0035），run_as_type 扩为 user/end_user，无人值守执行复用既有 create_for_principal 机制以终端用户身份建会话，后台链路行为不变，错误信息改为可操作中文说明。已端到端验证：Embed 上下文（user_id=None）创建任务 → 调度抢占 → 真实模型跑完一轮 → run completed、会话 principal 为 platform_end_user_id。后端全量 753 passed / 1 skipped。剩余风险：终端用户无法自助管理任务（只能由平台管理员在 /tasks 操作）。 第 3 次变更（fix）：用户反馈「立即运行一次」报执行超时 600 秒且看不到执行过程。根因一：调度器只派发自己在本 tick 创建的记录，而 enqueue_manual_run 只入队无人认领，导致该 run 从未执行、只会被看门狗判超时（真实数据 conversation_id/agent_loop_run_id 皆空即为铁证）。修复：执行记录口径明确为 running+started_at IS NULL=已排队，enqueue_manual_run 不再写 started_at，调度器每 tick 额外认领所有已排队记录（含重启遗留）并按并发余量限流，到点与手动走同一执行路径。根因二：执行过程一直完整落库在 agent_loop_steps 且 task_runs.agent_loop_run_id 即指针，但前端未利用；新增 GET /tasks/{task_id}/runs/{run_id}/detail 与前端展开，对无步骤记录提示可能从未执行。后端全量 761 passed。教训已记入 acceptance：第 1 次变更的端到端验证直接调 _claim_and_dispatch+run_task_run，绕过了「接口写入→调度器认领」这一步（正是 bug 所在），后续此类异步接缝必须走完整路径并做反向验证（回退修复确认测试失败，已验证）。"
 }

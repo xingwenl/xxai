@@ -1,6 +1,14 @@
 # Changelog
 
 ## - 2026-09-19
+- 🐛 fix：修复「立即运行一次」永不执行、最终被判超时失败——调度器原先只派发自己在本 tick 创建的记录，而手动触发只入队无人认领（记录停在 running 直到被看门狗判 600 秒超时，任务实际从未执行）。现调度器每 tick 额外认领所有已排队记录（含进程重启遗留），统一「到点触发」与「手动触发」的执行路径，并用 `FOR UPDATE SKIP LOCKED` 保证多副本下不重复认领；执行记录口径明确为 `running + started_at IS NULL` = 已排队待执行 `🧑‍💻 lixingwen`
+- ✨ feat：任务执行历史支持展开查看执行过程——新增 `GET /tasks/{task_id}/runs/{run_id}/detail`（复用 `build_loop_payload`），前端逐步展示思考、工具调用、结果与错误；对无步骤的记录明确提示「可能从未真正执行」，用于区分「没跑」与「跑了一半失败」 `🧑‍💻 lixingwen`
+- 🐛 fix：修复 Embed/AI SDK 链路无法创建定时任务（工具报 `task_requires_user_identity`）——`create_task` 原实现只认后台用户身份，而 Embed 链路只有终端用户 principal；`tasks` 新增 `run_as_end_user_id` 列（迁移 `20260919_0035`），`run_as_type` 扩为 `user`/`end_user`，无人值守执行复用既有 `create_for_principal` 机制以终端用户身份建会话，后台链路行为不变，错误信息改为可操作的中文说明 `🧑‍💻 lixingwen`
+- ✨ feat：新增「任务」能力——一条任务 = 智能体 + 指令 + 时间触发规则，到点由独立调度容器无人值守地跑完一轮 Agent 并以新会话落地（新增 `tasks` / `task_runs` 两张表、迁移 `20260919_0034`、`/api/v1/platforms/{platform_id}/tasks` 接口族与 `/tasks` 前端页面），调度采用 `FOR UPDATE SKIP LOCKED` 抢占 + 同事务推进 `next_run_at`，错过触发点不补跑、同一任务串行（重叠触发记为 `skipped(overlapped)`） `🧑‍💻 lixingwen`
+- ✨ feat：无人值守运行的审批边界——`auto_approve` 自动批准、`strict_approval` 只批 `navigation`、`financial` 类一律不批准（跳过并给出原因让模型调整），拒绝原因与自动批准次数落执行记录，可追溯到哪条任务的哪次运行 `🧑‍💻 lixingwen`
+- ✨ feat：新增内置业务工具 `create_task`，智能体可在会话中创建定时任务（绑定当前会话的执行身份：后台会话绑登录用户、Embed 会话绑终端用户，受最小间隔与平台任务数上限约束） `🧑‍💻 lixingwen`
+- ✨ feat：调度看门狗——把超过单次超时仍处于执行中的任务运行标记为失败，兜住进程被杀留下的永久 `running` 记录 `🧑‍💻 lixingwen`
+- ♻️ refactor：把 REST 对话的工具分派抽成可复用构造函数 `conversation/tool_dispatch.py`，与无人值守任务共用一份分派逻辑；顺带修复 REST 链路调用 MCP 工具时缺少 `server_id`/`tool_name`/`arguments` 导致的 TypeError `🧑‍💻 lixingwen`
 - 🐛 fix：修复宿主工具"页面执行成功但模型总是收到工具执行失败/超时"——审计时间列读写口径统一为带时区 UTC（读侧归一化 + 写侧 aware，ORM 映射对齐迁移），消除"naive 与 aware 相减抛 TypeError"和"naive 写入 timestamptz 偏移 8 小时导致等待窗口为 0"两类静默失败，并补齐 `wait_timeout_seconds` / `Host tool wait window already expired` / `Host tool future registered|released` / `pending_keys` / `Tool step failed detail` / `Tool invocation raised` 日志 `🧑‍💻 lixingwen`
 - 🐛 fix：Docker 后端日志按服务分文件落盘（`/app/logs/{api,worker,wechat-bot}/app-<日期>.log`），统一容器时区为 Asia/Shanghai，并给容器 stdout 补充 json-file 体积上限 `🧑‍💻 lixingwen`
 - 🐛 fix：微信机器人每分钟心跳改为状态变化时才打 INFO（未变化降为 DEBUG），避免淹没同文件内的真实业务日志 `🧑‍💻 lixingwen`
