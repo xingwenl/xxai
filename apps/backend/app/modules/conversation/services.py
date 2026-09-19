@@ -17,6 +17,7 @@ from app.modules.conversation.runtime import (
     rewrite_image_markdown,
     tool_step_values,
     GraphResult,
+    load_runtime_context,
 )
 from app.modules.knowledge.runtime import build_embedding_model
 from app.modules.knowledge.services import build_citations, validate_embedding_dimension
@@ -200,18 +201,34 @@ async def _resolve_conversation(
     context,
     *,
     platform_id: int,
-    user_id: int,
+    user_id: int | None,
     message: str,
     conversation_id: int | None,
+    end_user_id: int | None = None,
 ):
+    """定位或新建会话。
+
+    会话的 principal 恰有一个：后台用户（``user_id``）或 Embed 终端用户
+    （``end_user_id``），与 ``conversations`` 表的约束一致。两者都为空
+    时无法建会话，直接报错而不是写入一条无归属的会话。
+    """
+
+    if user_id is None and end_user_id is None:
+        raise NotFoundException("conversation principal is required")
     conversation = None
     if conversation_id is not None:
-        conversation = await repo.get(conversation_id, platform_id, user_id)
+        conversation = await repo.get_for_principal(
+            conversation_id, platform_id, user_id=user_id, end_user_id=end_user_id
+        )
         if conversation is None or conversation.agent_id != context.agent.id:
             raise NotFoundException("conversation not found")
     if conversation is None:
-        conversation = await repo.create(
-            platform_id, context.agent.id, user_id, message
+        conversation = await repo.create_for_principal(
+            platform_id,
+            context.agent.id,
+            user_id=user_id,
+            end_user_id=end_user_id,
+            title=message,
         )
     context.conversation_id = conversation.id
     return conversation
@@ -453,17 +470,19 @@ async def execute_chat(
     context,
     *,
     platform_id: int,
-    user_id: int,
+    user_id: int | None,
     message: str,
     conversation_id: int | None,
     model,
     citations: list[dict],
     invoke_tool_fn=None,
+    end_user_id: int | None = None,
 ):
     logger.info(
-        "Conversation chat started platform_id=%s user_id=%s agent_id=%s conversation_id=%s message_chars=%s citation_count=%s",
+        "Conversation chat started platform_id=%s user_id=%s end_user_id=%s agent_id=%s conversation_id=%s message_chars=%s citation_count=%s",
         platform_id,
         user_id,
+        end_user_id,
         context.agent.id,
         conversation_id,
         len(message),
@@ -476,6 +495,7 @@ async def execute_chat(
         user_id=user_id,
         message=message,
         conversation_id=conversation_id,
+        end_user_id=end_user_id,
     )
     history = await load_recent_history(repo, conversation.id)
     user_message = await repo.create_message(
@@ -886,3 +906,122 @@ async def stream_chat(
             result=result,
         ):
             yield event
+
+
+async def execute_unattended_chat(
+    session,
+    *,
+    platform_id: int,
+    agent_id: int,
+    message: str,
+    run_as_type: str = "user",
+    user_id: int | None = None,
+    end_user_id: int | None = None,
+    model_id: int | None = None,
+    confirmation_decider=None,
+    tool_session=None,
+):
+    """无人值守执行一轮 Agent 对话（非 HTTP 入口）。
+
+    这是给任务调度用的系统入口：它把「HTTP 层原来替调用方做掉的那些装配」
+    收拢到一处，避免任务模块自己去拼运行时上下文、检索引用与模型客户端——
+    那些装配一旦在两边各写一份，行为漂移很难被发现。
+
+    与 REST 链路的差异只有两点，都是无人值守场景的必然要求：
+    1. 执行身份由调用方显式给定，不来自 token；后台任务传 ``user_id``，
+       Embed 链路创建的任务传 ``end_user_id``；
+    2. 需要确认的工具调用由 ``confirmation_decider`` 当场裁决，
+       而不是挂起等待一个不会到来的用户回复。
+
+    每轮都新建会话（``conversation_id=None``），因此一次任务运行对应一个
+    独立会话，执行记录可以精确回溯到它。返回
+    ``(conversation, assistant_message, GraphResult)``。
+    """
+
+    from app.modules.agent.repositories import AgentRepository
+    from app.modules.agent.services import build_chat_model
+    from app.modules.builtin_tool.repositories import BuiltinToolRepository
+    from app.modules.conversation.tool_dispatch import build_tool_invoker
+    from app.modules.knowledge.repositories import KnowledgeRepository
+    from app.modules.mcp.repositories import McpRepository
+    from app.modules.skill.repositories import SkillRepository
+
+    # 执行身份二选一，与会话的 principal 约束保持一致。
+    if run_as_type == "user":
+        end_user_id = None
+    elif run_as_type == "end_user":
+        user_id = None
+    else:
+        raise NotFoundException(f"unsupported run_as_type: {run_as_type}")
+    if user_id is None and end_user_id is None:
+        raise NotFoundException("unattended run requires an execution identity")
+
+    tool_session = tool_session if tool_session is not None else session
+    agent_repo = AgentRepository(session)
+    # 平台作用域查询：确保任务用的智能体确实属于该平台且已发布。
+    agent = await agent_repo.get_published_agent(agent_id, platform_id)
+    if agent is None:
+        raise NotFoundException("published agent not found")
+
+    context = await load_runtime_context(
+        agent_repo,
+        KnowledgeRepository(session),
+        SkillRepository(session),
+        McpRepository(session),
+        BuiltinToolRepository(session),
+        agent_id=agent_id,
+        platform_id=platform_id,
+    )
+    citations = await retrieve_citations(
+        KnowledgeRepository(session), context.knowledge_bases, message
+    )
+
+    invoke = build_tool_invoker(
+        platform_id=platform_id,
+        agent_id=agent_id,
+        builtin_repo=BuiltinToolRepository(tool_session),
+        skill_repo=SkillRepository(tool_session),
+        mcp_repo=McpRepository(tool_session),
+        tool_session=tool_session,
+        user_id=user_id,
+        platform_end_user_id=end_user_id,
+        conversation_id_provider=lambda: getattr(context, "conversation_id", None),
+        confirmation_decider=confirmation_decider,
+    )
+
+    model = build_chat_model(
+        context.version,
+        session_id_provider=lambda: getattr(context, "conversation_id", None),
+    )
+    if model_id is not None:
+        # 任务可覆盖智能体默认模型；解析不到就沿用智能体自身配置，
+        # 不因为一个失效的模型 ID 把整轮运行打断。
+        override = await _resolve_task_model(session, platform_id, model_id)
+        if override is not None and override.model_name:
+            model.model_name = override.model_name
+            if override.base_url:
+                model.openai_api_base = override.base_url
+
+    return await execute_chat(
+        ConversationRepository(session),
+        context,
+        platform_id=platform_id,
+        user_id=user_id,
+        end_user_id=end_user_id,
+        message=message,
+        # 每轮新建会话：不传 conversation_id 即自动创建。
+        conversation_id=None,
+        model=model,
+        citations=[citation.model_dump() for citation in citations],
+        invoke_tool_fn=invoke,
+    )
+
+
+async def _resolve_task_model(session, platform_id: int, model_id: int):
+    """解析任务指定的平台模型；不存在或不属于该平台时返回 None。"""
+
+    from app.modules.model_registry.repositories import ModelRegistryRepository
+
+    return await ModelRegistryRepository(session).get_for_platform(
+        model_id, platform_id
+    )

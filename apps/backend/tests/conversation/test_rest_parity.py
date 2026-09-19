@@ -79,7 +79,26 @@ class FakeConversationRepository:
             return self.conversation
         return None
 
+    async def get_for_principal(
+        self, conversation_id, platform_id, *, user_id=None, end_user_id=None
+    ):
+        """统一 principal 入口：会话归属由 user_id 或 end_user_id 之一表示。"""
+        if user_id is None and end_user_id is None:
+            return None
+        if self.conversation and self.conversation.id == conversation_id:
+            return self.conversation
+        return None
+
     async def create(self, platform_id, agent_id, user_id, title):
+        self.conversation = FakeConversation(self.next_conversation_id)
+        self.next_conversation_id += 1
+        return self.conversation
+
+    async def create_for_principal(
+        self, platform_id, agent_id, *, user_id=None, end_user_id=None, title
+    ):
+        """创建会话：记录实际使用的 principal，供测试断言。"""
+        self.created_principal = {"user_id": user_id, "end_user_id": end_user_id}
         self.conversation = FakeConversation(self.next_conversation_id)
         self.next_conversation_id += 1
         return self.conversation

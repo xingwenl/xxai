@@ -8,6 +8,10 @@
 关键点：
 1. `_prepare` 生成的 `invoke` 闭包把工具仓库与 `session` 参数都绑定到工具 Session；
 2. 工具 Session 能看到请求 Session 已提交的数据（跨连接可见性假设）。
+
+注意：分派逻辑已抽到 `app.modules.conversation.tool_dispatch`（供无人值守任务
+复用），因此这里 patch 的是分派模块里的执行器符号；断言仍然落在
+「工具执行必须绑定独立 Session」这一保证上。
 """
 
 import asyncio
@@ -17,6 +21,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.modules.agent.models import Agent
 from app.modules.conversation import router as conversation_router
+from app.modules.conversation import tool_dispatch
 from app.modules.conversation.models import Conversation, ConversationMessage
 from app.modules.conversation.schemas import ChatRequest
 from app.modules.embed.models import PlatformEndUser
@@ -75,11 +80,6 @@ def test_prepare_binds_tool_execution_to_tool_session(monkeypatch):
         )
         monkeypatch.setattr(
             conversation_router,
-            "AssetRepository",
-            lambda session: SimpleNamespace(session=session),
-        )
-        monkeypatch.setattr(
-            conversation_router,
             "load_runtime_context",
             lambda *args, **kwargs: _async_result(context),
         )
@@ -87,14 +87,6 @@ def test_prepare_binds_tool_execution_to_tool_session(monkeypatch):
             conversation_router,
             "retrieve_citations",
             lambda *args, **kwargs: _async_result([]),
-        )
-        monkeypatch.setattr(
-            conversation_router, "SkillRunnerClient", lambda *a, **k: object()
-        )
-        monkeypatch.setattr(
-            conversation_router,
-            "RepositoryMcpExecutor",
-            lambda repo: SimpleNamespace(repo=repo),
         )
 
         builtin_calls: list[dict] = []
@@ -116,16 +108,17 @@ def test_prepare_binds_tool_execution_to_tool_session(monkeypatch):
             mcp_calls.append({"repo": repo, "executor": executor})
             return {"ok": True}
 
-        monkeypatch.setattr(conversation_router, "invoke_builtin_tool", fake_builtin)
+        # 分派逻辑在 tool_dispatch 里，执行器符号也要 patch 到那边。
+        monkeypatch.setattr(tool_dispatch, "invoke_builtin_tool", fake_builtin)
+        monkeypatch.setattr(tool_dispatch, "execute_skill_script", fake_skill_script)
         monkeypatch.setattr(
-            conversation_router, "execute_skill_script", fake_skill_script
+            tool_dispatch, "load_bound_skill_instruction", fake_skill_instruction
         )
+        monkeypatch.setattr(tool_dispatch, "invoke_tool", fake_mcp)
         monkeypatch.setattr(
-            conversation_router,
-            "load_bound_skill_instruction",
-            fake_skill_instruction,
+            tool_dispatch, "AssetRepository",
+            lambda session: SimpleNamespace(session=session),
         )
-        monkeypatch.setattr(conversation_router, "invoke_tool", fake_mcp)
 
         current_user = SimpleNamespace(id=5)
         _, _, _, invoke = await conversation_router._prepare(
@@ -157,7 +150,7 @@ def test_prepare_binds_tool_execution_to_tool_session(monkeypatch):
         assert skill_created[-1].session is tool_session
 
         await invoke(
-            tool=SimpleNamespace(kind="mcp", name="mcp_tool"),
+            tool=SimpleNamespace(server_id=3, name="mcp_tool"),
             call={"id": "c4", "args": {}},
         )
         assert mcp_calls[0]["repo"] is mcp_created[-1]

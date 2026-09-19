@@ -28,14 +28,18 @@ class BaseModel(DeclarativeBase):
         return _camel_to_snake(cls.__name__)
 
 class TimeModel:
+    # 所有继承本混入的表都带这两列；补上中文 comment 契约，
+    # 新表建表时即满足「每个字段都有中文备注」的仓库约定。
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
+        comment="记录创建时间（UTC）",
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
         onupdate=func.now(),
+        comment="记录最后更新时间（UTC）",
     )

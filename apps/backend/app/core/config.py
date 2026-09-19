@@ -156,6 +156,12 @@ class Settings:
     store_ops_base_url: str
     store_ops_redis_ttl_seconds: int
     store_ops_http_timeout_seconds: float
+    # 任务调度（常驻调度进程）相关配置：tick 间隔、单次执行默认超时、
+    # 单个平台的任务数上限，以及调度进程自身的启用开关。
+    task_scheduler_enabled: bool
+    task_scheduler_tick_seconds: int
+    task_default_timeout_seconds: int
+    task_max_per_platform: int
 
 
 def _build_database_url() -> str:
@@ -346,5 +352,17 @@ def get_settings() -> Settings:
         ),
         store_ops_http_timeout_seconds=float(
             os.getenv("STORE_OPS_HTTP_TIMEOUT_SECONDS", "10")
+        ),
+        # 任务调度：tick 默认 30 秒，配合任务侧「最小间隔 1 分钟」的下限，
+        # 触发延迟在秒级到十秒级；超时默认 600 秒，与工具确认的等待上限同量级。
+        task_scheduler_enabled=_get_bool("TASK_SCHEDULER_ENABLED", default=True),
+        task_scheduler_tick_seconds=max(
+            5, int(os.getenv("TASK_SCHEDULER_TICK_SECONDS", "30"))
+        ),
+        task_default_timeout_seconds=max(
+            30, int(os.getenv("TASK_DEFAULT_TIMEOUT_SECONDS", "600"))
+        ),
+        task_max_per_platform=max(
+            1, int(os.getenv("TASK_MAX_PER_PLATFORM", "100"))
         ),
     )

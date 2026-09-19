@@ -23,17 +23,10 @@ from app.modules.conversation.runtime import (
     load_runtime_context,
 )
 from app.modules.knowledge.repositories import KnowledgeRepository
+from app.modules.conversation.tool_dispatch import build_tool_invoker
 from app.modules.mcp.repositories import McpRepository
-from app.modules.mcp.runtime import RepositoryMcpExecutor
-from app.modules.mcp.services import invoke_tool
 from app.modules.skill.repositories import SkillRepository
-from app.modules.skill_runner.client import SkillRunnerClient
-from app.modules.skill_runner.services import execute_skill_script
-from app.modules.skill.services import load_bound_skill_instruction
-from app.modules.asset.repositories import AssetRepository
 from app.modules.builtin_tool.repositories import BuiltinToolRepository
-from app.modules.builtin_tool.services import invoke_builtin_tool
-from app.modules.agent_runtime.contracts import ToolCall
 from app.modules.agent_runtime.adapters import agent_result_from_legacy
 from app.modules.agent_runtime.runtime import cancel_and_join_tasks
 from app.shared.exceptions import NotFoundException
@@ -68,7 +61,6 @@ async def _prepare(
     citations = await retrieve_citations(
         knowledge_repo, context.knowledge_bases, payload.message
     )
-    loaded_skill_cache = {}
     # 工具执行使用独立 Session：模型循环跑在 runtime 内部启动的独立 Task 中，
     # 与消费方的会话/消息落库共用同一个 AsyncSession 会触发 SQLAlchemy 并发
     # 状态错误（另一操作进行中 / close 与 commit 相撞）。
@@ -77,63 +69,19 @@ async def _prepare(
     tool_skill_repo = SkillRepository(tool_session)
     tool_mcp_repo = McpRepository(tool_session)
 
-    async def invoke(**kwargs):
-        typed_call = kwargs.get("call")
-        if isinstance(typed_call, ToolCall):
-            kwargs["call"] = {
-                "id": typed_call.id,
-                "args": typed_call.arguments,
-            }
-            if kwargs.get("tool") is None and typed_call.name:
-                kwargs["tool_name"] = typed_call.name
-        tool = kwargs.get("tool")
-        if getattr(tool, "kind", None) == "builtin":
-            return await invoke_builtin_tool(
-                tool_builtin_repo,
-                AssetRepository(tool_session),
-                tool=tool,
-                call=kwargs["call"],
-                platform_id=agent.platform_id,
-                agent_id=agent_id,
-                conversation_id=context.conversation_id,
-                user_id=current_user.id,
-                session=tool_session,
-            )
-        if getattr(tool, "kind", None) == "skill_script":
-            return await execute_skill_script(
-                tool_skill_repo,
-                SkillRunnerClient(),
-                tool=tool,
-                call=kwargs["call"],
-                platform_id=agent.platform_id,
-                agent_id=agent_id,
-                user_id=current_user.id,
-            )
-        if getattr(tool, "kind", None) == "skill_instruction":
-            slug = kwargs.get("call", {}).get("args", {}).get("slug")
-            if isinstance(slug, str) and slug in loaded_skill_cache:
-                return loaded_skill_cache[slug]
-            outcome = await load_bound_skill_instruction(
-                tool_skill_repo,
-                agent.platform_id,
-                agent_id,
-                slug,
-            )
-            if isinstance(slug, str) and outcome.status == "completed":
-                loaded_skill_cache[slug] = outcome
-            return outcome
-        return await invoke_tool(
-            tool_mcp_repo,
-            RepositoryMcpExecutor(tool_mcp_repo),
-            platform_id=agent.platform_id,
-            agent_id=agent_id,
-            user_id=current_user.id,
-            **{
-                key: value
-                for key, value in kwargs.items()
-                if key not in {"tool", "call"}
-            },
-        )
+    # 分派逻辑抽到 conversation/tool_dispatch.py，与无人值守任务共用一份，
+    # 避免两边支持的工具范围漂移。会话 id 在 execute_chat 内解析后才可用，
+    # 因此用回调延迟求值。
+    invoke = build_tool_invoker(
+        platform_id=agent.platform_id,
+        agent_id=agent_id,
+        user_id=current_user.id,
+        builtin_repo=tool_builtin_repo,
+        skill_repo=tool_skill_repo,
+        mcp_repo=tool_mcp_repo,
+        tool_session=tool_session,
+        conversation_id_provider=lambda: getattr(context, "conversation_id", None),
+    )
 
     return agent, context, citations, invoke
 
