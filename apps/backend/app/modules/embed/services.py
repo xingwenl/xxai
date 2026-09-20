@@ -7,6 +7,8 @@ from app.core.security import hash_password, verify_password
 from app.modules.agent.repositories import AgentRepository
 from app.modules.embed.repositories import EmbedRepository
 from app.modules.embed.schemas import (
+    EmbedConversationPage,
+    EmbedConversationRead,
     EmbedTokenRequest,
     EmbedTokenResponse,
     PlatformEmbedClientCreate,
@@ -284,3 +286,71 @@ async def get_embed_message_snapshot(repo, *, conversation_id: int, claims: dict
         }
         for message in messages
     ]
+
+
+def _conversation_preview(value: object, *, limit: int = 80) -> str | None:
+    """把末条消息压成单行摘要，供列表项显示。"""
+    if not isinstance(value, str):
+        return None
+    collapsed = " ".join(value.split())
+    if not collapsed:
+        return None
+    return collapsed if len(collapsed) <= limit else f"{collapsed[:limit]}…"
+
+
+async def list_embed_conversations(
+    repo,
+    *,
+    claims: dict,
+    page: int = 1,
+    page_size: int = 20,
+) -> EmbedConversationPage:
+    """列出 embed token 主体在指定 Agent 下的会话。
+
+    隔离条件完全取自 token claim：平台、最终用户与 Agent 都不可由调用方
+    指定，避免通过改参数枚举他人会话。
+    """
+    platform_id = int(claims["platform_id"])
+    agent_id = int(claims["agent_id"])
+    end_user_id = int(claims["sub"])
+    rows = await repo.list_for_principal(
+        platform_id,
+        agent_id,
+        end_user_id=end_user_id,
+        page=page,
+        page_size=page_size,
+    )
+    total = await repo.count_for_principal(
+        platform_id, agent_id, end_user_id=end_user_id
+    )
+    return EmbedConversationPage(
+        items=[
+            EmbedConversationRead(
+                id=conversation.id,
+                title=conversation.title,
+                created_at=conversation.created_at,
+                message_count=message_count,
+                last_message_preview=_conversation_preview(preview),
+            )
+            for conversation, message_count, preview in rows
+        ],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+async def soft_delete_embed_conversation(repo, *, conversation_id: int, claims: dict):
+    """软删除本主体的会话；非本主体或已删除一律按不存在处理。
+
+    返回 404 而非 403 是有意为之：与消息快照接口保持一致，不向调用方
+    泄露「这个会话 ID 存在但不属于你」。
+    """
+    deleted = await repo.soft_delete_for_principal(
+        conversation_id,
+        int(claims["platform_id"]),
+        end_user_id=int(claims["sub"]),
+    )
+    if not deleted:
+        raise NotFoundException("conversation not found")
+    return None

@@ -12,6 +12,7 @@ from app.modules.embed.schemas import (
     EmbedTokenRequest,
     EmbedTokenResponse,
     ConversationMessageRead,
+    EmbedConversationPage,
     PlatformEmbedClientCreate,
     PlatformEmbedClientCreated,
     PlatformEmbedClientAgentRead,
@@ -25,6 +26,8 @@ from app.modules.embed.services import (
     issue_embed_token,
     issue_configured_agent_token,
     get_embed_message_snapshot,
+    list_embed_conversations,
+    soft_delete_embed_conversation,
     rotate_embed_client_secret,
     unbind_embed_client_agent,
     update_embed_client,
@@ -226,6 +229,52 @@ async def issue_token_endpoint(
             await redis.aclose()
     await session.commit()
     return success_response(data=token, message="embed token issued")
+
+
+@router.get(
+    "/embed/conversations",
+    response_model=ApiResponse[EmbedConversationPage],
+)
+async def list_conversations_endpoint(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    claims=Depends(get_current_embed_claims),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """列出 embed token 主体在当前 Agent 下的会话（按 created_at 倒序）。
+
+    隔离条件全部取自 token claim；调用方无法通过参数切换平台、用户或
+    Agent，因此该接口不会成为枚举他人会话的入口。
+    """
+    data = await list_embed_conversations(
+        ConversationRepository(session),
+        claims=claims,
+        page=page,
+        page_size=page_size,
+    )
+    return success_response(data=data, message="conversations listed")
+
+
+@router.delete(
+    "/embed/conversations/{conversation_id}",
+    response_model=ApiResponse[None],
+)
+async def delete_conversation_endpoint(
+    conversation_id: int,
+    claims=Depends(get_current_embed_claims),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """软删除会话：只标记状态，消息、附件与用量记录全部保留。
+
+    非本主体或已删除的会话返回 404，与消息快照接口保持一致的「不泄露
+    存在性」语义。
+    """
+    await soft_delete_embed_conversation(
+        ConversationRepository(session),
+        conversation_id=conversation_id,
+        claims=claims,
+    )
+    return success_response(data=None, message="conversation deleted")
 
 
 @router.get(

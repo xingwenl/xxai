@@ -1,7 +1,7 @@
 import { createApp, type App } from 'vue'
 import ChatWidget from './components/ChatWidget.vue'
 import type { AgentClient } from '../core'
-import type { UIColors, UIWindowBounds } from '../core'
+import type { UIColors, UIOptions, UIWindowBounds } from '../core'
 export { registerCustomComponent } from './registry'
 export { default as MarkdownContent } from './components/MarkdownContent.vue'
 export {
@@ -32,6 +32,8 @@ export function createChatUI(agent: AgentClient, options?: {
   colors?: UIColors
   container?: HTMLElement
   window?: UIWindowBounds
+  layout?: UIOptions['layout']
+  sidebar?: UIOptions['sidebar']
 }): {
   app: App
   destroy: () => void
@@ -55,6 +57,8 @@ export function createChatUI(agent: AgentClient, options?: {
     title: options?.title || 'AI Assistant',
     colors: options?.colors,
     window: options?.window,
+    layout: options?.layout || 'single',
+    sidebarWidth: options?.sidebar?.width,
     embedded
   })
 

@@ -1,0 +1,92 @@
+<template>
+  <aside
+    class="xxai-conversation-sidebar"
+    :style="{ width: `${sidebarWidth}px` }"
+    :aria-label="collapsed ? '展开会话列表' : '会话列表'"
+  >
+    <div class="xxai-sidebar-head">
+      <span class="xxai-sidebar-title">会话</span>
+      <button
+        class="xxai-sidebar-icon-btn"
+        type="button"
+        aria-label="新建会话"
+        :disabled="creating"
+        @click="emit('create')"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+      </button>
+    </div>
+
+    <div v-if="loading" class="xxai-sidebar-hint">正在加载…</div>
+    <div v-else-if="error" class="xxai-sidebar-hint xxai-sidebar-hint--error">
+      {{ error }}
+      <button class="xxai-sidebar-retry" type="button" @click="emit('retry')">重试</button>
+    </div>
+    <div v-else-if="conversations.length === 0" class="xxai-sidebar-hint">
+      还没有历史会话
+    </div>
+
+    <ul v-else class="xxai-sidebar-list">
+      <li v-for="item in conversations" :key="item.id">
+        <div
+          class="xxai-sidebar-item"
+          :class="{ 'is-active': String(item.id) === activeId }"
+          role="button"
+          tabindex="0"
+          @click="emit('select', item.id)"
+          @keydown.enter.prevent="emit('select', item.id)"
+          @keydown.space.prevent="emit('select', item.id)"
+        >
+          <div class="xxai-sidebar-item-main">
+            <div class="xxai-sidebar-item-title">{{ item.title || '未命名会话' }}</div>
+            <div class="xxai-sidebar-item-preview">
+              {{ item.lastMessagePreview || '暂无消息' }}
+            </div>
+          </div>
+          <button
+            class="xxai-sidebar-delete"
+            type="button"
+            :aria-label="`删除会话 ${item.title || item.id}`"
+            @click.stop="emit('delete', item.id)"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z" />
+            </svg>
+          </button>
+        </div>
+      </li>
+    </ul>
+  </aside>
+</template>
+
+<script setup lang="ts">
+import type { ConversationSummary } from '../../core'
+
+interface Props {
+  conversations: ConversationSummary[]
+  activeId?: string
+  loading?: boolean
+  error?: string
+  creating?: boolean
+  sidebarWidth?: number
+  collapsed?: boolean
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  activeId: undefined,
+  loading: false,
+  error: '',
+  creating: false,
+  sidebarWidth: 260,
+  collapsed: false
+})
+
+const emit = defineEmits<{
+  select: [id: number]
+  create: []
+  delete: [id: number]
+  retry: []
+}>()
+</script>

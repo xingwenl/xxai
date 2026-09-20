@@ -1,17 +1,53 @@
 <template>
-  <div class="xxai-reset">
+  <div class="xxai-reset" ref="rootRef">
     <FloatingButton v-if="!embedded && !isOpen" :position="position" @click="open" />
     <div
       v-if="isOpen"
       class="xxai-chat-window"
-      :class="{ dark: theme === 'dark', 'xxai-chat-window--embedded': embedded }"
+      :class="{
+        dark: theme === 'dark',
+        'xxai-chat-window--embedded': embedded,
+        'xxai-chat-window--desktop': isDesktop,
+        'xxai-chat-window--drawer-open': isDesktop && isNarrow && sidebarOpen
+      }"
       :style="windowStyle"
     >
+      <ConversationSidebar
+        v-if="isDesktop && (!isNarrow || sidebarOpen)"
+        :conversations="conversations"
+        :active-id="activeConversationId"
+        :loading="conversationsLoading"
+        :error="conversationsError"
+        :sidebar-width="sidebarWidth"
+        @select="handleSelectConversation"
+        @create="handleCreateConversation"
+        @delete="handleDeleteConversation"
+        @retry="loadConversations"
+      />
+      <!-- 窄屏抽屉展开时的遮罩：点击关闭列表，避免遮挡对话区。 -->
+      <div
+        v-if="isDesktop && isNarrow && sidebarOpen"
+        class="xxai-sidebar-backdrop"
+        aria-hidden="true"
+        @click="sidebarOpen = false"
+      />
+      <div class="xxai-chat-main">
       <div
         class="xxai-chat-header"
         :class="{ 'xxai-chat-window-drag': !embedded }"
         @pointerdown="startDrag"
       >
+        <button
+          v-if="isDesktop && isNarrow"
+          class="xxai-header-icon-btn"
+          type="button"
+          aria-label="会话列表"
+          @click="sidebarOpen = !sidebarOpen"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
         <button v-if="!embedded" class="xxai-header-icon-btn" type="button" aria-label="返回" @click="close">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="m15 18-6-6 6-6" />
@@ -81,6 +117,7 @@
           <path d="M21 15v6h-6M21 3l-9 9M15 21l6-6" />
         </svg>
       </div>
+      </div>
     </div>
   </div>
 </template>
@@ -93,11 +130,13 @@ import ChatInput from './ChatInput.vue'
 import ToolConfirmation from './ToolConfirmation.vue'
 import QuestionCard from './QuestionCard.vue'
 import QuotaRing from './QuotaRing.vue'
+import ConversationSidebar from './ConversationSidebar.vue'
 import type {
   AgentClient,
   AgentQuestion,
   AssistantTimelineEntry,
   ConnectionState,
+  ConversationSummary,
   UIOptions,
   Message,
   UIColors,
@@ -126,18 +165,29 @@ interface Props {
    * 嵌入式模式：聊天窗口默认展开并填满容器，不渲染悬浮按钮、拖拽与缩放交互。
    */
   embedded?: boolean
+  /** 布局形态；`desktop` 为 PC 双栏（左会话列表 + 右对话区）。 */
+  layout?: UIOptions['layout']
+  /** 双栏布局下左侧列表宽度（CSS 像素）。 */
+  sidebarWidth?: number
 }
 
 const props = withDefaults(defineProps<Props>(), {
   position: 'right',
   theme: 'auto',
   title: 'AI Assistant',
-  embedded: false
+  embedded: false,
+  layout: 'single',
+  sidebarWidth: 260
 })
 
 const isOpen = ref(false)
 const isSending = ref(false)
 const messages = ref<Message[]>([])
+const conversations = ref<ConversationSummary[]>([])
+const conversationsLoading = ref(false)
+const conversationsError = ref('')
+const sidebarOpen = ref(false)
+const activeConversationId = ref<string | undefined>(undefined)
 const pendingMessage = ref<{ id: string; text: string; timeline?: AssistantTimelineEntry[]; loop?: import('../../core').AgentLoopRun } | null>(null)
 const pendingLoop = ref<import('../../core').AgentLoopRun | null>(null)
 const connectionState = ref<ConnectionState>('disconnected')
@@ -148,7 +198,9 @@ const pendingQuestion = ref<AgentQuestion | null>(null)
 const viewport = ref({ width: 0, height: 0 })
 const windowRect = ref<WindowRect>({ x: 0, y: 0, width: 430, height: 680 })
 const confirmClear = ref(false)
+const rootRef = ref<HTMLElement | null>(null)
 let clearTimer: ReturnType<typeof setTimeout> | null = null
+let resizeObserver: ResizeObserver | null = null
 
 const agent = props.agent
 const hasCustomConfirmationHandler = computed(() => Boolean(agent.callbacks.onConfirmationRequired))
@@ -179,6 +231,13 @@ const windowStyle = computed(() => ({
       }),
 }))
 const windowStorageKey = computed(() => `${agent.storageKey}:window`)
+
+// PC 双栏只在显式要求 desktop 布局时启用；缺省保持既有单栏行为。
+const isDesktop = computed(() => props.layout === 'desktop')
+// 窄屏（<768px）退化为单栏，会话列表改为抽屉收纳，避免挤压对话区。
+const isNarrow = computed(() => viewport.value.width > 0 && viewport.value.width < 768)
+// 列表宽度限制在可读区间，防止接入方传入过窄或过宽的值破坏布局。
+const sidebarWidth = computed(() => Math.min(Math.max(props.sidebarWidth, 200), 360))
 
 const statusText = computed(() => {
   const stateMap: Record<ConnectionState, string> = {
@@ -282,8 +341,24 @@ function onResizeEnd() {
 
 function handleViewportResize() {
   viewport.value = { width: window.innerWidth, height: window.innerHeight }
+  // 嵌入式模式不读写窗口位置存储：它的尺寸由宿主容器决定。
+  if (props.embedded) return
   windowRect.value = clampWindowRect(windowRect.value, layoutContext.value)
   persistWindowRect()
+}
+
+/**
+ * 测量实际渲染宽度。
+ *
+ * 嵌入式模式下对话区的宽度由宿主容器决定，与 `window.innerWidth` 无关，
+ * 因此用 ResizeObserver 观察容器，窄屏降级才不会被误判。
+ */
+function measureContainerWidth() {
+  const element = rootRef.value
+  const width = element?.clientWidth || window.innerWidth
+  if (width > 0) {
+    viewport.value = { ...viewport.value, width }
+  }
 }
 
 function persistWindowRect() {
@@ -346,11 +421,69 @@ function handleButtonClick(value: string) {
   handleSend(value)
 }
 
+/** 拉取会话列表；失败时保留旧列表并展示可重试的错误提示。 */
+async function loadConversations() {
+  if (!isDesktop.value) return
+  conversationsLoading.value = true
+  conversationsError.value = ''
+  try {
+    const page = await agent.listConversations()
+    conversations.value = page.items
+  } catch (error) {
+    conversationsError.value = error instanceof Error ? error.message : '会话列表加载失败'
+  } finally {
+    conversationsLoading.value = false
+  }
+}
+
+function handleSelectConversation(id: number) {
+  void (async () => {
+    try {
+      await agent.openConversation(id)
+      activeConversationId.value = String(id)
+      sidebarOpen.value = false
+    } catch (error) {
+      conversationsError.value = error instanceof Error ? error.message : '会话打开失败'
+    }
+  })()
+}
+
+function handleCreateConversation() {
+  agent.startNewConversation()
+  activeConversationId.value = undefined
+  sidebarOpen.value = false
+  void loadConversations()
+}
+
+function handleDeleteConversation(id: number) {
+  void (async () => {
+    try {
+      await agent.deleteConversation(id)
+      if (activeConversationId.value === String(id)) {
+        activeConversationId.value = undefined
+      }
+      await loadConversations()
+    } catch (error) {
+      conversationsError.value = error instanceof Error ? error.message : '会话删除失败'
+    }
+  })()
+}
+
+/** 会话列表本身变化（新建/删除）后刷新侧栏。 */
+function handleConversationsChanged() {
+  void loadConversations()
+}
+
 function handleMessage(_msg: Message) {
   messages.value = agent.getMessages()
   pendingMessage.value = null
   pendingLoop.value = null
   isSending.value = false
+  // 首条消息发出后后端才创建会话，此时同步高亮与列表。
+  activeConversationId.value = agent.currentConversationId
+  if (isDesktop.value && !activeConversationId.value) {
+    void loadConversations()
+  }
 }
 
 function handleHistoryCleared() {
@@ -434,9 +567,19 @@ onMounted(() => {
     viewport.value = { width: window.innerWidth, height: window.innerHeight }
     windowRect.value = restoreWindowRect()
     window.addEventListener('resize', handleViewportResize)
+  } else {
+    // 嵌入式下容器尺寸即对话区宽度，用它判断是否需要窄屏降级。
+    viewport.value = { width: window.innerWidth, height: window.innerHeight }
+    window.addEventListener('resize', handleViewportResize)
+    if (typeof ResizeObserver !== 'undefined' && rootRef.value) {
+      resizeObserver = new ResizeObserver(() => measureContainerWidth())
+      resizeObserver.observe(rootRef.value)
+    }
+    measureContainerWidth()
   }
 
   messages.value = agent.getMessages()
+  activeConversationId.value = agent.currentConversationId
   connectionState.value = agent.connectionState
 
   agent.on('message', handleMessage)
@@ -448,6 +591,7 @@ onMounted(() => {
   agent.on('confirmation_resolved', handleConfirmationResolved)
   agent.on('question_required', handleQuestionRequired)
   agent.on('question_resolved', handleQuestionResolved)
+  agent.on('conversations_changed', handleConversationsChanged)
   agent.on('ui_open', open)
   agent.on('ui_close', close)
   agent.on('ui_toggle', () => {
@@ -455,15 +599,16 @@ onMounted(() => {
     isOpen.value = !isOpen.value
   })
 
+  void loadConversations()
   agent.connect()
 })
 
 onUnmounted(() => {
   if (clearTimer) clearTimeout(clearTimer)
   clearTimer = null
-  if (!props.embedded) {
-    window.removeEventListener('resize', handleViewportResize)
-  }
+  resizeObserver?.disconnect()
+  resizeObserver = null
+  window.removeEventListener('resize', handleViewportResize)
   onDragEnd()
   onResizeEnd()
 
@@ -476,6 +621,7 @@ onUnmounted(() => {
   agent.off('confirmation_resolved', handleConfirmationResolved)
   agent.off('question_required', handleQuestionRequired)
   agent.off('question_resolved', handleQuestionResolved)
+  agent.off('conversations_changed', handleConversationsChanged)
   pendingConfirmation.value = null
   pendingQuestion.value = null
   agent.disconnect()

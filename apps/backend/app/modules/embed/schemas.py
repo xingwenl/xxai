@@ -99,3 +99,28 @@ class ConversationMessageRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     loop: dict | None = None
+
+
+class EmbedConversationRead(BaseModel):
+    """会话列表的轻量投影。
+
+    只携带列表渲染所需字段；消息正文由既有的消息快照接口按需拉取，
+    避免列表接口随会话数 × 消息数膨胀。
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str | None = None
+    created_at: datetime
+    message_count: int = 0
+    last_message_preview: str | None = None
+
+
+class EmbedConversationPage(BaseModel):
+    """会话列表分页结果，字段口径与后台既有分页响应保持一致。"""
+
+    items: list[EmbedConversationRead] = Field(default_factory=list)
+    total: int = 0
+    page: int = 1
+    page_size: int = 20

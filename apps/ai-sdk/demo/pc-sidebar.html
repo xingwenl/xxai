@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>xxai-agent PC 双栏会话列表验证页</title>
+    <link rel="stylesheet" href="../dist/style.css" />
+    <style>
+      body { margin: 0; font-family: -apple-system, system-ui, sans-serif; background: #f1f5f9; }
+      .page { display: flex; flex-direction: column; gap: 16px; padding: 16px; }
+      .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      button { padding: 6px 12px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; cursor: pointer; }
+      button.active { background: #0ea5e9; color: #fff; border-color: #0ea5e9; }
+      #chat-root { height: 620px; width: 1000px; max-width: 100%; border: 1px dashed #94a3b8; border-radius: 12px; overflow: hidden; background: #fff; }
+      code { background: #e2e8f0; padding: 1px 5px; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="toolbar">
+        <strong>PC 双栏验证：</strong>
+        <button data-width="1000" class="active">宽屏 1000px</button>
+        <button data-width="520">窄屏 520px</button>
+        <button id="toggle-layout">切到 single 布局</button>
+      </div>
+      <div id="chat-root"></div>
+      <p style="color:#475569;font-size:13px">
+        左侧列表数据来自被 stub 的 <code>fetch</code>；点击列表项应加载对应历史消息。
+      </p>
+    </div>
+
+    <script type="module">
+      import { createAgentClient } from '../dist/xxai-agent.es.js'
+
+      // 用内存数据替掉真实 HTTP：验证页只关心 UI 行为，不依赖后端。
+      const conversations = [
+        { id: 1, title: '订单查询', created_at: '2026-09-20T08:00:00Z', message_count: 2, last_message_preview: '你的订单已发货' },
+        { id: 2, title: '退款流程', created_at: '2026-09-19T08:00:00Z', message_count: 1, last_message_preview: '退款需要 3 个工作日' }
+      ]
+      const history = {
+        1: [
+          { id: 11, role: 'user', content: '我的订单到哪了？', created_at: '2026-09-20T08:00:00Z' },
+          { id: 12, role: 'assistant', content: '你的订单已发货。', created_at: '2026-09-20T08:01:00Z' }
+        ],
+        2: [
+          { id: 21, role: 'user', content: '怎么退款？', created_at: '2026-09-19T08:00:00Z' }
+        ]
+      }
+      const deleted = new Set()
+
+      window.fetch = async (url, init) => {
+        const target = String(url)
+        const respond = (data) => ({ ok: true, status: 200, json: async () => ({ success: true, code: 0, data }) })
+        if (target.includes('/embed/conversations?') || target.endsWith('/embed/conversations')) {
+          const items = conversations.filter((c) => !deleted.has(c.id))
+          return respond({ items, total: items.length, page: 1, page_size: 20 })
+        }
+        const match = target.match(/\/embed\/conversations\/(\d+)\/messages/)
+        if (match) return respond(history[Number(match[1])] || [])
+        const del = target.match(/\/embed\/conversations\/(\d+)$/)
+        if (del && init?.method === 'DELETE') {
+          deleted.add(Number(del[1]))
+          return respond(null)
+        }
+        return { ok: false, status: 404, json: async () => ({}) }
+      }
+
+      const base = {
+        endpoint: 'ws://127.0.0.1:9/api/v1/ws/agents/1',
+        baseUrl: 'http://127.0.0.1:9/api/v1',
+        platformId: 'p',
+        agentId: '1',
+        user: { id: 'u' },
+        getToken: async () => 'mock-token'
+      }
+
+      const root = document.getElementById('chat-root')
+      let agent = null
+      let layout = 'desktop'
+
+      function mount() {
+        if (agent) { agent.destroy(); agent = null }
+        root.innerHTML = ''
+        agent = createAgentClient({
+          ...base,
+          ui: { mode: 'embedded', container: root, layout, theme: 'light' }
+        })
+        window.__agent = agent
+      }
+      mount()
+
+      document.querySelectorAll('[data-width]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('[data-width]').forEach((b) => b.classList.remove('active'))
+          btn.classList.add('active')
+          root.style.width = btn.dataset.width + 'px'
+        })
+      })
+
+      const toggle = document.getElementById('toggle-layout')
+      toggle.addEventListener('click', () => {
+        layout = layout === 'desktop' ? 'single' : 'desktop'
+        toggle.textContent = layout === 'desktop' ? '切到 single 布局' : '切到 desktop 布局'
+        toggle.classList.toggle('active', layout === 'single')
+        mount()
+      })
+
+      // 供自动化断言读取的探针。
+      window.__probe = () => {
+        const sidebar = root.querySelector('.xxai-conversation-sidebar')
+        const windowEl = root.querySelector('.xxai-chat-window')
+        const resetEl = root.querySelector('.xxai-reset')
+        return {
+          layout,
+          hasSidebar: Boolean(sidebar),
+          sidebarWidth: sidebar ? sidebar.getBoundingClientRect().width : 0,
+          windowClass: windowEl ? windowEl.className : '',
+          itemTitles: [...root.querySelectorAll('.xxai-sidebar-item-title')].map((n) => n.textContent.trim()),
+          activeTitle: root.querySelector('.xxai-sidebar-item.is-active .xxai-sidebar-item-title')?.textContent.trim() || null,
+          messages: window.__agent ? window.__agent.getMessages().map((m) => m.content.text) : [],
+          innerWidth: window.innerWidth,
+          rootClientWidth: root.clientWidth,
+          resetClientWidth: resetEl ? resetEl.clientWidth : -1
+        }
+      }
+    </script>
+  </body>
+</html>

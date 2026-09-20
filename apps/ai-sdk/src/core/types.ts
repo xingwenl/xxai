@@ -181,6 +181,17 @@ export interface UIOptions {
    * 最大不超过视口减去四周留白；所有值均为 CSS 像素。嵌入式模式下不生效。
    */
   window?: UIWindowBounds
+  /**
+   * 布局形态。缺省 `single`：保持既有的单栏消息流（悬浮窗 / 嵌入式均同）。
+   * `desktop`：PC 双栏，宽屏下左侧常驻会话列表、右侧对话区；窄于
+   * 768px 时自动退化为单栏并用抽屉收纳会话列表。
+   */
+  layout?: 'single' | 'desktop'
+  /** 双栏布局下左侧会话列表的配置；仅在 `layout: 'desktop'` 时生效。 */
+  sidebar?: {
+    /** 列表宽度（CSS 像素），默认 260，会被限制在 200–360 之间。 */
+    width?: number
+  }
 }
 
 export interface UIWindowBounds {
@@ -199,6 +210,26 @@ export interface UIColors {
   userMessageForeground?: string
   sendButtonBackground?: string
   sendButtonForeground?: string
+}
+
+/**
+ * 会话列表项。后端只下发列表渲染所需的轻量元数据，消息正文仍由
+ * `openConversation()` 拉取的快照提供。
+ */
+export interface ConversationSummary {
+  id: number
+  title?: string | null
+  createdAt: string
+  messageCount: number
+  lastMessagePreview?: string | null
+}
+
+/** 会话列表分页结果。 */
+export interface ConversationPage {
+  items: ConversationSummary[]
+  total: number
+  page: number
+  pageSize: number
 }
 
 export interface AgentCallbacks {

@@ -92,7 +92,13 @@ export class WebSocketTransport extends EventEmitter implements Transport {
   }
 
   setConversationId(conversationId?: string): void {
-    this._conversationId = conversationId || undefined;
+    const next = conversationId || undefined;
+    // 游标属于单个会话的事件流：切换会话（含切回「新会话」）时必须归零，
+    // 否则新会话从 sequence=1 开始的事件会被去重逻辑当成旧事件丢弃。
+    if (next !== this._conversationId) {
+      this._lastSequence = 0;
+    }
+    this._conversationId = next;
   }
 
   private setState(state: ConnectionState): void {

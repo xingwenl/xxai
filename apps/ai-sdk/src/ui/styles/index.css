@@ -105,6 +105,200 @@
   animation: none;
 }
 
+/* PC 双栏布局：左侧会话列表 + 右侧对话区。 */
+.xxai-chat-window--desktop {
+  flex-direction: row;
+  overflow: hidden;
+}
+
+.xxai-chat-main {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.xxai-conversation-sidebar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: var(--agent-glass-border);
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: var(--agent-glass-blur);
+  -webkit-backdrop-filter: var(--agent-glass-blur);
+}
+
+.xxai-sidebar-head {
+  height: 60px;
+  flex: 0 0 60px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px;
+  border-bottom: var(--agent-glass-border);
+}
+
+.xxai-sidebar-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--agent-foreground);
+}
+
+.xxai-sidebar-icon-btn {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: var(--agent-glass-border);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--agent-foreground);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.xxai-sidebar-icon-btn:hover:not(:disabled) {
+  background: var(--agent-primary);
+  color: #ffffff;
+}
+
+.xxai-sidebar-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.xxai-sidebar-icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.xxai-sidebar-hint {
+  padding: 16px 12px;
+  font-size: 13px;
+  color: var(--agent-muted-foreground);
+}
+
+.xxai-sidebar-hint--error {
+  color: #dc2626;
+}
+
+.xxai-sidebar-retry {
+  margin-left: 6px;
+  padding: 2px 8px;
+  border: 1px solid currentColor;
+  border-radius: var(--agent-radius-sm);
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.xxai-sidebar-list {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 8px;
+  list-style: none;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.xxai-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px;
+  border-radius: var(--agent-radius-md);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.xxai-sidebar-item:hover {
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.xxai-sidebar-item.is-active {
+  background: var(--xxai-primary, var(--agent-primary));
+  color: var(--xxai-primary-foreground, #ffffff);
+}
+
+.xxai-sidebar-item-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.xxai-sidebar-item-title,
+.xxai-sidebar-item-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.xxai-sidebar-item-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.xxai-sidebar-item-preview {
+  margin-top: 3px;
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.xxai-sidebar-delete {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.xxai-sidebar-item:hover .xxai-sidebar-delete,
+.xxai-sidebar-item.is-active .xxai-sidebar-delete {
+  opacity: 0.75;
+}
+
+.xxai-sidebar-delete:hover {
+  opacity: 1;
+  background: rgba(239, 68, 68, 0.15);
+  color: #dc2626;
+}
+
+.xxai-sidebar-delete svg {
+  width: 14px;
+  height: 14px;
+}
+
+.xxai-sidebar-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: rgba(15, 23, 42, 0.35);
+}
+
+/* 窄屏抽屉：会话列表浮在对话区之上，不改变单栏消息流布局。 */
+.xxai-chat-window--drawer-open .xxai-conversation-sidebar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  max-width: 80%;
+}
+
 .xxai-chat-window-drag {
   cursor: grab;
   touch-action: none;

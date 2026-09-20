@@ -32,7 +32,9 @@ export function createAgentClient(options: AgentClientOptions) {
       theme: options.ui?.theme,
       colors: options.ui?.colors,
       container: options.ui?.container,
-      window: options.ui?.window
+      window: options.ui?.window,
+      layout: options.ui?.layout,
+      sidebar: options.ui?.sidebar
     })
   }
 

@@ -317,6 +317,44 @@ const agent = createAgentClient({
 - `position` 与 `window`（拖拽/缩放尺寸配置）在嵌入式模式下不生效。
 - 样式隔离沿用悬浮模式的方案（`.xxai-reset` + `--xxai-*` CSS 变量），`colors` 配置同样生效。
 
+### PC 双栏与会话列表（`layout: 'desktop'`）
+
+PC 页面接入时可以让 SDK 同时提供左侧会话列表：传入 `ui.layout: 'desktop'` 后，宽屏下渲染为「左侧会话列表 + 右侧对话区」，点击列表项即可切换会话并加载该会话的历史消息。
+
+```typescript
+const agent = createAgentClient({
+  // endpoint、platformId、agentId、getToken 同上
+  ui: {
+    mode: 'embedded',
+    container: document.getElementById('chat-root')!,
+    layout: 'desktop',
+    sidebar: { width: 260 }, // 可选，默认 260，会被限制在 200–360
+  },
+})
+```
+
+`layout` 与 `sidebar` 的约定：
+
+- `layout` 缺省为 `'single'`，即既有的单栏消息流；不传这两个字段时行为与升级前完全一致。
+- 窄于 768px 时自动退化为单栏，会话列表改为头部按钮展开的抽屉，不会挤压对话区。
+- 列表宽度按容器实测宽度判断（嵌入式下与 `window.innerWidth` 无关），容器变窄同样触发降级。
+- 断点判断以渲染宽度为准，因此宿主容器需要有确定的宽度。
+
+会话相关 API：
+
+```typescript
+const page = await agent.listConversations({ page: 1, pageSize: 20 })
+await agent.openConversation(page.items[0].id) // 切换并加载历史消息
+agent.startNewConversation()                   // 开新会话
+await agent.deleteConversation(conversationId) // 软删除（见下）
+agent.currentConversationId                    // 当前会话 ID，新会话为 undefined
+agent.on('conversations_changed', () => {/* 刷新列表 */})
+```
+
+`openConversation` 会先重置本地流式与请求状态再渲染历史消息，避免上一个会话的回答与历史叠加。
+
+删除会话是**软删除**：服务端只把会话标记为已删除，**不会删除消息、附件与 token 用量记录**，磁盘上的附件文件也保留；删除后该会话不再出现在列表中，也不能再继续对话。被删除会话占用的存储由后续的数据保留策略处理，如需彻底清除请联系 AI Base 运维。
+
 ## 8. 注册工具
 
 工具函数在浏览器执行，后端只负责转发调用。服务端 Embed Client 仍必须配置工具白名单：

@@ -1,5 +1,10 @@
 # Changelog
 
+## - 2026-09-20
+- ✨ feat：AI SDK 支持 PC 双栏布局与左侧会话列表——新增 `ui.layout: 'desktop'`（左列表 + 右对话区）与 `ui.sidebar.width`，窄于 768px 自动退化为单栏并把列表收进抽屉；新增 `listConversations()` / `openConversation()` / `startNewConversation()` / `deleteConversation()` 与 `conversations_changed` 事件，切换会话时原子重置消息、pending 流式态与重放游标，避免「历史消息 + 上一条流式回答」串台 `🧑‍💻 lixingwen`
+- ✨ feat：Embed 新增会话列表与删除接口——`GET /api/v1/embed/conversations`（按平台 + token 主体 + Agent 隔离，`created_at` 倒序分页，返回轻量投影）与 `DELETE /api/v1/embed/conversations/{id}`；删除采用**软删除**（只标记 `status='deleted'`），消息、附件与 `model_usage_records` 计费数据一律保留，避免级联销毁用量记录；软删除会话不可再被解析续聊，跨主体访问按 404 处理不泄露存在性 `🧑‍💻 lixingwen`
+- 📝 docs：AI SDK README 新增「PC 双栏与会话列表」章节，写明布局约定、会话 API 与软删除语义 `🧑‍💻 lixingwen`
+
 ## - 2026-09-19
 - 📝 docs：Harness 升级为 v2「按 diff 分档的三道门」——六阶段（research/spec/plan/implement/verify/acceptance）与六份文档收敛为三道门（想清楚/做出来/证明它）与最多两个文件（`spec.md` + `verify.md`）；分档看 diff 路径（A 架构级 / B 契约级 / C 局部），C 档不写文档不建 request、直接一次提交；新增 `docs/harness/HARNESS-V2.md` 作为新任务唯一流程依据，`AGENTS.md` 与 `docs/harness/README.md` 同步改指向。2026-09-20 之前创建的 59 个 request 一律冻结，不迁移、不补文档 `🧑‍💻 lixingwen`
 - 🔧 chore：Harness v2 门禁落地——`tools/harness/audit.py` 重写为 v2 分档校验（frontmatter、必需章节、被否决项非空、spec ≤150 行、连续代码块 ≤30 行、A/B 档验证脚本可执行、A 档 ADR 关联），对存量 request 自动跳过；新增 `tools/harness/verify.sh` 运行器与 `tools/harness/verify/_template.sh` 模板，验证证据改由脚本产出并记录 `ranAt`/`exitCode`；新增 `.github/workflows/harness.yml` 在 CI 执行审计并检查验证脚本可执行权限 `🧑‍💻 lixingwen`

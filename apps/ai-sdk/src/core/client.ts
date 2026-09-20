@@ -4,6 +4,7 @@ import type {
   AgentClientOptions,
   AgentInfo,
   ConnectionState,
+  ConversationPage,
   EmbedClientInfo,
   AgentLoopRun,
   AgentLoopStep,
@@ -759,6 +760,178 @@ export class AgentClient {
     this.activeRequestId = undefined
     this.pendingAssistantMessage = null
     this.eventEmitter.emit('message_cancelled')
+  }
+
+  /** 当前绑定的会话 ID；新会话尚未落库时为 undefined。 */
+  get currentConversationId(): string | undefined {
+    return this.conversationId
+  }
+
+  /**
+   * 拉取当前用户在指定 Agent 下的会话列表（按创建时间倒序）。
+   *
+   * 隔离条件由服务端从 embed token 读取，SDK 不传平台或用户参数。
+   */
+  async listConversations(options?: { page?: number; pageSize?: number }): Promise<ConversationPage> {
+    const baseUrl = this._httpBaseUrl
+    const token = await this._getToken()
+    const params = new URLSearchParams({
+      page: String(options?.page ?? 1),
+      page_size: String(options?.pageSize ?? 20)
+    })
+    const response = await fetch(`${baseUrl}/embed/conversations?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (!response.ok) {
+      throw new Error(`会话列表加载失败: ${response.status}`)
+    }
+    const body = await response.json() as {
+      data?: {
+        items?: Array<{
+          id: number
+          title?: string | null
+          created_at?: string
+          message_count?: number
+          last_message_preview?: string | null
+        }>
+        total?: number
+        page?: number
+        page_size?: number
+      }
+    }
+    const data = body.data || {}
+    return {
+      items: (data.items || []).map((item) => ({
+        id: item.id,
+        title: item.title ?? null,
+        createdAt: item.created_at || '',
+        messageCount: item.message_count ?? 0,
+        lastMessagePreview: item.last_message_preview ?? null
+      })),
+      total: data.total ?? 0,
+      page: data.page ?? 1,
+      pageSize: data.page_size ?? 20
+    }
+  }
+
+  /**
+   * 切换到指定会话：先重置本地流式/请求态，再拉取并渲染历史消息。
+   *
+   * 顺序很关键：任何残留的 pending 状态都会与历史消息叠加，表现出
+   * 「历史 + 上一条流式回答」串台，因此重置必须先于渲染完成。
+   */
+  async openConversation(conversationId: number | string): Promise<Message[]> {
+    const id = String(conversationId)
+    // 切走前先放掉正在进行的请求，避免旧请求的事件落进新会话。
+    this.cancelMessage()
+    this._resetConversationState()
+    this.conversationId = id
+    if (this.transport instanceof WebSocketTransport) {
+      // setConversationId 会同时把重放游标归零，防止新会话事件被去重丢弃。
+      this.transport.setConversationId(id)
+    }
+
+    const messages = await this.fetchHistory(id)
+    for (const message of messages) {
+      this.messageStore.addMessage(message)
+    }
+    this.persistState()
+    this.eventEmitter.emit('message', messages[messages.length - 1] as Message)
+    this.eventEmitter.emit('history_loaded', { conversationId: id, messages })
+    return this.getMessages()
+  }
+
+  /** 开新会话：解绑当前 conversationId，下一条消息由后端创建新会话。 */
+  startNewConversation(): void {
+    this.cancelMessage()
+    this._resetConversationState()
+    this.conversationId = undefined
+    if (this.transport instanceof WebSocketTransport) {
+      this.transport.setConversationId(undefined)
+    }
+    this.persistState()
+    this.eventEmitter.emit('history_cleared')
+    this.eventEmitter.emit('conversations_changed', { reason: 'created' })
+  }
+
+  /** 软删除会话：服务端只标记状态，消息与附件仍保留在库中。 */
+  async deleteConversation(conversationId: number | string): Promise<void> {
+    const id = String(conversationId)
+    const baseUrl = this._httpBaseUrl
+    const token = await this._getToken()
+    const response = await fetch(
+      `${baseUrl}/embed/conversations/${encodeURIComponent(id)}`,
+      { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }
+    )
+    if (!response.ok) {
+      throw new Error(`会话删除失败: ${response.status}`)
+    }
+    // 删掉的正是当前会话时，回到新建态，避免停在一个已删除的会话上。
+    if (this.conversationId === id) {
+      this.startNewConversation()
+    }
+    this.eventEmitter.emit('conversations_changed', { reason: 'deleted', conversationId: id })
+  }
+
+  /** 读取会话历史快照并转换成 SDK 的 Message 结构。 */
+  private async fetchHistory(conversationId: string): Promise<Message[]> {
+    const baseUrl = this._httpBaseUrl
+    const token = await this._getToken()
+    const response = await fetch(
+      `${baseUrl}/embed/conversations/${encodeURIComponent(conversationId)}/messages`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+    if (!response.ok) {
+      throw new Error(`历史消息加载失败: ${response.status}`)
+    }
+    const body = await response.json() as {
+      data?: Array<{
+        id: number | string
+        role: string
+        content: string
+        status?: string
+        content_blocks?: Message['contentBlocks']
+        created_at?: string
+        loop?: AgentLoopRun
+        requestId?: string
+        request_id?: string
+      }>
+    }
+    return (body.data || []).map((item) => ({
+      id: String(item.id),
+      role: (item.role as Message['role']) || 'assistant',
+      type: 'text',
+      content: { type: 'text', text: item.content || '' },
+      contentBlocks: Array.isArray(item.content_blocks) && item.content_blocks.length
+        ? item.content_blocks
+        : [{
+            id: `${item.id}_text`,
+            type: 'markdown' as const,
+            text: item.content || '',
+            status: 'completed' as const
+          }],
+      loop: item.loop,
+      timestamp: item.created_at ? new Date(item.created_at) : new Date(),
+      conversationId,
+      requestId: item.requestId || item.request_id
+    }))
+  }
+
+  /**
+   * 重置跨会话复用的流式与请求状态。
+   *
+   * `MessageStore` 不在这里清空：调用方需要先拿到历史再决定何时替换，
+   * 但所有「半成品」状态必须清掉，否则会与新会话内容串台。
+   */
+  private _resetConversationState(): void {
+    this.messageStore.clearMessages()
+    this.pendingAssistantMessage = null
+    this.pendingLoop = null
+    this.pendingCitations = []
+    this.currentRequestId = undefined
+    this.activeRequestId = undefined
+    this.pendingConfirmations.clear()
+    this.pendingQuestions.clear()
   }
 
   getMessages(): Message[] {
