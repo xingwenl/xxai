@@ -57,6 +57,8 @@
   --agent-border: rgba(255, 255, 255, 0.65);
   --agent-glass-border: 1px solid rgba(255, 255, 255, 0.55);
   --agent-glass-blur: blur(18px) saturate(160%);
+  /* 面板与侧栏共用同一套磨砂底，避免主视图露出彩色渐变、两栏观感不一致。 */
+  --agent-glass-surface: rgba(255, 255, 255, 0.55);
   --agent-shadow-soft: 0 4px 20px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.03);
   --agent-shadow-medium: 0 8px 32px rgba(15, 23, 42, 0.08), 0 2px 8px rgba(15, 23, 42, 0.04);
   --agent-radius-sm: 6px;
@@ -126,7 +128,7 @@
   flex-direction: column;
   min-height: 0;
   border-right: var(--agent-glass-border);
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--agent-glass-surface);
   backdrop-filter: var(--agent-glass-blur);
   -webkit-backdrop-filter: var(--agent-glass-blur);
 }
@@ -139,6 +141,8 @@
   justify-content: space-between;
   gap: 8px;
   padding: 0 12px;
+  /* 与主视图头部用同一底色，两栏标题区在同一水平线上观感一致。 */
+  background: var(--agent-card);
   border-bottom: var(--agent-glass-border);
 }
 
@@ -297,6 +301,24 @@
   bottom: 0;
   z-index: 2;
   max-width: 80%;
+}
+
+/*
+ * 双栏下列表与主视图必须同色。
+ *
+ * 侧栏与主区都用半透明磨砂白，叠加在窗口那层彩色渐变（#F0F9FF→#F5F3FF
+ * →#F0FDF4）之上时，左右两栏会分别透出偏蓝与偏绿的底色（实测横向色差
+ * 达 8/255）。双栏模式把窗口底色换成中性色，两侧才真正同色；单栏模式
+ * 仍保留原来的彩色渐变。
+ */
+.xxai-chat-window--desktop {
+  --agent-background-gradient: var(--agent-background);
+}
+
+.xxai-chat-window--desktop .xxai-chat-main {
+  background: var(--agent-glass-surface);
+  backdrop-filter: var(--agent-glass-blur);
+  -webkit-backdrop-filter: var(--agent-glass-blur);
 }
 
 .xxai-chat-window-drag {

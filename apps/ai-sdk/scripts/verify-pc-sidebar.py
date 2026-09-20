@@ -132,6 +132,48 @@ async def main():
             state = await session.evaluate("window.__probe()")
             print("probe(wide, desktop) =", json.dumps(state, ensure_ascii=False))
             check("宽屏渲染左侧会话列表", state["hasSidebar"], f"hasSidebar={state['hasSidebar']}")
+
+            # 双栏两侧必须同色：侧栏与主区都是半透明磨砂白，若窗口底色仍是
+            # 彩色渐变，左右会分别透出偏蓝/偏绿（实测色差可达 8/255）。
+            surfaces = await session.evaluate(
+                """(() => {
+                  const pick = (sel) => {
+                    const el = document.querySelector(sel)
+                    if (!el) return null
+                    const c = getComputedStyle(el)
+                    return { bg: c.backgroundColor, blur: c.backdropFilter }
+                  }
+                  const win = getComputedStyle(document.querySelector('.xxai-chat-window'))
+                  return {
+                    main: pick('.xxai-chat-main'),
+                    sidebar: pick('.xxai-conversation-sidebar'),
+                    header: pick('.xxai-chat-header'),
+                    sidebarHead: pick('.xxai-sidebar-head'),
+                    windowImage: win.backgroundImage
+                  }
+                })()"""
+            )
+            print("surfaces =", json.dumps(surfaces, ensure_ascii=False))
+            check(
+                "主视图与会话列表底色一致",
+                surfaces["main"]["bg"] == surfaces["sidebar"]["bg"],
+                f"main={surfaces['main']['bg']} sidebar={surfaces['sidebar']['bg']}",
+            )
+            check(
+                "两栏标题区底色一致",
+                surfaces["header"]["bg"] == surfaces["sidebarHead"]["bg"],
+                f"header={surfaces['header']['bg']} sidebarHead={surfaces['sidebarHead']['bg']}",
+            )
+            check(
+                "双栏窗口不再使用彩色渐变底",
+                surfaces["windowImage"] == "none",
+                surfaces["windowImage"][:60],
+            )
+            check(
+                "主视图同样启用磨砂模糊",
+                surfaces["main"]["blur"] == surfaces["sidebar"]["blur"],
+                f"main={surfaces['main']['blur']} sidebar={surfaces['sidebar']['blur']}",
+            )
             check(
                 "列表宽度落在 200-360 区间",
                 200 <= state["sidebarWidth"] <= 360,
@@ -333,6 +375,16 @@ async def main():
                 and not state["hasSidebar"]
                 and "desktop" not in state["windowClass"],
                 f"mode={state['mode']} hasSidebar={state['hasSidebar']} class={state['windowClass']}",
+            )
+            # 单栏（含既有悬浮窗）必须保留原来的彩色渐变底，本次配色改动
+            # 只作用于双栏。
+            single_bg = await session.evaluate(
+                "getComputedStyle(document.querySelector('.xxai-chat-window')).backgroundImage"
+            )
+            check(
+                "single 布局保留原有彩色渐变底",
+                "linear-gradient" in single_bg,
+                single_bg[:60],
             )
     finally:
         chrome.terminate()
