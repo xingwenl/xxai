@@ -59,6 +59,8 @@
   --agent-glass-blur: blur(18px) saturate(160%);
   /* 面板与侧栏共用同一套磨砂底，避免主视图露出彩色渐变、两栏观感不一致。 */
   --agent-glass-surface: rgba(255, 255, 255, 0.55);
+  /* 控件级表面（输入框、附件条目、次要按钮），比面板底色略实一点。 */
+  --agent-surface: rgba(255, 255, 255, 0.6);
   --agent-shadow-soft: 0 4px 20px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.03);
   --agent-shadow-medium: 0 8px 32px rgba(15, 23, 42, 0.08), 0 2px 8px rgba(15, 23, 42, 0.04);
   --agent-radius-sm: 6px;
@@ -373,33 +375,33 @@
   flex: 0 0 60px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   padding: 0 12px;
+  /* 与会话列表标题区保持同一套观感：同底色、同边框，且不额外加投影与
+     模糊——两栏并排时多一层阴影会让主视图头部显得比侧栏“厚”。 */
   background: var(--agent-card);
   border-bottom: var(--agent-glass-border);
-  backdrop-filter: var(--agent-glass-blur);
-  -webkit-backdrop-filter: var(--agent-glass-blur);
-  box-shadow: var(--agent-shadow-soft);
 }
 
 .xxai-header-icon-btn {
-  width: 40px;
-  height: 40px;
-  flex: 0 0 40px;
+  /* 与会话列表的图标按钮保持同一尺寸与配色，两栏头部才对得齐。 */
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
   display: grid;
   place-items: center;
   padding: 0;
   border: var(--agent-glass-border);
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.6);
   color: var(--agent-foreground);
   cursor: pointer;
-  transition: transform 0.15s ease, background 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .xxai-header-icon-btn:hover {
-  background: rgba(255, 255, 255, 0.75);
-  transform: translateY(-1px);
+  background: var(--agent-primary);
+  color: #ffffff;
 }
 
 .xxai-header-clear-btn {
@@ -424,9 +426,20 @@
   white-space: nowrap;
 }
 
+/* 「确认？」宽度超过 30px 圆形按钮，确认态下自动放宽成胶囊，避免文字溢出。 */
+.xxai-header-clear-btn:has(.xxai-clear-confirm) {
+  width: auto;
+  flex: 0 0 auto;
+  min-width: 30px;
+  padding: 0 10px;
+  border-radius: 15px;
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(254, 226, 226, 0.75);
+}
+
 .xxai-header-icon-btn svg {
-  width: 22px;
-  height: 22px;
+  width: 16px;
+  height: 16px;
 }
 
 .xxai-header-quota {
@@ -486,7 +499,7 @@
   border-radius: 50%;
   background: linear-gradient(145deg, #E0F2FE, #EDE9FE);
   color: var(--agent-primary);
-  box-shadow: var(--agent-shadow-soft);
+  /* 与侧栏头部一样不做投影，避免两栏头部观感不一致。 */
   font-size: 15px;
 }
 
@@ -499,7 +512,8 @@
 .xxai-header-name {
   overflow: hidden;
   color: var(--agent-foreground);
-  font-size: 15px;
+  /* 与会话列表标题（14px/600）保持一致。 */
+  font-size: 14px;
   font-weight: 600;
   line-height: 1.2;
   text-overflow: ellipsis;
@@ -1122,7 +1136,8 @@
   left: 0;
   z-index: 2;
   padding: 10px 14px max(10px, env(safe-area-inset-bottom));
-  background: var(--agent-card);
+  /* 外框用略深于输入框的磨砂底，白色输入胶囊才有轮廓可辨。 */
+  background: rgba(241, 245, 249, 0.82);
   border-top: var(--agent-glass-border);
   backdrop-filter: var(--agent-glass-blur);
   -webkit-backdrop-filter: var(--agent-glass-blur);
@@ -1140,29 +1155,40 @@
   flex: 1;
   height: 42px;
   padding: 0 18px;
-  border: var(--agent-glass-border);
+  /* 输入框底色比外框略深并配中性描边：原先 0.65 白底压在 0.78 白外框上，
+     实测两者仅差 1/255，胶囊轮廓完全看不出来；描边透明度也不能太低，
+     0.35 叠在近白底上只剩 2/255 对比，同样看不见。 */
+  border: 1px solid rgba(100, 116, 139, 0.45);
   border-radius: 21px;
   outline: none;
-  background: rgba(255, 255, 255, 0.65);
+  background: #ffffff;
   color: var(--agent-foreground);
   font-family: var(--agent-font-sans);
   font-size: 14px;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5) inset;
-}
-
-.xxai-chat-input input:focus {
-  background: rgba(255, 255, 255, 0.85);
-  box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.5) inset;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
 .xxai-chat-input input::placeholder {
   color: var(--agent-muted-foreground);
 }
 
+.xxai-chat-input input:focus {
+  border-color: var(--agent-primary);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15);
+}
+
+/*
+ * 输入区按钮：由这条规则统一尺寸与配色。
+ *
+ * ChatInput.vue 的 scoped 样式曾自带一套 32px/圆角 6px 的定义，与这里
+ * 的 40px 圆形规则叠加后产生「40×32 + 圆角 6px」的畸形态，因此这里把
+ * 尺寸、圆角、配色收敛为唯一来源，组件侧不再重复声明。
+ */
 .xxai-chat-input button {
-  width: 40px;
-  height: 40px;
-  flex: 0 0 40px;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1182,8 +1208,10 @@
 }
 
 .xxai-chat-input button:disabled {
-  background: #BAE6FD;
+  /* 只用透明度表达禁用，避免再叠一层硬编码浅蓝导致颜色发灰发浑。 */
+  opacity: 0.45;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
 .xxai-chat-input button svg {
@@ -1193,6 +1221,25 @@
 
 .xxai-stop-button {
   background: #EF4444 !important;
+}
+
+/* 附件按钮是次要动作：用与头部图标按钮一致的磨砂浅底，不抢发送按钮的强调色。 */
+.xxai-attach-button {
+  background: rgba(255, 255, 255, 0.6) !important;
+  border: var(--agent-glass-border);
+  color: var(--agent-muted-foreground) !important;
+  box-shadow: none !important;
+}
+
+.xxai-attach-button:hover:not(:disabled) {
+  background: var(--agent-primary) !important;
+  color: #ffffff !important;
+  transform: none;
+}
+
+.xxai-attach-button:disabled {
+  background: rgba(255, 255, 255, 0.4) !important;
+  opacity: 0.6;
 }
 
 .xxai-stop-button span {

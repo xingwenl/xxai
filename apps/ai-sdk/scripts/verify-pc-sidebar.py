@@ -183,12 +183,42 @@ async def main():
                     const c = getComputedStyle(el)
                     return { bg: c.backgroundColor, blur: c.backdropFilter }
                   }
+                  const head = (sel) => {
+                    const el = document.querySelector(sel)
+                    if (!el) return null
+                    const c = getComputedStyle(el)
+                    const r = el.getBoundingClientRect()
+                    return {
+                      h: Math.round(r.height), bg: c.backgroundColor, shadow: c.boxShadow,
+                      blur: c.backdropFilter, gap: c.gap, pad: c.padding,
+                      border: c.borderBottomWidth + ' ' + c.borderBottomColor,
+                    }
+                  }
+                  const btn = (sel) => {
+                    const el = document.querySelector(sel)
+                    if (!el) return null
+                    const c = getComputedStyle(el)
+                    const r = el.getBoundingClientRect()
+                    return { w: Math.round(r.width), h: Math.round(r.height), bg: c.backgroundColor, radius: c.borderRadius }
+                  }
+                  const title = (sel) => {
+                    const el = document.querySelector(sel)
+                    if (!el) return null
+                    const c = getComputedStyle(el)
+                    return { size: c.fontSize, weight: c.fontWeight, color: c.color }
+                  }
                   const win = getComputedStyle(document.querySelector('.xxai-chat-window'))
                   return {
                     main: pick('.xxai-chat-main'),
                     sidebar: pick('.xxai-conversation-sidebar'),
                     header: pick('.xxai-chat-header'),
                     sidebarHead: pick('.xxai-sidebar-head'),
+                    headerFull: head('.xxai-chat-header'),
+                    sidebarHeadFull: head('.xxai-sidebar-head'),
+                    headerBtn: btn('.xxai-chat-header .xxai-header-icon-btn'),
+                    sidebarBtn: btn('.xxai-sidebar-icon-btn'),
+                    headerTitle: title('.xxai-header-name'),
+                    sidebarTitle: title('.xxai-sidebar-title'),
                     windowImage: win.backgroundImage
                   }
                 })()"""
@@ -204,6 +234,28 @@ async def main():
                 surfaces["header"]["bg"] == surfaces["sidebarHead"]["bg"],
                 f"header={surfaces['header']['bg']} sidebarHead={surfaces['sidebarHead']['bg']}",
             )
+            # 头部整体风格对齐：高度、内边距、间距、边框、无投影/模糊
+            header_keys = ("h", "bg", "shadow", "blur", "gap", "pad", "border")
+            header_diff = {
+                k: (surfaces["headerFull"][k], surfaces["sidebarHeadFull"][k])
+                for k in header_keys
+                if surfaces["headerFull"][k] != surfaces["sidebarHeadFull"][k]
+            }
+            check(
+                "聊天 header 与会话列表 header 样式一致",
+                not header_diff,
+                json.dumps(header_diff, ensure_ascii=False) if header_diff else "全部一致",
+            )
+            check(
+                "两栏头部图标按钮一致",
+                surfaces["headerBtn"] == surfaces["sidebarBtn"],
+                f"chat={surfaces['headerBtn']} sidebar={surfaces['sidebarBtn']}",
+            )
+            check(
+                "两栏标题字号字重一致",
+                surfaces["headerTitle"] == surfaces["sidebarTitle"],
+                f"chat={surfaces['headerTitle']} sidebar={surfaces['sidebarTitle']}",
+            )
             check(
                 "双栏窗口不再使用彩色渐变底",
                 surfaces["windowImage"] == "none",
@@ -213,6 +265,67 @@ async def main():
                 "主视图同样启用磨砂模糊",
                 surfaces["main"]["blur"] == surfaces["sidebar"]["blur"],
                 f"main={surfaces['main']['blur']} sidebar={surfaces['sidebar']['blur']}",
+            )
+
+            # 输入区：组件 scoped 样式曾引用本 SDK 未定义的 --xxai-surface /
+            # --xxai-muted / --xxai-border / --xxai-primary，全部落到硬编码灰色，
+            # 并与全局 .xxai-chat-input button 规则叠加出「40×32 + 圆角 6px」的
+            # 畸形态。这里固定收敛后的契约。
+            input_area = await session.evaluate(
+                """(() => {
+                  const box = (sel) => {
+                    const el = document.querySelector(sel)
+                    if (!el) return null
+                    const c = getComputedStyle(el)
+                    const r = el.getBoundingClientRect()
+                    return { w: Math.round(r.width), h: Math.round(r.height),
+                             bg: c.backgroundColor, radius: c.borderRadius,
+                             border: c.borderTopWidth + ' ' + c.borderTopColor }
+                  }
+                  return {
+                    wrapper: box('.xxai-chat-input-wrapper'),
+                    field: box('.xxai-chat-input input[type=text]'),
+                    attach: box('.xxai-attach-button'),
+                    send: box('.xxai-send-button'),
+                    headerBtn: box('.xxai-chat-header .xxai-header-icon-btn')
+                  }
+                })()"""
+            )
+            print("input area =", json.dumps(input_area, ensure_ascii=False))
+            check(
+                "输入区按钮尺寸统一（附件与发送一致）",
+                input_area["attach"]["w"] == input_area["send"]["w"]
+                and input_area["attach"]["h"] == input_area["send"]["h"],
+                f"attach={input_area['attach']['w']}x{input_area['attach']['h']} "
+                f"send={input_area['send']['w']}x{input_area['send']['h']}",
+            )
+            check(
+                "输入区按钮为圆形而非畸形态",
+                input_area["attach"]["radius"] == "50%" and input_area["send"]["radius"] == "50%",
+                f"attach={input_area['attach']['radius']} send={input_area['send']['radius']}",
+            )
+            check(
+                "附件按钮为磨砂底而非蓝色强调",
+                "rgba(255, 255, 255" in input_area["attach"]["bg"],
+                input_area["attach"]["bg"],
+            )
+            check(
+                "输入框有可见描边（非近白不可见）",
+                input_area["field"]["border"].startswith("1px")
+                and "100, 116, 139" in input_area["field"]["border"],
+                input_area["field"]["border"],
+            )
+            check(
+                "输入框为白底胶囊",
+                input_area["field"]["bg"] == "rgb(255, 255, 255)"
+                and input_area["field"]["radius"] == "21px",
+                f"bg={input_area['field']['bg']} radius={input_area['field']['radius']}",
+            )
+            # 输入框白色胶囊必须与浅灰外框有可辨差异，否则轮廓消失。
+            check(
+                "输入框与外框底色有可辨差异",
+                input_area["field"]["bg"] != input_area["wrapper"]["bg"],
+                f"field={input_area['field']['bg']} wrapper={input_area['wrapper']['bg']}",
             )
             check(
                 "列表宽度落在 200-360 区间",

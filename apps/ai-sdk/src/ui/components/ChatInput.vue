@@ -203,7 +203,7 @@ defineExpose({
   display: flex;
   align-items: center;
   gap: 6px;
-  background: var(--xxai-surface, #f3f4f6);
+  background: var(--agent-surface, rgba(255, 255, 255, 0.6));
   border-radius: 8px;
   padding: 4px 8px;
   max-width: 220px;
@@ -230,7 +230,7 @@ defineExpose({
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  color: #6b7280;
+  color: var(--agent-muted-foreground);
 }
 
 .xxai-attachment-icon svg {
@@ -255,7 +255,7 @@ defineExpose({
 
 .xxai-attachment-meta {
   font-size: 10px;
-  color: #9ca3af;
+  color: var(--agent-muted-foreground);
   display: flex;
   gap: 4px;
 }
@@ -275,7 +275,7 @@ defineExpose({
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
-  color: #9ca3af;
+  color: var(--agent-muted-foreground);
   flex-shrink: 0;
 }
 
@@ -283,23 +283,19 @@ defineExpose({
   color: #ef4444;
 }
 
+/* 附件按钮保持弱化的图标按钮观感，尺寸与全局按钮一致。 */
 .xxai-attach-button {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: none;
   background: none;
-  color: var(--xxai-muted, #9ca3af);
+  color: var(--agent-muted-foreground);
   cursor: pointer;
-  border-radius: 6px;
-  flex-shrink: 0;
 }
 
 .xxai-attach-button:hover {
-  background: var(--xxai-surface, #f3f4f6);
-  color: var(--xxai-primary, #6366f1);
+  background: var(--agent-surface, rgba(255, 255, 255, 0.6));
+  color: var(--agent-primary);
 }
 
 .xxai-attach-button svg {
@@ -311,9 +307,8 @@ defineExpose({
   display: none;
 }
 
-.xxai-chat-input-wrapper {
-  border-top: 1px solid var(--xxai-border, #e5e7eb);
-}
+/* 输入区外框（底色、边框、模糊、投影）由全局 .xxai-chat-input-wrapper
+   统一定义，组件内不再覆盖，避免两处声明互相打架。 */
 
 .xxai-chat-input {
   display: flex;
@@ -322,54 +317,32 @@ defineExpose({
   padding: 8px;
 }
 
+/* 输入框外观（磨砂白底、圆角胶囊、边框、聚焦态）由全局
+   .xxai-chat-input input 统一定义；这里只保留排版相关声明。 */
 .xxai-chat-input input[type="text"] {
   flex: 1;
-  border: none;
-  outline: none;
-  background: transparent;
   font-size: 14px;
-  padding: 6px 8px;
-  color: var(--xxai-foreground, #111827);
+  color: var(--agent-foreground);
 }
 
 .xxai-chat-input input[type="text"]::placeholder {
-  color: var(--xxai-muted, #9ca3af);
+  color: var(--agent-muted-foreground);
 }
 
+/* 尺寸、圆角与配色由全局 .xxai-chat-input button 统一，这里不再重复声明。 */
 .xxai-send-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: none;
-  background: var(--xxai-primary, #6366f1);
-  color: white;
-  border-radius: 6px;
-  cursor: pointer;
   flex-shrink: 0;
 }
 
-.xxai-send-button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
+/* 禁用态统一由全局规则表达，组件内不再重复。 */
 
 .xxai-send-button svg {
   width: 16px;
   height: 16px;
 }
 
+/* 同上：几何与配色统一由全局规则负责。 */
 .xxai-stop-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--xxai-border, #e5e7eb);
-  background: var(--xxai-surface, #f3f4f6);
-  border-radius: 6px;
-  cursor: pointer;
   flex-shrink: 0;
 }
 
@@ -377,7 +350,7 @@ defineExpose({
   display: block;
   width: 12px;
   height: 12px;
-  background: var(--xxai-foreground, #111827);
+  background: var(--agent-foreground);
   border-radius: 2px;
 }
 </style>
