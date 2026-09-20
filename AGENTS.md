@@ -1,29 +1,34 @@
 # AGENTS
 
-本仓库采用 Harness Engineering 方式进行 AI 辅助开发。
+本仓库采用 Harness v2 方式进行 AI 辅助开发。流程、分档规则、文档规格的**唯一依据**是 [docs/harness/HARNESS-V2.md](docs/harness/HARNESS-V2.md)，动手前先读它。
 
-必须遵守的阶段顺序：
-1. research
-2. spec
-3. plan
-4. implement
-5. verify
-6. acceptance
+## 三道门
 
-开发新功能时，必须先了解业界成熟案例，再确定 spec 和 plan。调研结果记录在 request 的 `research.md` 中，至少包含来源、方案比较和最终决策。
+1. **想清楚**：确定范围、来源、被否决的选项、验收标准（A/B 档写 `spec.md` 并获用户确认）
+2. **做出来**：写代码（A/B 档同时写 `tools/harness/verify/<id>.sh`）
+3. **证明它**：跑验证脚本，真实输出落进 `verify.md`
 
-AI 默认可以连续推进，但若任务涉及以下变更，在进入实现或完成前必须等待人工确认：
+## 分档：看 diff 路径，不看自觉
 
-- 架构边界变化
-- 数据模型变化
-- API 契约变化
-- 鉴权或权限行为变化
-- 核心功能缺少关键业界资料，无法可靠完成方案比较
+- **A 架构级**：碰 `**/migrations/**`、`**/models.py`、`**/auth/**`、`**/security*.py`、新建模块目录 → `spec.md` + ADR + 拷问（两轮封顶）
+- **B 契约级**：碰 `**/schemas.py`、`**/router.py`、`**/api/**`、跨 `apps/` 改动 → `spec.md`
+- **C 局部**：以上都不碰 → 不写文档、不建 request，直接一次提交
 
-**写代码前必须先与用户对齐方案**：任何任务完成或更新 `spec.md`（含 `/new`、`/modify`、`/fix` 的增量变更记录）后，必须先把方案要点发给用户确认；用户确认前不得进入后续 `plan`/实现阶段写代码。
+命中即取最高档，拿不准按 B。分档只能上调。
 
-AI 生成的正式文档必须使用中文。
-不产生仓库变更的问答、代码解释和讨论，不创建 request。
+## 停点
+
+A/B 档在 `spec.md` 写完后，必须先把方案要点发给用户确认，用户确认前不写实现代码。C 档直接做。
+
+审批触发条件（命中即 `approval.required: true`）：架构边界变化、数据模型变化、API 契约变化、鉴权或权限行为变化、核心功能缺少关键资料无法可靠比较方案。
+
+## 硬约束
+
+- 正式文档用中文；不产生仓库变更的问答、代码解释和讨论不创建 request。
+- `spec.md` ≤150 行，连续代码块 ≤30 行；「被否决的选项」必须非空。
+- `verify.md` 由 `tools/harness/verify.sh <id>` 产出，必须显式列出未执行项；不写"已测试通过"。
+- 提交前跑 `python3 tools/harness/audit.py`。
+- 2026-09-20 之前创建的 request 属于存量，冻结不动、不迁移、不补文档。
 
 ## 代码编写约定
 
@@ -31,25 +36,16 @@ AI 生成的正式文档必须使用中文。
 - 编写代码时，应根据逻辑复杂度和维护需要增加必要的中文注释；注释应解释业务意图、关键约束或非直观实现原因，避免添加无意义的逐行翻译式注释。
 
 
-详细规则见 `docs/harness/README.md`。
+详细规则见 `docs/harness/HARNESS-V2.md`。
 
 ## Harness 入口指令
 
-AI 识别到以下指令时，先执行对应的最小动作；完整语义、适用场景和示例统一维护在 [docs/harness/README.md](docs/harness/README.md)：
+AI 识别到以下指令时，先执行对应的最小动作；完整语义、适用场景和示例统一维护在 [docs/harness/HARNESS-V2.md](docs/harness/HARNESS-V2.md)：
 
-- `/new <主题>`：创建新 request，先调研，再按 `research -> spec -> plan` 推进
-- `/modify <request-id 或主题>`：判断是否仍属原闭环；可复用时记录增量，否则转 `/new`
-- `/fix <request-id 或主题>`：复用原 request，记录 bugfix 变更
-- `/verify <request-id>`：更新 `verify.md`，记录真实验证证据
-- `/accept <request-id>`：更新 `acceptance.md`，记录验收结论和剩余风险
-
-## Skills 调用分流
-
-AI 执行 `/new`、`/modify` 或 `/fix` 时，必须先读取并遵守 [`docs/harness/policies/global.md`](docs/harness/policies/global.md) 中的 Skill 调用策略：复杂度不明确或存在高风险信号时采用复杂策略（先完成上下文梳理和方案确认），轻量策略也必须保留变更记录和最小验证。
-
-## 增量与轻量变更
-
-`/modify`、`/fix` 的 request 复用、变更记录、轻量模式和升级条件，统一遵守 [`docs/harness/policies/global.md`](docs/harness/policies/global.md)。任何增量都必须留下变更记录和最小验证证据；触发架构、数据模型、API 或权限审批条件时，先确认再实现。
+- `/new <主题>`：判断分档；A/B 档建 request 并写 `spec.md`，C 档直接实现
+- `/modify <request-id 或主题>`：在原 request 的 `spec.md` 变更点中追加本次改动
+- `/fix <request-id 或主题>`：C 档直接修；触发 A/B 档条件时按 A/B 档走
+- `/verify <request-id>`：跑 `tools/harness/verify.sh <request-id>`，用真实输出刷新 `verify.md`
 
 ## 专项规范
 
@@ -75,7 +71,7 @@ AI 执行 `/new`、`/modify` 或 `/fix` 时，必须先读取并遵守 [`docs/ha
 
 推荐提交流程：
 
-1. 在根仓库确认任务范围
-2. 按 `research -> spec -> plan -> implement -> verify -> acceptance` 推进
+1. 在根仓库确认任务范围与分档
+2. A/B 档：写 `spec.md` → 用户确认 → 实现 → `tools/harness/verify.sh` → 提交；C 档：实现 → 最小验证 → 提交
 3. 先完成最小验证，再执行 Git 提交
 4. 若同时修改前端、后端、Harness 文档，优先在根仓库一次性提交闭环结果

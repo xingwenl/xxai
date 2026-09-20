@@ -1,5 +1,10 @@
 # Harness Engineering
 
+> **新任务请看 [HARNESS-V2.md](HARNESS-V2.md)。**
+>
+> 本文件描述的是已停用的旧六阶段流程，**仅用于解释存量 request（2026-09-20 之前创建）**。
+> 新任务一律按 HARNESS-V2 的三道门与分档规则执行；存量 request 冻结不动、不迁移、不补文档。
+
 本目录承载仓库级 Harness Engineering 运行层，用来约束 AI 和人工如何以统一流程推进需求、落地实现、记录验证并完成验收。
 
 ## 目标
