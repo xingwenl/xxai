@@ -122,6 +122,7 @@
   display: flex;
   flex-direction: column;
   position: relative;
+  overflow: hidden;
 }
 
 .xxai-conversation-sidebar {
@@ -146,6 +147,7 @@
   /* 与主视图头部用同一底色，两栏标题区在同一水平线上观感一致。 */
   background: var(--agent-card);
   border-bottom: var(--agent-glass-border);
+  box-shadow: 0 4px 11px rgba(15, 23, 42, 0.06);
 }
 
 .xxai-sidebar-title {
@@ -381,6 +383,7 @@
      模糊——两栏并排时多一层阴影会让主视图头部显得比侧栏“厚”。 */
   background: var(--agent-card);
   border-bottom: var(--agent-glass-border);
+  box-shadow: 0 4px 11px rgba(15, 23, 42, 0.06);
 }
 
 .xxai-header-icon-btn {
@@ -1137,7 +1140,7 @@
   z-index: 2;
   padding: 10px 14px max(10px, env(safe-area-inset-bottom));
   /* 外框用略深于输入框的磨砂底，白色输入胶囊才有轮廓可辨。 */
-  background: rgba(241, 245, 249, 0.82);
+  background: rgb(248 250 253);
   border-top: var(--agent-glass-border);
   backdrop-filter: var(--agent-glass-blur);
   -webkit-backdrop-filter: var(--agent-glass-blur);
@@ -1158,8 +1161,8 @@
   /* 输入框底色比外框略深并配中性描边：原先 0.65 白底压在 0.78 白外框上，
      实测两者仅差 1/255，胶囊轮廓完全看不出来；描边透明度也不能太低，
      0.35 叠在近白底上只剩 2/255 对比，同样看不见。 */
-  border: 1px solid rgba(100, 116, 139, 0.45);
-  border-radius: 21px;
+  border: 1px solid rgba(100, 116, 139, 0.15);
+  border-radius: 15px;
   outline: none;
   background: #ffffff;
   color: var(--agent-foreground);

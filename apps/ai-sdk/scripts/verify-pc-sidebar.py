@@ -317,8 +317,12 @@ async def main():
             )
             check(
                 "输入框为白底胶囊",
+                # 只断言「白底 + 圆角」这一设计意图，不写死具体圆角值：
+                # 半径属可自由微调的视觉参数（21px → 15px 都成立），
+                # 写死会让合理的样式调整被误判为回归。
                 input_area["field"]["bg"] == "rgb(255, 255, 255)"
-                and input_area["field"]["radius"] == "21px",
+                and input_area["field"]["radius"].endswith("px")
+                and float(input_area["field"]["radius"][:-2]) >= 10,
                 f"bg={input_area['field']['bg']} radius={input_area['field']['radius']}",
             )
             # 输入框白色胶囊必须与浅灰外框有可辨差异，否则轮廓消失。

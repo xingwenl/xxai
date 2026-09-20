@@ -49,11 +49,11 @@
             <path d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
-        <button v-if="!embedded" class="xxai-header-icon-btn" type="button" aria-label="返回" @click="close">
+        <!-- <button v-if="!embedded" class="xxai-header-icon-btn" type="button" aria-label="返回" @click="close">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="m15 18-6-6 6-6" />
           </svg>
-        </button>
+        </button> -->
         <div class="xxai-header-center">
           <div class="xxai-agent-avatar" aria-hidden="true">✦</div>
           <div class="xxai-header-info">
