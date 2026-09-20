@@ -7,8 +7,10 @@
 
 import asyncio
 import json
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 
@@ -16,11 +18,10 @@ import websockets
 
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 PORT = 9335
-PROFILE_DIR = "/tmp/xxai-cdp-verify-sidebar"
 URL = "http://127.0.0.1:8791/demo/pc-sidebar.html"
 
 
-def launch_chrome():
+def launch_chrome(profile_dir):
     # `--headless=new` 在本机沙箱下会因 crashpad 无法访问而崩溃，沿用旧
     # headless 模式并显式关闭沙箱；CDP 能力足够本次断言。
     return subprocess.Popen(
@@ -34,7 +35,7 @@ def launch_chrome():
             "--no-first-run",
             "--no-default-browser-check",
             "--remote-allow-origins=*",
-            f"--user-data-dir={PROFILE_DIR}",
+            f"--user-data-dir={profile_dir}",
             URL,
         ],
         stdout=subprocess.DEVNULL,
@@ -98,7 +99,10 @@ class Session:
 
 
 async def main():
-    chrome = launch_chrome()
+    # 每次运行都用全新 profile：悬浮窗尺寸会被持久化到 localStorage，复用
+    # profile 会让上一轮拉宽的窗口矩形污染下一轮的窄窗断言。
+    profile_dir = tempfile.mkdtemp(prefix="xxai-cdp-verify-")
+    chrome = launch_chrome(profile_dir)
     failures = []
     try:
         ws_url = wait_for_target()
@@ -253,16 +257,20 @@ async def main():
                 f"before={calls_after_start} after={state['listCalls']}",
             )
 
-            # 窄屏降级：列表应收起为抽屉（默认不渲染常驻侧栏）。
-            # 同时收窄视口与容器，模拟真实窄屏而非只压缩容器宽度。
-            await session.set_viewport(520, 900)
+            # 窄屏降级：断点看「面板自身宽度」。这里刻意保持宽视口（1400）
+            # 只收窄容器，用来证明降级不依赖 window.innerWidth。
+            await session.set_viewport(1400, 900)
             await session.evaluate(
                 "document.querySelector('[data-width=\"520\"]').click()"
             )
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(1.2)
             state = await session.evaluate("window.__probe()")
-            print("probe(narrow 520) =", json.dumps(state, ensure_ascii=False))
-            check("窄屏收起常驻列表", not state["hasSidebar"], f"hasSidebar={state['hasSidebar']}")
+            print("probe(narrow panel) =", json.dumps(state, ensure_ascii=False))
+            check(
+                "窄面板收起常驻列表（宽视口下仍降级）",
+                not state["hasSidebar"],
+                f"hasSidebar={state['hasSidebar']} innerWidth={state['innerWidth']}",
+            )
 
             # 抽屉按钮可展开列表。
             await session.evaluate(
@@ -271,10 +279,46 @@ async def main():
             await asyncio.sleep(0.7)
             state = await session.evaluate("window.__probe()")
             print("probe(narrow drawer open) =", json.dumps(state, ensure_ascii=False))
-            check("窄屏可展开抽屉列表", state["hasSidebar"], f"hasSidebar={state['hasSidebar']}")
+            check("窄面板可展开抽屉列表", state["hasSidebar"], f"hasSidebar={state['hasSidebar']}")
 
-            # 切回 single 布局：列表应完全消失，回到既有单栏行为。
+            # floating 模式：双栏必须按悬浮窗自身宽度判断，而不是浏览器视口。
+            # 430px 悬浮窗 + 260px 常驻列表会把对话区挤到 170px，必须降级。
+            await session.evaluate(
+                "document.querySelector('[data-width=\"1000\"]').click()"
+            )
+            await asyncio.sleep(0.5)
+            await session.evaluate("document.getElementById('toggle-mode').click()")
+            await asyncio.sleep(1.4)
+            state = await session.evaluate("window.__probe()")
+            print("probe(floating 430) =", json.dumps(state, ensure_ascii=False))
+            check(
+                "floating 窄窗(430px)不渲染常驻列表",
+                state["mode"] == "floating" and not state["hasSidebar"],
+                f"mode={state['mode']} hasSidebar={state['hasSidebar']} window={state['windowWidth']}",
+            )
+
+            # 把悬浮窗拉宽到 900px：应出现常驻列表，且对话区仍有余量。
+            await session.evaluate(
+                "document.querySelector('[data-float-width=\"900\"]').click()"
+            )
+            await asyncio.sleep(1.6)
+            state = await session.evaluate("window.__probe()")
+            print("probe(floating 900) =", json.dumps(state, ensure_ascii=False))
+            check(
+                "floating 宽窗(900px)渲染常驻列表",
+                state["hasSidebar"] and state["sidebarWidth"] >= 200,
+                f"hasSidebar={state['hasSidebar']} sidebar={state['sidebarWidth']}",
+            )
+            check(
+                "floating 宽窗下对话区仍有可用宽度",
+                state["chatAreaWidth"] >= 400,
+                f"chatArea={state['chatAreaWidth']} window={state['windowWidth']}",
+            )
+
+            # 切回 embedded + single 布局：列表应完全消失，回到既有单栏行为。
             await session.set_viewport(1280, 900)
+            await session.evaluate("document.getElementById('toggle-mode').click()")
+            await asyncio.sleep(1.0)
             await session.evaluate(
                 "document.querySelector('[data-width=\"1000\"]').click()"
             )
@@ -285,8 +329,10 @@ async def main():
             print("probe(single layout) =", json.dumps(state, ensure_ascii=False))
             check(
                 "single 布局不渲染会话列表",
-                not state["hasSidebar"] and "desktop" not in state["windowClass"],
-                f"hasSidebar={state['hasSidebar']} class={state['windowClass']}",
+                state["mode"] == "embedded"
+                and not state["hasSidebar"]
+                and "desktop" not in state["windowClass"],
+                f"mode={state['mode']} hasSidebar={state['hasSidebar']} class={state['windowClass']}",
             )
     finally:
         chrome.terminate()
@@ -294,6 +340,7 @@ async def main():
             chrome.wait(timeout=5)
         except subprocess.TimeoutExpired:
             chrome.kill()
+        shutil.rmtree(profile_dir, ignore_errors=True)
 
     print()
     if failures:

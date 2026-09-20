@@ -3,6 +3,7 @@
     <FloatingButton v-if="!embedded && !isOpen" :position="position" @click="open" />
     <div
       v-if="isOpen"
+      ref="panelRef"
       class="xxai-chat-window"
       :class="{
         dark: theme === 'dark',
@@ -123,7 +124,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, type Component } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, type Component } from 'vue'
 import FloatingButton from './FloatingButton.vue'
 import ChatMessageList from './ChatMessageList.vue'
 import ChatInput from './ChatInput.vue'
@@ -199,6 +200,8 @@ const viewport = ref({ width: 0, height: 0 })
 const windowRect = ref<WindowRect>({ x: 0, y: 0, width: 430, height: 680 })
 const confirmClear = ref(false)
 const rootRef = ref<HTMLElement | null>(null)
+/** 聊天面板本身：双栏断点按它的宽度判断，而非浏览器视口。 */
+const panelRef = ref<HTMLElement | null>(null)
 let clearTimer: ReturnType<typeof setTimeout> | null = null
 let resizeObserver: ResizeObserver | null = null
 
@@ -254,9 +257,26 @@ const messageQuota = computed(() => agent.quota?.resources?.message)
 const agentName = computed(() => agent.agentInfo?.name || props.title)
 const agentDescription = computed(() => agent.agentInfo?.description || undefined)
 
+/**
+ * 面板挂载后测量宽度并建立观察器。
+ *
+ * 悬浮窗在用户点击悬浮按钮之后才挂载、且拖拽缩放会改变宽度，因此不能只在
+ * onMounted 里接一次：每次面板出现都要重新测量并 attach。
+ */
+function attachPanelObserver() {
+  void nextTick(() => {
+    measurePanelWidth()
+    if (typeof ResizeObserver === 'undefined' || !panelRef.value) return
+    resizeObserver?.disconnect()
+    resizeObserver = new ResizeObserver(() => measurePanelWidth())
+    resizeObserver.observe(panelRef.value)
+  })
+}
+
 function open() {
   if (props.embedded) return
   isOpen.value = true
+  attachPanelObserver()
 }
 
 function close() {
@@ -348,13 +368,15 @@ function handleViewportResize() {
 }
 
 /**
- * 测量实际渲染宽度。
+ * 测量聊天面板自身的渲染宽度。
  *
- * 嵌入式模式下对话区的宽度由宿主容器决定，与 `window.innerWidth` 无关，
- * 因此用 ResizeObserver 观察容器，窄屏降级才不会被误判。
+ * 断点必须按「面板实际宽度」判断，不能用 `window.innerWidth`：
+ * 悬浮窗默认只有 430px，而它可能停在一个很宽的视口上；只看视口会让
+ * 260px 的常驻列表把对话区挤到 170px。embedded 下同样由宿主容器决定
+ * 宽度，与视口无关。
  */
-function measureContainerWidth() {
-  const element = rootRef.value
+function measurePanelWidth() {
+  const element = panelRef.value || rootRef.value
   const width = element?.clientWidth || window.innerWidth
   if (width > 0) {
     viewport.value = { ...viewport.value, width }
@@ -564,20 +586,16 @@ function handleQuestionResolved(value: { questionId: string }) {
 
 onMounted(() => {
   isOpen.value = props.embedded
+  viewport.value = { width: window.innerWidth, height: window.innerHeight }
   if (!props.embedded) {
-    viewport.value = { width: window.innerWidth, height: window.innerHeight }
     windowRect.value = restoreWindowRect()
     window.addEventListener('resize', handleViewportResize)
   } else {
-    // 嵌入式下容器尺寸即对话区宽度，用它判断是否需要窄屏降级。
-    viewport.value = { width: window.innerWidth, height: window.innerHeight }
     window.addEventListener('resize', handleViewportResize)
-    if (typeof ResizeObserver !== 'undefined' && rootRef.value) {
-      resizeObserver = new ResizeObserver(() => measureContainerWidth())
-      resizeObserver.observe(rootRef.value)
-    }
-    measureContainerWidth()
   }
+  // 两种模式都观察面板本身：embedded 看宿主容器，floating 看悬浮窗
+  // （拖拽/缩放改变宽度后，双栏断点要跟着重新判断）。
+  attachPanelObserver()
 
   messages.value = agent.getMessages()
   activeConversationId.value = agent.currentConversationId
@@ -598,6 +616,8 @@ onMounted(() => {
   agent.on('ui_toggle', () => {
     if (props.embedded) return
     isOpen.value = !isOpen.value
+    // 面板刚出现时同样要测量宽度并建立观察器。
+    if (isOpen.value) attachPanelObserver()
   })
 
   void loadConversations()

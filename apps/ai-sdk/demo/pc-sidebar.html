@@ -18,14 +18,22 @@
   <body>
     <div class="page">
       <div class="toolbar">
-        <strong>PC 双栏验证：</strong>
-        <button data-width="1000" class="active">宽屏 1000px</button>
-        <button data-width="520">窄屏 520px</button>
+        <strong>验证：</strong>
+        <button id="toggle-mode">切到 floating 模式</button>
         <button id="toggle-layout">切到 single 布局</button>
+      </div>
+      <div class="toolbar">
+        <span style="font-size:13px;color:#475569">embedded 容器宽度：</span>
+        <button data-width="1000" class="active">1000px</button>
+        <button data-width="520">520px</button>
+        <span style="font-size:13px;color:#475569">floating 窗口宽度：</span>
+        <button data-float-width="430" class="active">430px</button>
+        <button data-float-width="900">900px</button>
       </div>
       <div id="chat-root"></div>
       <p style="color:#475569;font-size:13px">
         左侧列表数据来自被 stub 的 <code>fetch</code>；点击列表项应加载对应历史消息。
+        floating 模式下列表宽窄应由「悬浮窗实际宽度」决定，而不是浏览器视口宽度。
       </p>
     </div>
 
@@ -48,6 +56,11 @@
       }
       const deleted = new Set()
 
+      // 记录列表接口被调用次数，用于断言「流式期间不重复拉列表」。
+      let listCalls = 0
+      // 记录 conversations_changed 事件，便于区分「事件没发」与「UI 没刷」。
+      const changedEvents = []
+
       window.fetch = async (url, init) => {
         const target = String(url)
         const respond = (data) => ({ ok: true, status: 200, json: async () => ({ success: true, code: 0, data }) })
@@ -66,13 +79,6 @@
         return { ok: false, status: 404, json: async () => ({}) }
       }
 
-      // 记录列表接口被调用次数，用于断言「流式期间不重复拉列表」。
-      let listCalls = 0
-      window.__listCalls = () => listCalls
-      // 记录 conversations_changed 事件，便于区分「事件没发」与「UI 没刷」。
-      const changedEvents = []
-      window.__changedEvents = () => changedEvents.slice()
-
       const base = {
         endpoint: 'ws://127.0.0.1:9/api/v1/ws/agents/1',
         baseUrl: 'http://127.0.0.1:9/api/v1',
@@ -85,16 +91,29 @@
       const root = document.getElementById('chat-root')
       let agent = null
       let layout = 'desktop'
+      let mode = 'embedded'
+      let floatWidth = 430
+
+      /** 悬浮模式下窗口挂在 document.body，探针范围随之切换。 */
+      function ctx() { return mode === 'embedded' ? root : document }
 
       function mount() {
         if (agent) { agent.destroy(); agent = null }
         root.innerHTML = ''
-        agent = createAgentClient({
-          ...base,
-          ui: { mode: 'embedded', container: root, layout, theme: 'light' }
-        })
+        root.style.display = mode === 'embedded' ? '' : 'none'
+        changedEvents.length = 0
+        // 悬浮窗尺寸会被持久化，且已保存的矩形优先于 `window` 配置。验证页
+        // 需要确定的宽度，因此每次挂载前清掉上一次运行的窗口矩形，避免
+        // 上一轮拉宽到 900px 后影响下一轮的 430px 断言。
+        try { globalThis.localStorage.removeItem('xxai-agent:p:1:u:window') } catch {}
+        const ui = mode === 'embedded'
+          ? { mode: 'embedded', container: root, layout, theme: 'light' }
+          : { mode: 'floating', position: 'right', layout, theme: 'light', window: { width: floatWidth, height: 600 } }
+        agent = createAgentClient({ ...base, ui })
         agent.on('conversations_changed', (payload) => changedEvents.push(payload))
         window.__agent = agent
+        // 悬浮窗默认关闭，点开才能断言窗口内部结构。
+        if (mode === 'floating') agent.open()
       }
       mount()
 
@@ -106,11 +125,31 @@
         })
       })
 
-      const toggle = document.getElementById('toggle-layout')
-      toggle.addEventListener('click', () => {
+      document.querySelectorAll('[data-float-width]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('[data-float-width]').forEach((b) => b.classList.remove('active'))
+          btn.classList.add('active')
+          floatWidth = Number(btn.dataset.floatWidth)
+          if (mode === 'floating') {
+            // 悬浮窗尺寸会被持久化（用户拖拽结果优先于配置默认值），验证页
+            // 需要确定性的宽度，因此切换前清掉已保存的窗口矩形。
+            try { globalThis.localStorage.removeItem('xxai-agent:p:1:u:window') } catch {}
+            mount()
+          }
+        })
+      })
+
+      document.getElementById('toggle-mode').addEventListener('click', (event) => {
+        mode = mode === 'embedded' ? 'floating' : 'embedded'
+        event.target.textContent = mode === 'embedded' ? '切到 floating 模式' : '切到 embedded 模式'
+        event.target.classList.toggle('active', mode === 'floating')
+        mount()
+      })
+
+      document.getElementById('toggle-layout').addEventListener('click', (event) => {
         layout = layout === 'desktop' ? 'single' : 'desktop'
-        toggle.textContent = layout === 'desktop' ? '切到 single 布局' : '切到 desktop 布局'
-        toggle.classList.toggle('active', layout === 'single')
+        event.target.textContent = layout === 'desktop' ? '切到 single 布局' : '切到 desktop 布局'
+        event.target.classList.toggle('active', layout === 'single')
         mount()
       })
 
@@ -158,23 +197,29 @@
 
       // 供自动化断言读取的探针。
       window.__probe = () => {
-        const sidebar = root.querySelector('.xxai-conversation-sidebar')
-        const windowEl = root.querySelector('.xxai-chat-window')
-        const resetEl = root.querySelector('.xxai-reset')
+        const c = ctx()
+        const sidebar = c.querySelector('.xxai-conversation-sidebar')
+        const windowEl = c.querySelector('.xxai-chat-window')
+        const resetEl = c.querySelector('.xxai-reset')
+        const mainEl = c.querySelector('.xxai-chat-main')
+        const rect = (el) => (el ? Math.round(el.getBoundingClientRect().width) : 0)
         return {
+          mode,
           layout,
           hasSidebar: Boolean(sidebar),
-          sidebarWidth: sidebar ? sidebar.getBoundingClientRect().width : 0,
+          sidebarWidth: rect(sidebar),
+          windowWidth: rect(windowEl),
+          chatAreaWidth: rect(mainEl),
           windowClass: windowEl ? windowEl.className : '',
-          itemTitles: [...root.querySelectorAll('.xxai-sidebar-item-title')].map((n) => n.textContent.trim()),
-          activeTitle: root.querySelector('.xxai-sidebar-item.is-active .xxai-sidebar-item-title')?.textContent.trim() || null,
-          messages: window.__agent ? window.__agent.getMessages().map((m) => m.content.text) : [],
-          conversationId: window.__agent ? window.__agent.currentConversationId : undefined,
-          listCalls: listCalls,
+          itemTitles: [...c.querySelectorAll('.xxai-sidebar-item-title')].map((n) => n.textContent.trim()),
+          activeTitle: c.querySelector('.xxai-sidebar-item.is-active .xxai-sidebar-item-title')?.textContent.trim() || null,
+          messages: agent ? agent.getMessages().map((m) => m.content.text) : [],
+          conversationId: agent ? agent.currentConversationId : undefined,
+          listCalls,
           changedEvents: changedEvents.slice(),
           innerWidth: window.innerWidth,
           rootClientWidth: root.clientWidth,
-          resetClientWidth: resetEl ? resetEl.clientWidth : -1
+          resetClientWidth: rect(resetEl)
         }
       }
     </script>

@@ -1,7 +1,7 @@
 ---
 source: script
 request: 2026-09-20-ai-sdk-pc-sidebar-conversations
-ranAt: "2026-09-20 18:16:05 CST"
+ranAt: "2026-09-20 18:35:36 CST"
 exitCode: 3
 ---
 
@@ -22,7 +22,7 @@ bash -c cd apps/backend && poetry run pytest tests/embed tests/conversation test
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-209 passed, 1 skipped, 1 warning in 4.50s
+209 passed, 1 skipped, 1 warning in 5.09s
 结果：通过
 
 ### 后端：ruff 检查本次改动的模块
@@ -75,34 +75,39 @@ Package entries verified: ./dist/xxai-agent.es.js, ./dist/xxai-agent.umd.cjs, ./
 python3 apps/ai-sdk/scripts/verify-pc-sidebar.py
 ```
 
-probe(wide, desktop) = {"layout": "desktop", "hasSidebar": true, "sidebarWidth": 260, "windowClass": "xxai-chat-window xxai-chat-window--embedded xxai-chat-window--desktop", "itemTitles": ["订单查询", "退款流程"], "activeTitle": null, "messages": ["新会话第一句", "收到", "第二句", "收到", "Agent 连接失败，本轮对话已结束"], "conversationId": "9001", "listCalls": 1, "changedEvents": [], "innerWidth": 1280, "rootClientWidth": 1000, "resetClientWidth": 1000}
+probe(wide, desktop) = {"mode": "embedded", "layout": "desktop", "hasSidebar": true, "sidebarWidth": 260, "windowWidth": 1000, "chatAreaWidth": 740, "windowClass": "xxai-chat-window xxai-chat-window--embedded xxai-chat-window--desktop", "itemTitles": ["订单查询", "退款流程"], "activeTitle": null, "messages": [], "listCalls": 1, "changedEvents": [], "innerWidth": 1280, "rootClientWidth": 1000, "resetClientWidth": 1000}
 [PASS] 宽屏渲染左侧会话列表: hasSidebar=True
 [PASS] 列表宽度落在 200-360 区间: width=260
 [PASS] 窗口带 desktop 类名: xxai-chat-window xxai-chat-window--embedded xxai-chat-window--desktop
 [PASS] 列表展示两个会话标题: ['订单查询', '退款流程']
-probe(after select #1) = {"layout": "desktop", "hasSidebar": true, "sidebarWidth": 260, "windowClass": "xxai-chat-window xxai-chat-window--embedded xxai-chat-window--desktop", "itemTitles": ["订单查询", "退款流程"], "activeTitle": "订单查询", "messages": ["我的订单到哪了？", "你的订单已发货。"], "conversationId": "1", "listCalls": 1, "changedEvents": [], "innerWidth": 1280, "rootClientWidth": 1000, "resetClientWidth": 1000}
+probe(after select #1) = {"mode": "embedded", "layout": "desktop", "hasSidebar": true, "sidebarWidth": 260, "windowWidth": 1000, "chatAreaWidth": 740, "windowClass": "xxai-chat-window xxai-chat-window--embedded xxai-chat-window--desktop", "itemTitles": ["订单查询", "退款流程"], "activeTitle": "订单查询", "messages": ["我的订单到哪了？", "你的订单已发货。"], "conversationId": "1", "listCalls": 1, "changedEvents": [], "innerWidth": 1280, "rootClientWidth": 1000, "resetClientWidth": 1000}
 [PASS] 点击会话后加载对应历史消息: ['我的订单到哪了？', '你的订单已发货。']
 [PASS] 当前会话在列表中高亮: 订单查询
-probe(after select #2) = {"layout": "desktop", "hasSidebar": true, "sidebarWidth": 260, "windowClass": "xxai-chat-window xxai-chat-window--embedded xxai-chat-window--desktop", "itemTitles": ["订单查询", "退款流程"], "activeTitle": "退款流程", "messages": ["怎么退款？"], "conversationId": "2", "listCalls": 1, "changedEvents": [], "innerWidth": 1280, "rootClientWidth": 1000, "resetClientWidth": 1000}
+probe(after select #2) = {"mode": "embedded", "layout": "desktop", "hasSidebar": true, "sidebarWidth": 260, "windowWidth": 1000, "chatAreaWidth": 740, "windowClass": "xxai-chat-window xxai-chat-window--embedded xxai-chat-window--desktop", "itemTitles": ["订单查询", "退款流程"], "activeTitle": "退款流程", "messages": ["怎么退款？"], "conversationId": "2", "listCalls": 1, "changedEvents": [], "innerWidth": 1280, "rootClientWidth": 1000, "resetClientWidth": 1000}
 [PASS] 切换会话后历史被整体替换（无串台）: ['怎么退款？']
-probe(after delete) = {"layout": "desktop", "hasSidebar": true, "sidebarWidth": 260, "windowClass": "xxai-chat-window xxai-chat-window--embedded xxai-chat-window--desktop", "itemTitles": ["订单查询"], "activeTitle": null, "messages": [], "listCalls": 3, "changedEvents": [{"reason": "created"}, {"reason": "deleted", "conversationId": "2"}], "innerWidth": 1280, "rootClientWidth": 1000, "resetClientWidth": 1000}
+probe(after delete) = {"mode": "embedded", "layout": "desktop", "hasSidebar": true, "sidebarWidth": 260, "windowWidth": 1000, "chatAreaWidth": 740, "windowClass": "xxai-chat-window xxai-chat-window--embedded xxai-chat-window--desktop", "itemTitles": ["订单查询"], "activeTitle": null, "messages": [], "listCalls": 3, "changedEvents": [{"reason": "created"}, {"reason": "deleted", "conversationId": "2"}], "innerWidth": 1280, "rootClientWidth": 1000, "resetClientWidth": 1000}
 [PASS] 删除后列表移除该项: ['订单查询']
 [PASS] 删除当前会话后回到新建态: messages=[] active=None
-probe(after create) = {"layout": "desktop", "hasSidebar": true, "sidebarWidth": 260, "windowClass": "xxai-chat-window xxai-chat-window--embedded xxai-chat-window--desktop", "itemTitles": ["订单查询"], "activeTitle": null, "messages": [], "listCalls": 4, "changedEvents": [{"reason": "created"}, {"reason": "deleted", "conversationId": "2"}, {"reason": "created"}], "innerWidth": 1280, "rootClientWidth": 1000, "resetClientWidth": 1000}
+probe(after create) = {"mode": "embedded", "layout": "desktop", "hasSidebar": true, "sidebarWidth": 260, "windowWidth": 1000, "chatAreaWidth": 740, "windowClass": "xxai-chat-window xxai-chat-window--embedded xxai-chat-window--desktop", "itemTitles": ["订单查询"], "activeTitle": null, "messages": [], "listCalls": 4, "changedEvents": [{"reason": "created"}, {"reason": "deleted", "conversationId": "2"}, {"reason": "created"}], "innerWidth": 1280, "rootClientWidth": 1000, "resetClientWidth": 1000}
 [PASS] 新建会话清空消息区: messages=[] active=None
-probe(after first message) = {"layout": "desktop", "hasSidebar": true, "sidebarWidth": 260, "windowClass": "xxai-chat-window xxai-chat-window--embedded xxai-chat-window--desktop", "itemTitles": ["订单查询", "新会话第一句"], "activeTitle": "新会话第一句", "messages": ["新会话第一句", "收到"], "conversationId": "9001", "listCalls": 6, "changedEvents": [{"reason": "created"}, {"reason": "deleted", "conversationId": "2"}, {"reason": "created"}, {"reason": "created", "conversationId": "9001"}, {"reason": "message", "conversationId": "9001"}], "innerWidth": 1280, "rootClientWidth": 1000, "resetClientWidth": 1000}
+probe(after first message) = {"mode": "embedded", "layout": "desktop", "hasSidebar": true, "sidebarWidth": 260, "windowWidth": 1000, "chatAreaWidth": 740, "windowClass": "xxai-chat-window xxai-chat-window--embedded xxai-chat-window--desktop", "itemTitles": ["订单查询", "新会话第一句"], "activeTitle": "新会话第一句", "messages": ["新会话第一句", "收到"], "conversationId": "9001", "listCalls": 6, "changedEvents": [{"reason": "created"}, {"reason": "deleted", "conversationId": "2"}, {"reason": "created"}, {"reason": "created", "conversationId": "9001"}, {"reason": "message", "conversationId": "9001"}], "innerWidth": 1280, "rootClientWidth": 1000, "resetClientWidth": 1000}
 [PASS] 发首条消息后新会话出现在列表: ['订单查询', '新会话第一句']
 [PASS] 发首条消息后当前会话高亮到新会话: active=新会话第一句 conversationId=9001
 [PASS] 发首条消息确实触发了列表刷新: before=4 after=6
-probe(after second message) = {"layout": "desktop", "hasSidebar": true, "sidebarWidth": 260, "windowClass": "xxai-chat-window xxai-chat-window--embedded xxai-chat-window--desktop", "itemTitles": ["订单查询", "新会话第一句"], "activeTitle": "新会话第一句", "messages": ["新会话第一句", "收到", "第二句", "收到"], "conversationId": "9001", "listCalls": 7, "changedEvents": [{"reason": "created"}, {"reason": "deleted", "conversationId": "2"}, {"reason": "created"}, {"reason": "created", "conversationId": "9001"}, {"reason": "message", "conversationId": "9001"}, {"reason": "message", "conversationId": "9001"}], "innerWidth": 1280, "rootClientWidth": 1000, "resetClientWidth": 1000}
+probe(after second message) = {"mode": "embedded", "layout": "desktop", "hasSidebar": true, "sidebarWidth": 260, "windowWidth": 1000, "chatAreaWidth": 740, "windowClass": "xxai-chat-window xxai-chat-window--embedded xxai-chat-window--desktop", "itemTitles": ["订单查询", "新会话第一句"], "activeTitle": "新会话第一句", "messages": ["新会话第一句", "收到", "第二句", "收到"], "conversationId": "9001", "listCalls": 7, "changedEvents": [{"reason": "created"}, {"reason": "deleted", "conversationId": "2"}, {"reason": "created"}, {"reason": "created", "conversationId": "9001"}, {"reason": "message", "conversationId": "9001"}, {"reason": "message", "conversationId": "9001"}], "innerWidth": 1280, "rootClientWidth": 1000, "resetClientWidth": 1000}
 [PASS] 同一会话内发消息不会重复堆叠列表项: ['订单查询', '新会话第一句']
 [PASS] 回答完成后刷新了列表: before=6 after=7
-probe(narrow 520) = {"layout": "desktop", "hasSidebar": false, "sidebarWidth": 0, "windowClass": "xxai-chat-window xxai-chat-window--embedded xxai-chat-window--desktop", "itemTitles": [], "activeTitle": null, "messages": ["新会话第一句", "收到", "第二句", "收到"], "conversationId": "9001", "listCalls": 7, "changedEvents": [{"reason": "created"}, {"reason": "deleted", "conversationId": "2"}, {"reason": "created"}, {"reason": "created", "conversationId": "9001"}, {"reason": "message", "conversationId": "9001"}, {"reason": "message", "conversationId": "9001"}], "innerWidth": 520, "rootClientWidth": 488, "resetClientWidth": 488}
-[PASS] 窄屏收起常驻列表: hasSidebar=False
-probe(narrow drawer open) = {"layout": "desktop", "hasSidebar": true, "sidebarWidth": 260, "windowClass": "xxai-chat-window xxai-chat-window--embedded xxai-chat-window--desktop xxai-chat-window--drawer-open", "itemTitles": ["订单查询", "新会话第一句"], "activeTitle": "新会话第一句", "messages": ["新会话第一句", "收到", "第二句", "收到", "Agent 连接失败，本轮对话已结束"], "conversationId": "9001", "listCalls": 7, "changedEvents": [{"reason": "created"}, {"reason": "deleted", "conversationId": "2"}, {"reason": "created"}, {"reason": "created", "conversationId": "9001"}, {"reason": "message", "conversationId": "9001"}, {"reason": "message", "conversationId": "9001"}], "innerWidth": 520, "rootClientWidth": 488, "resetClientWidth": 488}
-[PASS] 窄屏可展开抽屉列表: hasSidebar=True
-probe(single layout) = {"layout": "single", "hasSidebar": false, "sidebarWidth": 0, "windowClass": "xxai-chat-window xxai-chat-window--embedded", "itemTitles": [], "activeTitle": null, "messages": ["新会话第一句", "收到", "第二句", "收到", "Agent 连接失败，本轮对话已结束"], "conversationId": "9001", "listCalls": 7, "changedEvents": [{"reason": "created"}, {"reason": "deleted", "conversationId": "2"}, {"reason": "created"}, {"reason": "created", "conversationId": "9001"}, {"reason": "message", "conversationId": "9001"}, {"reason": "message", "conversationId": "9001"}], "innerWidth": 1280, "rootClientWidth": 1000, "resetClientWidth": 1000}
-[PASS] single 布局不渲染会话列表: hasSidebar=False class=xxai-chat-window xxai-chat-window--embedded
+probe(narrow panel) = {"mode": "embedded", "layout": "desktop", "hasSidebar": false, "sidebarWidth": 0, "windowWidth": 520, "chatAreaWidth": 520, "windowClass": "xxai-chat-window xxai-chat-window--embedded xxai-chat-window--desktop", "itemTitles": [], "activeTitle": null, "messages": ["新会话第一句", "收到", "第二句", "收到"], "conversationId": "9001", "listCalls": 7, "changedEvents": [{"reason": "created"}, {"reason": "deleted", "conversationId": "2"}, {"reason": "created"}, {"reason": "created", "conversationId": "9001"}, {"reason": "message", "conversationId": "9001"}, {"reason": "message", "conversationId": "9001"}], "innerWidth": 1400, "rootClientWidth": 520, "resetClientWidth": 520}
+[PASS] 窄面板收起常驻列表（宽视口下仍降级）: hasSidebar=False innerWidth=1400
+probe(narrow drawer open) = {"mode": "embedded", "layout": "desktop", "hasSidebar": true, "sidebarWidth": 260, "windowWidth": 520, "chatAreaWidth": 520, "windowClass": "xxai-chat-window xxai-chat-window--embedded xxai-chat-window--desktop xxai-chat-window--drawer-open", "itemTitles": ["订单查询", "新会话第一句"], "activeTitle": "新会话第一句", "messages": ["新会话第一句", "收到", "第二句", "收到", "Agent 连接失败，本轮对话已结束"], "conversationId": "9001", "listCalls": 7, "changedEvents": [{"reason": "created"}, {"reason": "deleted", "conversationId": "2"}, {"reason": "created"}, {"reason": "created", "conversationId": "9001"}, {"reason": "message", "conversationId": "9001"}, {"reason": "message", "conversationId": "9001"}], "innerWidth": 1400, "rootClientWidth": 520, "resetClientWidth": 520}
+[PASS] 窄面板可展开抽屉列表: hasSidebar=True
+probe(floating 430) = {"mode": "floating", "layout": "desktop", "hasSidebar": false, "sidebarWidth": 0, "windowWidth": 430, "chatAreaWidth": 430, "windowClass": "xxai-chat-window xxai-chat-window--desktop", "itemTitles": [], "activeTitle": null, "messages": ["新会话第一句", "收到", "第二句", "收到", "Agent 连接失败，本轮对话已结束"], "conversationId": "9001", "listCalls": 8, "changedEvents": [], "innerWidth": 1400, "rootClientWidth": 0, "resetClientWidth": 1400}
+[PASS] floating 窄窗(430px)不渲染常驻列表: mode=floating hasSidebar=False window=430
+probe(floating 900) = {"mode": "floating", "layout": "desktop", "hasSidebar": true, "sidebarWidth": 260, "windowWidth": 900, "chatAreaWidth": 640, "windowClass": "xxai-chat-window xxai-chat-window--desktop", "itemTitles": ["订单查询", "新会话第一句"], "activeTitle": "新会话第一句", "messages": ["新会话第一句", "收到", "第二句", "收到", "Agent 连接失败，本轮对话已结束"], "conversationId": "9001", "listCalls": 9, "changedEvents": [], "innerWidth": 1400, "rootClientWidth": 0, "resetClientWidth": 1400}
+[PASS] floating 宽窗(900px)渲染常驻列表: hasSidebar=True sidebar=260
+[PASS] floating 宽窗下对话区仍有可用宽度: chatArea=640 window=900
+probe(single layout) = {"mode": "embedded", "layout": "single", "hasSidebar": false, "sidebarWidth": 0, "windowWidth": 1000, "chatAreaWidth": 1000, "windowClass": "xxai-chat-window xxai-chat-window--embedded", "itemTitles": [], "activeTitle": null, "messages": ["新会话第一句", "收到", "第二句", "收到", "Agent 连接失败，本轮对话已结束"], "conversationId": "9001", "listCalls": 10, "changedEvents": [], "innerWidth": 1280, "rootClientWidth": 1000, "resetClientWidth": 1000}
+[PASS] single 布局不渲染会话列表: mode=embedded hasSidebar=False class=xxai-chat-window xxai-chat-window--embedded
 
 ALL CHECKS PASSED
 结果：通过
@@ -122,19 +127,20 @@ ALL CHECKS PASSED
 - **跨主体删除 404 且不可复活**：`test_soft_delete_rejects_other_principal_and_is_idempotent` 覆盖越权 404 与重复删除幂等；移除 `get_for_principal` 的软删除过滤后该用例失败（已用变异验证）。**通过**。
 - **SDK 切换会话渲染历史且不串台**：单测 `clears stale streaming state...`（移除 pending 重置即失败，已变异验证）+ 浏览器断言「点击会话后加载对应历史消息」「切换会话后历史被整体替换」。**通过**。
 - **新建/删除后的行为**：单测与浏览器断言「删除当前会话后回到新建态」「新建会话清空消息区」。**通过**。
-- **聊天后会话列表刷新（本轮修复项）**：浏览器断言「发首条消息后新会话出现在列表」「发首条消息后当前会话高亮到新会话」「发首条消息确实触发了列表刷新」「回答完成后刷新了列表」「同一会话内发消息不会重复堆叠列表项」全部通过；单测新增 4 例覆盖 `conversations_changed` 的 `created`/`message` 两种触发，且移除任一触发点都会导致对应用例失败（已变异验证）。**通过**。
+- **聊天后会话列表刷新**：浏览器断言「发首条消息后新会话出现在列表」「发首条消息后当前会话高亮到新会话」「发首条消息确实触发了列表刷新」「回答完成后刷新了列表」「同一会话内发消息不会重复堆叠列表项」全部通过；单测新增 4 例覆盖 `conversations_changed` 的 `created`/`message` 两种触发，移除任一触发点都会导致对应用例失败（已变异验证）。**通过**。
+- **悬浮与嵌入式均支持双栏，且断点按面板宽度判断**：浏览器断言「窄面板收起常驻列表（宽视口下仍降级）」（innerWidth=1400 而面板 520px，仍降级）、「floating 窄窗(430px)不渲染常驻列表」、「floating 宽窗(900px)渲染常驻列表」、「floating 宽窗下对话区仍有可用宽度」（chatArea=640）。**通过**。
 - **既有单栏/floating 不回归**：浏览器断言 `single` 布局不渲染列表且无 desktop 类名；SDK 全量单测 142 项通过（唯一失败的 SSR 套件为改动前既存问题，已单独确认）。**通过**。
 - **历史附件渲染**：复用既有的 `loadAsset()` 与受鉴权保护的附件接口，本次未改动该链路；浏览器验证页未覆盖图片附件（见未执行项）。**部分覆盖**。
 
-本轮修复的问题与结论（详见提交信息）：
+本轮修复的两个问题（详见提交信息与 `spec.md` 变更记录）：
 
-- 用户反馈「聊天时/聊天后没有刷新会话列表」。根因有二，且都是本 request 首版实现的缺陷：其一 `handleMessage` 里先赋值 `activeConversationId` 再判断 `!activeConversationId.value`，条件恒为假；其二 `conversations_changed` 只在新建/删除时发出，发送消息与回答完成两条路径都没有触发。
-- 修复方式：由 SDK 在「会话从无到有」与「回答完成/失败」两个终态发出 `conversations_changed`，UI 统一由该事件刷新列表，避免流式期间反复请求列表接口。
+- 「聊天时/聊天后列表不刷新」：`conversations_changed` 原先只在新建/删除时发出，且 `handleMessage` 里「先赋值再判断」使兜底刷新条件恒为假。
+- 「布局适用范围与断点口径错误」：首版把 `layout: 'desktop'` 描述为仅嵌入式生效，实际与模式无关；且断点原用 `window.innerWidth`，会使 430px 悬浮窗停在宽视口时不降级、对话区被挤到 170px。现按面板自身宽度判断，并修复面板晚于 `isOpen` 挂载导致观察器未建立的问题。
 
 剩余风险与说明：
 
 - 三项未执行项已在上一节如实列出，其中最需要关注的是「未连真实 PostgreSQL / 未跑真实端到端链路」。UI 行为用 stub `fetch` 与注入的网关事件隔离验证，接口隔离口径用 sqlite 单测覆盖，两者都不等于生产环境端到端联调。
-- 浏览器验证一度发现「宽屏未渲染列表」，定位为验证环境视口只有 756px（默认 headless 窗口）而非组件缺陷；另一次「回答完成后未刷新」的失败定位为验证页加载了未重建的 `dist/`，均为验证环境问题，已修正。
+- 验证过程的三次失败经定位**全部是验证环境问题**、非产品缺陷：视口默认 756px 误判宽屏、验证页加载了未重建的 `dist/`、复用 Chrome profile 导致上一轮 900px 窗口矩形被 localStorage 持久化并在下一轮覆盖 430px 配置。三者已分别修正（覆盖视口、重建产物、每轮独立 profile + 挂载前清理窗口矩形）。
 - 软删除会话的消息与附件长期占用存储，属已知取舍，需后续数据保留策略处理。
 
 结论：本 request 的验收标准除「历史图片附件渲染」为部分覆盖外全部达到，可归档；建议在部署环境补做 PostgreSQL 查询计划与真实端到端联调。

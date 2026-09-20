@@ -1,6 +1,7 @@
 # Changelog
 
 ## - 2026-09-20
+- 🐛 fix：PC 双栏断点改按「聊天面板自身宽度」判断，并修正适用范围——原先用 `window.innerWidth`，导致 430px 悬浮窗停在宽视口时不降级、260px 常驻列表把对话区挤到 170px；现悬浮/嵌入两种模式一律按面板实际宽度判断，悬浮窗拖拽缩放后重新判断，`layout: 'desktop'` 对 floating 同样生效（把窗口拉宽到 900px 即常驻列表）。同时修复面板在 `isOpen` 后才挂载导致观察器未建立、嵌入式窄容器不降级的问题 `🧑‍💻 lixingwen`
 - 🐛 fix：修复 PC 双栏布局下聊天时/聊天后左侧会话列表不刷新——`conversations_changed` 原先只在新建/删除时发出，发消息与回答完成两条路径都不触发，加上 `ChatWidget.handleMessage` 里「先赋值再判断」导致刷新条件恒为假，用户发完消息仍看到「还没有历史会话」。现由 SDK 在「会话从无到有」与「回答完成/失败」两个终态发出该事件，UI 统一由事件刷新，流式期间不重复请求列表接口 `🧑‍💻 lixingwen`
 - ✨ feat：AI SDK 支持 PC 双栏布局与左侧会话列表——新增 `ui.layout: 'desktop'`（左列表 + 右对话区）与 `ui.sidebar.width`，窄于 768px 自动退化为单栏并把列表收进抽屉；新增 `listConversations()` / `openConversation()` / `startNewConversation()` / `deleteConversation()` 与 `conversations_changed` 事件，切换会话时原子重置消息、pending 流式态与重放游标，避免「历史消息 + 上一条流式回答」串台 `🧑‍💻 lixingwen`
 - ✨ feat：Embed 新增会话列表与删除接口——`GET /api/v1/embed/conversations`（按平台 + token 主体 + Agent 隔离，`created_at` 倒序分页，返回轻量投影）与 `DELETE /api/v1/embed/conversations/{id}`；删除采用**软删除**（只标记 `status='deleted'`），消息、附件与 `model_usage_records` 计费数据一律保留，避免级联销毁用量记录；软删除会话不可再被解析续聊，跨主体访问按 404 处理不泄露存在性 `🧑‍💻 lixingwen`

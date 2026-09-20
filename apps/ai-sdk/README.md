@@ -319,7 +319,7 @@ const agent = createAgentClient({
 
 ### PC 双栏与会话列表（`layout: 'desktop'`）
 
-PC 页面接入时可以让 SDK 同时提供左侧会话列表：传入 `ui.layout: 'desktop'` 后，宽屏下渲染为「左侧会话列表 + 右侧对话区」，点击列表项即可切换会话并加载该会话的历史消息。
+PC 页面接入时可以让 SDK 同时提供左侧会话列表：传入 `ui.layout: 'desktop'` 后，面板够宽时渲染为「左侧会话列表 + 右侧对话区」，点击列表项即可切换会话并加载该会话的历史消息。**悬浮模式与嵌入式模式都支持**该布局。
 
 ```typescript
 const agent = createAgentClient({
@@ -333,12 +333,26 @@ const agent = createAgentClient({
 })
 ```
 
+悬浮模式同样可用，但悬浮窗默认只有 430px 宽，放不下 260px 的常驻列表，因此默认走抽屉形态；把窗口拉宽（或配置 `window.width`）后列表才常驻：
+
+```typescript
+const agent = createAgentClient({
+  // endpoint、platformId、agentId、getToken 同上
+  ui: {
+    mode: 'floating',
+    layout: 'desktop',
+    window: { width: 900, height: 640 }, // 够宽时左侧列表常驻
+  },
+})
+```
+
 `layout` 与 `sidebar` 的约定：
 
 - `layout` 缺省为 `'single'`，即既有的单栏消息流；不传这两个字段时行为与升级前完全一致。
-- 窄于 768px 时自动退化为单栏，会话列表改为头部按钮展开的抽屉，不会挤压对话区。
-- 列表宽度按容器实测宽度判断（嵌入式下与 `window.innerWidth` 无关），容器变窄同样触发降级。
-- 断点判断以渲染宽度为准，因此宿主容器需要有确定的宽度。
+- **断点按「聊天面板自身宽度」判断**（悬浮窗的窗口宽度、嵌入式的容器宽度），不是浏览器视口宽度：因此一个很宽的页面上、430px 的悬浮窗依然会自动降级，不会把对话区挤没。
+- 面板窄于 768px 时退化为单栏，会话列表改为头部按钮展开的抽屉。
+- 悬浮窗拖拽缩放改变宽度后会重新判断断点，拉宽即出现常驻列表。
+- 断点判断以渲染宽度为准，因此嵌入式宿主容器需要有确定的宽度。
 
 会话相关 API：
 

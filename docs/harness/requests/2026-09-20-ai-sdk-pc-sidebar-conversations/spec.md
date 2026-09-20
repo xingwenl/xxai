@@ -59,7 +59,7 @@ approval:
 - `GET /embed/conversations` 只返回「同平台 + 同 token 主体 + 同 Agent + `status='active'`」的会话，按 `created_at` 倒序分页；换另一主体 token 请求，结果不含前者任何会话。
 - `DELETE /embed/conversations/{id}` 对非本主体会话返回 404（与既有快照接口一致，不泄露存在性）；对本人会话置 `status='deleted'`，此后列表不再返回该项，且 `conversation_messages`、`conversation_assets` 与 `model_usage_records` 行数与磁盘文件均不变。
 - 软删除后再以该 `conversationId` 发消息，解析失败且不复活该会话（`get_for_principal` 过滤生效）。
-- SDK：`embedded` + `layout: 'desktop'` 时 PC 宽屏渲染左列表 + 右对话区；点击列表项后消息区被该会话历史整体替换，`agent.getMessages()` 与新会话一致，后续消息落入该 `conversationId`。
+- SDK：`layout: 'desktop'` 时，**悬浮与嵌入式两种模式**在面板够宽时都渲染左列表 + 右对话区（断点按面板自身宽度判断，非浏览器视口）；`floating` 默认宽 430px 因此默认走抽屉形态，拉宽到 900px 后列表常驻。点击列表项后消息区被该会话历史整体替换，`agent.getMessages()` 与新会话一致，后续消息落入该 `conversationId`。
 - SDK：新建会话清空消息区并解绑旧 `conversationId`；删除当前会话后回落到新建态或列表首项，不出现空白卡死。
 - SDK：`layout` 缺省、以及既有 `floating` / `embedded` 单栏路径的 DOM 结构、拖拽缩放与移动端媒体查询与改动前一致。
 - 历史消息中的附件（`contentBlocks` 内 `asset_id`）经 `loadAsset()` 正常渲染，仍受既有鉴权接口保护。
@@ -71,3 +71,12 @@ approval:
 - 状态风险：`openConversation` 要同时重置 `MessageStore`、`pendingAssistantMessage`、`pendingLoop`、canonical `conversationId` 与 WS 游标 `_lastSequence`；漏重置任一会出现「历史消息 + 上一条流式回答」串台，是本 request 最高回归风险点。
 - 数据风险：无迁移、无物理删除，回滚只需把 `status` 改回 `active`；代价是软删除会话的消息与附件长期占用存储，需在 README 说明并由后续数据保留策略处理。
 - 兼容风险：`layout` 为新增可选字段，旧接入方不传即保持单栏，`0.1.x` 消费者不受影响。
+
+## 变更记录
+
+### 修正：布局适用范围与断点口径（2026-09-20）
+
+- 变更原因：首版把 `layout: 'desktop'` 描述为「仅嵌入式生效」，实际实现按 `props.layout` 判断、与模式无关；用户指出 floating 同样有效后经浏览器实测确认。
+- 修正内容：断点改按**聊天面板自身宽度**判断（原先用 `window.innerWidth`）。原口径下 430px 悬浮窗停在宽视口时不会降级，260px 常驻列表会把对话区挤到 170px；现悬浮窗宽度即断点依据，拖拽缩放后重新判断。
+- 连带修复：面板在 `isOpen` 生效后才挂载，观察器改为每次面板出现（`open()` / `ui_toggle` / `onMounted`）时重新 attach，否则嵌入式窄容器也不降级。
+- 影响章节：验收标准、变更点、`UIOptions.layout` JSDoc、README「PC 双栏与会话列表」。
