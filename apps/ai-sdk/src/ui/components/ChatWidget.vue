@@ -197,6 +197,9 @@ const pendingConfirmation = ref<ToolConfirmationData | null>(null)
 const chatInputRef = ref<any>(null)
 const pendingQuestion = ref<AgentQuestion | null>(null)
 const viewport = ref({ width: 0, height: 0 })
+// 聊天面板自身的渲染宽度，只服务双栏断点；与 `viewport` 严格分开，
+// 否则会污染窗口缩放的上限计算（见 measurePanelWidth 注释）。
+const panelWidth = ref(0)
 const windowRect = ref<WindowRect>({ x: 0, y: 0, width: 430, height: 680 })
 const confirmClear = ref(false)
 const rootRef = ref<HTMLElement | null>(null)
@@ -238,7 +241,12 @@ const windowStorageKey = computed(() => `${agent.storageKey}:window`)
 // PC 双栏只在显式要求 desktop 布局时启用；缺省保持既有单栏行为。
 const isDesktop = computed(() => props.layout === 'desktop')
 // 窄屏（<768px）退化为单栏，会话列表改为抽屉收纳，避免挤压对话区。
-const isNarrow = computed(() => viewport.value.width > 0 && viewport.value.width < 768)
+// 断点看「面板自身宽度」而非视口：430px 悬浮窗停在宽视口上时也必须降级。
+// 面板宽度未测量到（初始挂载前）时退回视口宽度，避免误判。
+const isNarrow = computed(() => {
+  const width = panelWidth.value || viewport.value.width
+  return width > 0 && width < 768
+})
 // 列表宽度限制在可读区间，防止接入方传入过窄或过宽的值破坏布局。
 const sidebarWidth = computed(() => Math.min(Math.max(props.sidebarWidth, 200), 360))
 
@@ -370,16 +378,16 @@ function handleViewportResize() {
 /**
  * 测量聊天面板自身的渲染宽度。
  *
- * 断点必须按「面板实际宽度」判断，不能用 `window.innerWidth`：
- * 悬浮窗默认只有 430px，而它可能停在一个很宽的视口上；只看视口会让
- * 260px 的常驻列表把对话区挤到 170px。embedded 下同样由宿主容器决定
- * 宽度，与视口无关。
+ * 只用于双栏断点判断，**不能**写回 `viewport`：`viewport.width` 表示浏览器
+ * 视口，是窗口缩放上限（maxWidth）的计算依据；一旦把它覆盖成面板宽度，
+ * 缩放会形成自反馈——窗口 430px 时视口被当成 430，于是
+ * `availableWidth = 414`、`minWidth` 被压到 240，拖拽反而把窗口缩到 240px。
  */
 function measurePanelWidth() {
   const element = panelRef.value || rootRef.value
-  const width = element?.clientWidth || window.innerWidth
+  const width = element?.clientWidth || 0
   if (width > 0) {
-    viewport.value = { ...viewport.value, width }
+    panelWidth.value = width
   }
 }
 

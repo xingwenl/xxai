@@ -135,4 +135,42 @@ describe('window layout', () => {
     expect(bounds.width).toBeLessThanOrEqual(320)
     expect(bounds.height).toBeLessThanOrEqual(480)
   })
+
+  // 回归：双栏断点曾把「面板宽度」写回 viewportWidth，导致缩放自反馈。
+  // 窗口尺寸必须由真实视口决定；面板宽度只影响双栏断点，不参与此处计算。
+  it('derives resize bounds from the viewport, not from the window width', () => {
+    const viewportBounds = resolveWindowBounds(undefined, 1400, 900)
+    // 视口 1400 时最小宽度是默认 320，最大不超过视口减留白。
+    expect(viewportBounds.minWidth).toBe(320)
+    expect(viewportBounds.maxWidth).toBe(1400 - WINDOW_EDGE_MARGIN * 2)
+
+    // 真实视口下缩小到极限只能到 320，不能掉到 240：
+    // minWidth 只有在视口本身小于 320+留白时才会被 clamp 降低。
+    const shrunk = resizeWindowRect(
+      defaultWindowRect(context()),
+      -100000,
+      -100000,
+      context(),
+    )
+    expect(shrunk.width).toBe(320)
+
+    // 视口越小，minWidth 会被 availableWidth 逐步压低（clamp 的下限才是 240）：
+    // 这正是「视口」与「面板宽度」语义不同的证据，不能共用一个字段。
+    const tinyViewport = resolveWindowBounds(undefined, 300, 640)
+    expect(tinyViewport.minWidth).toBe(300 - WINDOW_EDGE_MARGIN * 2)
+    expect(tinyViewport.minWidth).toBeLessThan(viewportBounds.minWidth)
+  })
+
+  it('keeps the floating default width when the viewport is wide', () => {
+    // 430px 悬浮窗停在 1400px 视口上时，尺寸必须保持配置值。
+    const rect = defaultWindowRect(
+      {
+        viewportWidth: 1400,
+        viewportHeight: 900,
+        position: 'right',
+        bounds: resolveWindowBounds(undefined, 1400, 900),
+      },
+    )
+    expect(rect.width).toBe(430)
+  })
 })

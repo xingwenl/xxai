@@ -97,6 +97,46 @@ class Session:
             },
         )
 
+    async def drag(self, selector, delta_x, delta_y):
+        """对元素中心按下并拖拽，模拟真实指针操作（用于缩放/拖拽断言）。"""
+        box = await self.evaluate(
+            "(() => { const h = document.querySelector('%s'); if (!h) return null;"
+            " const r = h.getBoundingClientRect();"
+            " return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) } })()"
+            % selector
+        )
+        if not box:
+            return False
+        x, y = box["x"], box["y"]
+        await self.call(
+            "Input.dispatchMouseEvent",
+            {"type": "mousePressed", "x": x, "y": y, "button": "left", "clickCount": 1, "buttons": 1},
+        )
+        for step in range(1, 9):
+            await self.call(
+                "Input.dispatchMouseEvent",
+                {
+                    "type": "mouseMoved",
+                    "x": x + delta_x * step // 8,
+                    "y": y + delta_y * step // 8,
+                    "button": "left",
+                    "buttons": 1,
+                },
+            )
+            await asyncio.sleep(0.03)
+        await self.call(
+            "Input.dispatchMouseEvent",
+            {"type": "mouseReleased", "x": x + delta_x, "y": y + delta_y, "button": "left", "buttons": 0},
+        )
+        await asyncio.sleep(0.4)
+        return True
+
+    async def window_size(self):
+        return await self.evaluate(
+            "(() => { const w = document.querySelector('.xxai-chat-window').getBoundingClientRect();"
+            " return { w: Math.round(w.width), h: Math.round(w.height), x: Math.round(w.left) } })()"
+        )
+
 
 async def main():
     # 每次运行都用全新 profile：悬浮窗尺寸会被持久化到 localStorage，复用
@@ -355,6 +395,38 @@ async def main():
                 "floating 宽窗下对话区仍有可用宽度",
                 state["chatAreaWidth"] >= 400,
                 f"chatArea={state['chatAreaWidth']} window={state['windowWidth']}",
+            )
+
+            # 缩放回归：曾因双栏断点把面板宽度写回 viewportWidth，导致缩放
+            # 自反馈把窗口缩到 240px（低于 320 最小宽度）。这里实测拖拽。
+            # 先把窗口往左上挪，留出向右放大的空间。
+            await session.drag(".xxai-chat-header", -320, -220)
+            moved = await session.window_size()
+            print("after move =", json.dumps(moved, ensure_ascii=False))
+            check(
+                "移动后窗口位置改变",
+                moved["x"] < state["innerWidth"],
+                f"x={moved['x']}",
+            )
+
+            grew_ok = await session.drag(".xxai-window-resize-handle", 220, 120)
+            grew = await session.window_size()
+            print("after grow =", json.dumps(grew, ensure_ascii=False))
+            check(
+                "向右下拖拽缩放柄可放大窗口",
+                grew_ok and grew["w"] > moved["w"] and grew["h"] > moved["h"],
+                f"{moved['w']}x{moved['h']} -> {grew['w']}x{grew['h']}",
+            )
+
+            # 连续向内缩到极限：必须停在最小宽度 320，不能塌到 240。
+            for _ in range(4):
+                await session.drag(".xxai-window-resize-handle", -260, -260)
+            shrunk = await session.window_size()
+            print("after repeated shrink =", json.dumps(shrunk, ensure_ascii=False))
+            check(
+                "连续缩小停在最小尺寸(320x480)而不塌陷",
+                shrunk["w"] == 320 and shrunk["h"] == 480,
+                f"{shrunk['w']}x{shrunk['h']} (expect 320x480)",
             )
 
             # 切回 embedded + single 布局：列表应完全消失，回到既有单栏行为。

@@ -336,28 +336,36 @@
   position: absolute;
   right: 0;
   bottom: 0;
-  z-index: 10;
-  width: 28px;
-  height: 28px;
+  /* 必须高于输入区，否则右下角命中的是输入框而不是缩放柄。 */
+  z-index: 20;
+  /* 命中区比图标大得多，避免 28px 小方块难以抓取。 */
+  width: 40px;
+  height: 40px;
   display: grid;
   place-items: center;
+  padding: 0;
+  border: none;
   border-radius: 0 0 22px 0;
   color: var(--agent-muted-foreground);
-  background: rgba(255, 255, 255, 0.35);
+  background: transparent;
   cursor: nwse-resize;
   touch-action: none;
-  opacity: 0.6;
-  transition: opacity 0.15s ease, color 0.15s ease;
+  opacity: 0.55;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
 }
 
 .xxai-window-resize-handle svg {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
+  /* 图标不参与命中，保证按下位置始终解析到缩放柄本身。 */
+  pointer-events: none;
 }
 
-.xxai-window-resize-handle:hover {
+.xxai-window-resize-handle:hover,
+.xxai-window-resize-handle:active {
   opacity: 1;
   color: var(--agent-primary);
+  background: rgba(255, 255, 255, 0.5);
 }
 
 .xxai-chat-header {
