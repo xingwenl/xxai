@@ -210,6 +210,49 @@ async def main():
                 f"messages={state['messages']} active={state['activeTitle']}",
             )
 
+            # 用户报的问题：在新建态发一条消息后，左侧列表没有刷新出这个新会话。
+            calls_before = state["listCalls"]
+            await session.evaluate(
+                "window.__sendAndComplete('新会话第一句', '9001')"
+            )
+            await asyncio.sleep(1.2)
+            state = await session.evaluate("window.__probe()")
+            print("probe(after first message) =", json.dumps(state, ensure_ascii=False))
+            check(
+                "发首条消息后新会话出现在列表",
+                "新会话第一句" in state["itemTitles"],
+                str(state["itemTitles"]),
+            )
+            check(
+                "发首条消息后当前会话高亮到新会话",
+                state["activeTitle"] == "新会话第一句",
+                f"active={state['activeTitle']} conversationId={state['conversationId']}",
+            )
+            check(
+                "发首条消息确实触发了列表刷新",
+                state["listCalls"] > calls_before,
+                f"before={calls_before} after={state['listCalls']}",
+            )
+
+            # 回答完成后应再刷新一次，让消息数与末条摘要更新；但不该每帧都刷。
+            calls_after_start = state["listCalls"]
+            await session.evaluate(
+                "window.__sendAndComplete('第二句', '9001')"
+            )
+            await asyncio.sleep(1.2)
+            state = await session.evaluate("window.__probe()")
+            print("probe(after second message) =", json.dumps(state, ensure_ascii=False))
+            check(
+                "同一会话内发消息不会重复堆叠列表项",
+                state["itemTitles"].count("新会话第一句") == 1,
+                str(state["itemTitles"]),
+            )
+            check(
+                "回答完成后刷新了列表",
+                state["listCalls"] > calls_after_start,
+                f"before={calls_after_start} after={state['listCalls']}",
+            )
+
             # 窄屏降级：列表应收起为抽屉（默认不渲染常驻侧栏）。
             # 同时收窄视口与容器，模拟真实窄屏而非只压缩容器宽度。
             await session.set_viewport(520, 900)

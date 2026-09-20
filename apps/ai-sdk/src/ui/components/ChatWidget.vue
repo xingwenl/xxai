@@ -449,10 +449,10 @@ function handleSelectConversation(id: number) {
 }
 
 function handleCreateConversation() {
+  // startNewConversation 会发出 conversations_changed，列表由事件统一刷新。
   agent.startNewConversation()
   activeConversationId.value = undefined
   sidebarOpen.value = false
-  void loadConversations()
 }
 
 function handleDeleteConversation(id: number) {
@@ -462,15 +462,17 @@ function handleDeleteConversation(id: number) {
       if (activeConversationId.value === String(id)) {
         activeConversationId.value = undefined
       }
-      await loadConversations()
+      // 列表刷新同样交给 conversations_changed，避免重复请求。
     } catch (error) {
       conversationsError.value = error instanceof Error ? error.message : '会话删除失败'
     }
   })()
 }
 
-/** 会话列表本身变化（新建/删除）后刷新侧栏。 */
+/** 会话列表变化（新建 / 首条消息 / 回答完成 / 删除）后刷新侧栏。 */
 function handleConversationsChanged() {
+  // 事件可能先于 client 同步会话 ID 到达，这里重新对齐高亮项。
+  activeConversationId.value = agent.currentConversationId
   void loadConversations()
 }
 
@@ -479,11 +481,10 @@ function handleMessage(_msg: Message) {
   pendingMessage.value = null
   pendingLoop.value = null
   isSending.value = false
-  // 首条消息发出后后端才创建会话，此时同步高亮与列表。
+  // 首条消息发出后后端才创建会话，这里同步当前高亮项。
+  // 列表本身的新增/更新由 client 的 conversations_changed 事件驱动，
+  // 不在这里重复拉取，避免流式期间反复请求列表接口。
   activeConversationId.value = agent.currentConversationId
-  if (isDesktop.value && !activeConversationId.value) {
-    void loadConversations()
-  }
 }
 
 function handleHistoryCleared() {

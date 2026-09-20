@@ -52,6 +52,7 @@
         const target = String(url)
         const respond = (data) => ({ ok: true, status: 200, json: async () => ({ success: true, code: 0, data }) })
         if (target.includes('/embed/conversations?') || target.endsWith('/embed/conversations')) {
+          listCalls += 1
           const items = conversations.filter((c) => !deleted.has(c.id))
           return respond({ items, total: items.length, page: 1, page_size: 20 })
         }
@@ -64,6 +65,13 @@
         }
         return { ok: false, status: 404, json: async () => ({}) }
       }
+
+      // 记录列表接口被调用次数，用于断言「流式期间不重复拉列表」。
+      let listCalls = 0
+      window.__listCalls = () => listCalls
+      // 记录 conversations_changed 事件，便于区分「事件没发」与「UI 没刷」。
+      const changedEvents = []
+      window.__changedEvents = () => changedEvents.slice()
 
       const base = {
         endpoint: 'ws://127.0.0.1:9/api/v1/ws/agents/1',
@@ -85,6 +93,7 @@
           ...base,
           ui: { mode: 'embedded', container: root, layout, theme: 'light' }
         })
+        agent.on('conversations_changed', (payload) => changedEvents.push(payload))
         window.__agent = agent
       }
       mount()
@@ -105,6 +114,48 @@
         mount()
       })
 
+      // 模拟「用户发一条消息，后端创建了新会话」：SDK 内部 transport 是真实
+      // WebSocket，这里直接向它注入网关事件，复现聊天后列表不刷新的场景。
+      // sequence 必须全局单调递增（与真实网关一致），否则会被 SDK 的去重
+      // 逻辑当成重复事件丢弃，导致后续消息不产生任何回调。
+      let injectedSequence = 0
+      window.__sendAndComplete = (text, newConversationId) => {
+        agent.sendMessage(text)
+        const transport = agent.transport
+        const emit = (event) => transport.emit('message', {
+          protocolVersion: 1,
+          timestamp: new Date().toISOString(),
+          ...event
+        })
+        const next = () => ++injectedSequence
+        emit({
+          id: `e${next()}`, type: 'message_started', sequence: injectedSequence, requestId: `r${injectedSequence}`,
+          conversationId: newConversationId, payload: {}
+        })
+        emit({
+          id: `e${next()}`, type: 'message_delta', sequence: injectedSequence, requestId: `r${injectedSequence}`,
+          conversationId: newConversationId, payload: { content: '收到' }
+        })
+        emit({
+          id: `e${next()}`, type: 'message_completed', sequence: injectedSequence, requestId: `r${injectedSequence}`,
+          conversationId: newConversationId, payload: { content: '收到' }
+        })
+        // 后端在新会话落库后，列表接口应能查到它。
+        const existing = conversations.find((c) => c.id === Number(newConversationId))
+        if (existing) {
+          existing.message_count += 2
+          existing.last_message_preview = '收到'
+        } else {
+          conversations.push({
+            id: Number(newConversationId),
+            title: text,
+            created_at: new Date().toISOString(),
+            message_count: 2,
+            last_message_preview: '收到'
+          })
+        }
+      }
+
       // 供自动化断言读取的探针。
       window.__probe = () => {
         const sidebar = root.querySelector('.xxai-conversation-sidebar')
@@ -118,6 +169,9 @@
           itemTitles: [...root.querySelectorAll('.xxai-sidebar-item-title')].map((n) => n.textContent.trim()),
           activeTitle: root.querySelector('.xxai-sidebar-item.is-active .xxai-sidebar-item-title')?.textContent.trim() || null,
           messages: window.__agent ? window.__agent.getMessages().map((m) => m.content.text) : [],
+          conversationId: window.__agent ? window.__agent.currentConversationId : undefined,
+          listCalls: listCalls,
+          changedEvents: changedEvents.slice(),
           innerWidth: window.innerWidth,
           rootClientWidth: root.clientWidth,
           resetClientWidth: resetEl ? resetEl.clientWidth : -1

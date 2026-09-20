@@ -186,3 +186,95 @@ describe('deleteConversation', () => {
     expect(client.getMessages().length).toBe(1)
   })
 })
+
+describe('conversations_changed 事件', () => {
+  /** 模拟网关事件：消息开始/增量/完成。 */
+  function emitGatewayEvent(client: AgentClient, event: Record<string, unknown>) {
+    ;((client as any).transport as WebSocketTransport).emit('message', {
+      protocolVersion: 1,
+      timestamp: new Date().toISOString(),
+      ...event
+    })
+  }
+
+  it('会在首条消息创建会话后通知列表刷新', () => {
+    const client = createClient()
+    const events: Array<Record<string, unknown>> = []
+    client.on('conversations_changed', (payload: Record<string, unknown>) => events.push(payload))
+
+    // 新会话：发出首条消息，后端在 message_started 里带回新建的会话 ID。
+    client.sendMessage('你好')
+    emitGatewayEvent(client, {
+      id: '1',
+      type: 'message_started',
+      sequence: 1,
+      requestId: 'r',
+      conversationId: '88',
+      payload: {}
+    })
+
+    expect(client.currentConversationId).toBe('88')
+    // 没有这条事件，侧栏就会停留在「还没有历史会话」。
+    expect(events.some((e) => e.reason === 'created')).toBe(true)
+  })
+
+  it('会在回答完成后通知列表刷新，让消息数与摘要更新', () => {
+    const client = createClient()
+    const events: Array<Record<string, unknown>> = []
+    client.on('conversations_changed', (payload: Record<string, unknown>) => events.push(payload))
+
+    client.sendMessage('你好')
+    emitGatewayEvent(client, {
+      id: '1', type: 'message_started', sequence: 1, requestId: 'r', conversationId: '88', payload: {}
+    })
+    events.length = 0
+    emitGatewayEvent(client, {
+      id: '2', type: 'message_delta', sequence: 2, requestId: 'r', conversationId: '88', payload: { content: '你好' }
+    })
+    emitGatewayEvent(client, {
+      id: '3', type: 'message_completed', sequence: 3, requestId: 'r', conversationId: '88',
+      payload: { content: '你好' }
+    })
+
+    expect(events.some((e) => e.reason === 'message')).toBe(true)
+  })
+
+  it('同一会话内不会因为每条 delta 都触发刷新', () => {
+    const client = createClient()
+    let count = 0
+    client.on('conversations_changed', () => { count += 1 })
+
+    client.sendMessage('你好')
+    emitGatewayEvent(client, {
+      id: '1', type: 'message_started', sequence: 1, requestId: 'r', conversationId: '88', payload: {}
+    })
+    const afterStart = count
+    emitGatewayEvent(client, {
+      id: '2', type: 'message_delta', sequence: 2, requestId: 'r', conversationId: '88', payload: { content: 'a' }
+    })
+    emitGatewayEvent(client, {
+      id: '3', type: 'message_delta', sequence: 3, requestId: 'r', conversationId: '88', payload: { content: 'b' }
+    })
+
+    // 流式期间不应反复请求会话列表。
+    expect(count).toBe(afterStart)
+  })
+
+  it('请求失败后也会通知刷新，避免半截会话不出现在列表里', () => {
+    const client = createClient()
+    const events: Array<Record<string, unknown>> = []
+    client.on('conversations_changed', (payload: Record<string, unknown>) => events.push(payload))
+
+    client.sendMessage('你好')
+    emitGatewayEvent(client, {
+      id: '1', type: 'message_started', sequence: 1, requestId: 'r', conversationId: '88', payload: {}
+    })
+    events.length = 0
+    emitGatewayEvent(client, {
+      id: '2', type: 'error', sequence: 2, requestId: 'r', conversationId: '88',
+      payload: { code: 'agent_error', message: '模型失败', retryable: true }
+    })
+
+    expect(events.some((e) => e.reason === 'message')).toBe(true)
+  })
+})

@@ -178,6 +178,9 @@ export class AgentClient {
   }
 
   private handleTransportMessage(msg: WebSocketMessage): void {
+    // 记录处理前的会话 ID：后端在首条消息时才创建会话，这个「从无到有」的
+    // 变化是侧栏需要刷新列表的唯一信号。
+    const previousConversationId = this.conversationId
     // 网关在每个会话事件的顶层返回 conversationId；同步到 Client，保证
     // UI 消息、宿主工具上下文和后续重连看到的是同一个会话标识。
     if (typeof msg.conversationId === 'string' && msg.conversationId) {
@@ -442,6 +445,27 @@ export class AgentClient {
     if (message) {
       this._callbacks.onMessage?.(message)
       this.eventEmitter.emit('message', message)
+    }
+
+    // 会话在首条消息时才由后端创建：此时必须通知侧栏把新会话拉进列表，
+    // 否则用户发完消息仍看到「还没有历史会话」。
+    if (!previousConversationId && this.conversationId) {
+      this.eventEmitter.emit('conversations_changed', {
+        reason: 'created',
+        conversationId: this.conversationId
+      })
+    }
+    // 回答完成或失败后消息数与末条摘要已经落库，刷新列表项内容。
+    // 只在终态触发，避免每条流式 delta 都打一次列表接口；且要求确实存在
+    // 会话，连接级错误（未建会话就失败）不需要刷新列表。
+    if (
+      this.conversationId &&
+      (msg.type === 'message_completed' || msg.type === 'error')
+    ) {
+      this.eventEmitter.emit('conversations_changed', {
+        reason: 'message',
+        conversationId: this.conversationId
+      })
     }
   }
 
