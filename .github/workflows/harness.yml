@@ -1,0 +1,36 @@
+name: Harness v2 audit
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - "docs/harness/**"
+      - "docs/adr/**"
+      - "tools/harness/**"
+      - ".github/workflows/harness.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Audit v2 requests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Run harness audit
+        run: python3 tools/harness/audit.py
+
+      - name: Verify scripts are executable
+        run: |
+          status=0
+          for f in tools/harness/verify/*.sh; do
+            [ -e "$f" ] || continue
+            if [ ! -x "$f" ]; then
+              echo "ERROR  $f 不可执行（chmod +x）"
+              status=1
+            fi
+          done
+          exit $status

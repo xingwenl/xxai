@@ -1,6 +1,10 @@
 # Changelog
 
 ## - 2026-09-19
+- 📝 docs：Harness 升级为 v2「按 diff 分档的三道门」——六阶段（research/spec/plan/implement/verify/acceptance）与六份文档收敛为三道门（想清楚/做出来/证明它）与最多两个文件（`spec.md` + `verify.md`）；分档看 diff 路径（A 架构级 / B 契约级 / C 局部），C 档不写文档不建 request、直接一次提交；新增 `docs/harness/HARNESS-V2.md` 作为新任务唯一流程依据，`AGENTS.md` 与 `docs/harness/README.md` 同步改指向。2026-09-20 之前创建的 59 个 request 一律冻结，不迁移、不补文档 `🧑‍💻 lixingwen`
+- 🔧 chore：Harness v2 门禁落地——`tools/harness/audit.py` 重写为 v2 分档校验（frontmatter、必需章节、被否决项非空、spec ≤150 行、连续代码块 ≤30 行、A/B 档验证脚本可执行、A 档 ADR 关联），对存量 request 自动跳过；新增 `tools/harness/verify.sh` 运行器与 `tools/harness/verify/_template.sh` 模板，验证证据改由脚本产出并记录 `ranAt`/`exitCode`；新增 `.github/workflows/harness.yml` 在 CI 执行审计并检查验证脚本可执行权限 `🧑‍💻 lixingwen`
+
+## - 2026-09-19
 - 🐛 fix：修复「立即运行一次」永不执行、最终被判超时失败——调度器原先只派发自己在本 tick 创建的记录，而手动触发只入队无人认领（记录停在 running 直到被看门狗判 600 秒超时，任务实际从未执行）。现调度器每 tick 额外认领所有已排队记录（含进程重启遗留），统一「到点触发」与「手动触发」的执行路径，并用 `FOR UPDATE SKIP LOCKED` 保证多副本下不重复认领；执行记录口径明确为 `running + started_at IS NULL` = 已排队待执行 `🧑‍💻 lixingwen`
 - ✨ feat：任务执行历史支持展开查看执行过程——新增 `GET /tasks/{task_id}/runs/{run_id}/detail`（复用 `build_loop_payload`），前端逐步展示思考、工具调用、结果与错误；对无步骤的记录明确提示「可能从未真正执行」，用于区分「没跑」与「跑了一半失败」 `🧑‍💻 lixingwen`
 - 🐛 fix：修复 Embed/AI SDK 链路无法创建定时任务（工具报 `task_requires_user_identity`）——`create_task` 原实现只认后台用户身份，而 Embed 链路只有终端用户 principal；`tasks` 新增 `run_as_end_user_id` 列（迁移 `20260919_0035`），`run_as_type` 扩为 `user`/`end_user`，无人值守执行复用既有 `create_for_principal` 机制以终端用户身份建会话，后台链路行为不变，错误信息改为可操作的中文说明 `🧑‍💻 lixingwen`
