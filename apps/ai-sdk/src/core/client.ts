@@ -81,6 +81,8 @@ export class AgentClient {
         position: 'right',
         theme: 'auto',
         locale: 'zh-CN',
+        // 默认不渲染 Agent 过程卡片，只保留对话正文；显式传 true 才展示。
+        showAgentSteps: false,
         ...options.ui
       },
       transport: options.transport || 'websocket',
@@ -659,6 +661,9 @@ export class AgentClient {
     const payload: Record<string, unknown> = {
       text,
       ...(this._systemPrompt ? { systemPrompt: this._systemPrompt } : {}),
+      // 显式下发解析后的布尔值：缺省为 false（不思考），避免"未传即沿用上游
+      // 默认"导致思考被意外开启——DeepSeek 上游的默认是 enabled。
+      thinking: this.options.thinking ?? false,
     }
 
     // 如果提供了附件，添加到 payload 中

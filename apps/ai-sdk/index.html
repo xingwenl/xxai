@@ -151,16 +151,21 @@ echarts 代码块内必须是**纯 JSON 对象**（可含 series/xAxis/yAxis/tit
           return result.data.access_token;
         },
         // getToken: async () => 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3IiwiZXhwIjoxNzg1MjMxMzQ0fQ.NfhIvXw1qx99DTyoltPkbXBjli1M_V32VdziGDdtt7M',
+        // 两个开关默认关闭，这里显式开启以保留本地开发时的思考与过程卡片可见性。
+        thinking: true,
         ui: {
           mode: 'floating',
           position: 'right',
           theme: 'auto',
-          layout: 'desktop'
+          layout: 'desktop',
+          showAgentSteps: true
         },
         pageTools: {
           enabled: true,
           confirmationKeywords: ['提交', '删除', '支付']
-        }
+        },
+        thinking: false,
+
       });
 
       const demoTools = [

@@ -1,3 +1,6 @@
+// @vitest-environment jsdom
+// 默认关闭过程卡片后需要断言「正文仍渲染」，这会真正走一遍 MarkdownContent，
+// 而 DOMPurify v3 依赖 window；node 环境下 sanitize 不可用，故切到 jsdom。
 import { describe, expect, it } from 'vitest'
 import { createSSRApp, h, type Component } from 'vue'
 import { renderToString } from '@vue/server-renderer'
@@ -88,7 +91,10 @@ describe('ChatMessage timeline rendering', () => {
   })
 
   it('merges leading skill steps into one collapsible group', async () => {
-    const html = await render(ChatMessage, { message: message() })
+    const html = await render(ChatMessage, {
+      message: message(),
+      showAgentSteps: true,
+    })
 
     expect(html).toContain('调用技能 · 2 个')
     expect(html.match(/class="xxai-loop-skill-item"/g)?.length).toBe(2)
@@ -100,7 +106,10 @@ describe('ChatMessage timeline rendering', () => {
   })
 
   it('renders thinking as a collapsed details after completion', async () => {
-    const html = await render(ChatMessage, { message: message() })
+    const html = await render(ChatMessage, {
+      message: message(),
+      showAgentSteps: true,
+    })
 
     expect(html).toMatch(/<details class="xxai-loop-collapse"[^>]*>/)
     expect(html).not.toMatch(/<details class="xxai-loop-collapse"[^>]*open/)
@@ -114,6 +123,7 @@ describe('ChatMessage timeline rendering', () => {
       message: message({
         loop: { ...message().loop!, status: 'running', steps: running },
       }),
+      showAgentSteps: true,
     })
 
     expect(html).toContain('<details class="xxai-loop-collapse" open')
@@ -135,10 +145,55 @@ describe('ChatMessage timeline rendering', () => {
         ],
         loop: { ...message().loop!, steps },
       }),
+      showAgentSteps: true,
     })
 
     expect(html).not.toContain('调用技能 ·')
     expect(html).toContain('回答中途再次调用')
+  })
+})
+
+describe('ChatMessage hides agent steps by default', () => {
+  it('renders only the answer text when showAgentSteps is not passed', async () => {
+    const html = await render(ChatMessage, { message: message() })
+
+    expect(html).not.toContain('xxai-loop-card')
+    expect(html).not.toContain('xxai-loop-skill-group')
+    expect(html).not.toContain('xxai-agent-loop')
+    expect(html).not.toContain('思考过程（')
+    expect(html).toContain('最终回答')
+  })
+
+  it('keeps timeline answer text while dropping step entries', async () => {
+    const html = await render(ChatMessage, {
+      message: message({
+        timeline: [
+          { kind: 'step', id: 't1', stepId: 'kb' },
+          { kind: 'text', id: 't2', text: '第一段回答' },
+          { kind: 'step', id: 't3', stepId: 'gen' },
+          { kind: 'text', id: 't4', text: '第二段回答' },
+        ],
+      }),
+    })
+
+    expect(html).not.toContain('xxai-loop-card')
+    expect(html).toContain('第一段回答')
+    expect(html).toContain('第二段回答')
+  })
+
+  it('still shows the typing indicator for an empty pending message with a loop', async () => {
+    const html = await render(ChatMessage, {
+      message: message({
+        // 正文为空的流式占位消息：此时不应因为丢弃过程卡片而变成完全空白。
+        contentBlocks: [{ id: 'empty', type: 'markdown', text: '', status: 'streaming' }],
+        timeline: undefined,
+        content: { type: 'text', text: '' },
+      }),
+      pending: true,
+    })
+
+    expect(html).toContain('xxai-typing-indicator')
+    expect(html).not.toContain('xxai-agent-loop')
   })
 })
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## - 2026-09-21
+- ✨ feat：AI SDK 新增「思考模式」与「Agent 过程卡片」两个接入方开关，**默认均为关闭**、显式传 `true` 才开启——`thinking`（顶层）随每次 `message_send` 下发，由后端按厂商翻译为上游参数（DeepSeek 下发顶层 `thinking.type`；其余厂商关闭时用 `reasoning_effort: "none"`），可用 Agent 版本 `model_options.thinking.{on,off}` 显式覆盖映射；`ui.showAgentSteps` 控制是否渲染思考/工具/技能/知识库过程卡片，关闭时只保留对话正文。因上游 DeepSeek 的思考默认是 `enabled`，SDK **显式下发**关闭参数而非省略字段；网关对非布尔 `thinking` 返回 `invalid_thinking`。**升级注意**：旧版本升级后思考与过程卡片将默认不再显示，需显式开启，详见 README「思考模式与过程卡片开关」`🧑‍💻 lixingwen`
+- 🐛 fix：修复 `apps/ai-sdk/package-lock.json` 长期不同步导致 CI `npm ci` 失败——lock 版本停留在 `0.1.0`（package.json 已 `0.1.7`）且缺少 `echarts`/`jsdom`/`mermaid`；同时把测试实际依赖但从未声明的 `@vue/server-renderer` 补进 devDependencies（pnpm 严格布局下原先无法解析），并给用到 DOMPurify 的 SSR 测试显式声明 jsdom 环境 `🧑‍💻 lixingwen`
+
 ## - 2026-09-20
 - 🐛 fix：PC 双栏断点改按「聊天面板自身宽度」判断，并修正适用范围——原先用 `window.innerWidth`，导致 430px 悬浮窗停在宽视口时不降级、260px 常驻列表把对话区挤到 170px；现悬浮/嵌入两种模式一律按面板实际宽度判断，悬浮窗拖拽缩放后重新判断，`layout: 'desktop'` 对 floating 同样生效（把窗口拉宽到 900px 即常驻列表）。同时修复面板在 `isOpen` 后才挂载导致观察器未建立、嵌入式窄容器不降级的问题 `🧑‍💻 lixingwen`
 - 🐛 fix：修复 PC 双栏布局下聊天时/聊天后左侧会话列表不刷新——`conversations_changed` 原先只在新建/删除时发出，发消息与回答完成两条路径都不触发，加上 `ChatWidget.handleMessage` 里「先赋值再判断」导致刷新条件恒为假，用户发完消息仍看到「还没有历史会话」。现由 SDK 在「会话从无到有」与「回答完成/失败」两个终态发出该事件，UI 统一由事件刷新，流式期间不重复请求列表接口 `🧑‍💻 lixingwen`

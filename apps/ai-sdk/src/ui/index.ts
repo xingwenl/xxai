@@ -34,6 +34,7 @@ export function createChatUI(agent: AgentClient, options?: {
   window?: UIWindowBounds
   layout?: UIOptions['layout']
   sidebar?: UIOptions['sidebar']
+  showAgentSteps?: boolean
 }): {
   app: App
   destroy: () => void
@@ -59,6 +60,7 @@ export function createChatUI(agent: AgentClient, options?: {
     window: options?.window,
     layout: options?.layout || 'single',
     sidebarWidth: options?.sidebar?.width,
+    showAgentSteps: options?.showAgentSteps ?? false,
     embedded
   })
 

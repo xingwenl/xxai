@@ -531,6 +531,18 @@ async def _handle_message_send(
             retryable=False,
         )
         return active_request, active_task
+    # 思考开关只接受布尔：SDK 侧已归一为布尔，这里拒绝字符串等歧义取值，
+    # 避免 "false" 被当作真值而意外开启思考。
+    raw_thinking = message_payload.get("thinking")
+    if raw_thinking is not None and not isinstance(raw_thinking, bool):
+        await _send_protocol_error(
+            websocket,
+            envelope,
+            code="invalid_thinking",
+            message="thinking must be a boolean",
+            retryable=False,
+        )
+        return active_request, active_task
     if quota_service is not None:
         decision = await quota_service.check(
             "message",
@@ -716,6 +728,9 @@ async def produce_embed_request(
                         session_id_provider=lambda: getattr(
                             context, "conversation_id", None
                         ),
+                        thinking=message.get("thinking")
+                        if isinstance(message.get("thinking"), bool)
+                        else None,
                     ),
                     platform_id=payload["platform_id"],
                     client_id=str(payload["client_id"]),

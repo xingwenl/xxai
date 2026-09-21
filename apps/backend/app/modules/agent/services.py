@@ -249,13 +249,55 @@ class ProviderThinkingChatOpenAI(ChatOpenAI):
         return result
 
 
+# model_options 中保留的思考开关映射键，形如
+# {"thinking": {"on": {...}, "off": {...}}}；它只服务请求级开关翻译，
+# 不能透传给 ChatOpenAI 构造器（未知关键字会直接抛错）。
+_THINKING_OPTION_KEY = "thinking"
+
+
+def _resolve_thinking_options(
+    raw_options: dict[str, Any], *, model_name: str, thinking: bool
+) -> dict[str, Any]:
+    """把请求级布尔开关翻译为该模型可直接接受的上游参数。
+
+    翻译优先级：
+    1. ``model_options["thinking"]["on"|"off"]``：接入方显式给出的参数对象，
+       原样采用（键名即 ChatOpenAI 关键字，如 ``extra_body`` / ``reasoning_effort``）。
+    2. 模型名兜底：DeepSeek 用顶层 ``thinking.type``；其余厂商关闭时用
+       ``reasoning_effort="none"``，开启时不注入（沿用厂商自身默认）。
+
+    注：DeepSeek 的 ``thinking`` 上游默认是 ``enabled``，因此「关闭」必须显式下发
+    ``disabled``，不能靠省略字段实现。
+    """
+    mapping = raw_options.get(_THINKING_OPTION_KEY)
+    if isinstance(mapping, dict):
+        selected = mapping.get("on" if thinking else "off")
+        if isinstance(selected, dict):
+            return dict(selected)
+    if "deepseek" in model_name.lower():
+        return {
+            "extra_body": {
+                "thinking": {"type": "enabled" if thinking else "disabled"}
+            }
+        }
+    # 无法识别厂商时静默降级：开启不注入，关闭尝试通用参数；
+    # 厂商不吃该参数时请求仍能成功，只是思考未被关闭。
+    return {} if thinking else {"reasoning_effort": "none"}
+
+
 def build_chat_model(
-    version, *, session_id_provider: SessionIdProvider | None = None
+    version,
+    *,
+    session_id_provider: SessionIdProvider | None = None,
+    thinking: bool | None = None,
 ) -> ChatOpenAI:
     """按 Agent 版本构造 ChatOpenAI 客户端。
 
     ``session_id_provider`` 为可选的会话 id 惰性求值入口，用于 OpenCode 兼容头；
     非 OpenCode 端点不会产生任何额外请求头。
+
+    ``thinking`` 为请求级思考开关：``None`` 表示不干预（与既有行为完全一致），
+    ``True`` / ``False`` 则按 :func:`_resolve_thinking_options` 注入上游参数。
     """
 
     settings = get_settings()
@@ -263,19 +305,40 @@ def build_chat_model(
         decrypt_secret(version.api_key_encrypted) if version.api_key_encrypted else None
     )
     base_url = version.model_base_url or settings.model_default_base_url
+    model_name = version.model_name or settings.model_default_name
     # default_headers 单独取出后再合并，避免直接展开时与兼容头互相覆盖。
     raw_options = dict(version.model_options or {})
     configured_headers = raw_options.pop("default_headers", None)
+    # 思考映射是我们的配置约定，必须剥离，否则会被当成 ChatOpenAI 未知参数。
+    raw_options.pop(_THINKING_OPTION_KEY, None)
     # 默认关闭 SDK 自动重试，确保上游 502/连接异常能在本轮超时前进入统一 error 事件。
-    model_options = {
+    model_options: dict[str, Any] = {
         "timeout": settings.model_request_timeout_seconds,
         "stream_chunk_timeout": settings.model_request_timeout_seconds,
         "max_retries": settings.model_max_retries,
         **raw_options,
         "default_headers": merge_default_headers(base_url, configured_headers),
     }
+    if thinking is not None:
+        thinking_options = _resolve_thinking_options(
+            dict(version.model_options or {}),
+            model_name=model_name,
+            thinking=thinking,
+        )
+        # extra_body 需要与既有配置深合并，避免思考开关覆盖掉接入方
+        # 已配置的其他厂商参数（如 ttl、use_beam_search）。
+        incoming_extra = thinking_options.pop("extra_body", None)
+        if isinstance(incoming_extra, dict):
+            existing_extra = model_options.get("extra_body")
+            merged_extra = (
+                {**existing_extra, **incoming_extra}
+                if isinstance(existing_extra, dict)
+                else incoming_extra
+            )
+            model_options["extra_body"] = merged_extra
+        model_options.update(thinking_options)
     return ProviderThinkingChatOpenAI(
-        model=version.model_name or settings.model_default_name,
+        model=model_name,
         base_url=base_url,
         api_key=api_key,
         temperature=version.temperature,

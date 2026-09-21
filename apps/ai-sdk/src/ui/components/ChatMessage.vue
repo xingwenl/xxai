@@ -40,7 +40,7 @@
           </template>
           <template v-else>
             <TypingIndicator
-              v-if="pending && !hasRenderableContent && !message.loop"
+              v-if="pending && !hasRenderableContent && (!message.loop || !showAgentSteps)"
             />
             <MessageContent
               v-else-if="hasRenderableContent"
@@ -48,7 +48,7 @@
               :agent="props.agent"
               @action="handleAction"
             />
-            <AgentLoopPanel :message="message" />
+            <AgentLoopPanel v-if="showAgentSteps" :message="message" />
           </template>
         </div>
       </div>
@@ -74,11 +74,16 @@ import {
   leadingSkillSteps,
 } from '../message-presentation';
 
-const props = defineProps<{
-  message: Message;
-  pending?: boolean;
-  agent?: AgentClient;
-}>();
+const props = withDefaults(
+  defineProps<{
+    message: Message;
+    pending?: boolean;
+    agent?: AgentClient;
+    /** 是否渲染 Agent 过程卡片；缺省 false，只保留对话正文。 */
+    showAgentSteps?: boolean;
+  }>(),
+  { showAgentSteps: false, pending: false },
+);
 const emit = defineEmits<{ buttonClick: [value: string] }>();
 type TimelineRenderEntry =
   | { id: string; kind: 'text'; text: string }
@@ -109,6 +114,13 @@ const richBlocks = computed<MessageContentBlock[]>(() =>
 );
 
 const timelineEntries = computed<TimelineRenderEntry[]>(() => {
+  // 关闭过程卡片时，timeline 只保留正文片段；工具/技能/思考步骤整条跳过，
+  // 最终回答仍由下方 richBlocks 与后续正文块渲染，不会丢内容。
+  if (!props.showAgentSteps) {
+    return (props.message.timeline || [])
+      .filter((entry) => entry.kind === 'text')
+      .map((entry) => ({ id: entry.id, kind: 'text' as const, text: (entry as { text: string }).text }));
+  }
   const stepsById = new Map<string, AgentLoopStep>(
     (props.message.loop?.steps || []).map((step) => [step.id, step]),
   );

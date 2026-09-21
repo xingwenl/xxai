@@ -367,6 +367,42 @@ agent.on('conversations_changed', () => {/* 刷新列表 */})
 
 `openConversation` 会先重置本地流式与请求状态再渲染历史消息，避免上一个会话的回答与历史叠加。
 
+### 思考模式与过程卡片开关
+
+两个开关都**默认关闭**，需要在接入处显式传 `true` 才开启：
+
+```typescript
+const agent = createAgentClient({
+  // endpoint、platformId、agentId、getToken 同上
+  // 开启思考模式：随每次请求下发给后端，由后端翻译为上游厂商参数
+  thinking: true,
+  ui: {
+    mode: 'floating',
+    // 展示思考 / 工具调用 / 技能 / 知识库等过程卡片
+    showAgentSteps: true,
+  },
+})
+```
+
+| 开关 | 位置 | 默认 | 作用 |
+| --- | --- | --- | --- |
+| `thinking` | 顶层 | `false` | 控制模型是否思考。`false` 时后端显式下发「关闭思考」参数 |
+| `ui.showAgentSteps` | `ui` 下 | `false` | 是否渲染 Agent 过程卡片；关闭时只保留对话正文 |
+
+`thinking` 的约定：
+
+- 该值随**每次** `message_send` 下发，因此同一个 Agent 的不同请求可以各自决定是否思考。
+- **默认关闭是显式行为**：DeepSeek 等厂商的上游默认是「开启思考」，SDK 会显式下发关闭参数，而不是靠省略字段。
+- 后端按模型厂商翻译：DeepSeek 下发顶层 `thinking.type`；其他厂商关闭时使用 `reasoning_effort: "none"`。
+- 若厂商既不吃 `thinking` 也不吃 `reasoning_effort`，可由后端在 Agent 版本的 `model_options` 中显式指定映射，形如 `{"thinking": {"on": {...}, "off": {...}}}`；无法识别厂商时开关会静默失效（请求仍成功，只是思考未被关闭）。
+
+`ui.showAgentSteps` 的约定：
+
+- 只影响渲染，不改变后端是否产生过程事件；关掉后正文仍照常流式输出。
+- 关闭时正文为空且消息处于流式中的占位气泡仍会显示打字指示器，不会出现「空白气泡」。
+
+> **升级注意（0.1.x → 0.2.0）**：两个开关默认值均为关闭。从旧版本升级后，思考内容与过程卡片会**默认不再显示**；如需保留原有可见性，请显式传入 `thinking: true` 与 `ui.showAgentSteps: true`。
+
 删除会话是**软删除**：服务端只把会话标记为已删除，**不会删除消息、附件与 token 用量记录**，磁盘上的附件文件也保留；删除后该会话不再出现在列表中，也不能再继续对话。被删除会话占用的存储由后续的数据保留策略处理，如需彻底清除请联系 AI Base 运维。
 
 ## 8. 注册工具

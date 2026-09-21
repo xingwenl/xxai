@@ -34,7 +34,8 @@ export function createAgentClient(options: AgentClientOptions) {
       container: options.ui?.container,
       window: options.ui?.window,
       layout: options.ui?.layout,
-      sidebar: options.ui?.sidebar
+      sidebar: options.ui?.sidebar,
+      showAgentSteps: options.ui?.showAgentSteps
     })
   }
 

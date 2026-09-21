@@ -193,3 +193,10 @@ class MessageSendPayload(BaseModel):
         max_length=20_000,
         description="可选的系统提示词",
     )
+    thinking: bool | None = Field(
+        default=None,
+        description=(
+            "请求级思考开关：true 进入思考模式，false 关闭，"
+            "不传表示不干预（沿用模型与厂商默认）"
+        ),
+    )

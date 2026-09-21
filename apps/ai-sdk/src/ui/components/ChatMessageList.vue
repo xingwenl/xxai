@@ -15,12 +15,14 @@
       :key="msg.id"
       :message="msg"
       :agent="props.agent"
+      :show-agent-steps="showAgentSteps"
       @button-click="handleButtonClick"
     />
     <ChatMessage
       v-if="pendingMessage"
       :message="pendingAsMessage"
       :agent="props.agent"
+      :show-agent-steps="showAgentSteps"
       pending
       @button-click="handleButtonClick"
     />
@@ -39,9 +41,13 @@ interface Props {
   agentName?: string
   agentDescription?: string
   agent?: AgentClient
+  /** 是否渲染 Agent 过程卡片；缺省 false，只保留对话正文。 */
+  showAgentSteps?: boolean
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  showAgentSteps: false
+})
 
 const emit = defineEmits<{
   buttonClick: [value: string]

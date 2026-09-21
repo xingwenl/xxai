@@ -93,6 +93,7 @@
         :agent-name="agentName"
         :agent-description="agentDescription"
         :agent="agent"
+        :show-agent-steps="showAgentSteps"
         @button-click="handleButtonClick"
       />
       <ToolConfirmation
@@ -170,6 +171,8 @@ interface Props {
   layout?: UIOptions['layout']
   /** 双栏布局下左侧列表宽度（CSS 像素）。 */
   sidebarWidth?: number
+  /** 是否渲染 Agent 过程卡片；缺省 false，只保留对话正文。 */
+  showAgentSteps?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -178,7 +181,8 @@ const props = withDefaults(defineProps<Props>(), {
   title: 'AI Assistant',
   embedded: false,
   layout: 'single',
-  sidebarWidth: 260
+  sidebarWidth: 260,
+  showAgentSteps: false
 })
 
 const isOpen = ref(false)

@@ -193,6 +193,13 @@ export interface UIOptions {
     /** 列表宽度（CSS 像素），默认 260，会被限制在 200–360 之间。 */
     width?: number
   }
+  /**
+   * 是否渲染 Agent 过程卡片（思考、工具调用、技能、知识库引用）。
+   *
+   * 缺省为 `false`：只保留对话正文。传 `true` 才展示过程明细。
+   * 该开关只影响渲染，不改变后端是否产生过程事件。
+   */
+  showAgentSteps?: boolean
 }
 
 export interface UIWindowBounds {
@@ -344,6 +351,14 @@ export interface AgentClientOptions {
   }
   ui?: UIOptions
   systemPrompt?: string
+  /**
+   * 请求级思考开关：`true` 进入思考模式，`false` 关闭。
+   *
+   * 缺省为 `false`（不思考）。该值随每次 `message_send` 下发，由后端翻译为
+   * 上游厂商参数（DeepSeek 下发顶层 `thinking.type`）；因此同一 Agent 的不同
+   * 请求可以各自决定是否思考。
+   */
+  thinking?: boolean
   messages?: Message[]
   /** 本地消息和会话 ID 的存储键；未提供时按平台、Agent 和用户隔离。 */
   storageKey?: string
