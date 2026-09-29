@@ -623,10 +623,36 @@ async def main():
                 str(state["messages"]),
             )
 
-            # 删除第二个会话 -> 列表少一项，且当前会话回落。
-            await session.evaluate(
-                "document.querySelectorAll('.xxai-sidebar-delete')[1].click()"
+            # 删除第二个会话需要点两次：第一次只进入「确认？」态，列表不能变。
+            delete_selector = "document.querySelectorAll('.xxai-sidebar-delete')[1]"
+            await session.evaluate(f"{delete_selector}.click()")
+            await asyncio.sleep(0.3)
+            armed = await session.evaluate(
+                "(() => { const b = document.querySelectorAll('.xxai-sidebar-delete')[1];"
+                " if (!b) return null;"
+                " return { confirming: b.classList.contains('is-confirming'),"
+                "          text: b.textContent.trim(),"
+                "          label: b.getAttribute('aria-label'),"
+                "          titles: [...document.querySelectorAll('.xxai-sidebar-item-title')]"
+                "            .map((n) => n.textContent.trim()) } })()"
             )
+            print("delete armed =", json.dumps(armed, ensure_ascii=False))
+            check(
+                "删除会话首次点击只进入待确认态（未真正删除）",
+                bool(armed)
+                and armed["confirming"]
+                and armed["text"] == "确认？"
+                and len(armed["titles"]) == 2,
+                json.dumps(armed, ensure_ascii=False),
+            )
+            check(
+                "待确认态的删除按钮可访问名称改为确认删除",
+                bool(armed) and str(armed["label"]).startswith("确认删除会话"),
+                str(armed and armed["label"]),
+            )
+
+            # 同一条再点一次才真正删除。
+            await session.evaluate(f"{delete_selector}.click()")
             await asyncio.sleep(0.9)
             state = await session.evaluate("window.__probe()")
             print("probe(after delete) =", json.dumps(state, ensure_ascii=False))
@@ -639,6 +665,29 @@ async def main():
                 "删除当前会话后回到新建态",
                 state["messages"] == [] and state["activeTitle"] is None,
                 f"messages={state['messages']} active={state['activeTitle']}",
+            )
+
+            # 二次确认必须有安全阀：3 秒内不再点就自动取消，不能「挂着」变成
+            # 延时炸弹（用户早就切走，回来一点就删）。
+            await session.evaluate(
+                "document.querySelectorAll('.xxai-sidebar-delete')[0].click()"
+            )
+            await asyncio.sleep(0.3)
+            armed_again = await session.evaluate(
+                "document.querySelectorAll('.xxai-sidebar-delete')[0]"
+                ".classList.contains('is-confirming')"
+            )
+            await asyncio.sleep(3.2)
+            after_timeout = await session.evaluate(
+                "(() => { const b = document.querySelectorAll('.xxai-sidebar-delete')[0];"
+                " return { confirming: b.classList.contains('is-confirming'),"
+                "          items: document.querySelectorAll('.xxai-sidebar-item').length } })()"
+            )
+            print("delete confirm timeout =", json.dumps(after_timeout, ensure_ascii=False))
+            check(
+                "待确认态超时后自动取消且列表保持完整",
+                armed_again and not after_timeout["confirming"] and after_timeout["items"] == 1,
+                f"armed={armed_again} {json.dumps(after_timeout, ensure_ascii=False)}",
             )
 
             # 新建会话 -> 清空消息区。
@@ -699,6 +748,35 @@ async def main():
                 "回答完成后刷新了列表",
                 state["listCalls"] > calls_after_start,
                 f"before={calls_after_start} after={state['listCalls']}",
+            )
+
+            # 清除聊天记录与删除会话共用同一套两步确认（重构后行为必须一致）。
+            clear_selector = "document.querySelector('.xxai-header-clear-btn')"
+            await session.evaluate(f"{clear_selector}.click()")
+            await asyncio.sleep(0.3)
+            clear_armed = await session.evaluate(
+                "(() => { const b = document.querySelector('.xxai-header-clear-btn');"
+                " return { text: b.textContent.trim(),"
+                "          label: b.getAttribute('aria-label'),"
+                "          width: Math.round(b.getBoundingClientRect().width),"
+                "          messages: window.__probe().messages.length } })()"
+            )
+            print("clear history armed =", json.dumps(clear_armed, ensure_ascii=False))
+            check(
+                "清空聊天记录首次点击只进入待确认态",
+                clear_armed["text"] == "确认？"
+                and clear_armed["messages"] > 0
+                and clear_armed["width"] > 30,
+                json.dumps(clear_armed, ensure_ascii=False),
+            )
+            await session.evaluate(f"{clear_selector}.click()")
+            await asyncio.sleep(0.6)
+            cleared = await session.evaluate("window.__probe()")
+            print("probe(after clear) =", json.dumps(cleared, ensure_ascii=False))
+            check(
+                "清空聊天记录第二次点击生效",
+                cleared["messages"] == [],
+                str(cleared["messages"]),
             )
 
             # 窄屏降级：断点看「面板自身宽度」。这里刻意保持宽视口（1400）

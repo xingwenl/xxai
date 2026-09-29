@@ -338,6 +338,27 @@
 }
 
 /*
+ * 删除会话的二次确认态：从 26px 圆形图标放宽成「确认？」胶囊。
+ * 选择器带 .xxai-sidebar-item 前缀是为了压过悬停/选中态的 opacity 规则
+ * （两者同权重时靠声明顺序取胜，故本段必须排在那两条之后）。
+ */
+.xxai-sidebar-item .xxai-sidebar-delete.is-confirming {
+  width: auto;
+  min-width: 26px;
+  padding: 0 8px;
+  border-radius: 13px;
+  background: rgba(254, 226, 226, 0.85);
+  color: #dc2626;
+  opacity: 1;
+}
+
+.xxai-sidebar-confirm {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/*
  * 触屏设备没有 hover：删除按钮此前恒为 opacity: 0，看不见却仍参与命中，
  * 用户会「盲点删除」。这类设备上直接常显，悬停显示只服务鼠标场景。
  */

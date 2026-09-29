@@ -77,10 +77,10 @@
         <button
           class="xxai-header-icon-btn xxai-header-clear-btn"
           type="button"
-          :aria-label="confirmClear ? '确认清除聊天记录' : '清除聊天记录'"
+          :aria-label="isClearPending(CLEAR_HISTORY_KEY) ? '确认清除聊天记录' : '清除聊天记录'"
           @click="onClearClick"
         >
-          <span v-if="confirmClear" class="xxai-clear-confirm">确认？</span>
+          <span v-if="isClearPending(CLEAR_HISTORY_KEY)" class="xxai-clear-confirm">确认？</span>
           <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14ZM10 11v6M14 11v6" />
           </svg>
@@ -159,6 +159,10 @@ import {
 } from '../window-layout'
 import { resolveHeaderName } from '../header-name'
 import { parseWindowRect, serializeWindowRect } from '../window-storage'
+import { useTwoStepConfirm } from '../two-step-confirm'
+
+/** 「清除聊天记录」这个固定动作在二次确认状态机里的目标标识。 */
+const CLEAR_HISTORY_KEY = 'clear-history'
 
 interface Props {
   agent: AgentClient
@@ -211,11 +215,14 @@ const viewport = ref({ width: 0, height: 0 })
 // 否则会污染窗口缩放的上限计算（见 measurePanelWidth 注释）。
 const panelWidth = ref(0)
 const windowRect = ref<WindowRect>({ x: 0, y: 0, width: 430, height: 680 })
-const confirmClear = ref(false)
 const rootRef = ref<HTMLElement | null>(null)
 /** 聊天面板本身：双栏断点按它的宽度判断，而非浏览器视口。 */
 const panelRef = ref<HTMLElement | null>(null)
-let clearTimer: ReturnType<typeof setTimeout> | null = null
+const {
+  isPending: isClearPending,
+  confirm: confirmClearClick,
+  cancel: cancelClearConfirm
+} = useTwoStepConfirm()
 let resizeObserver: ResizeObserver | null = null
 
 const agent = props.agent
@@ -326,18 +333,9 @@ function close() {
   isOpen.value = false
 }
 
+/** 「清除聊天记录」需点两次：第一次点出「确认？」，3 秒内再点才真正清除。 */
 function onClearClick() {
-  if (!confirmClear.value) {
-    confirmClear.value = true
-    if (clearTimer) clearTimeout(clearTimer)
-    clearTimer = setTimeout(() => {
-      confirmClear.value = false
-    }, 3000)
-    return
-  }
-  if (clearTimer) clearTimeout(clearTimer)
-  clearTimer = null
-  confirmClear.value = false
+  if (!confirmClearClick(CLEAR_HISTORY_KEY)) return
   agent.clearLocalHistory()
 }
 
@@ -681,8 +679,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  if (clearTimer) clearTimeout(clearTimer)
-  clearTimer = null
+  cancelClearConfirm()
   resizeObserver?.disconnect()
   resizeObserver = null
   window.removeEventListener('resize', handleViewportResize)
