@@ -9,12 +9,14 @@
         dark: theme === 'dark',
         'xxai-chat-window--embedded': embedded,
         'xxai-chat-window--desktop': isDesktop,
-        'xxai-chat-window--drawer-open': isNarrow && isSidebarVisible
+        'xxai-chat-window--sidebar-drawer': isSidebarDrawer,
+        'xxai-chat-window--drawer-open': isSidebarDrawer && sidebarOpen
       }"
       :style="windowStyle"
     >
       <ConversationSidebar
-        v-if="isSidebarVisible"
+        v-if="isDesktop"
+        :collapsed="isSidebarWidthCollapsed"
         :conversations="conversations"
         :active-id="activeConversationId"
         :loading="conversationsLoading"
@@ -25,9 +27,10 @@
         @delete="handleDeleteConversation"
         @retry="loadConversations"
       />
-      <!-- 窄屏抽屉展开时的遮罩：点击关闭列表，避免遮挡对话区。 -->
+      <!-- 窄屏抽屉的遮罩：点击关闭列表，避免遮挡对话区。
+           常驻挂载以便用透明度淡入淡出，关闭态由 CSS 关闭点击拦截。 -->
       <div
-        v-if="isNarrow && isSidebarVisible"
+        v-if="isSidebarDrawer"
         class="xxai-sidebar-backdrop"
         aria-hidden="true"
         @click="sidebarOpen = false"
@@ -58,7 +61,8 @@
           <div class="xxai-agent-avatar" aria-hidden="true">✦</div>
           <div class="xxai-header-info">
             <div class="xxai-header-name">{{ headerName }}</div>
-            <div class="xxai-header-status">
+            <!-- role=status：连接状态变化对屏幕阅读器可感知（polite 播报）。 -->
+            <div class="xxai-header-status" :class="`is-${connectionState}`" role="status">
               <span class="xxai-status-dot"></span>
               <span>{{ statusText }}</span>
             </div>
@@ -265,6 +269,17 @@ const isSidebarVisible = computed(() => {
   if (!isDesktop.value) return false
   return isNarrow.value ? sidebarOpen.value : !sidebarCollapsed.value
 })
+/** 窄屏抽屉形态：列表浮在对话区之上，用位移动画开合。 */
+const isSidebarDrawer = computed(() => isDesktop.value && isNarrow.value)
+/**
+ * 只有宽屏的常驻列表才走「宽度收缩」路径。
+ *
+ * 窄屏抽屉靠 transform 滑出，若这时也打上收起类，两套动画会互相打架
+ * （宽度归零 + 位移），列表会以奇怪的方式塌掉。
+ */
+const isSidebarWidthCollapsed = computed(
+  () => isDesktop.value && !isNarrow.value && sidebarCollapsed.value
+)
 const sidebarToggleLabel = computed(() =>
   isSidebarVisible.value ? '隐藏会话列表' : '显示会话列表'
 )

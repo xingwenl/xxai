@@ -202,12 +202,17 @@
         const windowEl = c.querySelector('.xxai-chat-window')
         const resetEl = c.querySelector('.xxai-reset')
         const mainEl = c.querySelector('.xxai-chat-main')
+        const sidebarStyle = sidebar ? getComputedStyle(sidebar) : null
         const rect = (el) => (el ? Math.round(el.getBoundingClientRect().width) : 0)
         return {
           mode,
           layout,
-          hasSidebar: Boolean(sidebar),
+          // 收起 / 抽屉关闭时元素仍挂在 DOM 里（为了有宽度与位移动画），
+          // 所以「列表可见」必须看它是否真的占位且没被 visibility 隐藏。
+          hasSidebar: Boolean(sidebar) && sidebarStyle.visibility !== 'hidden' && rect(sidebar) > 0,
           sidebarWidth: rect(sidebar),
+          sidebarVisibility: sidebarStyle ? sidebarStyle.visibility : null,
+          sidebarTransform: sidebarStyle ? sidebarStyle.transform : null,
           windowWidth: rect(windowEl),
           chatAreaWidth: rect(mainEl),
           windowClass: windowEl ? windowEl.className : '',

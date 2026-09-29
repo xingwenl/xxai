@@ -7,6 +7,16 @@
   font-family: var(--agent-font-sans);
 }
 
+/*
+ * 键盘可达性：图标按钮与列表项此前没有任何焦点可见性，纯键盘用户看不出
+ * 焦点落在哪。输入框自带独立焦点环（border-color + box-shadow），不在此列。
+ */
+.xxai-reset button:focus-visible,
+.xxai-reset [role="button"]:focus-visible {
+  outline: 2px solid var(--agent-primary);
+  outline-offset: 2px;
+}
+
 .xxai-float-btn {
   position: fixed;
   right: 24px;
@@ -83,6 +93,11 @@
   --agent-knowledge-border: rgba(253, 230, 138, 0.7);
   --agent-knowledge-accent: #F59E0B;
   --agent-knowledge-text: #B45309;
+  /* 统一动效令牌：新增交互一律引用它们，避免各处各写一套时长与缓动。 */
+  --agent-motion-fast: 0.16s;
+  --agent-motion-base: 0.32s;
+  --agent-motion-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --agent-motion-emphasized: cubic-bezier(0.32, 0.72, 0, 1);
   position: fixed;
   left: 0;
   top: 0;
@@ -127,13 +142,50 @@
 
 .xxai-conversation-sidebar {
   flex: 0 0 auto;
+  width: var(--xxai-sidebar-width, 260px);
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* 收起时裁剪内容，让宽度动画表现为「列表滑出」而不是被压缩。 */
+  overflow: hidden;
   border-right: var(--agent-glass-border);
   background: var(--agent-glass-surface);
   backdrop-filter: var(--agent-glass-blur);
   -webkit-backdrop-filter: var(--agent-glass-blur);
+  transition:
+    width var(--agent-motion-base) var(--agent-motion-ease),
+    border-right-width 0s linear,
+    visibility 0s linear;
+}
+
+/*
+ * 收起态：宽度归零 + 移出可聚焦范围。
+ *
+ * visibility 必须延后到宽度动画结束再切 hidden，否则收起瞬间内容就消失、
+ * 看不到「滑出」过程；展开方向则要立即恢复可见，所以两态的 transition
+ * 延迟不同。右侧描边同步归零，避免 1px 残线继续占位。
+ */
+.xxai-conversation-sidebar.is-collapsed {
+  width: 0;
+  border-right-width: 0;
+  visibility: hidden;
+  transition:
+    width var(--agent-motion-base) var(--agent-motion-ease),
+    border-right-width 0s linear,
+    visibility 0s linear var(--agent-motion-base);
+}
+
+.xxai-sidebar-inner {
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  transition: opacity var(--agent-motion-fast) var(--agent-motion-ease);
+}
+
+.xxai-conversation-sidebar.is-collapsed .xxai-sidebar-inner {
+  opacity: 0;
 }
 
 .xxai-sidebar-head {
@@ -285,6 +337,16 @@
   color: #dc2626;
 }
 
+/*
+ * 触屏设备没有 hover：删除按钮此前恒为 opacity: 0，看不见却仍参与命中，
+ * 用户会「盲点删除」。这类设备上直接常显，悬停显示只服务鼠标场景。
+ */
+@media (hover: none) {
+  .xxai-sidebar-delete {
+    opacity: 0.6;
+  }
+}
+
 .xxai-sidebar-delete svg {
   width: 14px;
   height: 14px;
@@ -295,16 +357,38 @@
   inset: 0;
   z-index: 1;
   background: rgba(15, 23, 42, 0.35);
+  opacity: 0;
+  /* 关闭态必须完全不拦截点击，否则透明的遮罩会吃掉对话区的操作。 */
+  pointer-events: none;
+  transition: opacity var(--agent-motion-base) var(--agent-motion-ease);
 }
 
-/* 窄屏抽屉：会话列表浮在对话区之上，不改变单栏消息流布局。 */
-.xxai-chat-window--drawer-open .xxai-conversation-sidebar {
+/* 窄屏抽屉：列表浮在对话区之上，用位移滑入滑出，不改变单栏消息流布局。 */
+.xxai-chat-window--sidebar-drawer .xxai-conversation-sidebar {
   position: absolute;
   left: 0;
   top: 0;
   bottom: 0;
   z-index: 2;
   max-width: 80%;
+  transform: translateX(-100%);
+  visibility: hidden;
+  transition:
+    transform var(--agent-motion-base) var(--agent-motion-emphasized),
+    visibility 0s linear var(--agent-motion-base);
+}
+
+.xxai-chat-window--drawer-open .xxai-sidebar-backdrop {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.xxai-chat-window--drawer-open .xxai-conversation-sidebar {
+  transform: translateX(0);
+  visibility: visible;
+  transition:
+    transform var(--agent-motion-base) var(--agent-motion-emphasized),
+    visibility 0s linear;
 }
 
 /*
@@ -533,26 +617,37 @@
   line-height: 1.2;
 }
 
+/*
+ * 状态点必须与状态文案一致：原先无论「已连接」还是「连接错误」都是同一颗
+ * 发光的绿点，会误导用户以为链路正常。灰=未连接、琥珀呼吸=连接中/重连中、
+ * 绿=已连接、红=错误。
+ */
 .xxai-status-dot {
   width: 6px;
   height: 6px;
   flex: 0 0 6px;
   border-radius: 50%;
+  background: #94A3B8;
+}
+
+.xxai-header-status.is-connected .xxai-status-dot {
   background: var(--agent-state-success);
   box-shadow: 0 0 6px var(--agent-state-success);
 }
 
-.xxai-status {
-  min-height: 30px;
-  padding: 7px 16px;
-  background: rgba(255, 255, 255, 0.52);
-  color: var(--agent-muted-foreground);
-  font-size: 12px;
-  text-align: center;
+.xxai-header-status.is-connecting .xxai-status-dot,
+.xxai-header-status.is-reconnecting .xxai-status-dot {
+  background: #F59E0B;
+  animation: xxai-status-pulse 1.2s ease-in-out infinite;
 }
 
-.xxai-status.connected {
-  color: var(--agent-state-success);
+.xxai-header-status.is-error {
+  color: #DC2626;
+}
+
+.xxai-header-status.is-error .xxai-status-dot {
+  background: #EF4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.55);
 }
 
 .xxai-chat-messages {
@@ -1390,6 +1485,11 @@
   50% { opacity: 0.35; transform: scale(0.82); }
 }
 
+@keyframes xxai-status-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.75); }
+}
+
 @media (max-width: 520px) {
   .xxai-chat-window:not(.xxai-chat-window--embedded) {
     right: 12px;
@@ -1412,6 +1512,11 @@
 
 @media (prefers-reduced-motion: reduce) {
   .xxai-chat-window,
+  .xxai-chat-message,
+  .xxai-conversation-sidebar,
+  .xxai-sidebar-inner,
+  .xxai-sidebar-backdrop,
+  .xxai-status-dot,
   .xxai-loop-card.is-running .xxai-loop-icon,
   .xxai-typing-indicator span {
     animation: none !important;

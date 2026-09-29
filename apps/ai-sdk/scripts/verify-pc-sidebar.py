@@ -137,12 +137,21 @@ class Session:
             " return { w: Math.round(w.width), h: Math.round(w.height), x: Math.round(w.left) } })()"
         )
 
-    async def click_at(self, x, y):
+    async def element_center(self, selector):
+        return await self.evaluate(
+            "(() => { const el = document.querySelector('%s'); if (!el) return null;"
+            " const r = el.getBoundingClientRect();"
+            " return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) } })()"
+            % selector
+        )
+
+    async def click_at(self, x, y, settle=0.5):
         """在视口绝对坐标上做一次真实指针点击。
 
         `Session.drag` 只能点元素中心，遮罩这类「需要避开某个子区域」的点击
         必须自己给坐标；并且只有真实指针事件才走浏览器命中测试，合成
         `element.click()` 会绕过命中测试，测不出「按钮被挡住」这类问题。
+        `settle` 置 0 用于紧接着采样过渡动画的中间帧。
         """
         await self.call(
             "Input.dispatchMouseEvent",
@@ -153,7 +162,32 @@ class Session:
             "Input.dispatchMouseEvent",
             {"type": "mouseReleased", "x": x, "y": y, "button": "left", "buttons": 0},
         )
-        await asyncio.sleep(0.5)
+        if settle:
+            await asyncio.sleep(settle)
+
+    async def click_element(self, selector, settle=0.5):
+        """真实指针点击元素中心。"""
+        point = await self.element_center(selector)
+        if not point:
+            return False
+        await self.click_at(point["x"], point["y"], settle=settle)
+        return True
+
+    async def sample_after_click(self, selector, expression, count=10, interval=0.04):
+        """点击元素后连续采样表达式。
+
+        过渡动画只靠「点完睡够再看终值」是测不出来的——瞬间跳变同样满足
+        「最终宽度为 0」。这里在动画窗口内连续采样，用中间帧证明动画真的在跑。
+        """
+        point = await self.element_center(selector)
+        if not point:
+            return []
+        await self.click_at(point["x"], point["y"], settle=0)
+        samples = []
+        for _ in range(count):
+            samples.append(await self.evaluate(expression))
+            await asyncio.sleep(interval)
+        return samples
 
 
 async def main():
@@ -400,15 +434,33 @@ async def main():
 
             # 点击开关收起常驻列表：列表消失、空间让给对话区；但按钮本身必须
             # 留在 header 里，否则用户再也点不回来。
+            sidebar_width_expr = (
+                "(() => { const s = document.querySelector('.xxai-conversation-sidebar');"
+                " return s ? Math.round(s.getBoundingClientRect().width) : 0 })()"
+            )
+            full_width = state["sidebarWidth"]
             chat_area_before = state["chatAreaWidth"]
-            await session.evaluate("document.querySelector('.xxai-sidebar-toggle').click()")
-            await asyncio.sleep(0.5)
+            collapse_samples = await session.sample_after_click(
+                ".xxai-sidebar-toggle", sidebar_width_expr
+            )
+            print("collapse width samples =", collapse_samples)
+            check(
+                "收起过程存在宽度过渡（逐帧收缩而非瞬间消失）",
+                any(0 < w < full_width for w in collapse_samples),
+                f"samples={collapse_samples} full={full_width}",
+            )
+            await asyncio.sleep(0.6)
             collapsed = await session.evaluate("window.__probe()")
             print("probe(sidebar collapsed) =", json.dumps(collapsed, ensure_ascii=False))
             check(
                 "点击收缩按钮隐藏常驻会话列表",
                 not collapsed["hasSidebar"],
                 f"hasSidebar={collapsed['hasSidebar']}",
+            )
+            check(
+                "收起后列表宽度归零且移出可聚焦范围",
+                collapsed["sidebarWidth"] == 0 and collapsed["sidebarVisibility"] == "hidden",
+                f"width={collapsed['sidebarWidth']} visibility={collapsed['sidebarVisibility']}",
             )
             check(
                 "收起列表后对话区变宽",
@@ -425,9 +477,17 @@ async def main():
                 str(collapsed_label),
             )
 
-            # 再点一次恢复常驻列表。
-            await session.evaluate("document.querySelector('.xxai-sidebar-toggle').click()")
-            await asyncio.sleep(0.5)
+            # 再点一次恢复常驻列表，展开同样必须是渐进的。
+            expand_samples = await session.sample_after_click(
+                ".xxai-sidebar-toggle", sidebar_width_expr
+            )
+            print("expand width samples =", expand_samples)
+            check(
+                "展开过程存在宽度过渡",
+                any(0 < w < full_width for w in expand_samples),
+                f"samples={expand_samples} full={full_width}",
+            )
+            await asyncio.sleep(0.6)
             restored = await session.evaluate("window.__probe()")
             print("probe(sidebar restored) =", json.dumps(restored, ensure_ascii=False))
             check(
@@ -436,6 +496,101 @@ async def main():
                 f"hasSidebar={restored['hasSidebar']} width={restored['sidebarWidth']}",
             )
             state = restored
+
+            # 状态点必须与连接状态文案一致：demo 连不上后端时是「重连中」，
+            # 此前仍显示一颗常亮绿点，属于误导。
+            status = await session.evaluate(
+                """(() => {
+                  const box = document.querySelector('.xxai-header-status')
+                  const dot = document.querySelector('.xxai-status-dot')
+                  if (!box || !dot) return null
+                  const c = getComputedStyle(dot)
+                  return {
+                    text: box.textContent.trim(),
+                    stateClass: [...box.classList].find((n) => n.startsWith('is-')) || '',
+                    bg: c.backgroundColor,
+                    animation: c.animationName
+                  }
+                })()"""
+            )
+            print("status indicator =", json.dumps(status, ensure_ascii=False))
+            status_colors = {
+                "is-connected": "rgb(16, 185, 129)",
+                "is-connecting": "rgb(245, 158, 11)",
+                "is-reconnecting": "rgb(245, 158, 11)",
+                "is-error": "rgb(239, 68, 68)",
+                "is-disconnected": "rgb(148, 163, 184)",
+            }
+            check(
+                "状态点颜色与连接状态一致",
+                bool(status) and status_colors.get(status["stateClass"]) == status["bg"],
+                json.dumps(status, ensure_ascii=False),
+            )
+            if status and status["stateClass"] in ("is-connecting", "is-reconnecting"):
+                check(
+                    "连接中/重连中的状态点带呼吸动画",
+                    status["animation"] == "xxai-status-pulse",
+                    status["animation"],
+                )
+            else:
+                check(
+                    "非过渡态的状态点不做呼吸动画",
+                    bool(status) and status["animation"] == "none",
+                    status["animation"] if status else "no dot",
+                )
+
+            # 触屏设备没有 hover：删除按钮若维持 opacity: 0，就是「看不见但能点」
+            # 的盲点删除。用 CDP 触摸模拟让 (hover: none) 生效（setEmulatedMedia
+            # 不支持 hover 特性，实测无效），视口保持 1280 宽以免顺带触发窄屏降级。
+            mouse_delete = await session.evaluate(
+                "(() => { const b = document.querySelector('.xxai-sidebar-delete');"
+                " return b ? getComputedStyle(b).opacity : null })()"
+            )
+            check(
+                "默认（有 hover）下删除按钮靠悬停显示",
+                mouse_delete == "0",
+                str(mouse_delete),
+            )
+            await session.call(
+                "Emulation.setDeviceMetricsOverride",
+                {"width": 1280, "height": 900, "deviceScaleFactor": 1, "mobile": True},
+            )
+            await session.call(
+                "Emulation.setTouchEmulationEnabled",
+                {"enabled": True, "maxTouchPoints": 5},
+            )
+            await asyncio.sleep(0.3)
+            touch_delete = await session.evaluate(
+                "(() => { const b = document.querySelector('.xxai-sidebar-delete');"
+                " if (!b) return null;"
+                " return { opacity: getComputedStyle(b).opacity,"
+                "          hoverNone: matchMedia('(hover: none)').matches } })()"
+            )
+            print("touch delete button =", json.dumps(touch_delete, ensure_ascii=False))
+            check(
+                "无 hover 设备上删除按钮转为可见（避免盲点删除）",
+                bool(touch_delete)
+                and touch_delete["hoverNone"]
+                and float(touch_delete["opacity"]) > 0.3,
+                json.dumps(touch_delete, ensure_ascii=False),
+            )
+            # 关掉触摸模拟后必须回到悬停显示：证明上面变化确实由媒体特性驱动，
+            # 而不是某个「改了就回不去」的残留状态。
+            await session.call("Emulation.setTouchEmulationEnabled", {"enabled": False})
+            await asyncio.sleep(0.3)
+            restored_delete = await session.evaluate(
+                "(() => { const b = document.querySelector('.xxai-sidebar-delete');"
+                " if (!b) return null;"
+                " return { opacity: getComputedStyle(b).opacity,"
+                "          hoverNone: matchMedia('(hover: none)').matches } })()"
+            )
+            check(
+                "恢复鼠标环境后删除按钮回到悬停显示",
+                bool(restored_delete)
+                and not restored_delete["hoverNone"]
+                and restored_delete["opacity"] == "0",
+                json.dumps(restored_delete, ensure_ascii=False),
+            )
 
             # 点击第一个会话 -> 应加载该会话历史。
             await session.evaluate(
@@ -561,6 +716,39 @@ async def main():
                 f"hasSidebar={state['hasSidebar']} innerWidth={state['innerWidth']}",
             )
 
+            # 抽屉关闭态：元素仍挂在 DOM 里（为了位移动画），因此必须确认它
+            # 确实移出视野、移出可聚焦范围，并且遮罩不吃点击。
+            drawer_idle = await session.evaluate(
+                """(() => {
+                  const s = document.querySelector('.xxai-conversation-sidebar')
+                  const b = document.querySelector('.xxai-sidebar-backdrop')
+                  if (!s || !b) return null
+                  const sc = getComputedStyle(s)
+                  const bc = getComputedStyle(b)
+                  return {
+                    visibility: sc.visibility,
+                    transform: sc.transform,
+                    backdropOpacity: bc.opacity,
+                    backdropPointerEvents: bc.pointerEvents
+                  }
+                })()"""
+            )
+            print("drawer idle state =", json.dumps(drawer_idle, ensure_ascii=False))
+            check(
+                "抽屉关闭时列表移出视野且不可聚焦",
+                bool(drawer_idle)
+                and drawer_idle["visibility"] == "hidden"
+                and "matrix" in drawer_idle["transform"],
+                json.dumps(drawer_idle, ensure_ascii=False),
+            )
+            check(
+                "抽屉关闭时遮罩透明且不拦截点击",
+                bool(drawer_idle)
+                and drawer_idle["backdropOpacity"] == "0"
+                and drawer_idle["backdropPointerEvents"] == "none",
+                json.dumps(drawer_idle, ensure_ascii=False),
+            )
+
             # 窄屏下同一个开关改为展开抽屉。这里用真实指针点击：抽屉关闭时
             # 开关没有被任何元素遮挡，命中的必须是按钮本身。
             # 命中目标统一归一化：点按钮时 e.target 其实是 SVG 里的 <path>，
@@ -579,7 +767,31 @@ async def main():
                   }, true)
                 })()"""
             )
-            await session.drag(".xxai-sidebar-toggle", 0, 0)
+            # 采样抽屉位移与遮罩透明度，证明「滑入 + 淡入」是渐进的。
+            drawer_motion_expr = r"""(() => {
+              const s = document.querySelector('.xxai-conversation-sidebar')
+              const b = document.querySelector('.xxai-sidebar-backdrop')
+              const t = s ? getComputedStyle(s).transform : ''
+              const m = t.match(/matrix\(([^)]+)\)/)
+              return {
+                x: m ? Math.round(Number(m[1].split(',')[4])) : 0,
+                opacity: b ? Number(getComputedStyle(b).opacity) : 0
+              }
+            })()"""
+            drawer_samples = await session.sample_after_click(
+                ".xxai-sidebar-toggle", drawer_motion_expr
+            )
+            print("drawer samples =", json.dumps(drawer_samples, ensure_ascii=False))
+            check(
+                "抽屉以位移动画滑入（观测到中间位置）",
+                any(isinstance(s, dict) and -full_width < s["x"] < 0 for s in drawer_samples),
+                json.dumps(drawer_samples, ensure_ascii=False),
+            )
+            check(
+                "遮罩随抽屉淡入（观测到中间透明度）",
+                any(isinstance(s, dict) and 0 < s["opacity"] < 1 for s in drawer_samples),
+                json.dumps(drawer_samples, ensure_ascii=False),
+            )
             await asyncio.sleep(0.7)
             state = await session.evaluate("window.__probe()")
             print("probe(narrow drawer open) =", json.dumps(state, ensure_ascii=False))
