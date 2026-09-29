@@ -1,5 +1,8 @@
 # Changelog
 
+## - 2026-09-29
+- ✨ feat：AI SDK 双栏会话列表支持手动收放——header 头像左侧新增会话列表开关（面板图标 + 方向箭头），宽屏点击收起/展开常驻列表（收起后对话区独占整宽，按钮留在头部可再展开），窄屏点击展开列表抽屉（关闭沿用点遮罩/选中会话的既有交互，因为抽屉会盖住 header），按钮带 `aria-label`/`aria-expanded`（「隐藏会话列表」/「显示会话列表」）；原先窄屏头部左侧的汉堡按钮并入该开关，`layout: 'desktop'` 之外的布局不渲染它。README「PC 双栏与会话列表」同步补充该交互，浏览器验证脚本新增按钮位置、收放双向、真实指针命中与 aria 状态断言 `🧑‍💻 lixingwen`
+
 ## - 2026-09-21
 - ✨ feat：AI SDK 新增「思考模式」与「Agent 过程卡片」两个接入方开关，**默认均为关闭**、显式传 `true` 才开启——`thinking`（顶层）随每次 `message_send` 下发，由后端按厂商翻译为上游参数（DeepSeek 下发顶层 `thinking.type`；其余厂商关闭时用 `reasoning_effort: "none"`），可用 Agent 版本 `model_options.thinking.{on,off}` 显式覆盖映射；`ui.showAgentSteps` 控制是否渲染思考/工具/技能/知识库过程卡片，关闭时只保留对话正文。因上游 DeepSeek 的思考默认是 `enabled`，SDK **显式下发**关闭参数而非省略字段；网关对非布尔 `thinking` 返回 `invalid_thinking`。**升级注意**：旧版本升级后思考与过程卡片将默认不再显示，需显式开启，详见 README「思考模式与过程卡片开关」`🧑‍💻 lixingwen`
 - 🐛 fix：修复 `apps/ai-sdk/package-lock.json` 长期不同步导致 CI `npm ci` 失败——lock 版本停留在 `0.1.0`（package.json 已 `0.1.7`）且缺少 `echarts`/`jsdom`/`mermaid`；同时把测试实际依赖但从未声明的 `@vue/server-renderer` 补进 devDependencies（pnpm 严格布局下原先无法解析），并给用到 DOMPurify 的 SSR 测试显式声明 jsdom 环境 `🧑‍💻 lixingwen`

@@ -9,12 +9,12 @@
         dark: theme === 'dark',
         'xxai-chat-window--embedded': embedded,
         'xxai-chat-window--desktop': isDesktop,
-        'xxai-chat-window--drawer-open': isDesktop && isNarrow && sidebarOpen
+        'xxai-chat-window--drawer-open': isNarrow && isSidebarVisible
       }"
       :style="windowStyle"
     >
       <ConversationSidebar
-        v-if="isDesktop && (!isNarrow || sidebarOpen)"
+        v-if="isSidebarVisible"
         :conversations="conversations"
         :active-id="activeConversationId"
         :loading="conversationsLoading"
@@ -27,7 +27,7 @@
       />
       <!-- 窄屏抽屉展开时的遮罩：点击关闭列表，避免遮挡对话区。 -->
       <div
-        v-if="isDesktop && isNarrow && sidebarOpen"
+        v-if="isNarrow && isSidebarVisible"
         class="xxai-sidebar-backdrop"
         aria-hidden="true"
         @click="sidebarOpen = false"
@@ -38,23 +38,23 @@
         :class="{ 'xxai-chat-window-drag': !embedded }"
         @pointerdown="startDrag"
       >
-        <button
-          v-if="isDesktop && isNarrow"
-          class="xxai-header-icon-btn"
-          type="button"
-          aria-label="会话列表"
-          @click="sidebarOpen = !sidebarOpen"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
-        </button>
-        <!-- <button v-if="!embedded" class="xxai-header-icon-btn" type="button" aria-label="返回" @click="close">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="m15 18-6-6 6-6" />
-          </svg>
-        </button> -->
         <div class="xxai-header-center">
+          <!-- 会话列表开关（头像左侧）：宽屏收起/展开常驻列表，窄屏展开抽屉。 -->
+          <button
+            v-if="isDesktop"
+            class="xxai-header-icon-btn xxai-sidebar-toggle"
+            type="button"
+            :aria-label="sidebarToggleLabel"
+            :title="sidebarToggleLabel"
+            :aria-expanded="isSidebarVisible"
+            @click="toggleSidebar"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="4" width="18" height="16" rx="2.5" />
+              <path d="M9.5 4v16" />
+              <path :d="isSidebarVisible ? 'm15.5 9.5-3 2.5 3 2.5' : 'm12.5 9.5 3 2.5-3 2.5'" />
+            </svg>
+          </button>
           <div class="xxai-agent-avatar" aria-hidden="true">✦</div>
           <div class="xxai-header-info">
             <div class="xxai-header-name">{{ headerName }}</div>
@@ -192,6 +192,8 @@ const conversations = ref<ConversationSummary[]>([])
 const conversationsLoading = ref(false)
 const conversationsError = ref('')
 const sidebarOpen = ref(false)
+/** 宽屏下用户手动收起左侧列表；与窄屏抽屉开关分开，互不覆盖。 */
+const sidebarCollapsed = ref(false)
 const activeConversationId = ref<string | undefined>(undefined)
 const pendingMessage = ref<{ id: string; text: string; timeline?: AssistantTimelineEntry[]; loop?: import('../../core').AgentLoopRun } | null>(null)
 const pendingLoop = ref<import('../../core').AgentLoopRun | null>(null)
@@ -253,6 +255,19 @@ const isNarrow = computed(() => {
 })
 // 列表宽度限制在可读区间，防止接入方传入过窄或过宽的值破坏布局。
 const sidebarWidth = computed(() => Math.min(Math.max(props.sidebarWidth, 200), 360))
+/**
+ * 会话列表当前是否可见。
+ *
+ * 两种形态共用一个开关入口但状态彼此独立：宽屏看「是否被手动收起」，
+ * 窄屏看「抽屉是否展开」，因此面板宽度在断点两侧来回变化时不会互相污染。
+ */
+const isSidebarVisible = computed(() => {
+  if (!isDesktop.value) return false
+  return isNarrow.value ? sidebarOpen.value : !sidebarCollapsed.value
+})
+const sidebarToggleLabel = computed(() =>
+  isSidebarVisible.value ? '隐藏会话列表' : '显示会话列表'
+)
 
 const statusText = computed(() => {
   const stateMap: Record<ConnectionState, string> = {
@@ -468,6 +483,20 @@ async function loadConversations() {
   } finally {
     conversationsLoading.value = false
   }
+}
+
+/**
+ * 会话列表开关（header 头像右侧按钮）。
+ *
+ * 宽屏收放常驻列表，窄屏开合抽屉；不可见的形态直接忽略本次点击。
+ */
+function toggleSidebar() {
+  if (!isDesktop.value) return
+  if (isNarrow.value) {
+    sidebarOpen.value = !sidebarOpen.value
+    return
+  }
+  sidebarCollapsed.value = !sidebarCollapsed.value
 }
 
 function handleSelectConversation(id: number) {

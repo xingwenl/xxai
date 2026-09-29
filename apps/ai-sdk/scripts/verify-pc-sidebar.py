@@ -137,6 +137,24 @@ class Session:
             " return { w: Math.round(w.width), h: Math.round(w.height), x: Math.round(w.left) } })()"
         )
 
+    async def click_at(self, x, y):
+        """在视口绝对坐标上做一次真实指针点击。
+
+        `Session.drag` 只能点元素中心，遮罩这类「需要避开某个子区域」的点击
+        必须自己给坐标；并且只有真实指针事件才走浏览器命中测试，合成
+        `element.click()` 会绕过命中测试，测不出「按钮被挡住」这类问题。
+        """
+        await self.call(
+            "Input.dispatchMouseEvent",
+            {"type": "mousePressed", "x": x, "y": y, "button": "left", "clickCount": 1, "buttons": 1},
+        )
+        await asyncio.sleep(0.05)
+        await self.call(
+            "Input.dispatchMouseEvent",
+            {"type": "mouseReleased", "x": x, "y": y, "button": "left", "buttons": 0},
+        )
+        await asyncio.sleep(0.5)
+
 
 async def main():
     # 每次运行都用全新 profile：悬浮窗尺寸会被持久化到 localStorage，复用
@@ -347,6 +365,78 @@ async def main():
                 str(state["itemTitles"]),
             )
 
+            # header 头像左侧的收缩按钮：必须真的落在头像左边（而不是被塞进
+            # 右侧动作区，或跟头像顺序颠倒），并带着可访问名称与展开态。
+            toggle = await session.evaluate(
+                """(() => {
+                  const btn = document.querySelector('.xxai-chat-header .xxai-sidebar-toggle')
+                  const avatar = document.querySelector('.xxai-chat-header .xxai-agent-avatar')
+                  if (!btn || !avatar) return null
+                  const b = btn.getBoundingClientRect()
+                  const a = avatar.getBoundingClientRect()
+                  return {
+                    btnRight: Math.round(b.right),
+                    avatarLeft: Math.round(a.left),
+                    label: btn.getAttribute('aria-label'),
+                    expanded: btn.getAttribute('aria-expanded'),
+                    title: btn.getAttribute('title')
+                  }
+                })()"""
+            )
+            print("sidebar toggle =", json.dumps(toggle, ensure_ascii=False))
+            check(
+                "header 头像左侧存在会话列表开关",
+                bool(toggle) and toggle["btnRight"] <= toggle["avatarLeft"],
+                f"btnRight={toggle and toggle['btnRight']} avatarLeft={toggle and toggle['avatarLeft']}",
+            )
+            check(
+                "开关带可访问名称与展开态",
+                bool(toggle)
+                and toggle["label"] == "隐藏会话列表"
+                and toggle["title"] == "隐藏会话列表"
+                and toggle["expanded"] == "true",
+                json.dumps(toggle, ensure_ascii=False),
+            )
+
+            # 点击开关收起常驻列表：列表消失、空间让给对话区；但按钮本身必须
+            # 留在 header 里，否则用户再也点不回来。
+            chat_area_before = state["chatAreaWidth"]
+            await session.evaluate("document.querySelector('.xxai-sidebar-toggle').click()")
+            await asyncio.sleep(0.5)
+            collapsed = await session.evaluate("window.__probe()")
+            print("probe(sidebar collapsed) =", json.dumps(collapsed, ensure_ascii=False))
+            check(
+                "点击收缩按钮隐藏常驻会话列表",
+                not collapsed["hasSidebar"],
+                f"hasSidebar={collapsed['hasSidebar']}",
+            )
+            check(
+                "收起列表后对话区变宽",
+                collapsed["chatAreaWidth"] > chat_area_before,
+                f"{chat_area_before} -> {collapsed['chatAreaWidth']}",
+            )
+            collapsed_label = await session.evaluate(
+                "(() => { const b = document.querySelector('.xxai-sidebar-toggle');"
+                " return b ? b.getAttribute('aria-label') : null })()"
+            )
+            check(
+                "收起后开关仍在且提示改为展开",
+                collapsed_label == "显示会话列表",
+                str(collapsed_label),
+            )
+
+            # 再点一次恢复常驻列表。
+            await session.evaluate("document.querySelector('.xxai-sidebar-toggle').click()")
+            await asyncio.sleep(0.5)
+            restored = await session.evaluate("window.__probe()")
+            print("probe(sidebar restored) =", json.dumps(restored, ensure_ascii=False))
+            check(
+                "再次点击开关恢复常驻列表",
+                restored["hasSidebar"] and restored["sidebarWidth"] >= 200,
+                f"hasSidebar={restored['hasSidebar']} width={restored['sidebarWidth']}",
+            )
+            state = restored
+
             # 点击第一个会话 -> 应加载该会话历史。
             await session.evaluate(
                 "document.querySelectorAll('.xxai-sidebar-item')[0].click()"
@@ -471,14 +561,75 @@ async def main():
                 f"hasSidebar={state['hasSidebar']} innerWidth={state['innerWidth']}",
             )
 
-            # 抽屉按钮可展开列表。
+            # 窄屏下同一个开关改为展开抽屉。这里用真实指针点击：抽屉关闭时
+            # 开关没有被任何元素遮挡，命中的必须是按钮本身。
+            # 命中目标统一归一化：点按钮时 e.target 其实是 SVG 里的 <path>，
+            # 而 SVG 元素的 className 是 SVGAnimatedString（取回来是空对象）。
             await session.evaluate(
-                "document.querySelector('.xxai-chat-main .xxai-header-icon-btn').click()"
+                """(() => {
+                  window.__lastClickTarget = null
+                  if (window.__clickProbeInstalled) return
+                  window.__clickProbeInstalled = true
+                  document.addEventListener('click', (e) => {
+                    const el = e.target
+                    if (!el || !el.closest) { window.__lastClickTarget = String(el && el.tagName || ''); return }
+                    if (el.closest('.xxai-sidebar-toggle')) { window.__lastClickTarget = 'xxai-sidebar-toggle'; return }
+                    if (el.closest('.xxai-sidebar-backdrop')) { window.__lastClickTarget = 'xxai-sidebar-backdrop'; return }
+                    window.__lastClickTarget = [...el.classList].join(' ') || el.tagName
+                  }, true)
+                })()"""
             )
+            await session.drag(".xxai-sidebar-toggle", 0, 0)
             await asyncio.sleep(0.7)
             state = await session.evaluate("window.__probe()")
             print("probe(narrow drawer open) =", json.dumps(state, ensure_ascii=False))
             check("窄面板可展开抽屉列表", state["hasSidebar"], f"hasSidebar={state['hasSidebar']}")
+            open_hit = await session.evaluate("window.__lastClickTarget")
+            check(
+                "窄面板展开抽屉时真实点击命中开关",
+                isinstance(open_hit, str) and "xxai-sidebar-toggle" in open_hit,
+                str(open_hit),
+            )
+            drawer_expanded = await session.evaluate(
+                "document.querySelector('.xxai-sidebar-toggle').getAttribute('aria-expanded')"
+            )
+            check("抽屉展开时开关状态为已展开", drawer_expanded == "true", str(drawer_expanded))
+
+            # 抽屉展开后列表盖住 header（含开关），因此关闭沿用既有交互：
+            # 点遮罩。这里在抽屉右侧的遮罩区域真实点击，断言命中的是遮罩
+            # 而不是被下方的对话区吃掉，并且开关状态随之复位。
+            outside = await session.evaluate(
+                "(() => { const r = document.querySelector('.xxai-chat-window').getBoundingClientRect();"
+                " const s = document.querySelector('.xxai-conversation-sidebar').getBoundingClientRect();"
+                " return { x: Math.round(r.right - 15), y: Math.round(r.top + 200),"
+                "          drawerRight: Math.round(s.right), windowRight: Math.round(r.right) } })()"
+            )
+            print("backdrop click point =", json.dumps(outside, ensure_ascii=False))
+            check(
+                "点击点确实落在抽屉右侧的遮罩区域",
+                outside["x"] > outside["drawerRight"],
+                f"x={outside['x']} drawerRight={outside['drawerRight']}",
+            )
+            await session.evaluate("window.__lastClickTarget = null")
+            await session.click_at(outside["x"], outside["y"])
+            backdrop_hit = await session.evaluate("window.__lastClickTarget")
+            drawer_closed = await session.evaluate("window.__probe()")
+            print("probe(narrow drawer closed) =", json.dumps(drawer_closed, ensure_ascii=False))
+            print("backdrop hit =", backdrop_hit)
+            check(
+                "点遮罩命中遮罩层",
+                isinstance(backdrop_hit, str) and "xxai-sidebar-backdrop" in backdrop_hit,
+                str(backdrop_hit),
+            )
+            check(
+                "点遮罩收起抽屉",
+                not drawer_closed["hasSidebar"],
+                f"hasSidebar={drawer_closed['hasSidebar']}",
+            )
+            closed_label = await session.evaluate(
+                "document.querySelector('.xxai-sidebar-toggle').getAttribute('aria-expanded')"
+            )
+            check("抽屉收起后开关状态复位", closed_label == "false", str(closed_label))
 
             # floating 模式：双栏必须按悬浮窗自身宽度判断，而不是浏览器视口。
             # 430px 悬浮窗 + 260px 常驻列表会把对话区挤到 170px，必须降级。
@@ -564,6 +715,14 @@ async def main():
                 and not state["hasSidebar"]
                 and "desktop" not in state["windowClass"],
                 f"mode={state['mode']} hasSidebar={state['hasSidebar']} class={state['windowClass']}",
+            )
+            single_toggle = await session.evaluate(
+                "Boolean(document.querySelector('.xxai-sidebar-toggle'))"
+            )
+            check(
+                "single 布局不渲染会话列表开关（无列表可收放）",
+                not single_toggle,
+                f"exists={single_toggle}",
             )
             # 单栏（含既有悬浮窗）必须保留原来的彩色渐变底，本次配色改动
             # 只作用于双栏。
