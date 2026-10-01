@@ -124,6 +124,10 @@ class Settings:
     builtin_http_get_text_max_bytes: int
     builtin_http_get_text_max_chars: int
     builtin_http_get_file_max_bytes: int
+    # MCP 出站安全开关：默认只允许公网可达的 HTTP(S) endpoint（防 SSRF）。
+    # 显式开启后额外放行回环与私网地址，便于本地或内网自建 MCP 服务接入；
+    # 链路本地地址（含云元数据 169.254.169.254）始终拒绝。
+    mcp_allow_private_endpoints: bool
     skill_runner_url: str
     skill_runner_shared_secret: str
     skill_runner_timeout_seconds: int
@@ -268,6 +272,9 @@ def get_settings() -> Settings:
         ),
         builtin_http_get_file_max_bytes=int(
             os.getenv("BUILTIN_HTTP_GET_FILE_MAX_BYTES", str(25 * 1024 * 1024))
+        ),
+        mcp_allow_private_endpoints=_get_bool(
+            "MCP_ALLOW_PRIVATE_ENDPOINTS", default=False
         ),
         # 本地 Python API 运行在宿主机时使用开发 runner 端口；Compose API
         # 会通过环境变量显式覆盖为内部 DNS 地址，生产环境也必须显式配置。

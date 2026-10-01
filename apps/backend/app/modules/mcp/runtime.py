@@ -9,9 +9,27 @@ import httpx
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
+from app.core.config import get_settings
 from app.modules.agent.services import decrypt_secret
 from app.modules.mcp.schemas import DiscoveredMcpTool
 from app.shared.exceptions import BadRequestException, NotFoundException
+
+
+def is_forbidden_address(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """判断 MCP 目标地址是否被出站安全策略禁止。
+
+    默认只放行公网地址（``is_global``）。开启 ``MCP_ALLOW_PRIVATE_ENDPOINTS``
+    后额外放行回环与私网地址，用于本机或内网自建 MCP 服务；链路本地地址
+    （169.254.0.0/16、fe80::/10，含云元数据 169.254.169.254）在开关开启时
+    仍被拒绝，避免该开关被用来探测元数据接口。
+    """
+    if address.is_global:
+        return False
+    if not get_settings().mcp_allow_private_endpoints:
+        return True
+    return not (
+        address.is_loopback or (address.is_private and not address.is_link_local)
+    )
 
 
 def validate_mcp_url(url: str) -> str:
@@ -24,7 +42,7 @@ def validate_mcp_url(url: str) -> str:
         address = ipaddress.ip_address(parsed.hostname)
     except ValueError:
         address = None
-    if address is not None and not address.is_global:
+    if address is not None and is_forbidden_address(address):
         raise BadRequestException("MCP endpoint is not public")
     return url
 
@@ -42,7 +60,7 @@ async def validate_mcp_target(url: str) -> str:
             address = ipaddress.ip_address(item[4][0])
         except ValueError as exc:
             raise BadRequestException("MCP endpoint cannot be resolved") from exc
-        if not address.is_global:
+        if is_forbidden_address(address):
             raise BadRequestException("MCP endpoint is not public")
     return url
 

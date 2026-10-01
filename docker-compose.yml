@@ -24,6 +24,10 @@ x-backend-environment: &backend-environment
   SKILL_RUNNER_SHARED_SECRET: ${SKILL_RUNNER_SHARED_SECRET:-dev-skill-runner-secret-change-me}
   SKILL_RUNNER_TIMEOUT_SECONDS: ${SKILL_RUNNER_TIMEOUT_SECONDS:-30}
   SKILL_RUNNER_MAX_OUTPUT_BYTES: ${SKILL_RUNNER_MAX_OUTPUT_BYTES:-65536}
+  # MCP 出站安全开关：默认 false，只允许公网可达的 MCP endpoint（防 SSRF）。
+  # 置 true 后额外放行回环与私网地址，容器内访问宿主机自建 MCP 服务需要开启
+  # （例如 http://host.docker.internal:4545/mcp）；链路本地地址始终拒绝。
+  MCP_ALLOW_PRIVATE_ENDPOINTS: ${MCP_ALLOW_PRIVATE_ENDPOINTS:-false}
   # 容器默认是 UTC，日志文件名（date.today()）与时间戳会与宿主机差 8 小时，
   # 统一到 Asia/Shanghai，保证文件名日期、日志时间和宿主机一致。
   TZ: ${TZ:-Asia/Shanghai}
