@@ -157,11 +157,11 @@ export default function Settings({
   const p = theme.primary
   const glass = {
     borderRadius: 20,
-    background: 'rgba(255,255,255,0.5)',
-    backdropFilter: 'blur(24px) saturate(180%)',
-    WebkitBackdropFilter: 'blur(24px) saturate(180%)',
-    border: '1px solid rgba(255,255,255,0.72)',
-    boxShadow: `0 4px 24px ${p}14, inset 0 1px 0 rgba(255,255,255,0.8)`,
+    background: 'rgba(var(--surface-rgb) / 0.88)',
+    backdropFilter: 'blur(24px) saturate(120%)',
+    WebkitBackdropFilter: 'blur(24px) saturate(120%)',
+    border: '1px solid rgba(var(--hairline-rgb) / 0.08)',
+    boxShadow: '0 4px 24px rgba(var(--shadow-rgb) / 0.08), inset 0 1px 0 rgba(255,255,255,0.8)',
   } as const
 
   return (
@@ -187,7 +187,7 @@ export default function Settings({
         {/* 从 URL 添加远程壳插件 */}
         <div
           className="flex flex-wrap items-center gap-3 rounded-xl p-4 mb-3"
-          style={{ background: 'rgba(255,255,255,0.4)', border: `1px dashed ${p}50` }}
+          style={{ background: 'rgba(var(--surface-rgb) / 0.80)', border: `1px dashed ${p}50` }}
         >
           <input
             value={urlInput}
@@ -195,13 +195,13 @@ export default function Settings({
             onKeyDown={(e) => { if (e.key === 'Enter') handleInstallFromUrl() }}
             placeholder="https://example.com"
             className="flex-1 min-w-[220px] px-3 py-2 rounded-xl text-[13px] outline-none"
-            style={{ background: 'rgba(255,255,255,0.7)', border: `1px solid ${p}30`, color: 'var(--foreground)' }}
+            style={{ background: 'rgba(var(--hairline-rgb) / 0.05)', border: '1px solid rgba(var(--hairline-rgb) / 0.10)', color: 'var(--foreground)' }}
           />
           <button
             disabled={urlBusy}
             onClick={handleInstallFromUrl}
             className="px-4 py-2 rounded-xl text-[13px] font-600 text-white disabled:opacity-50"
-            style={{ background: `linear-gradient(135deg, ${theme.gradient[0]}, ${theme.gradient[1]})` }}
+            style={{ background: 'var(--fill-gradient)' }}
           >
             {urlBusy ? '抓取中…' : '添加应用'}
           </button>
@@ -212,7 +212,7 @@ export default function Settings({
 
         <div
           className="flex flex-wrap items-center gap-3 rounded-xl p-4"
-          style={{ background: 'rgba(255,255,255,0.4)', border: `1px dashed ${p}50` }}
+          style={{ background: 'rgba(var(--surface-rgb) / 0.80)', border: `1px dashed ${p}50` }}
         >
           <input
             ref={fileRef}
@@ -228,7 +228,7 @@ export default function Settings({
             disabled={busy}
             onClick={() => fileRef.current?.click()}
             className="px-4 py-2 rounded-xl text-[13px] font-600 text-white disabled:opacity-50"
-            style={{ background: `linear-gradient(135deg, ${theme.gradient[0]}, ${theme.gradient[1]})` }}
+            style={{ background: 'var(--fill-gradient)' }}
           >
             {busy ? '安装中…' : '安装插件（zip）'}
           </button>
@@ -242,12 +242,12 @@ export default function Settings({
             <div
               key={plugin.id}
               className="rounded-xl"
-              style={{ background: 'rgba(255,255,255,0.45)', border: `1px solid ${p}18` }}
+              style={{ background: 'rgba(var(--surface-rgb) / 0.88)', border: '1px solid rgba(var(--hairline-rgb) / 0.07)' }}
             >
               <div className="flex items-center gap-4 px-4 py-3">
                 <div
                   className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden"
-                  style={{ background: `${p}15`, color: p }}
+                  style={{ background: 'rgba(var(--primary-ink-rgb) / 0.10)', color: 'var(--primary-ink)' }}
                 >
                   {plugin.iconUrl && !plugin.error ? (
                     <img src={plugin.iconUrl} alt="" className="w-10 h-10 object-cover" />
@@ -260,12 +260,12 @@ export default function Settings({
                   <div className="flex items-center gap-2">
                     <span className="font-600 text-[14px]" style={{ color: 'var(--foreground)' }}>{plugin.name}</span>
                     {plugin.builtin && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-md font-mono" style={{ background: `${p}15`, color: p }}>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-md font-mono" style={{ background: 'rgba(var(--primary-ink-rgb) / 0.10)', color: 'var(--primary-ink)' }}>
                         内置
                       </span>
                     )}
                     {plugin.type === 'remote' && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-md font-mono" style={{ background: `${p}12`, color: p }}>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-md font-mono" style={{ background: 'rgba(var(--primary-ink-rgb) / 0.10)', color: 'var(--primary-ink)' }}>
                         URL
                       </span>
                     )}
@@ -289,7 +289,7 @@ export default function Settings({
                   />
                   <span
                     className="peer w-9 h-5 rounded-full relative transition-colors after:absolute after:left-0.5 after:top-0.5 after:w-4 after:h-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4"
-                    style={{ background: plugin.enabled ? p : '#cbd5e1' }}
+                    style={{ background: plugin.enabled ? 'var(--primary-ink)' : '#cbd5e1' }}
                   />
                 </label>
 
@@ -297,7 +297,7 @@ export default function Settings({
                   <button
                     onClick={() => editingId === plugin.id ? setEditingId(null) : startEdit(plugin)}
                     className="px-3 py-1.5 rounded-lg text-[12px] font-500"
-                    style={{ background: `${p}12`, color: p }}
+                    style={{ background: 'rgba(var(--primary-ink-rgb) / 0.10)', color: 'var(--primary-ink)' }}
                   >
                     编辑
                   </button>
@@ -318,7 +318,7 @@ export default function Settings({
               {editingId === plugin.id && plugin.type === 'remote' && (
                 <div
                   className="mx-4 mb-4 p-4 rounded-xl flex flex-col gap-3"
-                  style={{ background: 'rgba(255,255,255,0.5)', border: `1px solid ${p}22` }}
+                  style={{ background: 'rgba(var(--surface-rgb) / 0.88)', border: '1px solid rgba(var(--hairline-rgb) / 0.07)' }}
                 >
                   <div className="flex items-center gap-3">
                     {plugin.iconUrl && (
@@ -330,14 +330,14 @@ export default function Settings({
                         onChange={(e) => setEditName(e.target.value)}
                         placeholder="名称"
                         className="px-3 py-2 rounded-xl text-[13px] outline-none"
-                        style={{ background: 'rgba(255,255,255,0.8)', border: `1px solid ${p}30`, color: 'var(--foreground)' }}
+                        style={{ background: 'rgba(var(--hairline-rgb) / 0.05)', border: '1px solid rgba(var(--hairline-rgb) / 0.10)', color: 'var(--foreground)' }}
                       />
                       <input
                         value={editIconUrl}
                         onChange={(e) => setEditIconUrl(e.target.value)}
                         placeholder="图标 URL（留空保持不变）"
                         className="px-3 py-2 rounded-xl text-[13px] outline-none"
-                        style={{ background: 'rgba(255,255,255,0.8)', border: `1px solid ${p}30`, color: 'var(--foreground)' }}
+                        style={{ background: 'rgba(var(--hairline-rgb) / 0.05)', border: '1px solid rgba(var(--hairline-rgb) / 0.10)', color: 'var(--foreground)' }}
                       />
                     </div>
                   </div>
@@ -347,14 +347,14 @@ export default function Settings({
                     placeholder="描述"
                     rows={2}
                     className="px-3 py-2 rounded-xl text-[13px] outline-none resize-none"
-                    style={{ background: 'rgba(255,255,255,0.8)', border: `1px solid ${p}30`, color: 'var(--foreground)' }}
+                    style={{ background: 'rgba(var(--hairline-rgb) / 0.05)', border: '1px solid rgba(var(--hairline-rgb) / 0.10)', color: 'var(--foreground)' }}
                   />
                   <div className="flex items-center justify-between gap-2">
                     <button
                       disabled={refreshBusy}
                       onClick={() => handleRefresh(plugin)}
                       className="px-3 py-1.5 rounded-lg text-[12px] font-500 disabled:opacity-50"
-                      style={{ background: `${p}10`, color: p }}
+                      style={{ background: 'rgba(var(--primary-ink-rgb) / 0.10)', color: 'var(--primary-ink)' }}
                     >
                       {refreshBusy ? '抓取中…' : '重新抓取元数据'}
                     </button>
@@ -362,14 +362,14 @@ export default function Settings({
                       <button
                         onClick={() => setEditingId(null)}
                         className="px-3 py-1.5 rounded-lg text-[12px] font-500"
-                        style={{ background: 'rgba(255,255,255,0.6)', color: 'var(--color-mid)' }}
+                        style={{ background: 'rgba(var(--surface-rgb) / 0.94)', color: 'var(--color-mid)' }}
                       >
                         取消
                       </button>
                       <button
                         onClick={() => saveEdit(plugin)}
                         className="px-3 py-1.5 rounded-lg text-[12px] font-600 text-white"
-                        style={{ background: `linear-gradient(135deg, ${theme.gradient[0]}, ${theme.gradient[1]})` }}
+                        style={{ background: 'var(--fill-gradient)' }}
                       >
                         保存
                       </button>

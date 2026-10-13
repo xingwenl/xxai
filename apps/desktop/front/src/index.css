@@ -21,21 +21,35 @@
   --radius-lg: calc(var(--radius) + 4px);
 }
 
+/*
+ * 主题变量兜底（cyan）：与 App.tsx 的 themeVars 派生规则保持一致，
+ * 用于 React 挂载前的首屏，以及挂在 body 上的 toast（在主题根 div 之外，读不到主题变量）。
+ */
 :root {
-  --background: #f4fbfd;
-  --foreground: #0d1f26;
-  --card: #ffffff;
-  --card-foreground: #0d1f26;
+  --background: #d7e4e6;
+  --foreground: #1e3841;
+  --card: #fdfeff;
+  --card-foreground: #1e3841;
   --primary: #06b6d4;
+  --primary-ink: #097286;
+  --primary-ink-rgb: 9 114 134;
   --primary-foreground: #ffffff;
   --secondary: #e0f7fa;
-  --secondary-foreground: #0e7490;
-  --muted: #eaf6f9;
-  --muted-foreground: #5b8fa0;
+  --secondary-foreground: #446d7b;
+  --muted: #dfecee;
+  --muted-foreground: #446d7b;
   --accent: #22d3ee;
   --accent-foreground: #083344;
-  --border: #cce9f0;
+  --border: #b5d1d8;
   --ring: #06b6d4;
+  --surface: #fdfeff;
+  --surface-rgb: 253 254 255;
+  --hairline-rgb: 90 107 112;
+  --shadow-rgb: 12 58 69;
+  --color-mid: #446d7b;
+  --color-faint: #79939d;
+  --color-light: #e0f7fa;
+  --fill-gradient: linear-gradient(135deg, #097286, #097d92);
   --radius: 10px;
 }
 
@@ -59,8 +73,15 @@ body {
 /* Hide scrollbars until hover */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #cce9f0; border-radius: 99px; }
-::-webkit-scrollbar-thumb:hover { background: #06b6d4; }
+::-webkit-scrollbar-thumb { background: rgba(var(--hairline-rgb, 90 107 112) / 0.22); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--primary-ink, #097286); }
+
+/* 占位符用最浅文字色，主题里它仍保证 3:1 以上 */
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-faint, #79939d);
+  opacity: 1;
+}
 
 /* 插件 iframe：load 并注入 SDK 前保持透明，就绪后淡入，避免打开子应用时白屏闪动 */
 .plugin-frame {

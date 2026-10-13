@@ -133,8 +133,8 @@ export default function BookmarksPage({
           className="flex items-center gap-2 px-3.5 py-2 flex-1 max-w-md"
           style={{
             borderRadius: 12,
-            background: 'rgba(var(--primary-rgb) / 0.06)',
-            border: '1px solid rgba(var(--primary-rgb) / 0.10)',
+            background: 'rgba(var(--hairline-rgb) / 0.05)',
+            border: '1px solid rgba(var(--hairline-rgb) / 0.08)',
             color: 'var(--muted-foreground)',
           }}
         >
@@ -162,7 +162,7 @@ export default function BookmarksPage({
         <button
           onClick={() => { load(); toast('已刷新', '书签整理结果', 'success') }}
           className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[13px] font-600 flex-shrink-0"
-          style={{ background: 'rgba(var(--primary-rgb) / 0.10)', color: 'var(--primary)' }}
+          style={{ background: 'rgba(var(--primary-ink-rgb) / 0.10)', color: 'var(--primary-ink)' }}
         >
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
             <path d="M13.5 8a5.5 5.5 0 11-1.6-3.9M13.5 2.5v2.5H11" strokeLinecap="round" strokeLinejoin="round" />
@@ -226,11 +226,11 @@ function StatsRow({ snapshot }: { snapshot: BookmarkSummary }) {
             className="px-4 py-2.5 flex items-center gap-2.5"
             style={{
               borderRadius: 14,
-              background: 'rgba(255,255,255,0.55)',
-              backdropFilter: 'blur(20px) saturate(160%)',
-              WebkitBackdropFilter: 'blur(20px) saturate(160%)',
-              border: '1px solid rgba(255,255,255,0.72)',
-              boxShadow: '0 2px 12px rgba(var(--primary-rgb) / 0.10), inset 0 1px 0 rgba(255,255,255,0.8)',
+              background: 'rgba(var(--surface-rgb) / 0.88)',
+              backdropFilter: 'blur(20px) saturate(120%)',
+              WebkitBackdropFilter: 'blur(20px) saturate(120%)',
+              border: '1px solid rgba(var(--hairline-rgb) / 0.08)',
+              boxShadow: '0 2px 12px rgba(var(--shadow-rgb) / 0.10), inset 0 1px 0 rgba(255,255,255,0.8)',
             }}
           >
             <span className="text-[15px]">{item.icon}</span>
@@ -261,23 +261,21 @@ function FolderNav({
   theme: ThemeLike
   onSelect: (folder: string | null) => void
 }) {
-  const p = theme.primary
-  const g = theme.gradient
   const navItem = (active: boolean) => ({
-    background: active ? `linear-gradient(135deg, ${g[0]}, ${g[1]})` : 'rgba(255,255,255,0.35)',
+    background: active ? 'var(--fill-gradient)' : 'rgba(var(--surface-rgb) / 0.72)',
     color: active ? '#fff' : 'var(--foreground)',
-    boxShadow: active ? `0 3px 10px ${p}4d` : 'none',
+    boxShadow: active ? '0 4px 12px rgba(var(--shadow-rgb) / 0.18)' : 'none',
   })
   return (
     <aside
       className="w-56 flex-shrink-0 overflow-y-auto p-2"
       style={{
         borderRadius: 20,
-        background: 'rgba(255,255,255,0.5)',
-        backdropFilter: 'blur(24px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(24px) saturate(180%)',
-        border: '1px solid rgba(255,255,255,0.72)',
-        boxShadow: '0 4px 24px rgba(var(--primary-rgb) / 0.08), inset 0 1px 0 rgba(255,255,255,0.8)',
+        background: 'rgba(var(--surface-rgb) / 0.88)',
+        backdropFilter: 'blur(24px) saturate(120%)',
+        WebkitBackdropFilter: 'blur(24px) saturate(120%)',
+        border: '1px solid rgba(var(--hairline-rgb) / 0.08)',
+        boxShadow: '0 4px 24px rgba(var(--shadow-rgb) / 0.08), inset 0 1px 0 rgba(255,255,255,0.8)',
       }}
     >
       <div className="px-2 pt-1 pb-2 text-[11px] font-600" style={{ color: 'var(--muted-foreground)' }}>分类</div>
@@ -323,11 +321,11 @@ function GroupCard({
       className="p-4"
       style={{
         borderRadius: 20,
-        background: 'rgba(255,255,255,0.5)',
-        backdropFilter: 'blur(24px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(24px) saturate(180%)',
-        border: '1px solid rgba(255,255,255,0.72)',
-        boxShadow: '0 4px 24px rgba(var(--primary-rgb) / 0.08), inset 0 1px 0 rgba(255,255,255,0.8)',
+        background: 'rgba(var(--surface-rgb) / 0.88)',
+        backdropFilter: 'blur(24px) saturate(120%)',
+        WebkitBackdropFilter: 'blur(24px) saturate(120%)',
+        border: '1px solid rgba(var(--hairline-rgb) / 0.08)',
+        boxShadow: '0 4px 24px rgba(var(--shadow-rgb) / 0.08), inset 0 1px 0 rgba(255,255,255,0.8)',
       }}
     >
       <div className="flex items-center gap-2 mb-3">
@@ -335,14 +333,14 @@ function GroupCard({
         <h2 className="font-600 text-[14px] truncate flex-1" style={{ color: 'var(--foreground)' }}>{group.folderPath}</h2>
         <span
           className="text-[11px] px-2 py-0.5 rounded-full font-500 flex-shrink-0"
-          style={{ background: 'var(--secondary)', color: 'var(--primary)' }}
+          style={{ background: 'rgba(var(--primary-ink-rgb) / 0.10)', color: 'var(--primary-ink)' }}
         >
           {group.count} 个书签
         </span>
         <button
           onClick={() => onOpenAll(group)}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-600 flex-shrink-0"
-          style={{ background: 'rgba(var(--primary-rgb) / 0.10)', color: 'var(--primary)' }}
+          style={{ background: 'rgba(var(--primary-ink-rgb) / 0.10)', color: 'var(--primary-ink)' }}
         >
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3.5 h-3.5">
             <path d="M6 3.5h6.5V10M9.5 6.5L3 13" strokeLinecap="round" strokeLinejoin="round" />
@@ -356,8 +354,8 @@ function GroupCard({
             key={idx}
             className="flex items-center gap-3 rounded-xl px-3 py-2 group"
             style={{
-              background: 'rgba(255,255,255,0.35)',
-              border: '1px solid rgba(255,255,255,0.6)',
+              background: 'rgba(var(--surface-rgb) / 0.72)',
+              border: '1px solid rgba(var(--hairline-rgb) / 0.07)',
             }}
           >
             {faviconFallback(item.url) ? (
@@ -384,7 +382,7 @@ function GroupCard({
               onClick={() => onCopy(item)}
               title="复制链接"
               className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
-              style={{ background: 'rgba(var(--primary-rgb) / 0.08)', color: 'var(--primary)' }}
+              style={{ background: 'rgba(var(--primary-ink-rgb) / 0.10)', color: 'var(--primary-ink)' }}
             >
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-3.5 h-3.5">
                 <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
@@ -404,11 +402,11 @@ function EmptyState({ icon, title, hint }: { icon: string; title: string; hint: 
       className="flex flex-col items-center justify-center py-24 gap-3"
       style={{
         borderRadius: 20,
-        background: 'rgba(255,255,255,0.4)',
+        background: 'rgba(var(--surface-rgb) / 0.80)',
         backdropFilter: 'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
-        border: '1px solid rgba(255,255,255,0.7)',
-        boxShadow: '0 2px 12px rgba(var(--primary-rgb) / 0.06)',
+        border: '1px solid rgba(var(--hairline-rgb) / 0.09)',
+        boxShadow: '0 2px 12px rgba(var(--shadow-rgb) / 0.06)',
       }}
     >
       <div className="text-3xl">{icon}</div>
@@ -419,7 +417,6 @@ function EmptyState({ icon, title, hint }: { icon: string; title: string; hint: 
 }
 
 function EmptyGuide({ onRefresh, theme }: { onRefresh: () => void; theme: ThemeLike }) {
-  const p = theme.primary
   const steps = [
     ['1', '启动 ai-base 桌面应用（当前已在本应用内）'],
     ['2', 'Chrome 打开 chrome://extensions，开启「开发者模式」'],
@@ -431,11 +428,11 @@ function EmptyGuide({ onRefresh, theme }: { onRefresh: () => void; theme: ThemeL
       className="flex flex-col items-center py-14 px-8 mt-4"
       style={{
         borderRadius: 20,
-        background: 'rgba(255,255,255,0.4)',
+        background: 'rgba(var(--surface-rgb) / 0.80)',
         backdropFilter: 'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
-        border: '1px solid rgba(255,255,255,0.7)',
-        boxShadow: '0 2px 12px rgba(var(--primary-rgb) / 0.06)',
+        border: '1px solid rgba(var(--hairline-rgb) / 0.09)',
+        boxShadow: '0 2px 12px rgba(var(--shadow-rgb) / 0.06)',
       }}
     >
       <div className="text-4xl mb-2">🧭</div>
@@ -445,10 +442,10 @@ function EmptyGuide({ onRefresh, theme }: { onRefresh: () => void; theme: ThemeL
       </div>
       <ol className="flex flex-col gap-2 w-full max-w-md">
         {steps.map(([no, text]) => (
-          <li key={no} className="flex items-center gap-3 rounded-xl px-3 py-2.5" style={{ background: 'rgba(255,255,255,0.5)' }}>
+          <li key={no} className="flex items-center gap-3 rounded-xl px-3 py-2.5" style={{ background: 'rgba(var(--surface-rgb) / 0.88)' }}>
             <span
               className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-700 text-white flex-shrink-0"
-              style={{ background: `linear-gradient(135deg, ${theme.gradient[0]}, ${theme.gradient[1]})` }}
+              style={{ background: 'var(--fill-gradient)' }}
             >
               {no}
             </span>
@@ -459,7 +456,7 @@ function EmptyGuide({ onRefresh, theme }: { onRefresh: () => void; theme: ThemeL
       <button
         onClick={onRefresh}
         className="mt-6 px-5 py-2 rounded-xl text-[13px] font-600 text-white"
-        style={{ background: `linear-gradient(135deg, ${theme.gradient[0]}, ${theme.gradient[1]})`, boxShadow: `0 3px 12px ${p}44` }}
+        style={{ background: 'var(--fill-gradient)', boxShadow: '0 3px 12px rgba(var(--shadow-rgb) / 0.20)' }}
       >
         我已整理，刷新查看
       </button>

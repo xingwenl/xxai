@@ -63,12 +63,12 @@ export default function PluginView({ plugin, fullscreen }: { plugin: Plugin; ful
           onClick={() => openInBrowser(url)}
           className="absolute top-2.5 right-2.5 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-600"
           style={{
-            background: 'rgba(255,255,255,0.72)',
-            backdropFilter: 'blur(16px) saturate(160%)',
-            WebkitBackdropFilter: 'blur(16px) saturate(160%)',
-            border: '1px solid rgba(255,255,255,0.8)',
+            background: 'rgba(var(--surface-rgb) / 0.94)',
+            backdropFilter: 'blur(16px) saturate(120%)',
+            WebkitBackdropFilter: 'blur(16px) saturate(120%)',
+            border: '1px solid rgba(var(--hairline-rgb) / 0.10)',
             boxShadow: '0 4px 16px rgba(15,23,42,0.12)',
-            color: 'var(--primary)',
+            color: 'var(--primary-ink)',
           }}
           title="在系统默认浏览器中打开"
         >

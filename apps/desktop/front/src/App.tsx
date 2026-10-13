@@ -128,28 +128,59 @@ function hexToRgb(hex: string) {
   return `${r} ${g} ${b}`
 }
 
+/** 按比例混合两个颜色（ratio 为 b 的占比），用于从品牌色派生整套界面层色。 */
+function mix(a: string, b: string, ratio: number): string {
+  const A = [1,3,5].map((i) => parseInt(a.slice(i, i + 2), 16))
+  const B = [1,3,5].map((i) => parseInt(b.slice(i, i + 2), 16))
+  return '#' + A.map((v, i) => Math.round(v * (1 - ratio) + B[i] * ratio).toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * 主题变量。
+ *
+ * 画布 / 面板 / 文字三层明度全部由品牌色派生，8 套主题共用同一套「亮度曲线」：
+ * - 画布比品牌浅色底再沉一档，面板浮起来（分离度约 1.25:1，卡片边缘看得见）；
+ * - 面板用带一丝主题色的近白，不再是大面积纯白；
+ * - 正文避开纯黑压白（约 12:1），次级文字与主题色文字都达到 WCAG AA。
+ * 阴影统一走中性色，不再用主题色发光，避免近白底上的彩色光晕。
+ */
 function themeVars(t: Theme): Record<string, string> {
+  const canvas = mix(t.muted, t.dark, 0.088)
+  const surface = mix('#ffffff', t.light, 0.07)
+  const foreground = mix(t.dark, t.mid, 0.22)
+  const mutedFg = mix(t.mid, t.dark, 0.3)
+  const faint = mix(t.faint, t.dark, 0.24)
+  const ink = mix(t.primary, t.dark, 0.45)      // 主题色的可读版本：文字 / 图标 / 数字
+  const fill = mix(t.primary, t.dark, 0.38)     // 主题色的填充版本：按钮渐变终点
   return {
-    '--background': t.muted,
-    '--foreground': t.dark,
-    '--card': '#ffffff',
-    '--card-foreground': t.dark,
+    '--background': canvas,
+    '--foreground': foreground,
+    '--card': surface,
+    '--card-foreground': foreground,
     '--primary': t.primary,
     '--primary-rgb': hexToRgb(t.primary),
+    '--primary-ink': ink,
+    '--primary-ink-rgb': hexToRgb(ink),
     '--primary-foreground': '#ffffff',
     '--secondary': t.light,
-    '--secondary-foreground': t.mid,
-    '--muted': t.muted,
-    '--muted-foreground': t.mid,
+    '--secondary-foreground': mutedFg,
+    '--muted': mix(t.muted, t.dark, 0.05),
+    '--muted-foreground': mutedFg,
     '--accent': t.gradient[1],
     '--accent-foreground': t.dark,
-    '--border': t.border,
+    '--border': mix(t.border, t.dark, 0.12),
     '--ring': t.primary,
-    '--color-mid': t.mid,
-    '--color-faint': t.faint,
+    '--color-mid': mutedFg,
+    '--color-faint': faint,
+    '--color-light': t.light,
+    '--surface': surface,
+    '--surface-rgb': hexToRgb(surface),
+    '--hairline-rgb': hexToRgb(mix(t.dark, t.muted, 0.35)),
+    '--shadow-rgb': hexToRgb(mix(t.dark, t.primary, 0.18)),
+    // 品牌渐变：logo / 头像装饰用原色，承载白字的按钮与选中态用压深版本
     '--gradient-start': t.gradient[0],
     '--gradient-end': t.gradient[1],
-    '--color-light': t.light,
+    '--fill-gradient': `linear-gradient(135deg, ${ink}, ${fill})`,
   }
 }
 
@@ -312,7 +343,7 @@ function FullscreenToggle({ fullscreen, onToggle }: { fullscreen: boolean; onTog
       onClick={onToggle}
       title={fullscreen ? '退出全屏（Esc）' : '全屏展示'}
       className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[13px] font-600"
-      style={{ background: 'rgba(var(--primary-rgb) / 0.10)', color: 'var(--primary)' }}
+      style={{ background: 'rgba(var(--primary-ink-rgb) / 0.10)', color: 'var(--primary-ink)' }}
     >
       {fullscreen ? (
         <>
@@ -349,7 +380,7 @@ function Tooltip({ label }: { label: string }) {
         color: '#fff',
         backdropFilter: 'blur(8px)',
         WebkitBackdropFilter: 'blur(8px)',
-        boxShadow: '0 4px 16px rgba(var(--primary-rgb, 6 182 212) / 0.10)',
+        boxShadow: '0 4px 16px rgba(var(--shadow-rgb, 12 58 69) / 0.10)',
         fontFamily: "'Outfit', sans-serif",
       }}
     >
@@ -392,10 +423,10 @@ function ThemePicker({ current, onChange, onClose }: {
         transform: 'translateY(-50%)',
         width: 220,
         borderRadius: 20,
-        background: 'rgba(255,255,255,0.6)',
-        backdropFilter: 'blur(28px) saturate(200%)',
-        WebkitBackdropFilter: 'blur(28px) saturate(200%)',
-        border: '1px solid rgba(255,255,255,0.8)',
+        background: 'rgba(var(--surface-rgb) / 0.94)',
+        backdropFilter: 'blur(28px) saturate(120%)',
+        WebkitBackdropFilter: 'blur(28px) saturate(120%)',
+        border: '1px solid rgba(var(--hairline-rgb) / 0.10)',
         boxShadow: '0 12px 40px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.9)',
       }}
     >
@@ -483,7 +514,6 @@ function Sidebar({
   const [showTheme, setShowTheme] = useState(false)
   const [handleHovered, setHandleHovered] = useState(false)
 
-  const p = theme.primary
   const g = theme.gradient
 
   return (
@@ -495,11 +525,11 @@ function Sidebar({
         top: '50%',
         width: 56,
         borderRadius: 22,
-        background: 'rgba(255,255,255,0.5)',
-        backdropFilter: 'blur(24px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(24px) saturate(180%)',
-        border: '1px solid rgba(255,255,255,0.72)',
-        boxShadow: `0 8px 32px ${p}22, 0 2px 8px ${p}14, inset 0 1px 0 rgba(255,255,255,0.8)`,
+        background: 'rgba(var(--surface-rgb) / 0.88)',
+        backdropFilter: 'blur(20px) saturate(120%)',
+        WebkitBackdropFilter: 'blur(20px) saturate(120%)',
+        border: '1px solid rgba(var(--hairline-rgb) / 0.08)',
+        boxShadow: '0 10px 28px rgba(var(--shadow-rgb) / 0.10), 0 2px 6px rgba(var(--shadow-rgb) / 0.06)',
         transform: visible ? 'translate(0, -50%)' : 'translate(-80px, -50%)',
         opacity: visible ? 1 : 0,
         pointerEvents: visible ? 'auto' : 'none',
@@ -511,14 +541,14 @@ function Sidebar({
         className="w-9 h-9 rounded-2xl flex items-center justify-center mb-1 flex-shrink-0 overflow-hidden"
         style={{
           background: `linear-gradient(135deg, ${g[0]}, ${g[1]})`,
-          boxShadow: `0 3px 10px ${p}55`,
+          boxShadow: '0 3px 10px rgba(var(--shadow-rgb) / 0.22)',
         }}
       >
         <img src="/icon.png" alt="WW" draggable={false} className="w-full h-full object-cover" />
       </div>
 
       {/* divider */}
-      <div className="w-7 h-px my-0.5 rounded-full" style={{ background: `${p}28` }} />
+      <div className="w-7 h-px my-0.5 rounded-full" style={{ background: 'rgba(var(--hairline-rgb) / 0.12)' }} />
 
       {/* nav icons */}
       {NAV_ITEMS.map(({ id, label, icon: Icon }) => {
@@ -532,12 +562,12 @@ function Sidebar({
               className="w-10 h-10 rounded-2xl flex items-center justify-center transition-all duration-200"
               style={{
                 background: isActive
-                  ? `linear-gradient(135deg, ${g[0]}, ${g[1]})`
+                  ? 'var(--fill-gradient)'
                   : hoveredId === id
-                  ? `${p}1e`
+                  ? 'rgba(var(--primary-ink-rgb) / 0.10)'
                   : 'transparent',
-                color: isActive ? '#fff' : hoveredId === id ? p : theme.mid,
-                boxShadow: isActive ? `0 3px 10px ${p}4d` : 'none',
+                color: isActive ? '#fff' : hoveredId === id ? 'var(--primary-ink)' : 'var(--color-mid)',
+                boxShadow: isActive ? '0 4px 12px rgba(var(--shadow-rgb) / 0.18)' : 'none',
                 transform: hoveredId === id && !isActive ? 'scale(1.08)' : 'scale(1)',
               }}
             >
@@ -549,7 +579,7 @@ function Sidebar({
       })}
 
       {/* divider */}
-      <div className="w-7 h-px my-0.5 rounded-full" style={{ background: `${p}28` }} />
+      <div className="w-7 h-px my-0.5 rounded-full" style={{ background: 'rgba(var(--hairline-rgb) / 0.12)' }} />
 
       {/* bookmarks button */}
       <div className="relative flex items-center">
@@ -560,12 +590,12 @@ function Sidebar({
           className="w-10 h-10 rounded-2xl flex items-center justify-center transition-all duration-200"
           style={{
             background: active === 'bookmarks'
-              ? `linear-gradient(135deg, ${g[0]}, ${g[1]})`
+              ? 'var(--fill-gradient)'
               : hoveredId === 'bookmarks'
-              ? `${p}1e`
+              ? 'rgba(var(--primary-ink-rgb) / 0.10)'
               : 'transparent',
-            color: active === 'bookmarks' ? '#fff' : hoveredId === 'bookmarks' ? p : theme.mid,
-            boxShadow: active === 'bookmarks' ? `0 3px 10px ${p}4d` : 'none',
+            color: active === 'bookmarks' ? '#fff' : hoveredId === 'bookmarks' ? 'var(--primary-ink)' : 'var(--color-mid)',
+            boxShadow: active === 'bookmarks' ? '0 4px 12px rgba(var(--shadow-rgb) / 0.18)' : 'none',
             transform: hoveredId === 'bookmarks' && active !== 'bookmarks' ? 'scale(1.08)' : 'scale(1)',
           }}
         >
@@ -586,12 +616,12 @@ function Sidebar({
           className="w-10 h-10 rounded-2xl flex items-center justify-center transition-all duration-200"
           style={{
             background: showTheme
-              ? `linear-gradient(135deg, ${g[0]}, ${g[1]})`
+              ? 'var(--fill-gradient)'
               : hoveredId === 'theme'
-              ? `${p}1e`
+              ? 'rgba(var(--primary-ink-rgb) / 0.10)'
               : 'transparent',
-            color: showTheme ? '#fff' : hoveredId === 'theme' ? p : theme.mid,
-            boxShadow: showTheme ? `0 3px 10px ${p}4d` : 'none',
+            color: showTheme ? '#fff' : hoveredId === 'theme' ? 'var(--primary-ink)' : 'var(--color-mid)',
+            boxShadow: showTheme ? '0 4px 12px rgba(var(--shadow-rgb) / 0.18)' : 'none',
             transform: hoveredId === 'theme' && !showTheme ? 'scale(1.08)' : 'scale(1)',
           }}
         >
@@ -624,12 +654,12 @@ function Sidebar({
           className="w-10 h-10 rounded-2xl flex items-center justify-center transition-all duration-200"
           style={{
             background: active === 'settings'
-              ? `linear-gradient(135deg, ${g[0]}, ${g[1]})`
+              ? 'var(--fill-gradient)'
               : hoveredId === 'settings'
-              ? `${p}1e`
+              ? 'rgba(var(--primary-ink-rgb) / 0.10)'
               : 'transparent',
-            color: active === 'settings' ? '#fff' : hoveredId === 'settings' ? p : theme.mid,
-            boxShadow: active === 'settings' ? `0 3px 10px ${p}4d` : 'none',
+            color: active === 'settings' ? '#fff' : hoveredId === 'settings' ? 'var(--primary-ink)' : 'var(--color-mid)',
+            boxShadow: active === 'settings' ? '0 4px 12px rgba(var(--shadow-rgb) / 0.18)' : 'none',
             transform: hoveredId === 'settings' && active !== 'settings' ? 'scale(1.08)' : 'scale(1)',
           }}
         >
@@ -643,8 +673,8 @@ function Sidebar({
         className="relative w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-700 cursor-pointer mt-0.5"
         style={{
           background: `linear-gradient(135deg, ${theme.light}, ${theme.border})`,
-          color: p,
-          border: `1.5px solid ${p}40`,
+          color: 'var(--primary-ink)',
+          border: '1.5px solid rgba(var(--primary-ink-rgb) / 0.28)',
         }}
         onMouseEnter={() => setHoveredId('user')}
         onMouseLeave={() => setHoveredId(null)}
@@ -654,7 +684,7 @@ function Sidebar({
       </div>
 
       {/* divider */}
-      <div className="w-7 h-px my-0.5 rounded-full" style={{ background: `${p}28` }} />
+      <div className="w-7 h-px my-0.5 rounded-full" style={{ background: 'rgba(var(--hairline-rgb) / 0.12)' }} />
 
       {/* collapse button — 并入侧栏底部，与导航图标同款 */}
       <div className="relative flex items-center">
@@ -664,8 +694,8 @@ function Sidebar({
           onMouseLeave={() => setHoveredId(null)}
           className="w-10 h-10 rounded-2xl flex items-center justify-center transition-all duration-200"
           style={{
-            background: hoveredId === 'collapse' ? `${p}1e` : 'transparent',
-            color: hoveredId === 'collapse' ? p : theme.mid,
+            background: hoveredId === 'collapse' ? 'rgba(var(--primary-ink-rgb) / 0.10)' : 'transparent',
+            color: hoveredId === 'collapse' ? 'var(--primary-ink)' : 'var(--color-mid)',
             transform: hoveredId === 'collapse' ? 'scale(1.08)' : 'scale(1)',
           }}
         >
@@ -690,11 +720,11 @@ function Sidebar({
           left: 0,
           width: handleHovered ? 10 : 5,
           height: 56,
-          background: handleHovered ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.4)',
+          background: handleHovered ? 'rgba(var(--surface-rgb) / 0.92)' : 'rgba(var(--surface-rgb) / 0.7)',
           backdropFilter: 'blur(8px)',
           WebkitBackdropFilter: 'blur(8px)',
-          border: '1px solid rgba(255,255,255,0.5)',
-          boxShadow: `0 2px 8px ${p}22`,
+          border: '1px solid rgba(var(--hairline-rgb) / 0.10)',
+          boxShadow: '0 2px 8px rgba(var(--shadow-rgb) / 0.10)',
         }}
         title="显示侧边栏"
       />
@@ -820,7 +850,7 @@ export default function App() {
   return (
     <div
       className="flex h-screen overflow-hidden"
-      style={{ background: theme.muted, ...Object.fromEntries(Object.entries(themeVars(theme))) as React.CSSProperties }}
+      style={{ background: 'var(--background)', ...Object.fromEntries(Object.entries(themeVars(theme))) as React.CSSProperties }}
     >
       <Sidebar
         active={page === 'settings' ? 'settings' : openApp === 'bookmarks-organizer' ? 'bookmarks' : openApp ? 'all' : activeCategory}
@@ -858,7 +888,7 @@ export default function App() {
                 <button
                   onClick={navigateBack}
                   className="px-4 py-2 rounded-xl text-[13px] font-600 text-white"
-                  style={{ background: `linear-gradient(135deg, ${theme.gradient[0]}, ${theme.gradient[1]})` }}
+                  style={{ background: 'var(--fill-gradient)' }}
                 >
                   返回
                 </button>
@@ -912,14 +942,14 @@ export default function App() {
               className="flex items-center gap-2 px-3.5 py-2 w-full max-w-xs"
               style={{
                 borderRadius: 12,
-                background: 'rgba(var(--primary-rgb) / 0.06)',
-                border: '1px solid rgba(var(--primary-rgb, 6 182 212) / 0.10)',
+                background: 'rgba(var(--hairline-rgb) / 0.05)',
+                border: '1px solid rgba(var(--hairline-rgb) / 0.08)',
                 color: 'var(--muted-foreground)',
               }}
             >
               <SearchIcon />
               <input
-                className="flex-1 bg-transparent outline-none text-[13px] placeholder:text-[#9bb8c3]"
+                className="flex-1 bg-transparent outline-none text-[13px]"
                 style={{ color: 'var(--foreground)' }}
                 placeholder="搜索工具名称、标签…"
                 value={searchQ}
@@ -929,7 +959,7 @@ export default function App() {
                 <button
                   onClick={() => setSearchQ('')}
                   className="text-[11px] w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0"
-                  style={{ background: '#9bb8c3', color: '#fff' }}
+                  style={{ background: 'var(--color-faint)', color: '#fff' }}
                 >
                   ×
                 </button>
@@ -941,14 +971,14 @@ export default function App() {
               <>
               <div
                 className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-500"
-                style={{ borderRadius: 10, background: 'var(--secondary)', color: 'var(--primary)' }}
+                style={{ borderRadius: 10, background: 'rgba(var(--primary-ink-rgb) / 0.10)', color: 'var(--primary-ink)' }}
               >
                 <PinIcon />
                 最近使用
               </div>
               <div
                 className="w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-700"
-                style={{ background: 'var(--secondary)', color: 'var(--primary)', border: '1.5px solid rgba(var(--primary-rgb) / 0.25)' }}
+                style={{ background: 'rgba(var(--primary-ink-rgb) / 0.10)', color: 'var(--primary-ink)', border: '1.5px solid rgba(var(--primary-ink-rgb) / 0.25)' }}
               >
                 图
               </div>
@@ -967,18 +997,18 @@ export default function App() {
                   className="flex items-center gap-2 px-3.5 py-1.5"
                   style={{
                     borderRadius: 12,
-                    background: 'rgba(255,255,255,0.5)',
+                    background: 'rgba(var(--surface-rgb) / 0.88)',
                     backdropFilter: 'blur(16px)',
                     WebkitBackdropFilter: 'blur(16px)',
-                    border: '1px solid rgba(255,255,255,0.72)',
-                    boxShadow: '0 2px 10px rgba(var(--primary-rgb) / 0.08), inset 0 1px 0 rgba(255,255,255,0.8)',
+                    border: '1px solid rgba(var(--hairline-rgb) / 0.08)',
+                    boxShadow: '0 2px 10px rgba(var(--shadow-rgb) / 0.08), inset 0 1px 0 rgba(255,255,255,0.8)',
                   }}
                 >
-                  <span style={{ color: 'var(--primary)' }}><PinIcon /></span>
+                  <span style={{ color: 'var(--primary-ink)' }}><PinIcon /></span>
                   <span className="font-600 text-[13px]" style={{ color: 'var(--foreground)' }}>快速访问</span>
                   <span
                     className="text-[10px] px-1.5 py-0.5 rounded-md"
-                    style={{ fontFamily: "'DM Mono', monospace", background: 'var(--secondary)', color: 'var(--primary)' }}
+                    style={{ fontFamily: "'DM Mono', monospace", background: 'rgba(var(--primary-ink-rgb) / 0.10)', color: 'var(--primary-ink)' }}
                   >
                     已固定
                   </span>
@@ -999,25 +1029,25 @@ export default function App() {
               style={{
                 gridTemplateColumns: 'repeat(4, 1fr)',
                 borderRadius: 20,
-                background: 'rgba(255,255,255,0.45)',
-                backdropFilter: 'blur(20px) saturate(160%)',
-                WebkitBackdropFilter: 'blur(20px) saturate(160%)',
-                border: '1px solid rgba(255,255,255,0.72)',
-                boxShadow: '0 4px 20px rgba(var(--primary-rgb) / 0.08), inset 0 1px 0 rgba(255,255,255,0.8)',
+                background: 'rgba(var(--surface-rgb) / 0.88)',
+                backdropFilter: 'blur(20px) saturate(120%)',
+                WebkitBackdropFilter: 'blur(20px) saturate(120%)',
+                border: '1px solid rgba(var(--hairline-rgb) / 0.08)',
+                boxShadow: '0 4px 20px rgba(var(--shadow-rgb) / 0.08), inset 0 1px 0 rgba(255,255,255,0.8)',
                 overflow: 'hidden',
               }}
             >
               {[
-                { label: '今日使用', value: '—', sub: '暂未统计', accent: 'var(--primary)' },
-                { label: '收藏工具', value: `${pinnedIds.length} 个`, sub: '点击卡片星标固定', accent: 'var(--primary)' },
-                { label: '平台工具', value: `${apps.length} 个`, sub: '持续更新中', accent: 'var(--accent)' },
+                { label: '今日使用', value: '—', sub: '暂未统计', accent: 'var(--primary-ink)' },
+                { label: '收藏工具', value: `${pinnedIds.length} 个`, sub: '点击卡片星标固定', accent: 'var(--primary-ink)' },
+                { label: '平台工具', value: `${apps.length} 个`, sub: '持续更新中', accent: 'var(--primary-ink)' },
                 { label: '最常用', value: pinnedApps[0]?.name ?? '—', sub: pinnedApps[0] ? '星标应用' : '暂无数据', accent: 'var(--muted-foreground)' },
               ].map((s, i) => (
                 <div
                   key={s.label}
                   className="flex flex-col gap-1.5 p-5"
                   style={{
-                    borderRight: i < 3 ? '1px solid rgba(var(--primary-rgb, 6 182 212) / 0.10)' : 'none',
+                    borderRight: i < 3 ? '1px solid rgba(var(--hairline-rgb) / 0.08)' : 'none',
                   }}
                 >
                   <div className="text-[11px]" style={{ fontFamily: "'DM Mono', monospace", color: 'var(--muted-foreground)' }}>
@@ -1038,14 +1068,14 @@ export default function App() {
                   className="flex items-center gap-2 px-3.5 py-1.5"
                   style={{
                     borderRadius: 12,
-                    background: 'rgba(255,255,255,0.5)',
+                    background: 'rgba(var(--surface-rgb) / 0.88)',
                     backdropFilter: 'blur(16px)',
                     WebkitBackdropFilter: 'blur(16px)',
-                    border: '1px solid rgba(255,255,255,0.72)',
-                    boxShadow: '0 2px 10px rgba(var(--primary-rgb) / 0.08), inset 0 1px 0 rgba(255,255,255,0.8)',
+                    border: '1px solid rgba(var(--hairline-rgb) / 0.08)',
+                    boxShadow: '0 2px 10px rgba(var(--shadow-rgb) / 0.08), inset 0 1px 0 rgba(255,255,255,0.8)',
                   }}
                 >
-                  <span style={{ color: 'var(--primary)' }}><GridIcon /></span>
+                  <span style={{ color: 'var(--primary-ink)' }}><GridIcon /></span>
                   <span className="font-600 text-[13px]" style={{ color: 'var(--foreground)' }}>全部工具</span>
                   <span
                     className="text-[10px] px-1.5 py-0.5 rounded-md"
@@ -1061,11 +1091,11 @@ export default function App() {
                 className="flex flex-col items-center justify-center py-20 gap-3"
                 style={{
                   borderRadius: 20,
-                  background: 'rgba(255,255,255,0.4)',
+                  background: 'rgba(var(--surface-rgb) / 0.80)',
                   backdropFilter: 'blur(16px)',
                   WebkitBackdropFilter: 'blur(16px)',
-                  border: '1px solid rgba(255,255,255,0.7)',
-                  boxShadow: '0 2px 12px rgba(var(--primary-rgb) / 0.06)',
+                  border: '1px solid rgba(var(--hairline-rgb) / 0.09)',
+                  boxShadow: '0 2px 12px rgba(var(--shadow-rgb) / 0.06)',
                 }}
               >
                 <div className="text-3xl">{loaded ? '🔍' : '⏳'}</div>
@@ -1104,7 +1134,7 @@ export default function App() {
         const plugin = plugins.find((p) => p.id === openApp)
         if (!plugin) return null
         return (
-          <div className="fixed inset-0 z-50" style={{ background: theme.muted }}>
+          <div className="fixed inset-0 z-50" style={{ background: 'var(--background)' }}>
             {/* iframe 铺满整个窗口 */}
             <div className="absolute inset-0">
               {plugin.type === 'react'
@@ -1120,12 +1150,12 @@ export default function App() {
                 style={{
                   width: 48,
                   height: 5,
-                  background: 'rgba(255,255,255,0.4)',
+                  background: 'rgba(var(--surface-rgb) / 0.80)',
                   backdropFilter: 'blur(8px)',
                   WebkitBackdropFilter: 'blur(8px)',
-                  border: '1px solid rgba(255,255,255,0.5)',
+                  border: '1px solid rgba(var(--hairline-rgb) / 0.10)',
                   borderTop: 'none',
-                  boxShadow: `0 2px 8px ${theme.primary}22`,
+                  boxShadow: '0 2px 8px rgba(var(--shadow-rgb) / 0.10)',
                 }}
                 title="显示头部"
               />
@@ -1145,7 +1175,7 @@ export default function App() {
                         onClick={() => setFsHeaderVisible(false)}
                         title="收起头部"
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[13px] font-600"
-                        style={{ background: 'rgba(var(--primary-rgb) / 0.10)', color: 'var(--primary)' }}
+                        style={{ background: 'rgba(var(--primary-ink-rgb) / 0.10)', color: 'var(--primary-ink)' }}
                       >
                         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
                           <path d="M6 3l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />

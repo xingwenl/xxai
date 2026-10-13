@@ -43,9 +43,9 @@ export function AppCard({ app, pinned, onClick, onTogglePinned }: {
 
   const Icon = app.icon
   // 卡片强调色：优先插件派生的 color，缺失时回退到用户设置的主题色
-  const accent = app.color ?? 'var(--primary)'
+  const accent = app.color ?? 'var(--primary-ink)'
   const tint = (hexAlpha: string, alpha: number) =>
-    app.color ? app.color + hexAlpha : `rgba(var(--primary-rgb) / ${alpha})`
+    app.color ? app.color + hexAlpha : `rgba(var(--primary-ink-rgb) / ${alpha})`
 
   return (
     <div
@@ -53,13 +53,13 @@ export function AppCard({ app, pinned, onClick, onTogglePinned }: {
       tabIndex={0}
       className="group relative rounded-2xl border transition-all duration-200 cursor-pointer overflow-hidden flex flex-col outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
       style={{
-        background: 'rgba(255,255,255,0.55)',
-        backdropFilter: 'blur(20px) saturate(160%)',
-        WebkitBackdropFilter: 'blur(20px) saturate(160%)',
-        borderColor: hovered ? tint('66', 0.4) : 'rgba(255,255,255,0.75)',
+        background: 'rgba(var(--surface-rgb) / 0.88)',
+        backdropFilter: 'blur(20px) saturate(120%)',
+        WebkitBackdropFilter: 'blur(20px) saturate(120%)',
+        borderColor: hovered ? tint('66', 0.4) : 'rgba(var(--hairline-rgb) / 0.09)',
         boxShadow: hovered
-          ? `0 10px 34px ${tint('22', 0.13)}, 0 2px 8px ${tint('14', 0.08)}, inset 0 1px 0 rgba(255,255,255,0.9)`
-          : '0 2px 10px rgba(var(--primary-rgb, 6 182 212) / 0.07), inset 0 1px 0 rgba(255,255,255,0.85)',
+          ? `0 10px 30px ${tint('22', 0.14)}, 0 2px 8px rgba(var(--shadow-rgb) / 0.08), inset 0 1px 0 rgba(255,255,255,0.9)`
+          : '0 2px 10px rgba(var(--shadow-rgb, 12 58 69) / 0.07), inset 0 1px 0 rgba(255,255,255,0.85)',
         transform: hovered ? 'translateY(-2px)' : 'none',
       }}
       onMouseEnter={() => setHovered(true)}
@@ -76,10 +76,10 @@ export function AppCard({ app, pinned, onClick, onTogglePinned }: {
     >
       {/* top accent stripe */}
       <div
-        className="h-1 w-full transition-opacity duration-300"
+        className="h-[3px] w-full transition-opacity duration-300"
         style={{
           background: `linear-gradient(90deg, ${accent}, ${tint('59', 0.35)})`,
-          opacity: hovered ? 1 : 0.4,
+          opacity: hovered ? 0.85 : 0.3,
         }}
       />
 
@@ -92,7 +92,7 @@ export function AppCard({ app, pinned, onClick, onTogglePinned }: {
               background: `linear-gradient(135deg, ${tint('1f', 0.12)}, ${tint('0d', 0.05)})`,
               color: accent,
               border: `1px solid ${tint('26', 0.15)}`,
-              boxShadow: hovered ? `0 4px 12px ${tint('26', 0.15)}` : 'none',
+              boxShadow: hovered ? `0 4px 12px ${tint('26', 0.18)}` : 'none',
               transform: hovered ? 'scale(1.08)' : 'scale(1)',
             }}
           >
@@ -108,8 +108,8 @@ export function AppCard({ app, pinned, onClick, onTogglePinned }: {
                 className="font-mono text-[10px] font-medium px-1.5 py-0.5 rounded-md leading-none"
                 style={{
                   fontFamily: "'DM Mono', monospace",
-                  background: pinned ? 'rgba(var(--primary-rgb, 6 182 212) / 0.10)' : tint('14', 0.08),
-                  color: pinned ? 'var(--primary)' : accent,
+                  background: pinned ? 'rgba(var(--primary-ink-rgb) / 0.10)' : tint('14', 0.08),
+                  color: pinned ? 'var(--primary-ink)' : accent,
                 }}
               >
                 {pinned ? 'PIN' : app.new ? 'NEW' : 'HOT'}

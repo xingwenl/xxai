@@ -23,11 +23,11 @@ export default function PageHeader({
       className="pointer-events-auto flex items-center justify-between px-5 py-3 gap-4"
       style={{
         borderRadius: 20,
-        background: 'rgba(255,255,255,0.55)',
-        backdropFilter: 'blur(24px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(24px) saturate(180%)',
-        border: '1px solid rgba(255,255,255,0.72)',
-        boxShadow: '0 6px 28px rgba(var(--primary-rgb, 6 182 212) / 0.10), 0 1px 4px rgba(var(--primary-rgb) / 0.07), inset 0 1px 0 rgba(255,255,255,0.8)',
+        background: 'rgba(var(--surface-rgb) / 0.88)',
+        backdropFilter: 'blur(24px) saturate(120%)',
+        WebkitBackdropFilter: 'blur(24px) saturate(120%)',
+        border: '1px solid rgba(var(--hairline-rgb) / 0.08)',
+        boxShadow: '0 6px 28px rgba(var(--shadow-rgb, 12 58 69) / 0.10), 0 1px 4px rgba(var(--shadow-rgb) / 0.07), inset 0 1px 0 rgba(255,255,255,0.8)',
       }}
     >
       {/* 左侧：返回 + 图标 + 标题 */}
@@ -36,7 +36,7 @@ export default function PageHeader({
           <button
             onClick={onBack}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[13px] font-600 flex-shrink-0"
-            style={{ background: 'rgba(var(--primary-rgb) / 0.10)', color: 'var(--primary)' }}
+            style={{ background: 'rgba(var(--primary-ink-rgb) / 0.10)', color: 'var(--primary-ink)' }}
           >
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
               <path d="M10 12L6 8l4-4" strokeLinecap="round" strokeLinejoin="round" />
@@ -47,7 +47,7 @@ export default function PageHeader({
         {icon && (
           <div
             className="w-8 h-8 rounded-2xl flex items-center justify-center flex-shrink-0"
-            style={{ background: 'rgba(var(--primary-rgb) / 0.10)', color: 'var(--primary)' }}
+            style={{ background: 'rgba(var(--primary-ink-rgb) / 0.10)', color: 'var(--primary-ink)' }}
           >
             {icon}
           </div>
