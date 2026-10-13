@@ -166,6 +166,9 @@ class Settings:
     task_scheduler_tick_seconds: int
     task_default_timeout_seconds: int
     task_max_per_platform: int
+    # 单个平台的工作流数量上限：工作流会按计划反复执行并落运行记录，
+    # 不做上限时一个平台可以无限堆积定义，把调度队列拖垮。
+    workflow_max_per_platform: int
 
 
 def _build_database_url() -> str:
@@ -371,5 +374,9 @@ def get_settings() -> Settings:
         ),
         task_max_per_platform=max(
             1, int(os.getenv("TASK_MAX_PER_PLATFORM", "100"))
+        ),
+        # 工作流默认上限比任务低：一条工作流一次运行会拆成多步、产生多条步骤记录。
+        workflow_max_per_platform=max(
+            1, int(os.getenv("WORKFLOW_MAX_PER_PLATFORM", "50"))
         ),
     )

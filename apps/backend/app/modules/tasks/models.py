@@ -26,6 +26,12 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.shared.base_model import BaseModel, TimeModel
 
+# tasks.workflow_id 有一条指向 workflows 的外键。SQLAlchemy 整理外键依赖（建表排序、
+# referred_table 解析）时必须能在 metadata 里查到 workflows 表本身，所以这里显式 import
+# 一次把它注册进 BaseModel.metadata；写进 TYPE_CHECKING 只会登记类型、不会注册表，等
+# 于没写。workflows/models.py 运行时并不 import 本模块，不构成循环导入。
+from app.modules.workflows.models import Workflow as Workflow  # noqa: F401
+
 if TYPE_CHECKING:
     from app.modules.agent.models import Agent
     from app.modules.conversation.models import Conversation
@@ -53,6 +59,14 @@ class Task(BaseModel, TimeModel):
         nullable=False,
         index=True,
         comment="任务执行时使用的智能体 ID",
+    )
+    # ondelete="CASCADE" 是刻意的：触发任务只为工作流而存在，工作流被删掉
+    # 不该留下一条还在跑自己 prompt 的僵尸任务。
+    workflow_id: Mapped[int | None] = mapped_column(
+        ForeignKey("workflows.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+        comment="由哪个工作流触发：为空是普通任务（行为与今天完全一致）；有值时到点触发的是该工作流的一次运行，任务自身的 agent_id/prompt 不参与执行",
     )
     owner_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("sys_users.id", ondelete="CASCADE"),

@@ -32,6 +32,7 @@ from app.modules.builtin_tool.router import router as builtin_tool_router
 from app.modules.asset.router import router as asset_router
 from app.modules.wechat_bot.router import router as wechat_bot_router
 from app.modules.tasks.router import router as tasks_router
+from app.modules.workflows.router import router as workflows_router
 from app.modules.model_registry.router import (
     binding_router as model_binding_router,
     model_router as platform_model_router,
@@ -102,6 +103,7 @@ def create_app() -> FastAPI:
     app.include_router(asset_router, prefix=settings.api_v1_prefix)
     app.include_router(wechat_bot_router, prefix=settings.api_v1_prefix)
     app.include_router(tasks_router, prefix=settings.api_v1_prefix)
+    app.include_router(workflows_router, prefix=settings.api_v1_prefix)
     app.include_router(shop_agent_router, prefix=settings.api_v1_prefix)
     app.include_router(platform_model_router, prefix=settings.api_v1_prefix)
     app.include_router(model_binding_router, prefix=settings.api_v1_prefix)

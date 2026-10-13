@@ -3,7 +3,7 @@
 运行方式：``python -m app.modules.tasks.scheduler``
 
 形态与 ``wechat_bot/worker.py`` 同构：不启动 FastAPI，只做
-``setup_logging`` + 常驻 asyncio 循环。每个 tick 做三件事：
+``setup_logging`` + 常驻 asyncio 循环。每个 tick 做四件事：
 
 1. **看门狗**：把超时仍 running 的执行记录标记为失败。这是唯一的兜底
    清理入口——进程被杀、容器重启都会留下永久 running，而会话侧没有
@@ -12,6 +12,9 @@
    在同一事务内提交。多副本同时跑也只有一个副本能拿到同一个触发点。
 3. **启动执行**：为每条抢占到的任务写入执行记录并提交，再用独立 Task
    去跑 Agent。调度循环本身不等模型跑完，避免一个慢任务拖住整轮 tick。
+4. **驱动工作流 tick**：工作流没有独立的常驻进程，它的看门狗与定时触发
+   都由本循环代为驱动（见 ``app.modules.workflows.scheduler``），两类运行
+   共享同一个并发上限。
 
 并发语义：
 - 抢占时若该任务已有 running 记录，写一条 ``skipped(overlapped)``，不发新运行；
@@ -31,6 +34,8 @@ from app.core.logging import get_logger, setup_logging
 from app.modules.tasks import runner
 from app.modules.tasks.repositories import TaskRepository, TaskRunRepository
 from app.modules.tasks.triggers import compute_next_run_at
+from app.modules.workflows import runner as workflow_runner
+from app.modules.workflows import scheduler as workflow_scheduler
 
 logger = get_logger(__name__)
 
@@ -69,7 +74,11 @@ async def _claim_and_dispatch(session_factory, *, limit: int = 50) -> list[int]:
     async with session_factory() as session:
         task_repo = TaskRepository(session)
         run_repo = TaskRunRepository(session)
-        claimed = await task_repo.claim_due_tasks(limit=limit)
+        # 显式排除「由工作流触发」的任务：工作流触发点由
+        # app.modules.workflows.scheduler 单独认领（workflow_linked=True），
+        # 两条路径因此切成互不相交的集合，同一批到期任务不会被两个 tick
+        # 同时处理、也不会各自跑一遍。
+        claimed = await task_repo.claim_due_tasks(limit=limit, workflow_linked=False)
         for task in claimed:
             planned_at = task.next_run_at
             running = await run_repo.get_running(task.id)
@@ -140,6 +149,18 @@ async def _supervise() -> None:
             except Exception:  # noqa: BLE001 - 单条运行失败不能拖垮调度循环
                 logger.exception("Task run crashed task_run_id=%s", run_id)
 
+    async def _run_workflow_one(run_id: int) -> None:
+        # 与任务运行共享同一个 semaphore：两类运行合计不超过
+        # MAX_CONCURRENT_RUNS，这是有意的——工作流每一步都要打模型网关，
+        # 两类运行各自无上限地并发会把网关打满。
+        async with semaphore:
+            try:
+                await workflow_runner.run_workflow_run(
+                    session_factory, workflow_run_id=run_id
+                )
+            except Exception:  # noqa: BLE001 - 单条运行失败不能拖垮调度循环
+                logger.exception("Workflow run crashed workflow_run_id=%s", run_id)
+
     try:
         while True:
             try:
@@ -154,6 +175,29 @@ async def _supervise() -> None:
                 pending = await _claim_and_dispatch(session_factory, limit=available)
                 for run_id in pending:
                     task = asyncio.create_task(_run_one(run_id))
+                    in_flight.add(task)
+                    task.add_done_callback(in_flight.discard)
+
+                # 工作流 tick：工作流没有独立的常驻进程，它的每一轮都由这里
+                # 代为驱动，因此全局只有一个调度进程、一套启停生命周期。
+                # 放在普通任务派发之后，是为了让工作流侧的异常（多一次 DB
+                # 往返、多一个模块的代码）不影响已定稿的任务链路。
+                await workflow_scheduler._watchdog(
+                    session_factory,
+                    default_timeout_seconds=settings.task_default_timeout_seconds,
+                )
+                # 工作流看门狗内部已记 warning，这里不重复记。
+                # limit 取「扣掉在途运行后的剩余额度」：claim_queued_runs 会写
+                # started_at，而看门狗按 started_at 算超时，一次认领超过并发
+                # 上限会让排队中的记录在真正开跑前被误判超时（理由同上文）。
+                pending_workflow_runs = (
+                    await workflow_scheduler._claim_and_dispatch_workflows(
+                        session_factory,
+                        limit=max(1, MAX_CONCURRENT_RUNS - len(in_flight)),
+                    )
+                )
+                for run_id in pending_workflow_runs:
+                    task = asyncio.create_task(_run_workflow_one(run_id))
                     in_flight.add(task)
                     task.add_done_callback(in_flight.discard)
             except asyncio.CancelledError:

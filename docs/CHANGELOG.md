@@ -1,5 +1,12 @@
 # Changelog
 
+## - 2026-10-13
+- ✨ feat：新增「工作流」能力——无画布的多步编排：定义 N 个有序步骤，agent 步骤跑一轮 Agent、tool 步骤调一次已注册的内置/MCP 工具；步骤之间用数组选择器显式传值（`input_bindings: [{name, value_selector: [step_id, "output"]}]`），提示词里写 `{{step_id.output}}`。定义以 JSON（`nodes` + `edges`，节点/边 id 是稳定字符串而非自增行号）存 `workflows.definition`，每次保存 `version` +1，单条上限 50 步（对齐 Dify 的单执行路径上限）；每次运行把定义快照冻结进 `workflow_runs.definition_snapshot` 并记 `definition_version_id`，因此改定义之后历史运行仍能解释自己（不建版本表、不做 diff 与回滚）。新增 `workflows` / `workflow_runs` / `workflow_step_runs` 三张表（迁移 `20261013_0036`）、`/api/v1/platforms/{platform_id}/workflows` 接口族（列表/创建/详情/修改/删除/手动运行/运行列表/运行详情）与 `/workflows` 前端页面（列表 + 详情 + 手动运行 + 每步结果，步骤用表单式有序列表，无画布与拖拽）。`🧑‍💻 lixingwen`
+- ✨ feat：工作流的失败语义与保存期校验——每个步骤可声明 `on_error`（`abort` / `continue_with_default`，`fail_branch` 只在枚举里占位、v1 不实现）与 `max_retries`：失败后用**同一份输入**重试，全部尝试用尽才落 `on_error`，`continue_with_default` 时后续步骤照跑、步骤记录以 `on_error_applied` 如实指出「哪一步是带着兜底值过去的」。保存期即拒绝：引用排在其后的步骤、重复 `step_id`、步骤数超上限、边指向不存在的步骤、agent 步骤误带输入绑定、工具步骤声明 `financial` 之类不可自动批准的 `side_effect`、步骤覆盖的 Agent 属于其它平台（跨租户）。步骤输出走双通道：`model_visible_output` 进下一步（超 50KB 截断并带标记）、`raw_output` 保留全量供界面与审计。`🧑‍💻 lixingwen`
+- ✨ feat：工作流接入任务调度器——`tasks` 新增可空 `workflow_id`：绑定了工作流的任务到点触发工作流而不是跑单轮 Agent，未绑定的任务行为一字不变。复用同一套 `FOR UPDATE SKIP LOCKED` 抢占、部分唯一索引保证「同一工作流同时只有一条 running」（PostgreSQL 与 SQLite 两方言都写 `where`）、看门狗按各自 `timeout_seconds` 收敛被强杀留下的 running 记录；跳过原因沿用 `overlapped` / `workflow_paused` / `deadline_missed`，超过 5 分钟宽限的陈年触发点不补跑以免进程重启后成批补跑。执行身份由触发源决定（定时触发沿用任务身份、手动触发用当前登录用户，不在定义里固定存身份），每个步骤一次独立会话，步骤之间天然获得上下文隔离。`🧑‍💻 lixingwen`
+- ♻️ refactor：`conversation/services.py` 把原先重复两处的运行时工具清单组装抽成 `build_runtime_tool_list(context)`——工作流的工具步骤与聊天链路必须按同一份清单找工具对象，复制一份迟早漂移。`🧑‍💻 lixingwen`
+- 📝 docs：新增 ADR `docs/adr/0002-workflow-orchestration-module-boundary.md`（独立 workflows 模块、定义存 JSON、运行快照必需而版本表可选、失败语义挂在步骤属性上）与 `docs/design/agent-workflow-orchestration-research.md`（对照 Dify / n8n / LangGraph / Temporal / GitHub Actions 的官方实现取证与结论），`CONTEXT.md` 新增工作流、工作流步骤、工作流运行、步骤运行、定义快照、数组选择器 6 个术语。`🧑‍💻 lixingwen`
+
 ## - 2026-10-01
 - ✨ feat：MCP 新增 `MCP_ALLOW_PRIVATE_ENDPOINTS` 开关，支持接入本机/内网自建 MCP 服务——此前 MCP endpoint 一律要求公网可达（`is_global`），`http://127.0.0.1:4545/mcp` 这类本地服务会直接被拒（`MCP endpoint is not public`）。开关默认 `false`（行为不变），置 `true` 后额外放行回环与私网地址，包括容器内访问宿主机的 `host.docker.internal`；链路本地地址（`169.254.0.0/16`、`fe80::/10`，含云元数据 `169.254.169.254`）与其它保留段在开关开启时仍被拒绝。注意两处校验时机不同：`endpoint_url` 写 IP 字面量时在新建/编辑保存即校验，写域名时在同步工具与调用时按解析结果校验；Docker 部署的取值来自根目录 `.env`（`apps/backend/.env` 仅本地直接运行后端时生效）`🧑‍💻 lixingwen`
 

@@ -64,6 +64,24 @@ def _rest_runtime_tools(*builtin_tools) -> list:
     )
 
 
+def build_runtime_tool_list(context) -> list:
+    """组装一次运行里 Agent 可见的完整工具清单。
+
+    清单构成只在这里定义：内置工具（REST 路径排除 ask_user）、MCP 工具、
+    技能脚本工具、技能指令工具。抽成函数是因为工作流的「工具步骤」也要按
+    **同一份清单**去找工具对象——复制一份的话，两边的工具支持范围迟早漂移
+    （新增一类工具只改了其中一处），这正是 ``tool_dispatch`` 当初被抽出来的
+    同一个理由。
+    """
+
+    return [
+        *_rest_runtime_tools(*context.builtin_tools),
+        *context.mcp_tools,
+        *context.skill_script_tools,
+        *([context.skill_instruction_tool] if context.skill_instruction_tool else []),
+    ]
+
+
 async def build_loop_payload(
     repo: ConversationRepository, loop_id: int, conversation_id: int
 ) -> dict | None:
@@ -513,16 +531,7 @@ async def execute_chat(
         citations,
         context.skill_usages,
     )
-    runtime_tools = [
-        *_rest_runtime_tools(*context.builtin_tools),
-        *context.mcp_tools,
-        *context.skill_script_tools,
-        *(
-            [context.skill_instruction_tool]
-            if context.skill_instruction_tool
-            else []
-        ),
-    ]
+    runtime_tools = build_runtime_tool_list(context)
     try:
         result = await _run_execute_chat_model_round(
             model=model,
@@ -696,12 +705,7 @@ async def stream_chat(
     }
     tool_steps = {}
     next_step_sequence = generation_sequence + 1
-    runtime_tools = [
-        *_rest_runtime_tools(*context.builtin_tools),
-        *context.mcp_tools,
-        *context.skill_script_tools,
-        *([context.skill_instruction_tool] if context.skill_instruction_tool else []),
-    ]
+    runtime_tools = build_runtime_tool_list(context)
     system_prompt = build_system_prompt(
         context.version, context.skill_instructions, citations
     )

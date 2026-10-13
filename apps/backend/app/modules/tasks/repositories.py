@@ -75,25 +75,41 @@ class TaskRepository(BaseRepository[Task]):
         )
         return int(total or 0)
 
-    async def claim_due_tasks(self, *, limit: int = 50) -> list[Task]:
+    async def claim_due_tasks(
+        self, *, limit: int = 50, workflow_linked: bool | None = None
+    ) -> list[Task]:
         """抢占一批到期任务。
 
         用 ``FOR UPDATE SKIP LOCKED`` 跳过已被其他副本锁住的行，这样
         多副本同时 tick 时同一个触发点只会被一个副本拿到，拿不到锁的
         副本直接跳过而不阻塞等待。
 
+        ``workflow_linked`` 是给调度器用的：它把「普通任务」与「由工作流触发
+        的任务」两条触发路径切成互不相交的集合，避免同一批到期任务被普通任务
+        tick 与工作流 tick 同时处理：
+
+        - ``None`` 表示不加条件（保持本方法原有的全部行为）；
+        - ``False`` 只看普通任务（``workflow_id IS NULL``）；
+        - ``True`` 只看由工作流触发的任务（``workflow_id IS NOT NULL``）。
+
         调用方负责在**同一个事务**内提交（含推进 ``next_run_at``），
         本方法只 flush 不 commit。
         """
 
         now = datetime.now(UTC)
+        conditions = [
+            Task.status == "active",
+            Task.next_run_at.is_not(None),
+            Task.next_run_at <= now,
+        ]
+        if workflow_linked is False:
+            conditions.append(Task.workflow_id.is_(None))
+        elif workflow_linked is True:
+            conditions.append(Task.workflow_id.is_not(None))
+
         statement = (
             select(Task)
-            .where(
-                Task.status == "active",
-                Task.next_run_at.is_not(None),
-                Task.next_run_at <= now,
-            )
+            .where(*conditions)
             .order_by(Task.next_run_at.asc())
             .limit(limit)
             .with_for_update(skip_locked=True)
