@@ -50,8 +50,9 @@ from app.shared.exceptions import BadRequestException
 logger = logging.getLogger(__name__)
 
 # 步骤唯一对外发布的输出名。约束成单一取值，是为了让「引用一个不存在的输出」
-# 在运行时立刻失败，而不是静默替换成空字符串。
-OUTPUT_PATH = "output"
+# 在运行时立刻失败，而不是静默替换成空字符串；取值本身与保存期校验共用
+# validators.OUTPUT_PATH，避免两处口径漂移。
+OUTPUT_PATH = validators.OUTPUT_PATH
 
 
 class StepFailedError(Exception):

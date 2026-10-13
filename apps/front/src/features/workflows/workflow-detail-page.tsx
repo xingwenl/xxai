@@ -445,9 +445,10 @@ function StepRunCard({ step }: { step: WorkflowStepRun }) {
         {step.on_error_applied && (
           <Badge variant='secondary'>已使用兜底输出</Badge>
         )}
-        {step.retry_count > 0 && (
+        {step.retry_count > 1 && (
+          // retry_count 是实际尝试次数（首跑成功记 1），只有真的重试过才值得显示。
           <span className='text-muted-foreground'>
-            重试 {step.retry_count} 次
+            尝试 {step.retry_count} 次
           </span>
         )}
         <span className='text-muted-foreground'>

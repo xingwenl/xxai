@@ -7,7 +7,7 @@
 因此本模块只做纯数据比对，不碰数据库、不调用模型：
 
 - 引用（``input_bindings`` 的 ``value_selector``、提示词里的 ``{{step.path}}``）
-  只能指向**排在它前面**的 ``step_id``；
+  只能指向**排在它前面**的 ``step_id``，且路径只允许 ``output``；
 - ``step_id`` 唯一且格式稳定（它会成为历史运行记录的一部分，不能是自增行号）；
 - 步骤数不超过 ``max_steps``；
 - 边两端的 ``step_id`` 必须存在（边由 ``compile_definition`` 生成，这里做防御性复核）。
@@ -37,6 +37,11 @@ TEMPLATE_REFERENCE_PATTERN = re.compile(r"\{\{\s*([A-Za-z0-9_-]+)\.([^{}\s]+?)\s
 
 # step_id 会成为运行记录的一部分，因此限定为可读、可入 URL、可当 JSON key 的字符集。
 STEP_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+# 前序步骤目前唯一能取到的输出路径：该步的「模型可见输出」。
+# 结构化绑定与模板引用都只认这一个值——运行期没有别的东西可解析，
+# 与其等到渲染时才报「引用不到」，不如保存时就拒绝。
+OUTPUT_PATH = "output"
 
 STEP_KINDS = ("agent", "tool")
 ON_ERROR_STRATEGIES = ("abort", "continue_with_default", "fail_branch")
@@ -256,6 +261,11 @@ def _validate_input_bindings(
             raise BadRequestException(
                 f"{label} input binding '{name}' has an empty output path"
             )
+        if path.strip() != OUTPUT_PATH:
+            raise BadRequestException(
+                f"{label} input binding '{name}' path must be '{OUTPUT_PATH}', "
+                f"got '{path}'"
+            )
         if source_id not in seen:
             raise BadRequestException(
                 f"{label} input binding '{name}' references '{source_id}', "
@@ -268,15 +278,20 @@ def _validate_template_references(
 ) -> None:
     """提示词/参数模板里的 ``{{step_id.path}}`` 也只能指向前序步骤。
 
-    保存时就拦住，而不是等渲染时把一个未替换的占位符发给模型。
+    保存时就拦住，而不是等渲染时把一个未替换的占位符发给模型；
+    路径同样只允许 ``output``，否则渲染那一步必然失败。
     """
 
     for text in _template_texts(step):
-        for source_id, _path in TEMPLATE_REFERENCE_PATTERN.findall(text):
+        for source_id, path in TEMPLATE_REFERENCE_PATTERN.findall(text):
             if source_id not in seen:
                 raise BadRequestException(
                     f"{label} template references '{source_id}', "
                     "which is not an earlier step"
+                )
+            if path != OUTPUT_PATH:
+                raise BadRequestException(
+                    f"{label} template path must be '{OUTPUT_PATH}', got '{path}'"
                 )
 
 

@@ -422,7 +422,15 @@ function LastRunCell({
   if (runsQuery.isLoading) return <span>…</span>
   const latest = runsQuery.data?.items[0]
   if (!latest) return <span>—</span>
-  return <span>{formatDateTime(latest.created_at)}</span>
+  // 运行记录不返回 created_at，展示「有值的最早可读时间」：
+  // 已结束看结束时间，在跑看开始时间，排队看计划时间。
+  return (
+    <span>
+      {formatDateTime(
+        latest.finished_at ?? latest.started_at ?? latest.planned_at
+      )}
+    </span>
+  )
 }
 
 function CreateWorkflowDialog({

@@ -23,12 +23,14 @@ export type WorkflowStep = {
   tool_name: string | null
   /** kind=tool 时的参数模板，值里可写 {{step_id.path}} */
   tool_arguments: Record<string, unknown> | null
-  /** 输入绑定：{参数名: [前序 step_id, 输出路径]}；路径取 "output" 表示该步模型可见输出 */
+  /** 输入绑定：{参数名: [前序 step_id, 输出路径]}；路径目前只允许 "output"（该步模型可见输出） */
   input_bindings: Record<string, [string, string]>
   on_error: WorkflowStepOnError
   /** on_error=continue_with_default 时使用的兜底输出 */
   default_output: string | null
   timeout_seconds: number | null
+  /** 失败后额外重试几次（0 表示不重试）；重试用同一份输入，用尽后 on_error 才生效 */
+  max_retries: number
 }
 
 /** 工作流：一串按固定顺序执行的步骤定义 + 工作流级默认 Agent 与审批策略。 */
@@ -50,16 +52,23 @@ export type Workflow = {
   created_by_type: string
   created_by_user_id: number | null
   created_by_agent_id: number | null
-  created_at: string
-  updated_at: string
 }
 
-/** 写入用的步骤：step_id / name / kind / on_error 必填，其余字段按 kind 选择性提供。 */
+/**
+ * 写入用的步骤：step_id / name / kind / on_error 必填，其余字段可省略，
+ * 也可以显式传 null 表示「用后端默认值」（后端这些字段都接受 null）。
+ */
+type WorkflowStepOptionalFields = Omit<
+  WorkflowStep,
+  'step_id' | 'name' | 'kind' | 'on_error'
+>
+
 export type WorkflowStepWrite = Pick<
   WorkflowStep,
   'step_id' | 'name' | 'kind' | 'on_error'
-> &
-  Partial<Omit<WorkflowStep, 'step_id' | 'name' | 'kind' | 'on_error'>>
+> & {
+  [K in keyof WorkflowStepOptionalFields]?: WorkflowStepOptionalFields[K] | null
+}
 
 export type WorkflowCreate = {
   name: string
@@ -95,8 +104,6 @@ export type WorkflowRun = {
   auto_approved_count: number
   total_steps: number
   completed_steps: number
-  created_at: string
-  updated_at: string
 }
 
 /** 步骤运行：某次运行里一步的执行记录。 */
@@ -126,6 +133,45 @@ export type WorkflowStepRun = {
 export type WorkflowRunDetail = {
   run: WorkflowRun
   steps: WorkflowStepRun[]
+}
+
+/**
+ * 后端把 steps 编译成 definition.nodes 存储（node 比 step 多一个 seq 序号，
+ * 少一个 steps 数组层级），因此读取时要还原回表单直接可用的有序 steps。
+ */
+type WorkflowNode = Omit<WorkflowStep, 'max_retries'> & {
+  seq?: number
+  max_retries?: number | null
+}
+
+type WorkflowPayload = Omit<Workflow, 'steps'> & {
+  steps?: WorkflowStep[]
+  definition?: { nodes?: WorkflowNode[] } | null
+}
+
+function nodeToStep(node: WorkflowNode): WorkflowStep {
+  return {
+    step_id: node.step_id,
+    name: node.name,
+    kind: node.kind,
+    agent_id: node.agent_id ?? null,
+    prompt: node.prompt ?? null,
+    tool_name: node.tool_name ?? null,
+    tool_arguments: node.tool_arguments ?? null,
+    input_bindings: node.input_bindings ?? {},
+    on_error: node.on_error ?? 'abort',
+    default_output: node.default_output ?? null,
+    timeout_seconds: node.timeout_seconds ?? null,
+    max_retries: node.max_retries ?? 0,
+  }
+}
+
+/** 把接口返回的工作流还原成带 steps 的形态；已经带 steps 的原样返回。 */
+export function toWorkflow(payload: WorkflowPayload): Workflow {
+  if (payload.steps) return { ...payload, steps: payload.steps }
+  const nodes = [...(payload.definition?.nodes ?? [])]
+  nodes.sort((left, right) => (left.seq ?? 0) - (right.seq ?? 0))
+  return { ...payload, steps: nodes.map(nodeToStep) }
 }
 
 export type WorkflowPage = {
@@ -191,28 +237,29 @@ export async function listWorkflows(
       },
     }
   )
-  return toPage<Workflow>(data)
+  const page = toPage<WorkflowPayload>(data)
+  return { ...page, items: page.items.map(toWorkflow) }
 }
 
 export async function getWorkflow(
   platformId: number,
   workflowId: number
 ): Promise<Workflow> {
-  const { data } = await http.get<Workflow>(
+  const { data } = await http.get<WorkflowPayload>(
     `/platforms/${platformId}/workflows/${workflowId}`
   )
-  return data
+  return toWorkflow(data)
 }
 
 export async function createWorkflow(
   platformId: number,
   input: WorkflowCreate
 ): Promise<Workflow> {
-  const { data } = await http.post<Workflow>(
+  const { data } = await http.post<WorkflowPayload>(
     `/platforms/${platformId}/workflows`,
     input
   )
-  return data
+  return toWorkflow(data)
 }
 
 export async function updateWorkflow(
@@ -220,11 +267,11 @@ export async function updateWorkflow(
   workflowId: number,
   input: WorkflowUpdate
 ): Promise<Workflow> {
-  const { data } = await http.patch<Workflow>(
+  const { data } = await http.patch<WorkflowPayload>(
     `/platforms/${platformId}/workflows/${workflowId}`,
     input
   )
-  return data
+  return toWorkflow(data)
 }
 
 /** 删除工作流；返回本次实际删除的行数。 */

@@ -12,14 +12,19 @@ from types import SimpleNamespace
 import pytest
 
 from app.modules.tasks.unattended import NEVER_AUTO_APPROVE_SIDE_EFFECTS
-from app.modules.workflows import services
+from app.modules.workflows import services, validators
 from app.modules.workflows.models import Workflow, WorkflowRun
 from app.modules.workflows.repositories import (
     WorkflowRepository,
     WorkflowRunRepository,
     WorkflowStepRunRepository,
 )
-from app.modules.workflows.schemas import WorkflowCreate, WorkflowStepInput, WorkflowUpdate
+from app.modules.workflows.schemas import (
+    WorkflowCreate,
+    WorkflowStepInput,
+    WorkflowStepRunDetail,
+    WorkflowUpdate,
+)
 from app.shared.exceptions import BadRequestException, ConflictException, NotFoundException
 from helpers import add_published_agent, agent_step, make_session, seed, tool_step
 
@@ -445,6 +450,11 @@ def test_get_run_detail_returns_snapshot_and_step_outputs() -> None:
                 assert detail.definition_snapshot == workflow.definition
                 assert [step.step_id for step in detail.steps] == ["first", "second"]
                 assert detail.steps[0].raw_output == "完整未截断输出"
+                # 界面靠这两个「算出来的」字段显示字节数与截断提示，不能变成 undefined。
+                assert detail.steps[0].raw_output_size == len(
+                    "完整未截断输出".encode("utf-8")
+                )
+                assert detail.steps[0].output_truncated is False
                 assert detail.steps[1].on_error_applied is True
                 assert detail.steps[1].model_visible_output == "兜底值"
 
@@ -466,6 +476,53 @@ def test_get_run_detail_returns_snapshot_and_step_outputs() -> None:
             await engine.dispose()
 
     asyncio.run(run())
+
+
+def test_step_run_detail_marks_truncated_visible_output() -> None:
+    """锁：``output_truncated`` 与写入端 ``validators.truncate_output`` 同口径。
+
+    超过 50KB 的完整输出只留在 ``raw_output`` 里，给模型看的那一路被截断并带标记；
+    界面要能据此显示「已截断 + 完整多少字节」，所以判定必须来自同一个函数，
+    不能各写一份 endswith 判断。
+    """
+
+    long_text = "字" * (validators.MAX_VISIBLE_OUTPUT_BYTES // 3 + 100)
+    visible = validators.truncate_output(long_text)
+    assert visible != long_text and validators.is_truncated(visible)
+
+    truncated = WorkflowStepRunDetail(
+        id=1,
+        run_id=1,
+        step_id="first",
+        seq=0,
+        node_type="agent",
+        status="succeeded",
+        model_visible_output=visible,
+        retry_count=1,
+        on_error_applied=False,
+        raw_output=long_text,
+    )
+    assert truncated.raw_output_size == len(long_text.encode("utf-8"))
+    assert truncated.output_truncated is True
+    # 序列化必须带上这两个字段，否则前端拿到的还是 undefined。
+    dumped = truncated.model_dump()
+    assert dumped["raw_output_size"] == len(long_text.encode("utf-8"))
+    assert dumped["output_truncated"] is True
+
+    empty = WorkflowStepRunDetail(
+        id=2,
+        run_id=1,
+        step_id="second",
+        seq=1,
+        node_type="tool",
+        status="failed",
+        model_visible_output=None,
+        retry_count=1,
+        on_error_applied=False,
+        raw_output=None,
+    )
+    assert empty.raw_output_size == 0
+    assert empty.output_truncated is False
 
 
 def test_get_workflow_or_404_is_platform_scoped() -> None:

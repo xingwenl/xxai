@@ -14,8 +14,9 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+from app.modules.workflows import validators
 from app.shared.base_schemas import TimeSchemas
 
 WorkflowStatus = Literal["active", "paused"]
@@ -155,9 +156,28 @@ class WorkflowStepRunRead(TimeSchemas):
 
 
 class WorkflowStepRunDetail(WorkflowStepRunRead):
-    """步骤运行明细，额外带上完整未截断输出。"""
+    """步骤运行明细，额外带上完整未截断输出。
+
+    ``raw_output_size`` 与 ``output_truncated`` 是**算出来的**字段（不落库）：
+    界面要显示「多少字节、有没有被截断」，而这两件事都能由 ``raw_output``
+    与 ``model_visible_output`` 直接推出来，另存两列只会多一份可能不一致的真相。
+    """
 
     raw_output: str | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def raw_output_size(self) -> int:
+        """完整输出的字节数（按 UTF-8 计），用于界面提示截断了多少内容。"""
+
+        return len((self.raw_output or "").encode("utf-8"))
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def output_truncated(self) -> bool:
+        """模型可见输出是否被截断过；判定口径与写入端共用 validators.is_truncated。"""
+
+        return validators.is_truncated(self.model_visible_output)
 
 
 class WorkflowRunDetail(BaseModel):

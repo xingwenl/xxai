@@ -22,7 +22,8 @@ from main import app
 from app.core.database import get_db_session
 from app.core.security import require_current_active_user
 from app.modules.platform.models import PlatformAdmin
-from app.modules.workflows import services
+from app.modules.workflows import services, validators
+from app.modules.workflows.repositories import WorkflowStepRunRepository
 from app.modules.workflows.schemas import WorkflowCreate
 from helpers import agent_step, make_session, seed
 
@@ -385,6 +386,66 @@ def test_list_runs_and_run_detail() -> None:
                 )
                 assert crossed.status_code == 404
                 assert crossed.json()["message"] == "workflow run not found"
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())
+
+
+def test_run_detail_exposes_computed_output_size_fields() -> None:
+    """锁：运行详情的 JSON 里必须带 ``raw_output_size`` / ``output_truncated``。
+
+    前端靠这两个字段显示「已截断 + 完整多少字节」。它们由 schema 计算得出
+    （不落库），一旦改名或漏序列化，界面只会显示 undefined——而类型检查看不出来，
+    因为前端接口层的类型是手写的。
+    """
+
+    async def run() -> None:
+        engine, session_factory = await make_session()
+        try:
+            async with session_factory() as session:
+                meta = await seed(session)
+                workflow = await _direct_workflow(session, meta)
+                await session.commit()
+                platform_id, user_id, workflow_id = (
+                    meta.platform.id,
+                    meta.admin.id,
+                    workflow.id,
+                )
+
+            long_text = "字" * (validators.MAX_VISIBLE_OUTPUT_BYTES // 3 + 100)
+            visible = validators.truncate_output(long_text)
+
+            async with _client(session_factory, user_id) as client:
+                created = await client.post(f"{_prefix(platform_id)}/{workflow_id}/run")
+                run_id = created.json()["data"]["run"]["id"]
+
+                # 直接落一条「已截断」的步骤记录，再按接口读回来。
+                async with session_factory() as session:
+                    repo = WorkflowStepRunRepository(session)
+                    step = await repo.create_step_run(
+                        run_id=run_id, step_id="first", seq=0, node_type="agent"
+                    )
+                    await repo.finish_step_run(
+                        step,
+                        status="succeeded",
+                        model_visible_output=visible,
+                        raw_output=long_text,
+                        retry_count=1,
+                    )
+                    await session.commit()
+
+                detail = await client.get(
+                    f"{_prefix(platform_id)}/{workflow_id}/runs/{run_id}"
+                )
+                assert detail.status_code == 200
+                step_payload = detail.json()["data"]["steps"][0]
+                assert step_payload["raw_output_size"] == len(
+                    long_text.encode("utf-8")
+                )
+                assert step_payload["output_truncated"] is True
+                assert step_payload["model_visible_output"] == visible
+                assert step_payload["retry_count"] == 1
         finally:
             await engine.dispose()
 

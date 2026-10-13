@@ -76,19 +76,27 @@ approval:
 - `validators.py`：保存时静态校验——`value_selector` 只能指向排在前面的 `step_id`；`step_id` 唯一且非空；步骤数 ≤ `max_steps`；边两端的 `step_id` 必须存在；步骤若声明工具，其 `side_effect` 不得落在 `app/modules/tasks/unattended.py` 的 `NEVER_AUTO_APPROVE_SIDE_EFFECTS`；步骤覆盖的 `agent_id` 必须与 `workflows.platform_id` 同平台。
 - `runner.py`：按 `seq` 遍历步骤。Agent 步骤调 `execute_unattended_chat`（每步各开一个 `session` 与 `tool_session`，与 `apps/backend/app/modules/tasks/runner.py:206-208` 同一模式），传 `confirmation_decider=build_confirmation_decider(policy)`。工具步骤复用统一分派入口 `app/modules/conversation/tool_dispatch.py:53` 的 `build_tool_invoker`——它按 `tool.kind` 分派到内置工具（`invoke_builtin_tool`）、MCP（`_invoke_mcp_tool`）与技能脚本，因此工具步骤**不引入新的工具类型**，且天然复用同一个 `confirmation_decider`。变量渲染在调用前完成：提示词层把 `{{step_id.path}}` 替换为前序 `model_visible_output`。
 - `router.py` / `schemas.py`：工作流 CRUD、手动运行、运行与步骤结果查询；一个工作流运行一份运行记录，步骤明细按 run 分页。
-- `repositories.py` / `services.py`：归属可见性与 `tasks` 对齐；`services.py` 暴露 `run_workflow()` 供调度器与 API 共用。
+- `repositories.py` / `services.py`：归属可见性与 `tasks` 对齐；调度侧派发在 `workflows/scheduler.py::_claim_and_dispatch_workflows()`，执行在 `workflows/runner.py::run_workflow_run()`，两条派发路径共用 `tasks/scheduler.py` 的同一并发上限。
 
 **改动既有文件**：
 
 - `apps/backend/app/modules/tasks/models.py`：`Task` 增加可空 `workflow_id` 外键（为空时行为与今天完全一致）；`Task` 命中工作流时不再用自身 `prompt` 执行。
-- `apps/backend/app/modules/tasks/scheduler.py`：抢占到 `workflow_id` 非空的任务时改调 `workflows.services.run_workflow()`。
+- `apps/backend/app/modules/tasks/scheduler.py`：`_supervise` 每 tick 额外跑工作流看门狗与 `workflows.scheduler._claim_and_dispatch_workflows()`，抢到的工作流运行交 `workflows.runner.run_workflow_run()`，共用同一 semaphore 与 `MAX_CONCURRENT_RUNS`。
 - `apps/backend/app/main.py`（或模块注册处）：挂载新路由。
 - 前端 `apps/front/src/routes/_authenticated/`：新增工作流列表/详情/运行记录页，步骤用表单式有序列表编辑（无画布）；`workflows` 请求与类型入 `apps/front/src/api/`。
 - `CONTEXT.md`：新增术语「工作流」「工作流步骤」「工作流运行」「步骤运行」「定义快照」，并写明与「任务」「任务运行」的边界。
 - `docs/adr/0002-workflow-orchestration-module-boundary.md`：本 request 的架构决策。
 - `docs/CHANGELOG.md`：同步记录。
 
-**验证方式**：`tools/harness/verify/2026-10-13-workflow-orchestration.sh` 逐条执行——`alembic upgrade head` + `downgrade`（确认三张表可建可拆）、`pytest tests/workflows -q`（静态校验用例、失败中止语义、`continue_with_default` 语义、快照冻结行为）、`ruff check`、以及一条端到端脚本：建两步骤工作流 → 手动运行 → 断言两步 `succeeded` 且第二步提示词里已替换第一步输出。前端 `pnpm --filter front typecheck` 与 `lint`。
+**第二轮改动（真机验证后收口，同一 request）**：
+
+- 补做拷问 Q6 已批准、第一版漏实现的「每步可选最大重试次数」：`WorkflowStepInput.max_retries`（0–5）、`validators.MAX_STEP_RETRIES`、`runner._execute_steps` 的重试循环（同一份输入重试，用尽后 `on_error` 才生效），`retry_count` 记实际尝试次数。
+- 保存期收紧选择器路径：新增 `validators.OUTPUT_PATH = "output"`，`{{step.other}}` 与非 `output` 的 `input_bindings` 在保存时即被拒（此前只在运行期拒绝）；`runner.py` 复用同一常量，避免两处口径漂移。
+- 运行详情新增两个**计算**字段（不落库）：`raw_output_size`（`raw_output` 的 UTF-8 字节数）与 `output_truncated`（`model_visible_output` 是否带截断标记）。
+- 前端契约对齐（真机验证暴露 4 处「手写类型与真实 payload 不一致」的缺陷）：`toWorkflow`/`nodeToStep` 从 `definition.nodes` 还原 `steps`（后端 `WorkflowRead` 不返回 `steps`）；重试徽标改为「尝试 N 次」且仅 `retry_count > 1` 时显示；`Workflow`/`WorkflowRun` 类型删掉后端不返回的 `created_at`/`updated_at`，列表「最近运行」改用 `finished_at ?? started_at ?? planned_at`；表单新增「失败重试次数」下拉，输出路径只读且提示只支持 `output`。
+- 验证补强：verify 脚本新增「保存期拒绝非 `output` 路径」与「运行详情返回 `raw_output_size`/`output_truncated`」两阶段；另由人工用 Playwright 对真实前端 + 真实后端做了四屏 14 项断言（结论与未覆盖项见 `verify.md`）。
+
+**验证方式**：`tools/harness/verify/2026-10-13-workflow-orchestration.sh` 逐条执行——`alembic upgrade head` + `downgrade`（确认三张表可建可拆）、`pytest tests/workflows -q`（静态校验用例、失败中止语义、`continue_with_default` 语义、快照冻结行为）、`ruff check`、以及一条端到端脚本：建两步骤工作流 → 手动运行 → 断言两步 `succeeded` 且第二步提示词里已替换第一步输出。前端用 `cd apps/front && pnpm exec tsc -b` 与 `pnpm lint`（仓库根没有 workspace，`pnpm --filter front` 不会匹配任何项目）。
 
 ## 验收标准
 

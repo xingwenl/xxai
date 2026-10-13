@@ -298,23 +298,41 @@ def test_validate_steps_rejects_template_reference_inside_tool_arguments() -> No
     assert "template references 'third'" in str(excinfo.value)
 
 
-def test_validate_steps_does_not_check_the_output_path_at_save_time() -> None:
-    """锁：保存期只校验「引用的 step_id 在不在前面」，不校验 path 取值。
+def test_validate_steps_rejects_unknown_output_path_at_save_time() -> None:
+    """锁：保存期就拒绝 ``output`` 之外的输出路径（模板引用与结构化绑定都算）。
 
-    这是代码实际行为（``_validate_input_bindings`` / ``_validate_template_references``
-    都只做 ``source_id not in seen`` 比对，不判断 path 是否为 ``output``）：
-    ``{{first.other}}`` 与 ``["first", "other"]`` 保存期都通过，留到 runner
-    渲染时才被 ``StepFailedError`` 拒绝——对应断言见 test_runner.py。
+    运行期只发布一个输出名（``validators.OUTPUT_PATH``），多写别的路径在渲染时
+    必然失败。与其让用户等到跑起来才炸、把一条失败的运行记录留在库里，
+    不如保存时直接拒绝——这条口径与 runner 的渲染检查是同一件事的两道闸。
     """
 
     template_case = [agent_step("first"), agent_step("second", prompt="{{first.other}}")]
-    assert validate_steps(template_case, max_steps=50) is None
+    with pytest.raises(BadRequestException) as template_excinfo:
+        validate_steps(template_case, max_steps=50)
+    assert "template path must be 'output', got 'other'" in str(template_excinfo.value)
 
     selector_case = [
         agent_step("first"),
         tool_step("second", "orders.get_status", input_bindings={"x": ["first", "other"]}),
     ]
-    assert validate_steps(selector_case, max_steps=50) is None
+    with pytest.raises(BadRequestException) as selector_excinfo:
+        validate_steps(selector_case, max_steps=50)
+    assert "input binding 'x' path must be 'output', got 'other'" in str(
+        selector_excinfo.value
+    )
+
+
+def test_validate_steps_accepts_the_output_path() -> None:
+    """锁：唯一合法的 ``output`` 路径在模板引用与结构化绑定里都能保存。"""
+
+    steps = [
+        agent_step("first"),
+        agent_step("second", prompt="基于 {{first.output}} 写摘要"),
+        tool_step(
+            "third", "orders.get_status", input_bindings={"x": ["first", "output"]}
+        ),
+    ]
+    assert validate_steps(steps, max_steps=50) is None
 
 
 def test_validate_steps_rejects_malformed_selectors() -> None:

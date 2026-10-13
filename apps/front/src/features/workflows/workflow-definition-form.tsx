@@ -24,6 +24,12 @@ import { Textarea } from '@/components/ui/textarea'
 const NO_AGENT_OVERRIDE = '__default__'
 const NO_PREVIOUS_STEP = '__none__'
 
+/** 目前唯一可引用的输出路径；后端保存时也只接受这一个值。 */
+const OUTPUT_PATH = 'output'
+
+/** 每步失败后的额外重试次数；上限与后端 validators.MAX_STEP_RETRIES 对齐。 */
+const MAX_RETRIES_OPTIONS = [0, 1, 2, 3, 4, 5]
+
 const ON_ERROR_OPTIONS: { value: WorkflowStepOnError; label: string }[] = [
   { value: 'abort', label: '中止整条工作流（abort）' },
   {
@@ -51,6 +57,8 @@ type StepDraft = {
   default_output: string
   /** 空字符串表示「用工作流级超时」 */
   timeout_seconds: string
+  /** 失败后额外重试次数（0–5）；用下拉而不是输入框，避免出现后端不接受的取值 */
+  max_retries: number
 }
 
 type DefinitionDraft = {
@@ -84,6 +92,7 @@ function toStepDraft(step: WorkflowStepWrite): StepDraft {
     default_output: step.default_output ?? '',
     timeout_seconds:
       step.timeout_seconds == null ? '' : String(step.timeout_seconds),
+    max_retries: step.max_retries ?? 0,
   }
 }
 
@@ -113,6 +122,7 @@ function newStepDraft(seq: number): StepDraft {
     on_error: 'abort',
     default_output: '',
     timeout_seconds: '',
+    max_retries: 0,
   }
 }
 
@@ -174,6 +184,15 @@ function validateDraft(draft: DefinitionDraft): string[] {
         errors.push(`${label}的步骤超时必须是正整数秒`)
       }
     }
+    if (
+      !Number.isInteger(step.max_retries) ||
+      step.max_retries < 0 ||
+      step.max_retries > MAX_RETRIES_OPTIONS.length - 1
+    ) {
+      errors.push(
+        `${label}的重试次数必须是 0 到 ${MAX_RETRIES_OPTIONS.length - 1} 之间的整数`
+      )
+    }
 
     Object.entries(groupBindings(step)).forEach(([key, binding]) => {
       const targetIndex = draft.steps.findIndex(
@@ -184,7 +203,14 @@ function validateDraft(draft: DefinitionDraft): string[] {
       } else if (targetIndex >= index) {
         errors.push(`${label}的参数「${key}」只能引用排在前面的步骤`)
       }
-      if (!binding[1]) errors.push(`${label}的参数「${key}」缺少输出路径`)
+      if (!binding[1]) {
+        errors.push(`${label}的参数「${key}」缺少输出路径`)
+      } else if (binding[1] !== OUTPUT_PATH) {
+        // 运行期只发布这一个输出名，别的取值保存后必然跑不通，提前拦下。
+        errors.push(
+          `${label}的参数「${key}」输出路径只能是 ${OUTPUT_PATH}，当前是 ${binding[1]}`
+        )
+      }
     })
   })
 
@@ -222,6 +248,7 @@ function toStepWrite(step: StepDraft): WorkflowStepWrite {
     timeout_seconds: step.timeout_seconds.trim()
       ? Number(step.timeout_seconds)
       : null,
+    max_retries: step.max_retries > 0 ? step.max_retries : null,
   }
 }
 
@@ -308,7 +335,11 @@ export function WorkflowDefinitionForm({
         i === index
           ? {
               ...step,
-              bindings: [...step.bindings, { key: '', step_id: '', path: '' }],
+              bindings: [
+                ...step.bindings,
+                // 路径预填唯一合法值，省得用户对着「输出路径」想填什么。
+                { key: '', step_id: '', path: OUTPUT_PATH },
+              ],
             }
           : step
       ),
@@ -626,6 +657,27 @@ function StepCard({
           />
         </Field>
 
+        <Field
+          label='失败重试次数'
+          hint='用同一份输入重试；用尽后失败策略才生效'
+        >
+          <Select
+            value={String(step.max_retries)}
+            onValueChange={(value) => onChange({ max_retries: Number(value) })}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {MAX_RETRIES_OPTIONS.map((count) => (
+                <SelectItem key={count} value={String(count)}>
+                  {count === 0 ? '不重试' : `额外重试 ${count} 次`}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+
         {step.kind === 'agent' ? (
           <>
             <Field label='覆盖 Agent' hint='留空用工作流默认 Agent；必须同平台'>
@@ -746,7 +798,7 @@ function StepCard({
           <p className='mt-1 text-xs text-muted-foreground'>
             {previousSteps.length === 0
               ? '第一步没有前序步骤，通常不需要绑定。'
-              : '把前序步骤的输出绑定成本步参数；输出路径取 output 表示该步模型可见输出。'}
+              : `把前序步骤的输出绑定成本步参数；输出路径目前只支持 ${OUTPUT_PATH}（即该步的模型可见输出），后端保存时也只接受这一个值。`}
           </p>
           {step.bindings.map((binding, bindingIndex) => (
             <div
@@ -783,11 +835,10 @@ function StepCard({
               </Select>
               <Input
                 className='w-40'
-                placeholder='输出路径，如 output'
+                // 目前只有 output 一个合法取值（后端保存时强校验），做成只读，
+                // 免得用户手输了别的值、保存时才被打回来。
+                readOnly
                 value={binding.path}
-                onChange={(event) =>
-                  onUpdateBinding(bindingIndex, { path: event.target.value })
-                }
               />
               <Button
                 size='sm'
