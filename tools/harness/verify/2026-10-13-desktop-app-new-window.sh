@@ -105,6 +105,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 import urllib.request
 from pathlib import Path
@@ -245,20 +246,36 @@ assert len(CREATED) == 3, "重复打开不应新建窗口"
 assert child.calls == ["restore", "show"], child.calls
 print("重复打开：复用并聚焦已有窗口")
 
-# ── browser：交给系统浏览器，不建窗口 ──
+# ── 系统启动器：未知协议必须被识别为失败（真机 open 命令，无副作用） ──
+if sys.platform == "darwin":
+    probe_launcher = host_api_module._macos_open("dsh-probe://no-such-handler")
+    assert probe_launcher is False, f"未知协议应判定失败，实际 {probe_launcher!r}"
+    print("系统启动器：未知协议返回 False（不再静默谎报成功）")
+
+# ── browser：交给系统浏览器，不建窗口（拦截启动器，避免自动验证真弹标签页） ──
 browser_calls: list[str] = []
 original_open = host_api_module.webbrowser.open
-host_api_module.webbrowser.open = lambda url, new=0: browser_calls.append(url)
+original_macos = host_api_module._macos_open
+host_api_module._macos_open = lambda target, timeout=5.0: None
+host_api_module.webbrowser.open = lambda url, new=0: browser_calls.append(url) or True
 try:
     browser = api.open_app("hello-world", "browser")
 finally:
     host_api_module.webbrowser.open = original_open
-assert browser["mode"] == "browser" and browser_calls == [f"{base}/?child=1#/app/hello-world"], (
-    browser,
-    browser_calls,
-)
+    host_api_module._macos_open = original_macos
+# 浏览器标签页不是原生窗口：深链不带 ?child=1，Esc / 返回 应退回应用列表
+assert browser["ok"] is True and browser["mode"] == "browser", browser
+assert browser_calls == [f"{base}/#/app/hello-world"], browser_calls
 assert len(CREATED) == 3, "browser 不应创建窗口"
-print("browser：只调用系统浏览器，未创建窗口")
+
+# 浏览器起不来时必须如实回执失败，前端才能提示用户
+host_api_module._macos_open = lambda target, timeout=5.0: False
+try:
+    failed = api.open_app("hello-world", "browser")
+finally:
+    host_api_module._macos_open = original_macos
+assert failed["ok"] is False and failed["reason"] == "browser_failed", failed
+print("browser：只调用系统浏览器、不建窗口、深链不带 child=1；启动失败回执 browser_failed")
 
 # ── 未知插件与非法 mode ──
 assert api.open_app("not-installed", "window")["reason"] == "not_found"
@@ -294,6 +311,7 @@ verify_step "端到端装配探针（真起内嵌服务 + 真跑 main.run()，�
 echo "## 未执行项与原因"
 echo
 echo "- 真机 GUI 行为：真实弹出原生子窗口、在卡片上右键出菜单、子窗口内按 Esc 关窗、关主窗口后系统里无残留窗口——需要 macOS 图形会话与人工目视，脚本内无法断言（探针只替换了 pywebview 的窗口层，没有真正渲染）。"
+echo "- 真实弹出浏览器标签页：脚本会拦截系统启动器（\`_macos_open\`）以免自动验证时弹出窗口，只用真机 \`open\` 命令验证「未知协议返回失败」这一路径；「点击后浏览器里真的出现壳页面」需人工目视。"
 echo "- macOS 上 \`webview.active_window()\` 的真实返回值与对话框归属：pywebview 依赖 AppKit 的 keyWindow，只在真机上才有意义，本次仅由单元测试用 monkeypatch 覆盖。"
 echo "- 浏览器（无 pywebview 桥）里的降级表现：需要在浏览器中打开壳页面，点击卡片确认弹出「浏览器调试模式不支持该打开方式」并回退为壳内打开——需人工目视。"
 echo "- Windows / Linux 平台：本机只有 macOS 环境，未在其它平台执行。"
@@ -302,7 +320,7 @@ echo
 
 echo "## 验收结论"
 echo
-echo "- 已由脚本证明：插件未声明 \`open_mode\` 时默认 inline（hello-world 端到端仍走原路径）；声明 \`window\` 的插件未指定 mode 即开子窗口；显式 mode 可覆盖 manifest 默认值；子窗口目标是带 \`?child=1\` 的壳深链且复用同一个宿主桥（remote 插件不挂桥由单元测试覆盖）；重复打开只聚焦不新开；browser 模式只调系统浏览器；未知插件返回 \`not_found\`、非法 mode 回退 inline；主窗口关闭时子窗口全部销毁且内嵌服务停止；前端类型检查与构建通过，产物带上三种打开方式文案与 \`open_app\`/\`close_current_window\` 调用。"
+echo "- 已由脚本证明：插件未声明 \`open_mode\` 时默认 inline（hello-world 端到端仍走原路径）；声明 \`window\` 的插件未指定 mode 即开子窗口；显式 mode 可覆盖 manifest 默认值；子窗口目标是带 \`?child=1\` 的壳深链且复用同一个宿主桥（remote 插件不挂桥由单元测试覆盖）；重复打开只聚焦不新开；browser 模式只调系统浏览器、目标是不带 \`?child=1\` 的深链、启动失败回执 \`browser_failed\`（macOS 用 \`/usr/bin/open\` 并检查退出码，未知协议判定失败）；未知插件返回 \`not_found\`、非法 mode 回退 inline；主窗口关闭时子窗口全部销毁且内嵌服务停止；前端类型检查与构建通过，产物带上三种打开方式文案与 \`open_app\`/\`close_current_window\` 调用。"
 echo "- 尚未证明：真实窗口的视觉与交互（见上「未执行项」）。因此本脚本退出码为 3（有未执行项），不能视为已通过人工联调。"
 echo "- 剩余风险：子窗口与主窗口共用同一个 \`HostApi\` 实例，插件在子窗口里的 \`navigate()\` 只改本窗口 hash（预期行为）；跨窗口状态同步不在本 request 范围内。"
 

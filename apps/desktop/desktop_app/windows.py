@@ -17,6 +17,15 @@ CHILD_HEIGHT = 760
 CHILD_MIN_SIZE = (800, 600)
 
 
+def deep_link(base_url: str, app_id: str) -> str:
+    """构造宿主壳深链（浏览器模式用），不带窗口标记。
+
+    浏览器标签页不是原生窗口，壳在里面应当把 Esc / 返回 当作「退回应用列表」，
+    而不是去关一个不存在的窗口，所以这里不加 child=1。
+    """
+    return f"{base_url.rstrip('/')}/#/app/{quote(app_id, safe='')}"
+
+
 def child_url(base_url: str, app_id: str) -> str:
     """构造子窗口地址：宿主壳深链 + child=1 标记。
 

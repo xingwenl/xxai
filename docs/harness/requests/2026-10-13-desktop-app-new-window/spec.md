@@ -78,6 +78,7 @@ approval:
 - `apps/desktop/front/src/App.tsx`：壳层新增右键浮层菜单（三种方式 + 标出插件默认项）；`openAppByMode(id, mode?)` 统一入口——`inline` 走现有 `navigateTo`，其余调桥并 toast 结果；挂载时补跑一次 hash 解析，使新窗口冷启动直达目标应用；插件清单 `loaded` 前不渲染「未安装」态；子窗口（URL 带 `child=1`）里 Esc/返回改为调 `close_current_window()`。
 - `apps/desktop/front/src/vite-env.d.ts`：补 `open_app`、`close_current_window` 类型。
 - `apps/desktop/README.md`：契约节补 `open_mode` 与两个新 js_api 方法；`docs/CHANGELOG.md` 同步。
+- 修复「`browser` 模式点了没反应」（2026-10-13 追加）：`apps/desktop/desktop_app/host_api.py` 不再用 `webbrowser.open()` 的返回值当成功判据——macOS 上它走 `osascript`，没有自动化权限时静默失败却仍回执 `ok:True`；改为新增模块级 `_macos_open(target, timeout=5.0)` 调 `/usr/bin/open` 并检查 LaunchServices 退出码（非 macOS 返回 `None` 才回退 `webbrowser`），失败时回执 `reason="browser_failed"`。同时 `windows.py` 新增 `deep_link(base_url, app_id)`（不带 `?child=1`）：`browser` 模式打开的是普通标签页，Esc/返回 应退回应用列表而不是去关一个不存在的原生窗口；`_target_url(plugin, mode)` 因此按 mode 在 `deep_link` / `child_url` 之间选择。`App.tsx` 的 `openAppByMode` 为 `browser_failed` 补了指向「检查默认浏览器设置」的 toast。
 - 测试：`apps/desktop/tests/test_windows.py`（去重/聚焦/close_all/子窗口判定）、`tests/test_protocol.py` 与 `tests/test_registry.py` 补 `open_mode` 用例、`tests/test_host_api.py` 补 `open_app`/`close_current_window` 用例；`tools/harness/verify/2026-10-13-desktop-app-new-window.sh` 另跑一次端到端装配探针（真起内嵌服务 + 真 `main.run()`，只替换 pywebview 窗口层）。
 
 ## 验收标准

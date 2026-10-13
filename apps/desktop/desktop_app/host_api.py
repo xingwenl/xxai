@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+import shutil
+import subprocess
+import sys
 import webbrowser
 from typing import Any
 
@@ -11,7 +15,38 @@ from desktop_app.app_config import APP_NAME, APP_VERSION
 from desktop_app.manager import PluginManager
 from desktop_app.protocol import DEFAULT_OPEN_MODE, OPEN_MODES
 from desktop_app.registry import PluginInfo
-from desktop_app.windows import AppWindowManager, child_url
+from desktop_app.windows import AppWindowManager, child_url, deep_link
+
+logger = logging.getLogger(__name__)
+
+
+def _macos_open(target: str, timeout: float = 5.0) -> bool | None:
+    """macOS 上直接用系统自带的 open 命令打开 URL。
+
+    返回 None 表示当前平台不适用（交给 webbrowser）；返回 False 表示确实尝试过但失败。
+    不用标准库 webbrowser 的 osascript 实现：它走 `os.popen("osascript")`，一旦进程没有
+    「控制其它应用」的自动化权限就静默失败（只把 False 藏在返回值里），而且即便
+    AppleScript 执行成功也只代表事件发出去了，无法判断浏览器到底有没有起来。
+    open 命令的退出码来自 LaunchServices，能真实反映是否找到可打开该 URL 的应用。
+    """
+    if sys.platform != "darwin":
+        return None
+    opener = shutil.which("open") or "/usr/bin/open"
+    try:
+        done = subprocess.run(  # noqa: S603
+            [opener, target],
+            check=False,
+            timeout=timeout,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning("调用 %s 打开 %s 失败：%s", opener, target, exc)
+        return False
+    if done.returncode == 0:
+        return True
+    logger.warning("%s 打开 %s 返回码 %s", opener, target, done.returncode)
+    return False
 
 
 class HostApi:
@@ -77,18 +112,31 @@ class HostApi:
             resolved = DEFAULT_OPEN_MODE
         if resolved == "inline":
             return self._result(True, "inline")
-        target = self._target_url(plugin)
+        target = self._target_url(plugin, resolved)
         if target is None:
             # 没有壳基址就拼不出深链（例如脱离 main.run() 的嵌入场景）
             return self._result(False, resolved, reason="no_base_url")
         if resolved == "browser":
-            webbrowser.open(target, new=2)
+            if not self._open_in_browser(target):
+                return self._result(False, "browser", target=target, reason="browser_failed")
             return self._result(True, "browser", target=target)
         # 子窗口同样挂宿主桥，壳里的插件才能拿到 SDK；
         # remote 插件是外部页面，绝不能把桥暴露给它（它本身就是零权限纯壳）
         bridge = None if plugin.type == "remote" else self
         opened = self._windows.open(plugin.id, target, plugin.name, js_api=bridge)
         return self._result(True, "window", target=target, **opened)
+
+    def _open_in_browser(self, target: str) -> bool:
+        """在系统默认浏览器里打开目标地址，返回是否真的起来了。"""
+        launched = _macos_open(target)
+        if launched is not None:
+            return launched
+        try:
+            # webbrowser 的返回值就是「有没有找到能打开的浏览器」，不能忽略
+            return bool(webbrowser.open(target, new=2))
+        except Exception:
+            logger.exception("调用系统浏览器打开 %s 失败", target)
+            return False
 
     def close_current_window(self) -> bool:
         """关闭发起调用的子应用窗口。
@@ -98,14 +146,20 @@ class HostApi:
         """
         return self._windows.close(self._current_window())
 
-    def _target_url(self, plugin: PluginInfo) -> str | None:
-        """子应用在窗口 / 浏览器里的目标地址。"""
+    def _target_url(self, plugin: PluginInfo, mode: str) -> str | None:
+        """子应用在窗口 / 浏览器里的目标地址。
+
+        只有原生子窗口才带 `?child=1` 标记：浏览器标签页不是原生窗口，
+        Esc / 返回 在它里面应当退回应用列表，而不是去关一个不存在的窗口。
+        """
         if plugin.type == "remote" and plugin.url:
             # 远程插件是外部站点，直接开它自己的地址即可，壳的深链对它没有意义
             return plugin.url
         if not self._base_url:
             return None
-        return child_url(self._base_url, plugin.id)
+        if mode == "window":
+            return child_url(self._base_url, plugin.id)
+        return deep_link(self._base_url, plugin.id)
 
     def _current_window(self) -> Any:
         """定位发起本次调用的窗口。

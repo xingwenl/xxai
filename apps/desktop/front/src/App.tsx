@@ -893,7 +893,14 @@ export default function App() {
           return
         }
         if (!res?.ok) {
-          toast('打开应用失败', res?.reason === 'not_found' ? '该应用未安装或已停用' : '宿主暂时无法打开该应用', 'error')
+          // browser_failed 是宿主真的去调系统浏览器但没起来，提示要能指向可操作的动作
+          const why =
+            res?.reason === 'not_found'
+              ? '该应用未安装或已停用'
+              : res?.reason === 'browser_failed'
+                ? '系统浏览器没有打开，请检查默认浏览器设置'
+                : '宿主暂时无法打开该应用'
+          toast('打开应用失败', why, 'error')
           return
         }
         if (res.mode === 'browser') toast('已在系统浏览器打开', plugin?.name ?? id)

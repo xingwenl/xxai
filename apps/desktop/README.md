@@ -195,7 +195,7 @@ poetry run python build/build.py
 - `entry` / `icon` 必须是包内相对路径，禁止绝对路径与 `..`。
 - `open_mode`（可选，默认 `inline`）声明点击卡片时的默认打开方式，用户在卡片上右键可对单次点击临时覆盖：
   - `inline`：在宿主壳内容区展开（全屏沉浸），插件 SDK 与权限白名单照旧；
-  - `browser`：在系统默认浏览器打开宿主壳页面，此时没有 `window.pywebview` 宿主桥，插件需自行降级；
+  - `browser`：在系统默认浏览器打开宿主壳页面（深链不带 `?child=1`，因此 Esc / 返回 退回应用列表）。此时没有 `window.pywebview` 宿主桥，插件需自行降级；macOS 走系统 `open` 命令，打不开浏览器时前端会提示「检查默认浏览器设置」而不是静默失败；
   - `window`：打开一个新的原生窗口，窗口里仍是宿主壳（深链 `#/app/<id>`），SDK 与权限白名单不变；同一插件重复打开只会聚焦已有窗口。
   - `type=remote` 的插件在 `browser` / `window` 下打开它自己的 `url`，且**不会**注入宿主桥；写错的 `open_mode` 会回退为 `inline`（仅记录警告，不影响插件加载）。
 - zip 包结构：根为插件目录，或根下仅一个含 `manifest.json` 的目录（自动归一化）。

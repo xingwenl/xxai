@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from desktop_app.windows import CHILD_HEIGHT, CHILD_MIN_SIZE, CHILD_WIDTH, AppWindowManager, child_url
+from desktop_app.windows import (
+    CHILD_HEIGHT,
+    CHILD_MIN_SIZE,
+    CHILD_WIDTH,
+    AppWindowManager,
+    child_url,
+    deep_link,
+)
 
 
 class FakeEvent:
@@ -66,6 +73,12 @@ def test_child_url_puts_marker_before_hash() -> None:
     assert child_url("http://127.0.0.1:8765/", "hello-world") == "http://127.0.0.1:8765/?child=1#/app/hello-world"
     # 尾斜杠与需要转义的 id 都要处理
     assert child_url("http://127.0.0.1:8765", "a/b") == "http://127.0.0.1:8765/?child=1#/app/a%2Fb"
+
+
+def test_deep_link_has_no_window_marker() -> None:
+    # 浏览器模式打开的是普通标签页，Esc / 返回 应当退回应用列表而不是关窗口
+    assert deep_link("http://127.0.0.1:8765/", "hello-world") == "http://127.0.0.1:8765/#/app/hello-world"
+    assert deep_link("http://127.0.0.1:8765", "a/b") == "http://127.0.0.1:8765/#/app/a%2Fb"
 
 
 def test_open_creates_window_with_expected_options() -> None:
