@@ -200,8 +200,8 @@ export default function Settings({
           <button
             disabled={urlBusy}
             onClick={handleInstallFromUrl}
-            className="px-4 py-2 rounded-xl text-[13px] font-600 text-white disabled:opacity-50"
-            style={{ background: 'var(--fill-gradient)' }}
+            className="px-4 py-2 rounded-xl text-[13px] font-600 disabled:opacity-50"
+            style={{ background: 'var(--fill-gradient)', color: 'var(--primary-foreground)' }}
           >
             {urlBusy ? '抓取中…' : '添加应用'}
           </button>
@@ -227,8 +227,8 @@ export default function Settings({
           <button
             disabled={busy}
             onClick={() => fileRef.current?.click()}
-            className="px-4 py-2 rounded-xl text-[13px] font-600 text-white disabled:opacity-50"
-            style={{ background: 'var(--fill-gradient)' }}
+            className="px-4 py-2 rounded-xl text-[13px] font-600 disabled:opacity-50"
+            style={{ background: 'var(--fill-gradient)', color: 'var(--primary-foreground)' }}
           >
             {busy ? '安装中…' : '安装插件（zip）'}
           </button>
@@ -289,7 +289,7 @@ export default function Settings({
                   />
                   <span
                     className="peer w-9 h-5 rounded-full relative transition-colors after:absolute after:left-0.5 after:top-0.5 after:w-4 after:h-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4"
-                    style={{ background: plugin.enabled ? 'var(--primary-ink)' : '#cbd5e1' }}
+                    style={{ background: plugin.enabled ? 'var(--fill)' : '#cbd5e1' }}
                   />
                 </label>
 
@@ -368,8 +368,8 @@ export default function Settings({
                       </button>
                       <button
                         onClick={() => saveEdit(plugin)}
-                        className="px-3 py-1.5 rounded-lg text-[12px] font-600 text-white"
-                        style={{ background: 'var(--fill-gradient)' }}
+                        className="px-3 py-1.5 rounded-lg text-[12px] font-600"
+                        style={{ background: 'var(--fill-gradient)', color: 'var(--primary-foreground)' }}
                       >
                         保存
                       </button>

@@ -263,7 +263,7 @@ function FolderNav({
 }) {
   const navItem = (active: boolean) => ({
     background: active ? 'var(--fill-gradient)' : 'rgba(var(--surface-rgb) / 0.72)',
-    color: active ? '#fff' : 'var(--foreground)',
+    color: active ? 'var(--primary-foreground)' : 'var(--foreground)',
     boxShadow: active ? '0 4px 12px rgba(var(--shadow-rgb) / 0.18)' : 'none',
   })
   return (
@@ -444,8 +444,8 @@ function EmptyGuide({ onRefresh, theme }: { onRefresh: () => void; theme: ThemeL
         {steps.map(([no, text]) => (
           <li key={no} className="flex items-center gap-3 rounded-xl px-3 py-2.5" style={{ background: 'rgba(var(--surface-rgb) / 0.88)' }}>
             <span
-              className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-700 text-white flex-shrink-0"
-              style={{ background: 'var(--fill-gradient)' }}
+              className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-700 flex-shrink-0"
+              style={{ background: 'var(--fill-gradient)', color: 'var(--primary-foreground)' }}
             >
               {no}
             </span>
@@ -455,8 +455,8 @@ function EmptyGuide({ onRefresh, theme }: { onRefresh: () => void; theme: ThemeL
       </ol>
       <button
         onClick={onRefresh}
-        className="mt-6 px-5 py-2 rounded-xl text-[13px] font-600 text-white"
-        style={{ background: 'var(--fill-gradient)', boxShadow: '0 3px 12px rgba(var(--shadow-rgb) / 0.20)' }}
+        className="mt-6 px-5 py-2 rounded-xl text-[13px] font-600"
+        style={{ background: 'var(--fill-gradient)', color: 'var(--primary-foreground)', boxShadow: '0 3px 12px rgba(var(--shadow-rgb) / 0.20)' }}
       >
         我已整理，刷新查看
       </button>

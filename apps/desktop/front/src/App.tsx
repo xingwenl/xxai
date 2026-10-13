@@ -135,13 +135,43 @@ function mix(a: string, b: string, ratio: number): string {
   return '#' + A.map((v, i) => Math.round(v * (1 - ratio) + B[i] * ratio).toString(16).padStart(2, '0')).join('')
 }
 
+/** WCAG 相对亮度（0 = 黑，1 = 白）。 */
+function relLum(hex: string) {
+  const chan = (v: number) => {
+    const s = v / 255
+    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
+  }
+  const [r, g, b] = [1, 3, 5].map((i) => chan(parseInt(hex.slice(i, i + 2), 16)))
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+/** 两色的 WCAG 对比度。 */
+function contrast(a: string, b: string) {
+  const [hi, lo] = [relLum(a), relLum(b)].sort((x, y) => y - x)
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+/**
+ * 让品牌原色尽量少地偏离，只调到「与指定文字色的对比度达标」为止：
+ * 文字是深色就往白里提，文字是白色就往暗里压；返回调整后的颜色与实际混合比例。
+ */
+function leastMix(base: string, toward: string, fg: string, target = 4.5) {
+  for (let r = 0; r <= 0.6; r += 0.02) {
+    const c = mix(base, toward, r)
+    if (contrast(c, fg) >= target) return { color: c, ratio: r }
+  }
+  return { color: mix(base, toward, 0.6), ratio: 0.6 }
+}
+
 /**
  * 主题变量。
  *
  * 内容区底色与面板统一为纯白，层次**不靠明度差**，改由发丝描边 + 中性阴影承担
  * （拖动/悬浮/选中态仍有明确的色块与描边反馈）；文字三层由品牌色派生，
  * 8 套主题共用同一套「亮度曲线」：
- * - 正文约 12:1，次级文字与主题色文字都达到 WCAG AA；
+ * - 白底上的主题色文字走压深版 --primary-ink（正文约 12:1，次级与主题色文字都达到 AA）；
+ * - 按钮 / 选中态的**填充**直接用品牌原色，只在对比度不够时才最少限度地偏离，
+ *   文字色（--primary-foreground）在这条路上自动选黑或白，避免整片界面被压暗；
  * - 输入框、空态底等「凹陷」位置用 rgba(hairline / 0.05) 的微灰，保留结构感；
  * - 阴影统一走中性色，不再用主题色发光，避免白底上的彩色光晕。
  */
@@ -151,8 +181,15 @@ function themeVars(t: Theme): Record<string, string> {
   const foreground = mix(t.dark, t.mid, 0.22)
   const mutedFg = mix(t.mid, t.dark, 0.3)
   const faint = mix(t.faint, t.dark, 0.24)
-  const ink = mix(t.primary, t.dark, 0.45)      // 主题色的可读版本：文字 / 图标 / 数字
-  const fill = mix(t.primary, t.dark, 0.38)     // 主题色的填充版本：按钮渐变终点
+  const ink = mix(t.primary, t.dark, 0.45)      // 主题色的可读版本：白底上的文字 / 图标 / 数字
+  // 填充底色：在「白字」与「深字」两条路里，取偏离原色更小的那条，保住鲜艳且文字达到 AA
+  const forWhite = leastMix(t.primary, t.dark, '#ffffff')
+  const forDark = leastMix(t.primary, '#ffffff', t.dark)
+  const useDarkText = forDark.ratio <= forWhite.ratio
+  const fill = useDarkText ? forDark.color : forWhite.color
+  const onFill = useDarkText ? t.dark : '#ffffff'
+  // 渐变终点朝文字的反方向再走一点，保证整条渐变上的对比度都不低于起点
+  const fillEnd = useDarkText ? mix(fill, '#ffffff', 0.14) : mix(fill, t.dark, 0.14)
   return {
     '--background': canvas,
     '--foreground': foreground,
@@ -162,7 +199,7 @@ function themeVars(t: Theme): Record<string, string> {
     '--primary-rgb': hexToRgb(t.primary),
     '--primary-ink': ink,
     '--primary-ink-rgb': hexToRgb(ink),
-    '--primary-foreground': '#ffffff',
+    '--primary-foreground': onFill,
     '--secondary': t.light,
     '--secondary-foreground': mutedFg,
     '--muted': mix(t.muted, t.dark, 0.05),
@@ -178,10 +215,11 @@ function themeVars(t: Theme): Record<string, string> {
     '--surface-rgb': hexToRgb(surface),
     '--hairline-rgb': hexToRgb(mix(t.dark, t.muted, 0.35)),
     '--shadow-rgb': hexToRgb(mix(t.dark, t.primary, 0.18)),
-    // 品牌渐变：logo / 头像装饰用原色，承载白字的按钮与选中态用压深版本
+    // 品牌渐变：logo / 头像装饰用原色；按钮与选中态用「原色 → 微调」的填充渐变
     '--gradient-start': t.gradient[0],
     '--gradient-end': t.gradient[1],
-    '--fill-gradient': `linear-gradient(135deg, ${ink}, ${fill})`,
+    '--fill': fill,
+    '--fill-gradient': `linear-gradient(135deg, ${fill}, ${fillEnd})`,
   }
 }
 
@@ -567,7 +605,7 @@ function Sidebar({
                   : hoveredId === id
                   ? 'rgba(var(--primary-ink-rgb) / 0.10)'
                   : 'transparent',
-                color: isActive ? '#fff' : hoveredId === id ? 'var(--primary-ink)' : 'var(--color-mid)',
+                color: isActive ? 'var(--primary-foreground)' : hoveredId === id ? 'var(--primary-ink)' : 'var(--color-mid)',
                 boxShadow: isActive ? '0 4px 12px rgba(var(--shadow-rgb) / 0.18)' : 'none',
                 transform: hoveredId === id && !isActive ? 'scale(1.08)' : 'scale(1)',
               }}
@@ -595,7 +633,7 @@ function Sidebar({
               : hoveredId === 'bookmarks'
               ? 'rgba(var(--primary-ink-rgb) / 0.10)'
               : 'transparent',
-            color: active === 'bookmarks' ? '#fff' : hoveredId === 'bookmarks' ? 'var(--primary-ink)' : 'var(--color-mid)',
+            color: active === 'bookmarks' ? 'var(--primary-foreground)' : hoveredId === 'bookmarks' ? 'var(--primary-ink)' : 'var(--color-mid)',
             boxShadow: active === 'bookmarks' ? '0 4px 12px rgba(var(--shadow-rgb) / 0.18)' : 'none',
             transform: hoveredId === 'bookmarks' && active !== 'bookmarks' ? 'scale(1.08)' : 'scale(1)',
           }}
@@ -621,7 +659,7 @@ function Sidebar({
               : hoveredId === 'theme'
               ? 'rgba(var(--primary-ink-rgb) / 0.10)'
               : 'transparent',
-            color: showTheme ? '#fff' : hoveredId === 'theme' ? 'var(--primary-ink)' : 'var(--color-mid)',
+            color: showTheme ? 'var(--primary-foreground)' : hoveredId === 'theme' ? 'var(--primary-ink)' : 'var(--color-mid)',
             boxShadow: showTheme ? '0 4px 12px rgba(var(--shadow-rgb) / 0.18)' : 'none',
             transform: hoveredId === 'theme' && !showTheme ? 'scale(1.08)' : 'scale(1)',
           }}
@@ -659,7 +697,7 @@ function Sidebar({
               : hoveredId === 'settings'
               ? 'rgba(var(--primary-ink-rgb) / 0.10)'
               : 'transparent',
-            color: active === 'settings' ? '#fff' : hoveredId === 'settings' ? 'var(--primary-ink)' : 'var(--color-mid)',
+            color: active === 'settings' ? 'var(--primary-foreground)' : hoveredId === 'settings' ? 'var(--primary-ink)' : 'var(--color-mid)',
             boxShadow: active === 'settings' ? '0 4px 12px rgba(var(--shadow-rgb) / 0.18)' : 'none',
             transform: hoveredId === 'settings' && active !== 'settings' ? 'scale(1.08)' : 'scale(1)',
           }}
@@ -888,8 +926,8 @@ export default function App() {
                 <div className="text-[13px]" style={{ color: 'var(--muted-foreground)' }}>该应用未安装或已停用</div>
                 <button
                   onClick={navigateBack}
-                  className="px-4 py-2 rounded-xl text-[13px] font-600 text-white"
-                  style={{ background: 'var(--fill-gradient)' }}
+                  className="px-4 py-2 rounded-xl text-[13px] font-600"
+                  style={{ background: 'var(--fill-gradient)', color: 'var(--primary-foreground)' }}
                 >
                   返回
                 </button>

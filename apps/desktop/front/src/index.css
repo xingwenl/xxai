@@ -34,7 +34,7 @@
   --primary: #06b6d4;
   --primary-ink: #097286;
   --primary-ink-rgb: 9 114 134;
-  --primary-foreground: #ffffff;
+  --primary-foreground: #0d1f26;
   --secondary: #e0f7fa;
   --secondary-foreground: #446d7b;
   --muted: #dfecee;
@@ -50,7 +50,8 @@
   --color-mid: #446d7b;
   --color-faint: #79939d;
   --color-light: #e0f7fa;
-  --fill-gradient: linear-gradient(135deg, #097286, #097d92);
+  --fill: #06b6d4;
+  --fill-gradient: linear-gradient(135deg, #06b6d4, #29c0da);
   --radius: 10px;
 }
 
