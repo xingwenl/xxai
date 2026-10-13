@@ -66,7 +66,7 @@ export default function PluginView({ plugin, fullscreen }: { plugin: Plugin; ful
             background: 'rgba(var(--surface-rgb) / 0.94)',
             backdropFilter: 'blur(16px) saturate(120%)',
             WebkitBackdropFilter: 'blur(16px) saturate(120%)',
-            border: '1px solid rgba(var(--hairline-rgb) / 0.10)',
+            border: '1px solid rgba(var(--hairline-rgb) / 0.12)',
             boxShadow: '0 4px 16px rgba(15,23,42,0.12)',
             color: 'var(--primary-ink)',
           }}

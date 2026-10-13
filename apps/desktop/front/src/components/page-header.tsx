@@ -26,7 +26,7 @@ export default function PageHeader({
         background: 'rgba(var(--surface-rgb) / 0.88)',
         backdropFilter: 'blur(24px) saturate(120%)',
         WebkitBackdropFilter: 'blur(24px) saturate(120%)',
-        border: '1px solid rgba(var(--hairline-rgb) / 0.08)',
+        border: '1px solid rgba(var(--hairline-rgb) / 0.18)',
         boxShadow: '0 6px 28px rgba(var(--shadow-rgb, 12 58 69) / 0.10), 0 1px 4px rgba(var(--shadow-rgb) / 0.07), inset 0 1px 0 rgba(255,255,255,0.8)',
       }}
     >

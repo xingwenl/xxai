@@ -56,10 +56,10 @@ export function AppCard({ app, pinned, onClick, onTogglePinned }: {
         background: 'rgba(var(--surface-rgb) / 0.88)',
         backdropFilter: 'blur(20px) saturate(120%)',
         WebkitBackdropFilter: 'blur(20px) saturate(120%)',
-        borderColor: hovered ? tint('66', 0.4) : 'rgba(var(--hairline-rgb) / 0.09)',
+        borderColor: hovered ? tint('66', 0.4) : 'rgba(var(--hairline-rgb) / 0.18)',
         boxShadow: hovered
           ? `0 10px 30px ${tint('22', 0.14)}, 0 2px 8px rgba(var(--shadow-rgb) / 0.08), inset 0 1px 0 rgba(255,255,255,0.9)`
-          : '0 2px 10px rgba(var(--shadow-rgb, 12 58 69) / 0.07), inset 0 1px 0 rgba(255,255,255,0.85)',
+          : '0 1px 2px rgba(var(--shadow-rgb, 12 58 69) / 0.05), 0 8px 20px rgba(var(--shadow-rgb) / 0.07)',
         transform: hovered ? 'translateY(-2px)' : 'none',
       }}
       onMouseEnter={() => setHovered(true)}

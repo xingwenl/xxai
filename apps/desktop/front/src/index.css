@@ -24,11 +24,12 @@
 /*
  * 主题变量兜底（cyan）：与 App.tsx 的 themeVars 派生规则保持一致，
  * 用于 React 挂载前的首屏，以及挂在 body 上的 toast（在主题根 div 之外，读不到主题变量）。
+ * 内容区与面板统一纯白，层次由发丝描边（--hairline-rgb）与中性阴影（--shadow-rgb）承担。
  */
 :root {
-  --background: #d7e4e6;
+  --background: #ffffff;
   --foreground: #1e3841;
-  --card: #fdfeff;
+  --card: #ffffff;
   --card-foreground: #1e3841;
   --primary: #06b6d4;
   --primary-ink: #097286;
@@ -42,8 +43,8 @@
   --accent-foreground: #083344;
   --border: #b5d1d8;
   --ring: #06b6d4;
-  --surface: #fdfeff;
-  --surface-rgb: 253 254 255;
+  --surface: #ffffff;
+  --surface-rgb: 255 255 255;
   --hairline-rgb: 90 107 112;
   --shadow-rgb: 12 58 69;
   --color-mid: #446d7b;

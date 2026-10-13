@@ -138,15 +138,16 @@ function mix(a: string, b: string, ratio: number): string {
 /**
  * 主题变量。
  *
- * 画布 / 面板 / 文字三层明度全部由品牌色派生，8 套主题共用同一套「亮度曲线」：
- * - 画布比品牌浅色底再沉一档，面板浮起来（分离度约 1.25:1，卡片边缘看得见）；
- * - 面板用带一丝主题色的近白，不再是大面积纯白；
- * - 正文避开纯黑压白（约 12:1），次级文字与主题色文字都达到 WCAG AA。
- * 阴影统一走中性色，不再用主题色发光，避免近白底上的彩色光晕。
+ * 内容区底色与面板统一为纯白，层次**不靠明度差**，改由发丝描边 + 中性阴影承担
+ * （拖动/悬浮/选中态仍有明确的色块与描边反馈）；文字三层由品牌色派生，
+ * 8 套主题共用同一套「亮度曲线」：
+ * - 正文约 12:1，次级文字与主题色文字都达到 WCAG AA；
+ * - 输入框、空态底等「凹陷」位置用 rgba(hairline / 0.05) 的微灰，保留结构感；
+ * - 阴影统一走中性色，不再用主题色发光，避免白底上的彩色光晕。
  */
 function themeVars(t: Theme): Record<string, string> {
-  const canvas = mix(t.muted, t.dark, 0.088)
-  const surface = mix('#ffffff', t.light, 0.07)
+  const canvas = '#ffffff'                      // 内容区底色：纯白
+  const surface = '#ffffff'                     // 面板 / 卡片：同为白色，靠描边与阴影浮起
   const foreground = mix(t.dark, t.mid, 0.22)
   const mutedFg = mix(t.mid, t.dark, 0.3)
   const faint = mix(t.faint, t.dark, 0.24)
@@ -426,7 +427,7 @@ function ThemePicker({ current, onChange, onClose }: {
         background: 'rgba(var(--surface-rgb) / 0.94)',
         backdropFilter: 'blur(28px) saturate(120%)',
         WebkitBackdropFilter: 'blur(28px) saturate(120%)',
-        border: '1px solid rgba(var(--hairline-rgb) / 0.10)',
+        border: '1px solid rgba(var(--hairline-rgb) / 0.12)',
         boxShadow: '0 12px 40px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.9)',
       }}
     >
@@ -528,7 +529,7 @@ function Sidebar({
         background: 'rgba(var(--surface-rgb) / 0.88)',
         backdropFilter: 'blur(20px) saturate(120%)',
         WebkitBackdropFilter: 'blur(20px) saturate(120%)',
-        border: '1px solid rgba(var(--hairline-rgb) / 0.08)',
+        border: '1px solid rgba(var(--hairline-rgb) / 0.18)',
         boxShadow: '0 10px 28px rgba(var(--shadow-rgb) / 0.10), 0 2px 6px rgba(var(--shadow-rgb) / 0.06)',
         transform: visible ? 'translate(0, -50%)' : 'translate(-80px, -50%)',
         opacity: visible ? 1 : 0,
@@ -723,7 +724,7 @@ function Sidebar({
           background: handleHovered ? 'rgba(var(--surface-rgb) / 0.92)' : 'rgba(var(--surface-rgb) / 0.7)',
           backdropFilter: 'blur(8px)',
           WebkitBackdropFilter: 'blur(8px)',
-          border: '1px solid rgba(var(--hairline-rgb) / 0.10)',
+          border: '1px solid rgba(var(--hairline-rgb) / 0.12)',
           boxShadow: '0 2px 8px rgba(var(--shadow-rgb) / 0.10)',
         }}
         title="显示侧边栏"
@@ -943,7 +944,7 @@ export default function App() {
               style={{
                 borderRadius: 12,
                 background: 'rgba(var(--hairline-rgb) / 0.05)',
-                border: '1px solid rgba(var(--hairline-rgb) / 0.08)',
+                border: '1px solid rgba(var(--hairline-rgb) / 0.18)',
                 color: 'var(--muted-foreground)',
               }}
             >
@@ -1000,7 +1001,7 @@ export default function App() {
                     background: 'rgba(var(--surface-rgb) / 0.88)',
                     backdropFilter: 'blur(16px)',
                     WebkitBackdropFilter: 'blur(16px)',
-                    border: '1px solid rgba(var(--hairline-rgb) / 0.08)',
+                    border: '1px solid rgba(var(--hairline-rgb) / 0.18)',
                     boxShadow: '0 2px 10px rgba(var(--shadow-rgb) / 0.08), inset 0 1px 0 rgba(255,255,255,0.8)',
                   }}
                 >
@@ -1032,7 +1033,7 @@ export default function App() {
                 background: 'rgba(var(--surface-rgb) / 0.88)',
                 backdropFilter: 'blur(20px) saturate(120%)',
                 WebkitBackdropFilter: 'blur(20px) saturate(120%)',
-                border: '1px solid rgba(var(--hairline-rgb) / 0.08)',
+                border: '1px solid rgba(var(--hairline-rgb) / 0.18)',
                 boxShadow: '0 4px 20px rgba(var(--shadow-rgb) / 0.08), inset 0 1px 0 rgba(255,255,255,0.8)',
                 overflow: 'hidden',
               }}
@@ -1047,7 +1048,7 @@ export default function App() {
                   key={s.label}
                   className="flex flex-col gap-1.5 p-5"
                   style={{
-                    borderRight: i < 3 ? '1px solid rgba(var(--hairline-rgb) / 0.08)' : 'none',
+                    borderRight: i < 3 ? '1px solid rgba(var(--hairline-rgb) / 0.18)' : 'none',
                   }}
                 >
                   <div className="text-[11px]" style={{ fontFamily: "'DM Mono', monospace", color: 'var(--muted-foreground)' }}>
@@ -1071,7 +1072,7 @@ export default function App() {
                     background: 'rgba(var(--surface-rgb) / 0.88)',
                     backdropFilter: 'blur(16px)',
                     WebkitBackdropFilter: 'blur(16px)',
-                    border: '1px solid rgba(var(--hairline-rgb) / 0.08)',
+                    border: '1px solid rgba(var(--hairline-rgb) / 0.18)',
                     boxShadow: '0 2px 10px rgba(var(--shadow-rgb) / 0.08), inset 0 1px 0 rgba(255,255,255,0.8)',
                   }}
                 >
@@ -1094,7 +1095,7 @@ export default function App() {
                   background: 'rgba(var(--surface-rgb) / 0.80)',
                   backdropFilter: 'blur(16px)',
                   WebkitBackdropFilter: 'blur(16px)',
-                  border: '1px solid rgba(var(--hairline-rgb) / 0.09)',
+                  border: '1px solid rgba(var(--hairline-rgb) / 0.18)',
                   boxShadow: '0 2px 12px rgba(var(--shadow-rgb) / 0.06)',
                 }}
               >
@@ -1153,7 +1154,7 @@ export default function App() {
                   background: 'rgba(var(--surface-rgb) / 0.80)',
                   backdropFilter: 'blur(8px)',
                   WebkitBackdropFilter: 'blur(8px)',
-                  border: '1px solid rgba(var(--hairline-rgb) / 0.10)',
+                  border: '1px solid rgba(var(--hairline-rgb) / 0.12)',
                   borderTop: 'none',
                   boxShadow: '0 2px 8px rgba(var(--shadow-rgb) / 0.10)',
                 }}

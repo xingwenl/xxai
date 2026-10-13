@@ -134,7 +134,7 @@ export default function BookmarksPage({
           style={{
             borderRadius: 12,
             background: 'rgba(var(--hairline-rgb) / 0.05)',
-            border: '1px solid rgba(var(--hairline-rgb) / 0.08)',
+            border: '1px solid rgba(var(--hairline-rgb) / 0.18)',
             color: 'var(--muted-foreground)',
           }}
         >
@@ -229,7 +229,7 @@ function StatsRow({ snapshot }: { snapshot: BookmarkSummary }) {
               background: 'rgba(var(--surface-rgb) / 0.88)',
               backdropFilter: 'blur(20px) saturate(120%)',
               WebkitBackdropFilter: 'blur(20px) saturate(120%)',
-              border: '1px solid rgba(var(--hairline-rgb) / 0.08)',
+              border: '1px solid rgba(var(--hairline-rgb) / 0.18)',
               boxShadow: '0 2px 12px rgba(var(--shadow-rgb) / 0.10), inset 0 1px 0 rgba(255,255,255,0.8)',
             }}
           >
@@ -274,7 +274,7 @@ function FolderNav({
         background: 'rgba(var(--surface-rgb) / 0.88)',
         backdropFilter: 'blur(24px) saturate(120%)',
         WebkitBackdropFilter: 'blur(24px) saturate(120%)',
-        border: '1px solid rgba(var(--hairline-rgb) / 0.08)',
+        border: '1px solid rgba(var(--hairline-rgb) / 0.18)',
         boxShadow: '0 4px 24px rgba(var(--shadow-rgb) / 0.08), inset 0 1px 0 rgba(255,255,255,0.8)',
       }}
     >
@@ -324,7 +324,7 @@ function GroupCard({
         background: 'rgba(var(--surface-rgb) / 0.88)',
         backdropFilter: 'blur(24px) saturate(120%)',
         WebkitBackdropFilter: 'blur(24px) saturate(120%)',
-        border: '1px solid rgba(var(--hairline-rgb) / 0.08)',
+        border: '1px solid rgba(var(--hairline-rgb) / 0.18)',
         boxShadow: '0 4px 24px rgba(var(--shadow-rgb) / 0.08), inset 0 1px 0 rgba(255,255,255,0.8)',
       }}
     >
@@ -355,7 +355,7 @@ function GroupCard({
             className="flex items-center gap-3 rounded-xl px-3 py-2 group"
             style={{
               background: 'rgba(var(--surface-rgb) / 0.72)',
-              border: '1px solid rgba(var(--hairline-rgb) / 0.07)',
+              border: '1px solid rgba(var(--hairline-rgb) / 0.18)',
             }}
           >
             {faviconFallback(item.url) ? (
@@ -405,7 +405,7 @@ function EmptyState({ icon, title, hint }: { icon: string; title: string; hint: 
         background: 'rgba(var(--surface-rgb) / 0.80)',
         backdropFilter: 'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
-        border: '1px solid rgba(var(--hairline-rgb) / 0.09)',
+        border: '1px solid rgba(var(--hairline-rgb) / 0.18)',
         boxShadow: '0 2px 12px rgba(var(--shadow-rgb) / 0.06)',
       }}
     >
@@ -431,7 +431,7 @@ function EmptyGuide({ onRefresh, theme }: { onRefresh: () => void; theme: ThemeL
         background: 'rgba(var(--surface-rgb) / 0.80)',
         backdropFilter: 'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
-        border: '1px solid rgba(var(--hairline-rgb) / 0.09)',
+        border: '1px solid rgba(var(--hairline-rgb) / 0.18)',
         boxShadow: '0 2px 12px rgba(var(--shadow-rgb) / 0.06)',
       }}
     >

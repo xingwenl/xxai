@@ -160,7 +160,7 @@ export default function Settings({
     background: 'rgba(var(--surface-rgb) / 0.88)',
     backdropFilter: 'blur(24px) saturate(120%)',
     WebkitBackdropFilter: 'blur(24px) saturate(120%)',
-    border: '1px solid rgba(var(--hairline-rgb) / 0.08)',
+    border: '1px solid rgba(var(--hairline-rgb) / 0.18)',
     boxShadow: '0 4px 24px rgba(var(--shadow-rgb) / 0.08), inset 0 1px 0 rgba(255,255,255,0.8)',
   } as const
 
@@ -195,7 +195,7 @@ export default function Settings({
             onKeyDown={(e) => { if (e.key === 'Enter') handleInstallFromUrl() }}
             placeholder="https://example.com"
             className="flex-1 min-w-[220px] px-3 py-2 rounded-xl text-[13px] outline-none"
-            style={{ background: 'rgba(var(--hairline-rgb) / 0.05)', border: '1px solid rgba(var(--hairline-rgb) / 0.10)', color: 'var(--foreground)' }}
+            style={{ background: 'rgba(var(--hairline-rgb) / 0.05)', border: '1px solid rgba(var(--hairline-rgb) / 0.12)', color: 'var(--foreground)' }}
           />
           <button
             disabled={urlBusy}
@@ -242,7 +242,7 @@ export default function Settings({
             <div
               key={plugin.id}
               className="rounded-xl"
-              style={{ background: 'rgba(var(--surface-rgb) / 0.88)', border: '1px solid rgba(var(--hairline-rgb) / 0.07)' }}
+              style={{ background: 'rgba(var(--surface-rgb) / 0.88)', border: '1px solid rgba(var(--hairline-rgb) / 0.18)' }}
             >
               <div className="flex items-center gap-4 px-4 py-3">
                 <div
@@ -318,7 +318,7 @@ export default function Settings({
               {editingId === plugin.id && plugin.type === 'remote' && (
                 <div
                   className="mx-4 mb-4 p-4 rounded-xl flex flex-col gap-3"
-                  style={{ background: 'rgba(var(--surface-rgb) / 0.88)', border: '1px solid rgba(var(--hairline-rgb) / 0.07)' }}
+                  style={{ background: 'rgba(var(--surface-rgb) / 0.88)', border: '1px solid rgba(var(--hairline-rgb) / 0.18)' }}
                 >
                   <div className="flex items-center gap-3">
                     {plugin.iconUrl && (
@@ -330,14 +330,14 @@ export default function Settings({
                         onChange={(e) => setEditName(e.target.value)}
                         placeholder="名称"
                         className="px-3 py-2 rounded-xl text-[13px] outline-none"
-                        style={{ background: 'rgba(var(--hairline-rgb) / 0.05)', border: '1px solid rgba(var(--hairline-rgb) / 0.10)', color: 'var(--foreground)' }}
+                        style={{ background: 'rgba(var(--hairline-rgb) / 0.05)', border: '1px solid rgba(var(--hairline-rgb) / 0.12)', color: 'var(--foreground)' }}
                       />
                       <input
                         value={editIconUrl}
                         onChange={(e) => setEditIconUrl(e.target.value)}
                         placeholder="图标 URL（留空保持不变）"
                         className="px-3 py-2 rounded-xl text-[13px] outline-none"
-                        style={{ background: 'rgba(var(--hairline-rgb) / 0.05)', border: '1px solid rgba(var(--hairline-rgb) / 0.10)', color: 'var(--foreground)' }}
+                        style={{ background: 'rgba(var(--hairline-rgb) / 0.05)', border: '1px solid rgba(var(--hairline-rgb) / 0.12)', color: 'var(--foreground)' }}
                       />
                     </div>
                   </div>
@@ -347,7 +347,7 @@ export default function Settings({
                     placeholder="描述"
                     rows={2}
                     className="px-3 py-2 rounded-xl text-[13px] outline-none resize-none"
-                    style={{ background: 'rgba(var(--hairline-rgb) / 0.05)', border: '1px solid rgba(var(--hairline-rgb) / 0.10)', color: 'var(--foreground)' }}
+                    style={{ background: 'rgba(var(--hairline-rgb) / 0.05)', border: '1px solid rgba(var(--hairline-rgb) / 0.12)', color: 'var(--foreground)' }}
                   />
                   <div className="flex items-center justify-between gap-2">
                     <button
