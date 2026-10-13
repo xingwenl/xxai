@@ -225,14 +225,9 @@ function themeVars(t: Theme): Record<string, string> {
 
 // ── data ──────────────────────────────────────────────────────────────────────
 
+// 侧栏导航：插件清单里没有分类字段，这些分类菜单点开永远是空列表，故只保留「全部应用」
 const NAV_ITEMS = [
   { id: 'all', label: '全部应用', icon: GridIcon },
-  { id: 'text', label: '文本处理', icon: TypeIcon },
-  { id: 'image', label: '图像工具', icon: ImageIcon },
-  { id: 'data', label: '数据转换', icon: DatabaseIcon },
-  { id: 'code', label: '开发工具', icon: CodeIcon },
-  { id: 'file', label: '文件管理', icon: FileIcon },
-  { id: 'calc', label: '计算工具', icon: CalcIcon },
 ]
 
 const CARD_COLORS = [
@@ -273,7 +268,6 @@ function toAppItem(p: Plugin): AppItem {
     id: p.id,
     name: p.name,
     desc: p.description || '暂无描述',
-    category: 'all',
     tag: (p.version || 'APP').toUpperCase(),
     // color: colorForId(p.id),
     iconUrl: p.iconUrl || undefined,
@@ -289,54 +283,6 @@ function GridIcon() {
       <rect x="11" y="2" width="7" height="7" rx="1.5" />
       <rect x="2" y="11" width="7" height="7" rx="1.5" />
       <rect x="11" y="11" width="7" height="7" rx="1.5" />
-    </svg>
-  )
-}
-function TypeIcon() {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-4.5 h-4.5">
-      <path d="M3 5h14M10 5v11M7 16h6" strokeLinecap="round" />
-    </svg>
-  )
-}
-function ImageIcon() {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-4.5 h-4.5">
-      <rect x="2" y="4" width="16" height="12" rx="2" />
-      <circle cx="7.5" cy="8.5" r="1.5" />
-      <path d="M2 14l4-4 3 3 3-3 6 5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-function DatabaseIcon() {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-4.5 h-4.5">
-      <ellipse cx="10" cy="5" rx="7" ry="2.5" />
-      <path d="M3 5v4c0 1.38 3.13 2.5 7 2.5S17 10.38 17 9V5" />
-      <path d="M3 9v4c0 1.38 3.13 2.5 7 2.5S17 14.38 17 13V9" />
-    </svg>
-  )
-}
-function CodeIcon() {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-4.5 h-4.5">
-      <path d="M6 7l-4 3 4 3M14 7l4 3-4 3M11 4l-2 12" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-function FileIcon() {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-4.5 h-4.5">
-      <path d="M4 3h8l4 4v10a1 1 0 01-1 1H4a1 1 0 01-1-1V4a1 1 0 011-1z" />
-      <path d="M12 3v4h4" strokeLinecap="round" />
-    </svg>
-  )
-}
-function CalcIcon() {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-4.5 h-4.5">
-      <rect x="3" y="3" width="14" height="14" rx="2" />
-      <path d="M7 10h6M10 7v6" strokeLinecap="round" />
     </svg>
   )
 }
@@ -775,7 +721,6 @@ function Sidebar({
 // ── main app ──────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [activeCategory, setActiveCategory] = useState('all')
   const [searchQ, setSearchQ] = useState('')
   const [openApp, setOpenApp] = useState<string | null>(null)
   const [fullscreen, setFullscreen] = useState(false)
@@ -873,18 +818,15 @@ export default function App() {
   const pinnedApps = apps.filter((a) => pinnedIds.includes(a.id))
 
   const filtered = apps.filter((a) => {
-    const matchCat = activeCategory === 'all' || a.category === activeCategory
     const matchSearch =
       !searchQ ||
       a.name.includes(searchQ) ||
       a.desc.includes(searchQ) ||
       a.tag.toLowerCase().includes(searchQ.toLowerCase())
-    return matchCat && matchSearch
+    return matchSearch
   })
 
-  const showPinned = activeCategory === 'all' && !searchQ
-
-  const catLabel = NAV_ITEMS.find((n) => n.id === activeCategory)?.label ?? '全部应用'
+  const showPinned = !searchQ
 
   return (
     <div
@@ -892,13 +834,13 @@ export default function App() {
       style={{ background: 'var(--background)', ...Object.fromEntries(Object.entries(themeVars(theme))) as React.CSSProperties }}
     >
       <Sidebar
-        active={page === 'settings' ? 'settings' : openApp === 'bookmarks-organizer' ? 'bookmarks' : openApp ? 'all' : activeCategory}
+        active={page === 'settings' ? 'settings' : openApp === 'bookmarks-organizer' ? 'bookmarks' : 'all'}
         onSelect={(id) => {
           setOpenApp(null)
           exitFullscreen()
           if (id === 'settings') setPage('settings')
           else if (id === 'bookmarks') navigateTo('bookmarks-organizer')
-          else { setPage('apps'); setActiveCategory(id) }
+          else setPage('apps')
         }}
         theme={theme}
         onThemeChange={setTheme}
@@ -972,8 +914,8 @@ export default function App() {
         {/* ── floating topbar ── */}
         <div className="sticky top-0 z-20 px-6 pt-4 pb-0 pointer-events-none">
           <PageHeader
-            icon={(() => { const Item = NAV_ITEMS.find(n => n.id === activeCategory); return Item ? <Item.icon /> : <GridIcon /> })()}
-            title={catLabel}
+            icon={<GridIcon />}
+            title="全部应用"
             subtitle={`${filtered.length} 个工具`}
             center={(
               // center: search
@@ -1229,13 +1171,13 @@ export default function App() {
             )}
             {/* 左侧悬浮导航（应用 / 设置 / 主题 / 头像）：默认隐藏，左边缘竖条把手展开 */}
             <Sidebar
-              active={page === 'settings' ? 'settings' : openApp === 'bookmarks-organizer' ? 'bookmarks' : activeCategory}
+              active={page === 'settings' ? 'settings' : openApp === 'bookmarks-organizer' ? 'bookmarks' : 'all'}
               onSelect={(id) => {
                 setOpenApp(null)
                 exitFullscreen()
                 if (id === 'settings') setPage('settings')
                 else if (id === 'bookmarks') navigateTo('bookmarks-organizer')
-                else { setPage('apps'); setActiveCategory(id) }
+                else setPage('apps')
               }}
               theme={theme}
               onThemeChange={setTheme}

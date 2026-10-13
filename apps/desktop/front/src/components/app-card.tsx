@@ -4,7 +4,6 @@ export interface AppItem {
   id: string
   name: string
   desc: string
-  category: string
   tag: string
   color?: string
   icon?: () => React.ReactElement
