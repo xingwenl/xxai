@@ -82,3 +82,26 @@ def test_entry_traversal_rejected(entry: str) -> None:
 def test_unknown_permissions_reported() -> None:
     manifest = PluginManifest.model_validate(_manifest(permissions=["notify", "future-ability"]))
     assert manifest.unknown_permissions() == ["future-ability"]
+
+
+def test_open_mode_defaults_to_inline() -> None:
+    # 未声明 open_mode 的老插件必须保持原有行为（壳内展开）
+    manifest = PluginManifest.model_validate(_manifest())
+    assert manifest.open_mode == "inline"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [("window", "window"), ("browser", "browser"), ("inline", "inline"), (" Window ", "window"), ("BROWSER", "browser")],
+)
+def test_open_mode_accepts_known_values(raw: str, expected: str) -> None:
+    manifest = PluginManifest.model_validate(_manifest(open_mode=raw))
+    assert manifest.open_mode == expected
+
+
+@pytest.mark.parametrize("bad", ["newwindow", "popup", "1", "", None, 123, ["window"]])
+def test_open_mode_falls_back_to_inline_on_invalid_value(bad: object) -> None:
+    # 宽容策略：open_mode 只是展示策略，写错不该让插件装不上
+    manifest = PluginManifest.model_validate(_manifest(open_mode=bad))
+    assert manifest.open_mode == "inline"
+

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import PurePosixPath
 
 from pydantic import BaseModel, Field, field_validator
 from pydantic import model_validator
+
+logger = logging.getLogger(__name__)
 
 # 插件 id 命名规则：小写字母/数字开头，仅允许字母、数字、下划线、连字符
 PLUGIN_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -15,6 +18,10 @@ PLUGIN_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 KNOWN_PERMISSIONS = frozenset(
     {"notify", "settings", "storage", "events", "http", "platform", "log"}
 )
+
+# 子应用默认打开方式：inline=宿主壳内展开、browser=系统浏览器、window=新的原生窗口
+OPEN_MODES = ("inline", "browser", "window")
+DEFAULT_OPEN_MODE = "inline"
 
 
 class PluginManifest(BaseModel):
@@ -31,6 +38,10 @@ class PluginManifest(BaseModel):
         description="子应用类型：iframe（三方 zip 应用）/ react（本项目原生应用）/ remote（从 URL 安装的远程壳插件）",
     )
     permissions: list[str] = Field(default_factory=list, description="声明所需的宿主能力")
+    open_mode: str = Field(
+        default=DEFAULT_OPEN_MODE,
+        description="子应用默认打开方式：inline（宿主壳内展开）/ browser（系统浏览器）/ window（新的原生窗口）",
+    )
     url: str | None = Field(
         default=None,
         description="远程插件目标地址（type=remote 时必填，仅允许 http/https）",
@@ -60,6 +71,21 @@ class PluginManifest(BaseModel):
         if value not in {"iframe", "react", "remote"}:
             raise ValueError("type 仅支持 iframe、react 或 remote")
         return value
+
+    @field_validator("open_mode", mode="before")
+    @classmethod
+    def _normalize_open_mode(cls, value: object) -> str:
+        """非法值宽容回退 inline。
+
+        open_mode 只是「卡片点击后怎么打开」的展示策略、不是安全边界，
+        一个笔误不该让整个插件装不上；处理方式与 permissions 的宽容策略一致。
+        """
+        normalized = value.strip().lower() if isinstance(value, str) else ""
+        if normalized in OPEN_MODES:
+            return normalized
+        if normalized:
+            logger.warning("manifest.open_mode=%r 不是合法打开方式，回退 %s", value, DEFAULT_OPEN_MODE)
+        return DEFAULT_OPEN_MODE
 
     @model_validator(mode="after")
     def _validate_remote(self) -> "PluginManifest":

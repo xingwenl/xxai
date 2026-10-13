@@ -71,3 +71,31 @@ def test_iframe_without_entry_rejected(plugin_env: dict) -> None:
 def test_missing_dirs_scan_empty(tmp_path: Path) -> None:
     registry = PluginRegistry(tmp_path / "no-builtin", tmp_path / "no-user", {"plugins": {}})
     assert registry.scan() == []
+
+
+def test_open_mode_reaches_frontend_payload(plugin_env: dict) -> None:
+    """manifest 声明的 open_mode 必须透传到前端用的 to_dict（camelCase 键）。"""
+    seed_plugin(plugin_env["user"], "win-app", "窗口应用", open_mode="window")
+    registry = PluginRegistry(plugin_env["builtin"], plugin_env["user"], {"plugins": {}})
+    plugins = {p.id: p for p in registry.scan()}
+
+    assert plugins["win-app"].open_mode == "window"
+    assert plugins["win-app"].to_dict()["openMode"] == "window"
+
+
+def test_open_mode_defaults_to_inline_in_payload(plugin_env: dict) -> None:
+    registry = PluginRegistry(plugin_env["builtin"], plugin_env["user"], {"plugins": {}})
+    plugins = {p.id: p for p in registry.scan()}
+
+    assert plugins["hello-world"].to_dict()["openMode"] == "inline"
+
+
+def test_broken_open_mode_plugin_still_scanned(plugin_env: dict) -> None:
+    """open_mode 写错只是回退默认值，不应让插件整体失效。"""
+    seed_plugin(plugin_env["user"], "typo-app", "写错的", open_mode="newwindow")
+    registry = PluginRegistry(plugin_env["builtin"], plugin_env["user"], {"plugins": {}})
+    plugins = {p.id: p for p in registry.scan()}
+
+    assert plugins["typo-app"].error is None
+    assert plugins["typo-app"].open_mode == "inline"
+

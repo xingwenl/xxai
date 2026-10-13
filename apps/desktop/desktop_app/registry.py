@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from desktop_app import paths
-from desktop_app.protocol import PluginManifest
+from desktop_app.protocol import DEFAULT_OPEN_MODE, PluginManifest
 
 
 @dataclass
@@ -24,6 +24,7 @@ class PluginInfo:
     permissions: list[str]
     dir: Path
     builtin: bool
+    open_mode: str = DEFAULT_OPEN_MODE
     enabled: bool = True
     installed_at: str | None = None
     error: str | None = None
@@ -39,6 +40,7 @@ class PluginInfo:
             "entry": self.entry,
             "type": self.type,
             "permissions": self.permissions,
+            "openMode": self.open_mode,
             "url": self.url,
             "builtin": self.builtin,
             "enabled": self.enabled,
@@ -104,6 +106,7 @@ class PluginRegistry:
                 entry=manifest.entry,
                 type=manifest.type,
                 permissions=[] if manifest.type == "remote" else manifest.permissions,
+                open_mode=manifest.open_mode,
                 url=manifest.url,
                 dir=plugin_dir,
                 builtin=True,
@@ -141,6 +144,7 @@ class PluginRegistry:
                 entry=manifest.entry,
                 type=manifest.type,
                 permissions=[] if manifest.type == "remote" else manifest.permissions,
+                open_mode=manifest.open_mode,
                 url=manifest.url,
                 dir=plugin_dir,
                 builtin=False,

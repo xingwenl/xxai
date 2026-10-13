@@ -7,6 +7,23 @@ import ReactAppView from './components/react-app-view'
 import PageHeader from './components/page-header'
 import { AppCard, type AppItem } from './components/app-card'
 
+// ── 子应用打开方式 ────────────────────────────────────────────────────────────
+// 与 desktop_app/protocol.py 的 OPEN_MODES 一一对应；插件在 manifest.open_mode 里声明默认值，
+// 卡片右键可以针对单次点击临时覆盖。
+type OpenMode = 'inline' | 'browser' | 'window'
+
+const OPEN_MODE_ORDER: OpenMode[] = ['inline', 'browser', 'window']
+
+const OPEN_MODE_LABELS: Record<OpenMode, string> = {
+  inline: '在当前页面打开',
+  browser: '在系统浏览器打开',
+  window: '在新的原生窗口打开',
+}
+
+// 宿主壳被当作子窗口打开时会带上 ?child=1（见 desktop_app/windows.py 的 child_url）。
+// 子窗口里 Esc / 返回的语义是「关掉这个窗口」，而不是「退回应用列表」。
+const IS_CHILD_WINDOW = new URLSearchParams(window.location.search).has('child')
+
 // ── themes ────────────────────────────────────────────────────────────────────
 
 interface Theme {
@@ -733,6 +750,8 @@ export default function App() {
   const [plugins, setPlugins] = useState<Plugin[]>([])
   const [loaded, setLoaded] = useState(false)
   const [pinnedIds, setPinnedIds] = useState<string[]>(loadPinned)
+  // 应用卡片的右键打开方式菜单；菜单渲染在壳层（卡片自身 overflow-hidden 会裁剪它）
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
 
   useEffect(() => {
     localStorage.setItem(THEME_KEY, theme.id)
@@ -760,6 +779,9 @@ export default function App() {
       }
     }
     window.addEventListener('hashchange', onHash)
+    // 冷启动（含子窗口深链 /?child=1#/app/<id>）时 hash 已经存在、hashchange 不会触发，
+    // 必须主动解析一次，否则新窗口打开后会停在应用列表页
+    onHash()
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
 
@@ -792,15 +814,42 @@ export default function App() {
     setFsSidebarVisible(false)
   }, [])
 
-  // 全屏展示时按 Esc 退出全屏
+  // 关闭当前窗口（仅子窗口有效，主窗口由宿主拒绝并返回 false）
+  const closeChildWindow = useCallback(() => {
+    const close = window.pywebview?.api?.close_current_window
+    if (!close) return false
+    close().catch(() => {})
+    return true
+  }, [])
+
+  // 全屏展示时按 Esc：子窗口关窗，主窗口退回应用列表
   useEffect(() => {
     if (!(openApp && fullscreen)) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') exitFullscreen()
+      if (e.key !== 'Escape') return
+      if (IS_CHILD_WINDOW) closeChildWindow()
+      else exitFullscreen()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [openApp, fullscreen, exitFullscreen])
+  }, [openApp, fullscreen, closeChildWindow, exitFullscreen])
+
+  // 右键菜单：Esc 或滚动/缩放时关闭，避免菜单留在错位的坐标上
+  useEffect(() => {
+    if (!menu) return
+    const close = () => setMenu(null)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenu(null)
+    }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('resize', close)
+    window.addEventListener('wheel', close, { passive: true })
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('resize', close)
+      window.removeEventListener('wheel', close)
+    }
+  }, [menu])
 
   function navigateTo(id: string) {
     setPage('apps')
@@ -808,10 +857,48 @@ export default function App() {
     setSliding(true)
     setTimeout(() => { setOpenApp(id); setSliding(false) }, 10)
   }
+
   function navigateBack() {
     exitFullscreen()
     setSliding(true)
     setTimeout(() => { setOpenApp(null); setSliding(false) }, 10)
+  }
+
+  // 「返回」按钮：子窗口里等于关窗，主窗口里等于退回应用列表
+  function handleBack() {
+    if (IS_CHILD_WINDOW && closeChildWindow()) return
+    navigateBack()
+  }
+
+  /** 按打开方式打开子应用。
+   *
+   * 打开方式由插件 manifest 声明、卡片右键可临时覆盖；真正的执行者优先是宿主桥
+   * （只有原生窗口才知道怎么开新窗口），桥不存在（浏览器调试）时统一退化为壳内展开。
+   */
+  function openAppByMode(id: string, mode?: OpenMode) {
+    const plugin = plugins.find((p) => p.id === id)
+    const bridge = window.pywebview?.api?.open_app
+    if (!bridge) {
+      if (mode && mode !== 'inline') {
+        toast('浏览器调试模式不支持该打开方式', `已改为在当前页面打开「${plugin?.name ?? id}」`)
+      }
+      navigateTo(id)
+      return
+    }
+    bridge(id, mode)
+      .then((res) => {
+        if (res?.ok && res.mode === 'inline') {
+          // inline 是前端自己的视图状态，后端只回执，由这里展开
+          navigateTo(id)
+          return
+        }
+        if (!res?.ok) {
+          toast('打开应用失败', res?.reason === 'not_found' ? '该应用未安装或已停用' : '宿主暂时无法打开该应用', 'error')
+          return
+        }
+        if (res.mode === 'browser') toast('已在系统浏览器打开', plugin?.name ?? id)
+      })
+      .catch((e) => toast('打开应用失败', String(e?.message || e), 'error'))
   }
 
   const apps = plugins.map(toAppItem)
@@ -862,6 +949,16 @@ export default function App() {
         {openApp && (() => {
           const plugin = plugins.find((p) => p.id === openApp)
           if (!plugin) {
+            // 冷启动深链（子窗口 /?child=1#/app/<id>）时插件列表还在路上，
+            // 先给加载态，避免闪一下「该应用未安装或已停用」
+            if (!loaded) {
+              return (
+                <div className="flex flex-col items-center justify-center h-full gap-3" style={{ padding: '0 24px' }}>
+                  <div className="text-4xl">⏳</div>
+                  <div className="text-[13px]" style={{ color: 'var(--muted-foreground)' }}>正在加载应用…</div>
+                </div>
+              )
+            }
             return (
               <div className="flex flex-col items-center justify-center h-full gap-3" style={{ padding: '0 24px' }}>
                 <div className="text-4xl">🧩</div>
@@ -879,7 +976,7 @@ export default function App() {
           const bar = (
             <PageHeader
               title={plugin.name}
-              onBack={navigateBack}
+              onBack={handleBack}
               trailing={<FullscreenToggle fullscreen={false} onToggle={enterFullscreen} />}
             />
           )
@@ -997,7 +1094,13 @@ export default function App() {
               </div>
               <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
                 {pinnedApps.map((app) => (
-                  <AppCard key={app.id} app={app} pinned onClick={() => navigateTo(app.id)} />
+                  <AppCard
+                    key={app.id}
+                    app={app}
+                    pinned
+                    onClick={() => openAppByMode(app.id)}
+                    onContextMenu={(x, y) => setMenu({ id: app.id, x, y })}
+                  />
                 ))}
               </div>
             </section>
@@ -1097,7 +1200,8 @@ export default function App() {
                     key={app.id}
                     app={app}
                     pinned={pinnedIds.includes(app.id)}
-                    onClick={() => navigateTo(app.id)}
+                    onClick={() => openAppByMode(app.id)}
+                    onContextMenu={(x, y) => setMenu({ id: app.id, x, y })}
                     onTogglePinned={() => setPinnedIds((prev) => (
                       prev.includes(app.id) ? prev.filter((id) => id !== app.id) : [...prev, app.id]
                     ))}
@@ -1149,7 +1253,7 @@ export default function App() {
               >
                 <PageHeader
                   title={plugin.name}
-                  onBack={navigateBack}
+                  onBack={handleBack}
                   trailing={(
                     <>
                       <button
@@ -1163,7 +1267,9 @@ export default function App() {
                         </svg>
                         收起
                       </button>
-                      <FullscreenToggle fullscreen onToggle={exitFullscreen} />
+                      {/* 子窗口本身就是「全屏」窗口，退出全屏只会露出里面的应用列表，
+                          所以这里不提供该按钮；关窗走返回键 / Esc / 系统标题栏关闭 */}
+                      {!IS_CHILD_WINDOW && <FullscreenToggle fullscreen onToggle={exitFullscreen} />}
                     </>
                   )}
                 />
@@ -1184,6 +1290,64 @@ export default function App() {
               visible={fsSidebarVisible}
               onToggle={() => setFsSidebarVisible(v => !v)}
             />
+          </div>
+        )
+      })()}
+
+      {/* 应用卡片右键菜单：渲染在壳层而不是卡片内，否则会被卡片的 overflow-hidden 裁掉 */}
+      {menu && (() => {
+        const plugin = plugins.find((p) => p.id === menu.id)
+        const defaultMode = plugin?.openMode ?? 'inline'
+        // 靠近窗口右下角时向内收，保证菜单完整可见
+        const left = Math.max(8, Math.min(menu.x, window.innerWidth - 216))
+        const top = Math.max(8, Math.min(menu.y, window.innerHeight - 168))
+        return (
+          <div
+            className="fixed inset-0 z-[60]"
+            onClick={() => setMenu(null)}
+            onContextMenu={(e) => { e.preventDefault(); setMenu(null) }}
+          >
+            <div
+              className="absolute w-[200px] p-1.5 rounded-2xl flex flex-col"
+              style={{
+                left,
+                top,
+                background: 'rgba(var(--surface-rgb) / 0.96)',
+                backdropFilter: 'blur(20px) saturate(120%)',
+                WebkitBackdropFilter: 'blur(20px) saturate(120%)',
+                border: '1px solid rgba(var(--hairline-rgb) / 0.2)',
+                boxShadow: '0 12px 32px rgba(var(--shadow-rgb) / 0.18)',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-3 pt-2 pb-1.5 text-[11px] truncate" style={{ color: 'var(--muted-foreground)' }}>
+                {plugin?.name ?? '应用'}
+              </div>
+              {OPEN_MODE_ORDER.map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => { setMenu(null); openAppByMode(menu.id, mode) }}
+                  className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-[13px] text-left"
+                  style={{ color: 'var(--foreground)', background: 'transparent' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(var(--primary-ink-rgb) / 0.08)' }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+                >
+                  <span className="truncate">{OPEN_MODE_LABELS[mode]}</span>
+                  {mode === defaultMode && (
+                    <span
+                      className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-md leading-none"
+                      style={{
+                        fontFamily: "'DM Mono', monospace",
+                        background: 'rgba(var(--primary-ink-rgb) / 0.10)',
+                        color: 'var(--primary-ink)',
+                      }}
+                    >
+                      默认
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
         )
       })()}

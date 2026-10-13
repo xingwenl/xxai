@@ -31,11 +31,13 @@ function FallbackIcon() {
   )
 }
 
-export function AppCard({ app, pinned, onClick, onTogglePinned }: {
+export function AppCard({ app, pinned, onClick, onTogglePinned, onContextMenu }: {
   app: AppItem
   pinned?: boolean
   onClick?: () => void
   onTogglePinned?: () => void
+  /** 右键（或键盘菜单键）回调；菜单本身由宿主壳渲染，卡片会被 overflow-hidden 裁剪 */
+  onContextMenu?: (x: number, y: number) => void
 }) {
   const [hovered, setHovered] = useState(false)
   const starred = !!pinned
@@ -70,6 +72,12 @@ export function AppCard({ app, pinned, onClick, onTogglePinned }: {
           e.preventDefault()
           onClick?.()
         }
+      }}
+      onContextMenu={(e) => {
+        // 只有宿主提供了菜单回调才拦截系统菜单，避免无菜单时反而屏蔽浏览器右键
+        if (!onContextMenu) return
+        e.preventDefault()
+        onContextMenu(e.clientX, e.clientY)
       }}
       onClick={onClick}
     >

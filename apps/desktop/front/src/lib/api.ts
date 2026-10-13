@@ -9,6 +9,8 @@ export interface Plugin {
   entry: string
   type: 'iframe' | 'react' | 'remote'
   permissions: string[]
+  /** 插件声明的默认打开方式：壳内展开 / 系统浏览器 / 新的原生窗口 */
+  openMode: 'inline' | 'browser' | 'window'
   url: string | null
   builtin: boolean
   enabled: boolean

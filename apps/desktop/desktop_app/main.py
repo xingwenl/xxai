@@ -15,6 +15,7 @@ from desktop_app.app_config import APP_NAME, ICON_PNG
 from desktop_app.host_api import HostApi
 from desktop_app.manager import PluginManager
 from desktop_app.server import create_app
+from desktop_app.windows import AppWindowManager
 
 logger = logging.getLogger(__name__)
 
@@ -77,16 +78,24 @@ def run() -> None:
         url = f"http://{server.host}:{port}"
     logger.info("内嵌服务已就绪: %s", url)
 
+    # 子应用窗口管理器：与 HostApi 共用同一实例，主窗口关闭时统一清理
+    windows = AppWindowManager()
+    api = HostApi(manager, base_url=url, windows=windows)
     window = webview.create_window(
         APP_NAME,
         url=url,
-        js_api=HostApi(manager),
+        js_api=api,
         width=1100,
         height=760,
         min_size=(800, 600),
     )
-    # 窗口关闭时同步停止内嵌服务，避免残留进程
-    window.events.closed += server.stop
+
+    def _on_master_closed() -> None:
+        """主窗口关闭：先销毁子窗口（它们依赖内嵌服务），再停服务，避免残留进程。"""
+        windows.close_all()
+        server.stop()
+
+    window.events.closed += _on_master_closed
     webview.start(
         # DESKTOP_DEBUG=1 时启用 Web Inspector（macOS 可右键 → 检查元素）
         debug=os.environ.get("DESKTOP_DEBUG") == "1",
