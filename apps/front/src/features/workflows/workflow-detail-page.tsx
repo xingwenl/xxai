@@ -19,6 +19,7 @@ import { formatDateTime } from '@/lib/time'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { dagShape } from '@/features/workflows/workflow-dag'
 import { WorkflowDefinitionForm } from '@/features/workflows/workflow-definition-form'
 
 const routeApi = getRouteApi('/_authenticated/workflows/$workflowId')
@@ -161,7 +162,7 @@ export function WorkflowDetailPage() {
             </h1>
             <p className='text-sm text-muted-foreground'>
               {workflow
-                ? `版本 v${workflow.version} · ${workflow.steps.length} 个步骤 · 整条超时 ${workflow.timeout_seconds} 秒`
+                ? `版本 v${workflow.version} · ${workflow.steps.length} 个步骤 · ${dagShape(workflow.steps).layers} 个并行层（最宽 ${dagShape(workflow.steps).maxWidth}） · 整条超时 ${workflow.timeout_seconds} 秒`
                 : ''}
             </p>
           </div>

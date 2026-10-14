@@ -80,6 +80,18 @@ async def update_agent(
         existing = await repo.get_by_slug(platform_id, payload.slug)
         if existing is not None and existing.id != agent_id:
             raise ConflictException("agent slug already exists")
+    if payload.orchestration_workflow_id is not None:
+        # 绑定「由哪条工作流接管」其实是权限边界的搬移：绑定成功后，所有走这个
+        # Agent 的终端用户消息都会由这条工作流的多步编排产生回复。因此必须确认
+        # 它属于当前平台（跨平台绑定等于把别人的提示词与工具接进自己的会话），
+        # 且处于启用态（暂停的工作流接管只会让每个用户都收到一条失败回复）。
+        workflow = await repo.get_orchestration_workflow(
+            payload.orchestration_workflow_id, platform_id
+        )
+        if workflow is None:
+            raise NotFoundException("orchestration workflow not found")
+        if workflow.status != "active":
+            raise BadRequestException("orchestration workflow is paused")
     updates = payload.model_dump(exclude_unset=True)
     if not updates:
         raise BadRequestException("no fields to update")
@@ -276,9 +288,7 @@ def _resolve_thinking_options(
             return dict(selected)
     if "deepseek" in model_name.lower():
         return {
-            "extra_body": {
-                "thinking": {"type": "enabled" if thinking else "disabled"}
-            }
+            "extra_body": {"thinking": {"type": "enabled" if thinking else "disabled"}}
         }
     # 无法识别厂商时静默降级：开启不注入，关闭尝试通用参数；
     # 厂商不吃该参数时请求仍能成功，只是思考未被关闭。

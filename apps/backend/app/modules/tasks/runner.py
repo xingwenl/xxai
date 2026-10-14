@@ -218,6 +218,10 @@ async def _execute_once(
             model_id=model_id,
             confirmation_decider=build_confirmation_decider(policy),
             tool_session=tool_session,
+            # 任务触发的运行不走「会话内编排接管」：接管是给终端用户对话准备的，
+            # 而任务本身就是一条已经编排好的无人值守流程，两者叠加会让触发源
+            # 说不清楚（还要给被接管的每一步再配一套审批口径）。
+            allow_orchestration=False,
         )
         await session.commit()
         _ = assistant

@@ -3,13 +3,22 @@ import { http } from '@/lib/http'
 /** 工作流步骤类型：agent 跑一轮 Agent 对话，tool 直接调用一个工具。 */
 export type WorkflowStepKind = 'agent' | 'tool'
 
+/**
+ * 同一拓扑层里互不依赖的步骤数上限，与后端 MAX_PARALLEL_BRANCHES 对齐。
+ * 前端本地校验用同一个数字，避免用户提交后才收到 400。
+ */
+export const MAX_PARALLEL_BRANCHES = 8
+
 /** 步骤失败策略：abort 中止整条工作流；continue_with_default 用兜底输出继续；fail_branch 为预留值（v1 暂未实现）。 */
 export type WorkflowStepOnError =
   | 'abort'
   | 'continue_with_default'
   | 'fail_branch'
 
-/** 工作流步骤：有序执行单元。kind=agent 跑一轮 Agent，kind=tool 直接调一个工具。 */
+/** 画布坐标；只影响画布布局，不参与执行语义。 */
+export type WorkflowNodePosition = { x: number; y: number }
+
+/** 工作流步骤：DAG 里的一个执行单元。kind=agent 跑一轮 Agent，kind=tool 直接调一个工具。 */
 export type WorkflowStep = {
   /** 稳定字符串标识（非自增），后续步骤用它引用本步输出 */
   step_id: string
@@ -31,6 +40,14 @@ export type WorkflowStep = {
   timeout_seconds: number | null
   /** 失败后额外重试几次（0 表示不重试）；重试用同一份输入，用尽后 on_error 才生效 */
   max_retries: number
+  /**
+   * 本步依赖的步骤 id 列表。
+   * null（缺省）语义 = 依赖序列中的前一个步骤，存量线性定义靠它保持零改动兼容；
+   * 显式 [] = 起点（并行分支的第二条及以后必须写它）；显式数组 = 这些上游全部完成后才执行。
+   */
+  depends_on: string[] | null
+  /** 画布坐标；null 表示还没在画布上摆放，前端按拓扑层自动布局 */
+  position: WorkflowNodePosition | null
 }
 
 /** 工作流：一串按固定顺序执行的步骤定义 + 工作流级默认 Agent 与审批策略。 */
@@ -138,18 +155,46 @@ export type WorkflowRunDetail = {
 /**
  * 后端把 steps 编译成 definition.nodes 存储（node 比 step 多一个 seq 序号，
  * 少一个 steps 数组层级），因此读取时要还原回表单直接可用的有序 steps。
+ *
+ * DAG 重构后每个 node 额外带 depends_on 与 position 两键（可为 null），
+ * 这两个字段也必须带回前端，否则画布会丢掉已有的依赖关系与布局。
  */
-type WorkflowNode = Omit<WorkflowStep, 'max_retries'> & {
+type WorkflowNode = Omit<
+  WorkflowStep,
+  'max_retries' | 'depends_on' | 'position'
+> & {
   seq?: number
   max_retries?: number | null
+  depends_on?: string[] | null
+  position?: WorkflowNodePosition | null
+}
+
+/** definition 编译结果；edges 由 depends_on 推导，读取时用来自检，不参与编辑。 */
+export type WorkflowEdge = {
+  edge_id: string
+  source: string
+  target: string
+  source_handle: string
 }
 
 type WorkflowPayload = Omit<Workflow, 'steps'> & {
   steps?: WorkflowStep[]
-  definition?: { nodes?: WorkflowNode[] } | null
+  definition?: { nodes?: WorkflowNode[]; edges?: WorkflowEdge[] } | null
+}
+
+/** 把后端 node 的 position 收敛成合法坐标；脏数据不让它污染画布。 */
+function nodeToPosition(value: unknown): WorkflowNodePosition | null {
+  if (!value || typeof value !== 'object') return null
+  const { x, y } = value as { x?: unknown; y?: unknown }
+  if (typeof x !== 'number' || typeof y !== 'number') return null
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null
+  return { x, y }
 }
 
 function nodeToStep(node: WorkflowNode): WorkflowStep {
+  const dependsOn = Array.isArray(node.depends_on)
+    ? node.depends_on.filter((item): item is string => typeof item === 'string')
+    : null
   return {
     step_id: node.step_id,
     name: node.name,
@@ -163,6 +208,8 @@ function nodeToStep(node: WorkflowNode): WorkflowStep {
     default_output: node.default_output ?? null,
     timeout_seconds: node.timeout_seconds ?? null,
     max_retries: node.max_retries ?? 0,
+    depends_on: dependsOn,
+    position: nodeToPosition(node.position),
   }
 }
 

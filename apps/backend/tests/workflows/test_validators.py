@@ -29,6 +29,8 @@ NODE_KEYS = {
     "name",
     "kind",
     "seq",
+    "depends_on",
+    "position",
     "agent_id",
     "prompt",
     "tool_name",
@@ -83,7 +85,14 @@ def test_compile_definition_fills_defaults_for_missing_keys() -> None:
     """锁：编译时对缺省字段兜底（tool_arguments/input_bindings 为 {}、on_error 为 abort）。"""
 
     definition = compile_definition(
-        [{"step_id": "only", "name": "只有必填字段", "kind": "agent", "prompt": "干点活"}]
+        [
+            {
+                "step_id": "only",
+                "name": "只有必填字段",
+                "kind": "agent",
+                "prompt": "干点活",
+            }
+        ]
     )
     node = definition["nodes"][0]
     assert node["agent_id"] is None
@@ -106,8 +115,20 @@ def test_steps_from_definition_sorts_by_seq_not_list_order() -> None:
 
     definition = {
         "nodes": [
-            {"step_id": "second", "name": "二", "kind": "agent", "prompt": "p", "seq": 1},
-            {"step_id": "first", "name": "一", "kind": "agent", "prompt": "p", "seq": 0},
+            {
+                "step_id": "second",
+                "name": "二",
+                "kind": "agent",
+                "prompt": "p",
+                "seq": 1,
+            },
+            {
+                "step_id": "first",
+                "name": "一",
+                "kind": "agent",
+                "prompt": "p",
+                "seq": 0,
+            },
         ],
         "edges": [],
     }
@@ -121,7 +142,11 @@ def test_steps_from_definition_sorts_by_seq_not_list_order() -> None:
     ("steps", "max_steps", "expected"),
     [
         ([], 50, "workflow requires at least one step"),
-        ([agent_step("a"), agent_step("b")], 1, "workflow step count 2 exceeds max_steps 1"),
+        (
+            [agent_step("a"), agent_step("b")],
+            1,
+            "workflow step count 2 exceeds max_steps 1",
+        ),
         ([agent_step("bad id")], 50, "invalid step_id"),
         ([agent_step("dup"), agent_step("dup")], 50, "duplicated step_id: dup"),
         ([agent_step("a", name="   ")], 50, "requires a name"),
@@ -132,14 +157,22 @@ def test_steps_from_definition_sorts_by_seq_not_list_order() -> None:
         ),
         ([agent_step("a", kind="llm")], 50, "has an unknown kind: llm"),
         ([agent_step("a", prompt="   ")], 50, "is an agent step and requires a prompt"),
-        ([agent_step("a", tool_name="orders.get")], 50, "is an agent step and cannot declare a tool"),
+        (
+            [agent_step("a", tool_name="orders.get")],
+            50,
+            "is an agent step and cannot declare a tool",
+        ),
         (
             [agent_step("a", input_bindings={"x": ["b", "output"]})],
             50,
             "is an agent step and cannot declare input_bindings",
         ),
         ([tool_step("a", "")], 50, "is a tool step and requires a tool_name"),
-        ([tool_step("a", "orders.get", prompt="帮我查")], 50, "is a tool step and cannot declare a prompt"),
+        (
+            [tool_step("a", "orders.get", prompt="帮我查")],
+            50,
+            "is a tool step and cannot declare a prompt",
+        ),
         ([agent_step("a", on_error="explode")], 50, "has an unknown on_error: explode"),
         (
             [agent_step("a", on_error="continue_with_default")],
@@ -187,7 +220,11 @@ def test_validate_steps_accepts_a_fully_valid_list() -> None:
 
     steps = [
         agent_step("collect", prompt="总结工单"),
-        tool_step("query", "orders.get_status", input_bindings={"order": ["collect", "output"]}),
+        tool_step(
+            "query",
+            "orders.get_status",
+            input_bindings={"order": ["collect", "output"]},
+        ),
         agent_step(
             "notify",
             prompt="根据 {{query.output}} 通知用户",
@@ -224,27 +261,35 @@ def test_validate_steps_accepts_fail_branch_enum_without_implementing_it() -> No
 
 
 def test_validate_steps_rejects_binding_to_a_later_step() -> None:
-    """锁（验收 2）：``input_bindings`` 选择器指向**后面**的步骤必须被拒。"""
+    """锁（验收 2）：``input_bindings`` 选择器指向**非上游**的步骤必须被拒。
+
+    改造后执行顺序不再等于数组顺序，判定口径从「排在前面」升级为「是上游
+    （直接或间接依赖）」：同层并行分支之间互不可见，正是靠这条拦住的。
+    """
 
     steps = [
-        tool_step("first", "orders.get_status", input_bindings={"order": ["second", "output"]}),
+        tool_step(
+            "first", "orders.get_status", input_bindings={"order": ["second", "output"]}
+        ),
         tool_step("second", "orders.get_status"),
     ]
     with pytest.raises(BadRequestException) as excinfo:
         validate_steps(steps, max_steps=50)
     assert (
-        "input binding 'order' references 'second', which is not an earlier step"
+        "input binding 'order' references 'second', which is not an upstream step"
         in str(excinfo.value)
     )
 
 
 def test_validate_steps_rejects_binding_to_itself() -> None:
-    """锁：自引用也属于「不是更早的步骤」。"""
+    """锁：自引用也属于「不是上游步骤」。"""
 
-    steps = [tool_step("only", "orders.get_status", input_bindings={"x": ["only", "output"]})]
+    steps = [
+        tool_step("only", "orders.get_status", input_bindings={"x": ["only", "output"]})
+    ]
     with pytest.raises(BadRequestException) as excinfo:
         validate_steps(steps, max_steps=50)
-    assert "which is not an earlier step" in str(excinfo.value)
+    assert "which is not an upstream step" in str(excinfo.value)
 
 
 def test_validate_steps_accepts_binding_to_an_earlier_step() -> None:
@@ -252,13 +297,15 @@ def test_validate_steps_accepts_binding_to_an_earlier_step() -> None:
 
     steps = [
         agent_step("first"),
-        tool_step("second", "orders.get_status", input_bindings={"x": ["first", "output"]}),
+        tool_step(
+            "second", "orders.get_status", input_bindings={"x": ["first", "output"]}
+        ),
     ]
     assert validate_steps(steps, max_steps=50) is None
 
 
 def test_validate_steps_rejects_template_reference_to_a_later_step() -> None:
-    """锁（验收 2）：提示词里 ``{{step.output}}`` 引用后面的步骤必须被拒。"""
+    """锁（验收 2）：提示词里 ``{{step.output}}`` 引用非上游步骤必须被拒。"""
 
     steps = [
         agent_step("first", prompt="请使用 {{second.output}}"),
@@ -266,8 +313,8 @@ def test_validate_steps_rejects_template_reference_to_a_later_step() -> None:
     ]
     with pytest.raises(BadRequestException) as excinfo:
         validate_steps(steps, max_steps=50)
-    assert (
-        "template references 'second', which is not an earlier step" in str(excinfo.value)
+    assert "template references 'second', which is not an upstream step" in str(
+        excinfo.value
     )
 
 
@@ -306,14 +353,19 @@ def test_validate_steps_rejects_unknown_output_path_at_save_time() -> None:
     不如保存时直接拒绝——这条口径与 runner 的渲染检查是同一件事的两道闸。
     """
 
-    template_case = [agent_step("first"), agent_step("second", prompt="{{first.other}}")]
+    template_case = [
+        agent_step("first"),
+        agent_step("second", prompt="{{first.other}}"),
+    ]
     with pytest.raises(BadRequestException) as template_excinfo:
         validate_steps(template_case, max_steps=50)
     assert "template path must be 'output', got 'other'" in str(template_excinfo.value)
 
     selector_case = [
         agent_step("first"),
-        tool_step("second", "orders.get_status", input_bindings={"x": ["first", "other"]}),
+        tool_step(
+            "second", "orders.get_status", input_bindings={"x": ["first", "other"]}
+        ),
     ]
     with pytest.raises(BadRequestException) as selector_excinfo:
         validate_steps(selector_case, max_steps=50)

@@ -52,9 +52,7 @@ class Workflow(BaseModel, TimeModel):
         index=True,
         comment="工作流所属平台 ID",
     )
-    name: Mapped[str] = mapped_column(
-        String(200), nullable=False, comment="工作流名称"
-    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False, comment="工作流名称")
     description: Mapped[str | None] = mapped_column(
         Text, nullable=True, comment="工作流说明，供后台识别用途"
     )
@@ -113,7 +111,10 @@ class Workflow(BaseModel, TimeModel):
         nullable=False,
         default=dict,
         server_default="{}",
-        comment="定义本体：nodes[] 步骤节点 + edges[] 顺序边，节点与边都带稳定字符串 id",
+        comment=(
+            "定义本体：nodes[] 步骤节点（含 depends_on 依赖与 position 画布坐标）"
+            "+ edges[] 由依赖编译出的边，节点与边都带稳定字符串 id"
+        ),
     )
     timeout_seconds: Mapped[int] = mapped_column(
         Integer,
@@ -156,14 +157,19 @@ class WorkflowRun(BaseModel, TimeModel):
         # 「同一工作流串行」由数据库兜底：一个工作流最多只能有一条 running 记录。
         # 这样即使调度器多副本并发、或看门狗与抢占交错，也不会出现两条并行运行；
         # 重叠触发会被抢占逻辑改写成 skipped(overlapped) 记录。
+        # 例外是会话内接管（trigger_kind='conversation'）：它是「每轮消息各跑一次」
+        # 的高频触发，多个会话同时对话是常态，若也串行就会互相顶掉。并行风险由
+        # 每步只允许 side_effect=none 的工具承担（见 workflows/services.py）。
         # 两种方言都要写 where：只给 postgresql_where 时，sqlite 会退化成
         # 「workflow_id 全表唯一」，反而让第二条 skipped 记录也插不进去。
         Index(
             "uq_workflow_runs_one_running_per_workflow",
             "workflow_id",
             unique=True,
-            postgresql_where=text("status = 'running'"),
-            sqlite_where=text("status = 'running'"),
+            postgresql_where=text(
+                "status = 'running' AND trigger_kind <> 'conversation'"
+            ),
+            sqlite_where=text("status = 'running' AND trigger_kind <> 'conversation'"),
         ),
         # 抢占与看门狗都按「状态 + 时间」筛选，走这条复合索引。
         Index("ix_workflow_runs_status_started_at", "status", "started_at"),
@@ -202,7 +208,10 @@ class WorkflowRun(BaseModel, TimeModel):
         nullable=False,
         default="manual",
         server_default="manual",
-        comment="触发方式：manual 手动运行 / scheduled 由任务定时触发",
+        comment=(
+            "触发方式：manual 手动运行 / scheduled 由任务定时触发 / "
+            "conversation 会话内接管（Agent 绑定编排后每轮消息触发，不参与同一工作流串行约束）"
+        ),
     )
     run_as_type: Mapped[str] = mapped_column(
         String(20),
@@ -282,6 +291,15 @@ class WorkflowStepRun(BaseModel, TimeModel):
     __table_args__ = (
         # 步骤明细一律按「某次运行 + 执行顺序」读取，走这条复合索引。
         Index("ix_workflow_step_runs_run_seq", "run_id", "seq"),
+        # 并行调度下「一次运行里同一个 step_id 只允许一条记录」必须由数据库保证：
+        # 并发的分支各写各的 step_run，服务层的去重判断挡不住两个同时插入的协程。
+        # 保留 ix_workflow_step_runs_run_seq 是因为它仍承担按 seq 排序的读取。
+        Index(
+            "uq_workflow_step_runs_run_step",
+            "run_id",
+            "step_id",
+            unique=True,
+        ),
     )
 
     id: Mapped[int] = mapped_column(
@@ -299,7 +317,12 @@ class WorkflowStepRun(BaseModel, TimeModel):
         comment="步骤的稳定字符串标识（非自增行号），后续步骤用它引用本步输出",
     )
     seq: Mapped[int] = mapped_column(
-        Integer, nullable=False, comment="步骤在本次运行中的执行顺序，从 0 开始"
+        Integer,
+        nullable=False,
+        comment=(
+            "步骤在定义 nodes[] 中的位次（从 0 开始），只用于稳定排序展示；"
+            "真实执行顺序由 depends_on 决定，同一层内的步骤会并发执行"
+        ),
     )
     node_type: Mapped[str] = mapped_column(
         String(20),

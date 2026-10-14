@@ -21,28 +21,44 @@ from app.shared.base_schemas import TimeSchemas
 
 WorkflowStatus = Literal["active", "paused"]
 WorkflowRunStatus = Literal["running", "completed", "failed", "skipped"]
-WorkflowRunTriggerKind = Literal["manual", "scheduled"]
+# conversation = 会话内接管触发（Agent 绑定编排后，每轮消息跑一次）。
+# 它是唯一允许「同一工作流同时有多条 running」的触发来源，因此也参与
+# uq_workflow_runs_one_running_per_workflow 的谓词。
+WorkflowRunTriggerKind = Literal["manual", "scheduled", "conversation"]
 WorkflowStepKind = Literal["agent", "tool"]
 WorkflowStepStatus = Literal["running", "succeeded", "failed", "skipped", "waiting"]
 WorkflowOnError = Literal["abort", "continue_with_default", "fail_branch"]
 
 
+class CanvasPosition(BaseModel):
+    """步骤在画布上的坐标，只影响前端布局，不参与任何执行语义。"""
+
+    x: float
+    y: float
+
+
 class WorkflowStepInput(BaseModel):
     """单个步骤的输入。
 
-    步骤顺序即 ``steps`` 数组顺序，因此没有显式的顺序字段；``step_id`` 是稳定
-    字符串（会进入历史运行记录），不是自增行号。
+    执行顺序由 ``depends_on`` 决定，**不是** ``steps`` 数组顺序：``depends_on``
+    缺省表示「依赖数组里的前一个步骤」（改造前保存的线性定义无需迁移），
+    显式 ``[]`` 表示起点（并行分支的第二条靠它声明）。``step_id`` 是稳定字符串
+    （会进入历史运行记录），不是自增行号。
     """
 
     step_id: str = Field(min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=200)
     kind: WorkflowStepKind
+    # 依赖的 step_id 列表；None = 串行继任（依赖前一个），[] = 并行的起点。
+    depends_on: list[str] | None = None
+    # 画布坐标；后端只负责存取与校验形状，不解释含义。
+    position: CanvasPosition | None = None
     agent_id: int | None = None
     prompt: str | None = None
     tool_name: str | None = None
     tool_arguments: dict[str, Any] = Field(default_factory=dict)
-    # 数组选择器：{绑定名: [前序 step_id, 输出路径]}。用数组而不是字符串模板，
-    # 是为了让「只能引用排在前面的步骤」在保存时能做纯数据比对。
+    # 数组选择器：{绑定名: [上游 step_id, 输出路径]}。用数组而不是字符串模板，
+    # 是为了让「只能引用上游步骤」在保存时能做纯数据比对。
     input_bindings: dict[str, list[str]] = Field(default_factory=dict)
     on_error: WorkflowOnError = "abort"
     # 失败后额外重试几次（0 表示不重试）；重试拿的是同一份输入，用尽后 on_error 才生效。

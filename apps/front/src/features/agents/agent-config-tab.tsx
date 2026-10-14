@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 import { deleteAgent, getAgent, updateAgent } from '@/api/agent'
+import { listWorkflows } from '@/api/workflow'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,10 +34,20 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { agentSchema, type AgentForm } from './agent-form-schema'
+
+/** 下拉框不允许空字符串值，用哨兵表示「不绑定」。 */
+const NO_WORKFLOW = '__none__'
 
 export function AgentConfigTab({
   platformId,
@@ -53,7 +64,15 @@ export function AgentConfigTab({
     queryFn: () => getAgent(platformId!, agentId),
     enabled: platformId != null,
   })
+  // 只列当前平台处于 active 的工作流：绑定暂停/跨平台工作流后端会直接拒绝。
+  const workflowsQuery = useQuery({
+    queryKey: ['workflows', platformId, 'active'],
+    queryFn: () =>
+      listWorkflows(platformId!, { pageSize: 100, status: 'active' }),
+    enabled: platformId != null,
+  })
   const agent = agentQuery.data
+  const activeWorkflows = workflowsQuery.data?.items ?? []
   const form = useForm<AgentForm>({
     resolver: zodResolver(agentSchema),
     values: {
@@ -61,8 +80,20 @@ export function AgentConfigTab({
       slug: agent?.slug ?? '',
       description: agent?.description ?? '',
       is_active: agent?.is_active ?? true,
+      // 服务端没返回该字段时按「未绑定」渲染，而不是 undefined 让下拉框空白。
+      orchestration_workflow_id: agent?.orchestration_workflow_id ?? null,
     },
   })
+  // 用 useWatch 而不是 form.watch：后者会被 React Compiler 判定为不可安全缓存。
+  const orchestrationId =
+    useWatch({ control: form.control, name: 'orchestration_workflow_id' }) ??
+    null
+  // 当前绑定不在 active 列表里（被暂停 / 删除 / 跨平台）时，单独给一个只读选项。
+  const boundWorkflowOutsideList =
+    orchestrationId != null &&
+    !activeWorkflows.some((workflow) => workflow.id === orchestrationId)
+      ? orchestrationId
+      : null
   const saveMutation = useMutation({
     mutationFn: (values: AgentForm) =>
       updateAgent(platformId!, agentId, {
@@ -70,6 +101,8 @@ export function AgentConfigTab({
         slug: values.slug,
         description: values.description,
         is_active: values.is_active,
+        // 始终显式带上：null 表示解绑，字段缺失才是「不改动」。
+        orchestration_workflow_id: values.orchestration_workflow_id ?? null,
       }),
     onSuccess: async () => {
       toast.success('配置已保存')
@@ -173,6 +206,58 @@ export function AgentConfigTab({
               </div>
             </form>
           </Form>
+        </CardContent>
+      </Card>
+
+      <Card className='rounded-md py-4'>
+        <CardHeader className='px-4 pb-0'>
+          <CardTitle className='text-base'>编排绑定</CardTitle>
+          <CardDescription>
+            绑定一条编排工作流后，该智能体的会话可按这条 DAG
+            执行；只能绑定当前平台启用中的工作流。修改后点上方「保存」生效。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className='px-4 pt-4'>
+          {workflowsQuery.isLoading ? (
+            <Skeleton className='h-10 w-full' />
+          ) : (
+            <Select
+              value={
+                orchestrationId == null ? NO_WORKFLOW : String(orchestrationId)
+              }
+              onValueChange={(value) =>
+                form.setValue(
+                  'orchestration_workflow_id',
+                  value === NO_WORKFLOW ? null : Number(value),
+                  { shouldDirty: true }
+                )
+              }
+            >
+              <SelectTrigger className='w-full sm:w-96'>
+                <SelectValue placeholder='选择编排工作流' />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_WORKFLOW}>不绑定</SelectItem>
+                {boundWorkflowOutsideList != null && (
+                  // 已绑定的工作流可能被暂停或删除：补一个只读选项，
+                  // 否则下拉框会显示空白，用户看不出当前到底绑了什么。
+                  <SelectItem value={String(boundWorkflowOutsideList)}>
+                    #{boundWorkflowOutsideList}（已暂停或不可用）
+                  </SelectItem>
+                )}
+                {activeWorkflows.map((workflow) => (
+                  <SelectItem key={workflow.id} value={String(workflow.id)}>
+                    {workflow.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {!workflowsQuery.isLoading && activeWorkflows.length === 0 && (
+            <p className='mt-2 text-xs text-muted-foreground'>
+              当前平台还没有启用中的工作流，先去工作流页面创建并启用。
+            </p>
+          )}
         </CardContent>
       </Card>
 

@@ -6,7 +6,11 @@ from app.core.config import get_settings
 from collections.abc import AsyncIterator
 from app.core.logging import get_logger
 from app.modules.conversation.repositories import ConversationRepository
-from app.modules.conversation.services import build_loop_with_steps, load_recent_history
+from app.modules.conversation.services import (
+    build_loop_with_steps,
+    load_recent_history,
+    orchestration_event_stream,
+)
 from app.modules.conversation.runtime import (
     attach_tool_snapshots,
     apply_runtime_context_guardrail,
@@ -37,7 +41,9 @@ from app.modules.asset_processing.runtime import attachment_embedding_enabled
 from app.modules.asset_processing.repositories import AssetProcessingRepository
 from app.modules.asset_processing.models import ProcessingStatus
 from app.modules.agent_runtime.event_adapters import event_to_legacy
-from app.modules.agent_runtime.conversation_adapter import stream_runtime_as_conversation
+from app.modules.agent_runtime.conversation_adapter import (
+    stream_runtime_as_conversation,
+)
 from app.modules.agent_runtime.tool_events import summarize_tool_value
 from app.modules.agent_runtime.langchain_adapter import build_langchain_messages
 from app.modules.agent_runtime.composition import (
@@ -580,6 +586,7 @@ async def stream_embed_chat(
     invoke_host_tool_fn=None,
     on_model_task_started=None,
     attachments: list[dict] | None = None,
+    allow_orchestration: bool = True,
 ) -> AsyncIterator[dict]:
     """把一次 Embed 消息转换为网关事件流。
 
@@ -734,12 +741,21 @@ async def stream_embed_chat(
             window_tokens=resolve_context_window_tokens(context.version),
         ),
         max_turns=get_settings().agent_max_iterations,
-        on_model_error=make_multimodal_degrade_recoverer(
-            ws_system_prompt, message
-        ),
+        on_model_error=make_multimodal_degrade_recoverer(ws_system_prompt, message),
         on_task_started=on_model_task_started,
     )
-    event_stream = stream_runtime_as_conversation(
+    # Agent 绑定了编排工作流时，这一轮由工作流接管：产出仍是同一套 AgentEvent，
+    # 因此下面的消费循环、assistant 落库与用量记账一行都不用改。
+    orchestration_stream = orchestration_event_stream(
+        context,
+        history=history,
+        message=message,
+        platform_id=platform_id,
+        user_id=None,
+        end_user_id=end_user_id,
+        allow_orchestration=allow_orchestration,
+    )
+    event_stream = orchestration_stream or stream_runtime_as_conversation(
         runtime.stream(
             build_langchain_messages(
                 system_prompt=ws_system_prompt,
@@ -758,7 +774,11 @@ async def stream_embed_chat(
     async for agent_event in event_stream:
         # 内部先经过统一 AgentEvent seam，再还原为旧字段供现有持久化逻辑使用。
         # 这一阶段刻意保留出口兼容，确保 WebSocket 协议和事件顺序不变。
-        item = agent_event if isinstance(agent_event, dict) else event_to_legacy(agent_event)
+        item = (
+            agent_event
+            if isinstance(agent_event, dict)
+            else event_to_legacy(agent_event)
+        )
         # message_delta 立即向前端流式发送；completed 事件只保留最终 GraphResult，
         # 避免同一段回答被重复写入消息表。
         if item["type"] == "message_delta":
@@ -827,8 +847,7 @@ async def stream_embed_chat(
                         request_id,
                         item.get("tool"),
                         call_id,
-                        getattr(outcome, "status", None)
-                        or item.get("status"),
+                        getattr(outcome, "status", None) or item.get("status"),
                         summarize_tool_value(
                             getattr(outcome, "error", None), limit=500
                         ),

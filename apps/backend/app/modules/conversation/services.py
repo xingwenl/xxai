@@ -2,6 +2,7 @@ from datetime import datetime, time, timedelta, timezone
 
 from app.core.logging import get_logger
 from app.core.config import get_settings
+from app.core.database import get_session_factory
 from app.modules.conversation.repositories import ConversationRepository
 from app.modules.conversation.runtime import (
     attach_tool_snapshots,
@@ -28,7 +29,9 @@ from app.modules.conversation.serializers import (
 )
 from app.modules.agent_runtime.event_adapters import event_to_legacy
 from app.modules.agent_runtime.langchain_adapter import build_langchain_messages
-from app.modules.agent_runtime.conversation_adapter import stream_runtime_as_conversation
+from app.modules.agent_runtime.conversation_adapter import (
+    stream_runtime_as_conversation,
+)
 from app.modules.agent_runtime.lifecycle import (
     generation_step_status_for,
     loop_status_for,
@@ -206,9 +209,7 @@ async def load_recent_history(repo: ConversationRepository, conversation_id: int
         or settings.conversation_history_window_seconds
     )
     # 快照保留期大于普通历史窗口时按较大窗口读取，正文与快照各自按窗口过滤。
-    window = max(
-        settings.conversation_history_window_seconds, snapshot_retention
-    )
+    window = max(settings.conversation_history_window_seconds, snapshot_retention)
     since = datetime.now(timezone.utc) - timedelta(seconds=window)
     return await repo.list_recent_context_messages(conversation_id, since=since)
 
@@ -471,9 +472,7 @@ async def _run_execute_chat_model_round(
     # 保持同一口径，否则 ChatResponse.content_blocks 和 assistant 消息内容
     # 会与既有 REST 行为不一致。
     return GraphResult(
-        content=rewrite_image_markdown(
-            runtime_result.content, runtime_tool_events
-        ),
+        content=rewrite_image_markdown(runtime_result.content, runtime_tool_events),
         citations=runtime_result.citations or citations,
         knowledge_grounded=bool(runtime_result.citations or citations),
         tool_events=runtime_result.tool_events,
@@ -484,6 +483,119 @@ async def _run_execute_chat_model_round(
             *image_content_blocks(runtime_tool_events),
             *custom_content_blocks(runtime_tool_events),
         ],
+    )
+
+
+async def _run_chat_model_round_or_orchestration(
+    context,
+    *,
+    model,
+    runtime_tools,
+    invoke_tool_fn,
+    history,
+    message: str,
+    citations: list[dict],
+    request_id: str,
+    platform_id: int,
+    user_id: int | None,
+    end_user_id: int | None,
+    allow_orchestration: bool,
+):
+    """一轮对话的产出：绑定编排时交给工作流，否则走普通的单 Agent 模型循环。
+
+    「接管」判定放在这里而不是更外层，是因为它需要的历史、身份与平台都已经
+    在 ``execute_chat`` 里解析完毕，且 REST 非流式与无人值守两条链路共用这个
+    函数——收口一处，行为才不会两边漂移。
+    """
+
+    if allow_orchestration:
+        # 延迟导入：编排模块的执行链最终会回调 execute_unattended_chat，
+        # 顶层导入会形成 conversation <-> workflows 的模块环。
+        from app.modules.workflows.orchestration import (
+            build_turn_prefix,
+            orchestration_workflow_id,
+            run_orchestration_turn,
+        )
+
+        workflow_id = orchestration_workflow_id(context)
+        if workflow_id is not None:
+            content, _workflow_run_id = await run_orchestration_turn(
+                get_session_factory(),
+                platform_id=platform_id,
+                agent_id=context.agent.id,
+                workflow_id=workflow_id,
+                run_as_type=_run_as_type_for(user_id, end_user_id),
+                user_id=user_id,
+                end_user_id=end_user_id,
+                turn_prefix=build_turn_prefix(history, message),
+            )
+            # 编排自己产生的用量已经由各步骤的模型调用各自记账，这里不重复累计；
+            # 引用/兜底链条沿用普通路径的默认值，保证 assistant 落库字段同形。
+            return GraphResult(
+                content=content,
+                citations=citations,
+                knowledge_grounded=bool(citations),
+            )
+
+    return await _run_execute_chat_model_round(
+        model=model,
+        runtime_tools=runtime_tools,
+        invoke_tool_fn=invoke_tool_fn,
+        context=context,
+        history=history,
+        message=message,
+        citations=citations,
+        request_id=request_id,
+    )
+
+
+def _run_as_type_for(user_id: int | None, end_user_id: int | None) -> str:
+    """把调用方身份翻译成工作流运行的执行身份（与会话链路口径一致）。"""
+
+    if end_user_id is not None:
+        return "end_user"
+    if user_id is not None:
+        return "user"
+    return "platform"
+
+
+def orchestration_event_stream(
+    context,
+    *,
+    history,
+    message: str,
+    platform_id: int,
+    user_id: int | None,
+    end_user_id: int | None,
+    allow_orchestration: bool,
+):
+    """Agent 绑定了编排工作流时返回编排事件流，否则返回 ``None``。
+
+    返回 ``None`` 表示「按普通单 Agent 走」，这样未绑定 Agent 的链路连一次
+    分支判断的成本都不额外承担——回归口径就是「逐字与改造前一致」。
+    """
+
+    if not allow_orchestration:
+        return None
+    # 延迟导入的理由同 _run_chat_model_round_or_orchestration。
+    from app.modules.workflows.orchestration import (
+        build_turn_prefix,
+        orchestration_workflow_id,
+        stream_orchestration_turn,
+    )
+
+    workflow_id = orchestration_workflow_id(context)
+    if workflow_id is None:
+        return None
+    return stream_orchestration_turn(
+        get_session_factory(),
+        platform_id=platform_id,
+        agent_id=context.agent.id,
+        workflow_id=workflow_id,
+        run_as_type=_run_as_type_for(user_id, end_user_id),
+        user_id=user_id,
+        end_user_id=end_user_id,
+        turn_prefix=build_turn_prefix(history, message),
     )
 
 
@@ -499,6 +611,7 @@ async def execute_chat(
     citations: list[dict],
     invoke_tool_fn=None,
     end_user_id: int | None = None,
+    allow_orchestration: bool = True,
 ):
     logger.info(
         "Conversation chat started platform_id=%s user_id=%s end_user_id=%s agent_id=%s conversation_id=%s message_chars=%s citation_count=%s",
@@ -537,15 +650,19 @@ async def execute_chat(
     )
     runtime_tools = build_runtime_tool_list(context)
     try:
-        result = await _run_execute_chat_model_round(
+        result = await _run_chat_model_round_or_orchestration(
+            context,
             model=model,
             runtime_tools=runtime_tools,
             invoke_tool_fn=invoke_tool_fn,
-            context=context,
             history=history,
             message=message,
             citations=citations,
             request_id=loop.request_id,
+            platform_id=platform_id,
+            user_id=user_id,
+            end_user_id=end_user_id,
+            allow_orchestration=allow_orchestration,
         )
     except Exception as error:
         # REST 非流式与流式入口共用同一错误语义：模型失败不能把 loop 留在
@@ -622,6 +739,7 @@ async def stream_chat(
     citations: list[dict],
     invoke_tool_fn=None,
     on_model_task_started=None,
+    allow_orchestration: bool = True,
 ):
     logger.info(
         "Conversation stream chat started platform_id=%s user_id=%s agent_id=%s conversation_id=%s message_chars=%s citation_count=%s",
@@ -713,29 +831,43 @@ async def stream_chat(
     system_prompt = build_system_prompt(
         context.version, context.skill_instructions, citations
     )
-    runtime = build_langchain_runtime(
-        model,
-        runtime_tools,
-        invoke_tool_fn,
-        streaming=True,
-        context_transform=lambda messages: apply_runtime_context_guardrail(
-            messages,
-            window_tokens=resolve_context_window_tokens(context.version),
-        ),
-        max_turns=get_settings().agent_max_iterations,
-        on_model_error=make_context_degrade_recoverer(system_prompt, message),
-        on_task_started=on_model_task_started,
+    # 绑定编排时用「同一套 AgentEvent」替换模型流：下游从事件消费到 assistant
+    # 落库全都不用改，两条来源在收尾处自然合流。
+    orchestration_stream = orchestration_event_stream(
+        context,
+        history=history,
+        message=message,
+        platform_id=platform_id,
+        user_id=user_id,
+        end_user_id=None,
+        allow_orchestration=allow_orchestration,
     )
-    event_stream = stream_runtime_as_conversation(
-        runtime.stream(
-            build_langchain_messages(
-                system_prompt=system_prompt,
-                history=history,
-                user_message=message,
+    if orchestration_stream is not None:
+        event_stream = orchestration_stream
+    else:
+        runtime = build_langchain_runtime(
+            model,
+            runtime_tools,
+            invoke_tool_fn,
+            streaming=True,
+            context_transform=lambda messages: apply_runtime_context_guardrail(
+                messages,
+                window_tokens=resolve_context_window_tokens(context.version),
             ),
-            request_id=loop.request_id,
+            max_turns=get_settings().agent_max_iterations,
+            on_model_error=make_context_degrade_recoverer(system_prompt, message),
+            on_task_started=on_model_task_started,
         )
-    )
+        event_stream = stream_runtime_as_conversation(
+            runtime.stream(
+                build_langchain_messages(
+                    system_prompt=system_prompt,
+                    history=history,
+                    user_message=message,
+                ),
+                request_id=loop.request_id,
+            )
+        )
 
     async for agent_event in event_stream:
         # REST SSE 与 WebSocket 共用统一内部事件 seam；这里保留旧字段出口，
@@ -839,9 +971,7 @@ async def stream_chat(
                     content="",
                     citations=citations,
                     knowledge_grounded=bool(citations),
-                    pending_confirmation_id=getattr(
-                        outcome, "confirmation_id", None
-                    ),
+                    pending_confirmation_id=getattr(outcome, "confirmation_id", None),
                     tool_events=[
                         {
                             "tool_call_id": item.get("tool_call_id"),
@@ -928,6 +1058,7 @@ async def execute_unattended_chat(
     model_id: int | None = None,
     confirmation_decider=None,
     tool_session=None,
+    allow_orchestration: bool = True,
 ):
     """无人值守执行一轮 Agent 对话（非 HTTP 入口）。
 
@@ -1022,6 +1153,7 @@ async def execute_unattended_chat(
         model=model,
         citations=[citation.model_dump() for citation in citations],
         invoke_tool_fn=invoke,
+        allow_orchestration=allow_orchestration,
     )
 
 
@@ -1044,13 +1176,17 @@ async def _resolve_task_model(session, platform_id: int, model_id: int):
 # ---------------------------------------------------------------------------
 
 
-def _console_time_range(start_date, end_date) -> tuple[datetime | None, datetime | None]:
+def _console_time_range(
+    start_date, end_date
+) -> tuple[datetime | None, datetime | None]:
     """把日期区间转成半开区间 `[start_at, end_at)`，与用量统计口径一致。
 
     用「次日零点」而非「当日 23:59:59」作为上界，避免毫秒级尾巴漏掉当天最后
     一刻产生的会话。
     """
-    start_at = datetime.combine(start_date, time.min) if start_date is not None else None
+    start_at = (
+        datetime.combine(start_date, time.min) if start_date is not None else None
+    )
     end_at = (
         datetime.combine(end_date + timedelta(days=1), time.min)
         if end_date is not None
@@ -1180,7 +1316,9 @@ async def list_console_conversations(
     }
 
 
-async def get_console_conversation(session, platform_id: int, conversation_id: int) -> dict:
+async def get_console_conversation(
+    session, platform_id: int, conversation_id: int
+) -> dict:
     """第二层详情：单个会话 + 会话级用量汇总。
 
     这里刻意包含已软删除的会话：删掉只是从默认列表隐藏，管理员仍能打开查看

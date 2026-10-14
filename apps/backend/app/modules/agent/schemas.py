@@ -21,6 +21,7 @@ class AgentRead(BaseModel):
     is_default: bool = False
     is_active: bool = True
     default_version_id: int | None = None
+    orchestration_workflow_id: int | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -32,6 +33,13 @@ class AgentUpdate(BaseModel):
     )
     description: str | None = Field(default=None, max_length=500)
     is_active: bool | None = None
+    orchestration_workflow_id: int | None = Field(
+        default=None,
+        description=(
+            "绑定的编排工作流 ID：非空时该 Agent 每轮消息由这条工作流接管编排；"
+            "显式传 null 表示解绑，字段不传表示不改动"
+        ),
+    )
 
 
 class AgentListData(BaseModel):

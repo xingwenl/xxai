@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.agent.models import Agent, AgentVersion
 from app.modules.platform.models import PlatformAdmin
 from app.modules.agent.schemas import AgentCreate, AgentUpdate, AgentVersionCreate
+from app.modules.workflows.models import Workflow
 from app.shared.pagination import PaginationParams, build_page_data
 from app.shared.base_repository import BaseRepository
 
@@ -18,6 +19,24 @@ class AgentRepository(BaseRepository[Agent]):
     async def get_by_slug(self, platform_id: int, slug: str) -> Agent | None:
         result = await self.session.execute(
             select(Agent).where(Agent.platform_id == platform_id, Agent.slug == slug)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_orchestration_workflow(
+        self, workflow_id: int, platform_id: int
+    ) -> Workflow | None:
+        """按平台取编排工作流，供绑定校验使用。
+
+        必须限定 ``platform_id``：绑定关系决定「哪些终端用户的每轮消息会被这条
+        工作流接管」，跨平台拿到别人的工作流等于把别人的提示词与工具接进自己的
+        会话。这里只查纯模型，不引入 workflows 的服务层。
+        """
+
+        result = await self.session.execute(
+            select(Workflow).where(
+                Workflow.id == workflow_id,
+                Workflow.platform_id == platform_id,
+            )
         )
         return result.scalar_one_or_none()
 
@@ -59,7 +78,9 @@ class AgentRepository(BaseRepository[Agent]):
         result = await self.session.execute(statement)
         items = list(result.scalars().all())
         total = await self.session.scalar(
-            select(func.count()).select_from(Agent).where(Agent.platform_id == platform_id)
+            select(func.count())
+            .select_from(Agent)
+            .where(Agent.platform_id == platform_id)
         )
         return build_page_data(items, params, int(total or 0))
 

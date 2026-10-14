@@ -32,15 +32,38 @@ class Agent(BaseModel, TimeModel):
         comment="所属平台 ID",
     )
     name: Mapped[str] = mapped_column(String(120), nullable=False, comment="智能体名称")
-    slug: Mapped[str] = mapped_column(String(80), nullable=False, comment="智能体唯一标识")
-    description: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="智能体描述")
+    slug: Mapped[str] = mapped_column(
+        String(80), nullable=False, comment="智能体唯一标识"
+    )
+    description: Mapped[str | None] = mapped_column(
+        String(500), nullable=True, comment="智能体描述"
+    )
     is_default: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default="false", comment="是否为平台默认智能体"
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        comment="是否为平台默认智能体",
     )
     default_version_id: Mapped[int | None] = mapped_column(
         ForeignKey("agent_versions.id", ondelete="SET NULL", use_alter=True),
         nullable=True,
         comment="当前发布版本 ID",
+    )
+    orchestration_workflow_id: Mapped[int | None] = mapped_column(
+        # ondelete=SET NULL：工作流被删掉时 Agent 退回普通单 Agent 对话，
+        # 而不是让整个 Agent 变成不可用。绑定关系是「可选增强」，不是必备属性。
+        # use_alter=True：workflows.agent_id 是指向 agents 的外键，加上这一条就
+        # 构成了表间环，建表/删表时 SQLAlchemy 无法拓扑排序；标记成已知环后它
+        # 会改用独立 DDL 落地（与上面的 default_version_id 同一处理）。
+        ForeignKey(
+            "workflows.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="fk_agents_orchestration_workflow_id_workflows",
+        ),
+        nullable=True,
+        comment="绑定的编排工作流 ID：非空时该 Agent 每轮消息由这条工作流接管编排",
     )
     is_active: Mapped[bool] = mapped_column(
         Boolean,
@@ -64,15 +87,28 @@ class AgentVersion(BaseModel):
     __tablename__ = "agent_versions"
     __table_args__ = (UniqueConstraint("agent_id", "version"),)
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, comment="智能体版本主键")
+    id: Mapped[int] = mapped_column(
+        primary_key=True, autoincrement=True, comment="智能体版本主键"
+    )
     agent_id: Mapped[int] = mapped_column(
-        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False, index=True, comment="所属智能体 ID"
+        ForeignKey("agents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="所属智能体 ID",
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False, comment="版本号")
-    system_prompt: Mapped[str] = mapped_column(Text, nullable=False, comment="系统提示词")
-    model_name: Mapped[str] = mapped_column(String(120), nullable=False, comment="模型名称")
-    model_base_url: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="模型服务地址")
-    api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True, comment="加密后的模型 API Key")
+    system_prompt: Mapped[str] = mapped_column(
+        Text, nullable=False, comment="系统提示词"
+    )
+    model_name: Mapped[str] = mapped_column(
+        String(120), nullable=False, comment="模型名称"
+    )
+    model_base_url: Mapped[str | None] = mapped_column(
+        String(500), nullable=True, comment="模型服务地址"
+    )
+    api_key_encrypted: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="加密后的模型 API Key"
+    )
     temperature: Mapped[float] = mapped_column(
         nullable=False, default=0.2, server_default="0.2", comment="模型采样温度"
     )

@@ -9,6 +9,11 @@ export type Agent = {
   is_default: boolean
   is_active: boolean
   default_version_id?: number | null
+  /**
+   * 绑定的编排工作流 id；null = 未绑定。
+   * 绑定后该 Agent 的会话可以按这条工作流编排执行，工作流必须属于同一平台且处于 active。
+   */
+  orchestration_workflow_id?: number | null
   created_at?: string
   updated_at?: string
 }
@@ -29,6 +34,11 @@ export type AgentInput = {
 
 export type AgentUpdateInput = AgentInput & {
   is_active: boolean
+  /**
+   * 编排绑定：显式传 null 表示解绑，整个字段不传表示不改动。
+   * 因此更新时务必显式带上当前选择值，别用 undefined 表达「清空」。
+   */
+  orchestration_workflow_id?: number | null
 }
 
 export type AgentVersion = {
