@@ -105,8 +105,37 @@ textarea::placeholder {
   border-radius: 0;
 }
 
-/* 全屏头部展开动画 */
-@keyframes headerIn {
-  from { opacity: 0; transform: translateY(-6px); }
-  to { opacity: 1; transform: translateY(0); }
+/* 子应用左上角的悬浮返回：单个小胶囊压在内容角上，默认让位、指针移上来才亮相。
+   左上角也是插件放自己 logo / 标题 / 搜索框的地方，所以不做常驻。 */
+.shell-back {
+  border-radius: 9999px;
+  background: rgba(var(--surface-rgb, 255 255 255) / 0.78);
+  backdrop-filter: blur(16px) saturate(120%);
+  -webkit-backdrop-filter: blur(16px) saturate(120%);
+  border: 1px solid rgba(var(--hairline-rgb, 90 107 112) / 0.18);
+  box-shadow: 0 4px 16px rgba(var(--shadow-rgb, 12 58 69) / 0.12);
+  /* 默认让位：不透明度归零，避免常驻压住插件自己的 logo / 标题。
+     注意这里保留 pointer-events: auto —— 胶囊是父文档元素，必须始终能吃到 hover，
+     鼠标移到它上面才能重新唤出（插件 iframe 会吞掉父文档的 mousemove，靠坐标判断行不通）。 */
+  opacity: 0;
+  pointer-events: auto;
+  transform: translateY(-4px);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, opacity 0.2s ease;
+}
+
+.shell-back.is-visible {
+  opacity: 0.92;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.shell-back.is-visible:hover {
+  transform: translateY(-1px);
+  background: rgba(var(--surface-rgb, 255 255 255) / 0.95);
+  box-shadow: 0 8px 22px rgba(var(--shadow-rgb, 12 58 69) / 0.18);
+  opacity: 1;
+}
+
+.shell-back:active {
+  transform: translateY(0) scale(0.97);
 }

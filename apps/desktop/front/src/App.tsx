@@ -24,6 +24,11 @@ const OPEN_MODE_LABELS: Record<OpenMode, string> = {
 // 子窗口里 Esc / 返回的语义是「关掉这个窗口」，而不是「退回应用列表」。
 const IS_CHILD_WINDOW = new URLSearchParams(window.location.search).has('child')
 
+// 子应用左上角的悬浮返回不做常驻。左上角正是插件放 logo、标题、搜索框的地方，
+// 常驻会一直压住它们（实测 70×32 的胶囊会把插件自带的 logo 整个盖掉）。
+// 所以：进入子应用时亮一下，随后淡出；指针移回胶囊位置（父文档元素，iframe 吞不掉 hover）再亮。
+const BACK_PEEK_MS = 2800
+
 // ── themes ────────────────────────────────────────────────────────────────────
 
 interface Theme {
@@ -337,32 +342,6 @@ function GearIcon() {
       <circle cx="10" cy="10" r="3" />
       <path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.6 4.6l1.4 1.4M14 14l1.4 1.4M15.4 4.6L14 6M6 14l-1.4 1.4" strokeLinecap="round" />
     </svg>
-  )
-}
-function FullscreenToggle({ fullscreen, onToggle }: { fullscreen: boolean; onToggle: () => void }) {
-  return (
-    <button
-      onClick={onToggle}
-      title={fullscreen ? '退出全屏（Esc）' : '全屏展示'}
-      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[13px] font-600"
-      style={{ background: 'rgba(var(--primary-ink-rgb) / 0.10)', color: 'var(--primary-ink)' }}
-    >
-      {fullscreen ? (
-        <>
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
-            <path d="M6 3v3H3M10 3v3h3M6 13v-3H3M10 13v-3h3" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          退出全屏
-        </>
-      ) : (
-        <>
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
-            <path d="M3 6h3V3M13 6h-3V3M3 10h3v3M13 10h-3v3" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          全屏
-        </>
-      )}
-    </button>
   )
 }
 function PinIcon() {
@@ -741,7 +720,6 @@ export default function App() {
   const [searchQ, setSearchQ] = useState('')
   const [openApp, setOpenApp] = useState<string | null>(null)
   const [fullscreen, setFullscreen] = useState(false)
-  const [fsHeaderVisible, setFsHeaderVisible] = useState(false)
   const [fsSidebarVisible, setFsSidebarVisible] = useState(false)
   const [page, setPage] = useState<'apps' | 'settings'>('apps')
   const [sliding, setSliding] = useState(false)
@@ -752,6 +730,23 @@ export default function App() {
   const [pinnedIds, setPinnedIds] = useState<string[]>(loadPinned)
   // 应用卡片的右键打开方式菜单；菜单渲染在壳层（卡片自身 overflow-hidden 会裁剪它）
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+  // 左上角悬浮返回的显隐：backPeek 是「刚进来」的短暂亮相，backHover 是指针正压在按钮上
+  const [backPeek, setBackPeek] = useState(false)
+  const [backHover, setBackHover] = useState(false)
+  const backVisible = backPeek || backHover
+
+  // 打开子应用时让返回入口亮相一次，然后自己让位；指针悬停时由 backHover 继续撑着。
+  // 注意：这里不能用 window 的 mousemove 判断「指针到了左上角」——插件是 iframe，
+  // 指针压在它上面时父文档收不到任何坐标，那种唤出写法是无效的。
+  useEffect(() => {
+    if (!openApp) {
+      setBackPeek(false)
+      return
+    }
+    setBackPeek(true)
+    const timer = window.setTimeout(() => setBackPeek(false), BACK_PEEK_MS)
+    return () => window.clearTimeout(timer)
+  }, [openApp])
 
   useEffect(() => {
     localStorage.setItem(THEME_KEY, theme.id)
@@ -801,16 +796,14 @@ export default function App() {
 
   useEffect(loadPlugins, [loadPlugins])
 
-  // 进入全屏沉浸模式：头部与侧栏默认隐藏，仅保留边缘毛玻璃把手
+  // 子应用只有全屏沉浸一种形态：进入时侧栏收起，只留左边缘把手可唤出
   const enterFullscreen = useCallback(() => {
     setFullscreen(true)
-    setFsHeaderVisible(false)
     setFsSidebarVisible(false)
   }, [])
 
   const exitFullscreen = useCallback(() => {
     setFullscreen(false)
-    setFsHeaderVisible(false)
     setFsSidebarVisible(false)
   }, [])
 
@@ -822,17 +815,17 @@ export default function App() {
     return true
   }, [])
 
-  // 全屏展示时按 Esc：子窗口关窗，主窗口退回应用列表
+  // 子应用打开时按 Esc：子窗口关窗，主窗口退回应用列表
   useEffect(() => {
-    if (!(openApp && fullscreen)) return
+    if (!openApp) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
-      if (IS_CHILD_WINDOW) closeChildWindow()
-      else exitFullscreen()
+      if (IS_CHILD_WINDOW && closeChildWindow()) return
+      navigateBack()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [openApp, fullscreen, closeChildWindow, exitFullscreen])
+  }, [openApp, closeChildWindow])
 
   // 右键菜单：Esc 或滚动/缩放时关闭，避免菜单留在错位的坐标上
   useEffect(() => {
@@ -952,54 +945,33 @@ export default function App() {
           opacity: sliding ? 0 : 1,
         }}
       >
-        {/* ── sub-app overlay（插件 iframe）── */}
+        {/* ── 子应用冷启动兜底 ──
+            子应用只有全屏一种形态，正常渲染全在下方 fixed 覆盖层里；
+            内容区这里只处理「深链已指向某个 app，但插件列表还没到 / 查不到」两种态。 */}
         {openApp && (() => {
           const plugin = plugins.find((p) => p.id === openApp)
-          if (!plugin) {
-            // 冷启动深链（子窗口 /?child=1#/app/<id>）时插件列表还在路上，
-            // 先给加载态，避免闪一下「该应用未安装或已停用」
-            if (!loaded) {
-              return (
-                <div className="flex flex-col items-center justify-center h-full gap-3" style={{ padding: '0 24px' }}>
-                  <div className="text-4xl">⏳</div>
-                  <div className="text-[13px]" style={{ color: 'var(--muted-foreground)' }}>正在加载应用…</div>
-                </div>
-              )
-            }
+          if (plugin) return null
+          // 冷启动深链（子窗口 /?child=1#/app/<id>）时插件列表还在路上，
+          // 先给加载态，避免闪一下「该应用未安装或已停用」
+          if (!loaded) {
             return (
               <div className="flex flex-col items-center justify-center h-full gap-3" style={{ padding: '0 24px' }}>
-                <div className="text-4xl">🧩</div>
-                <div className="text-[13px]" style={{ color: 'var(--muted-foreground)' }}>该应用未安装或已停用</div>
-                <button
-                  onClick={navigateBack}
-                  className="px-4 py-2 rounded-xl text-[13px] font-600"
-                  style={{ background: 'var(--fill-gradient)', color: 'var(--primary-foreground)' }}
-                >
-                  返回
-                </button>
+                <div className="text-4xl">⏳</div>
+                <div className="text-[13px]" style={{ color: 'var(--muted-foreground)' }}>正在加载应用…</div>
               </div>
             )
           }
-          const bar = (
-            <PageHeader
-              title={plugin.name}
-              onBack={handleBack}
-              trailing={<FullscreenToggle fullscreen={false} onToggle={enterFullscreen} />}
-            />
-          )
-          // 全屏展示由根层 fixed 覆盖层渲染（见下方），此处保持常规形态
-          if (fullscreen) return null
-          // 常规展示：保留侧栏与浮动返回条
           return (
-            <div className="flex flex-col h-full" style={{ padding: '0 24px' }}>
-              <div className="sticky top-0 z-20 w-full px-0 pt-4 pb-0 pointer-events-none">
-                {bar}
-              </div>
-              <div className="flex-1 min-h-0 pb-6 mt-4">
-                {plugin.type === 'react'
-                  ? <ReactAppView appId={plugin.id} theme={theme} />
-                  : <PluginView plugin={plugin} />}
-              </div>
+            <div className="flex flex-col items-center justify-center h-full gap-3" style={{ padding: '0 24px' }}>
+              <div className="text-4xl">🧩</div>
+              <div className="text-[13px]" style={{ color: 'var(--muted-foreground)' }}>该应用未安装或已停用</div>
+              <button
+                onClick={navigateBack}
+                className="px-4 py-2 rounded-xl text-[13px] font-600"
+                style={{ background: 'var(--fill-gradient)', color: 'var(--primary-foreground)' }}
+              >
+                返回
+              </button>
             </div>
           )
         })()}
@@ -1233,55 +1205,22 @@ export default function App() {
                 ? <ReactAppView appId={plugin.id} theme={theme} />
                 : <PluginView plugin={plugin} fullscreen />}
             </div>
-            {/* 顶部毛玻璃横条把手：hover / 点击展开头部 */}
-            {!fsHeaderVisible && (
-              <button
-                onClick={() => setFsHeaderVisible(true)}
-                onMouseEnter={() => setFsHeaderVisible(true)}
-                className="absolute top-0 left-1/2 -translate-x-1/2 z-30 rounded-b-full transition-all duration-200"
-                style={{
-                  width: 48,
-                  height: 5,
-                  background: 'rgba(var(--surface-rgb) / 0.80)',
-                  backdropFilter: 'blur(8px)',
-                  WebkitBackdropFilter: 'blur(8px)',
-                  border: '1px solid rgba(var(--hairline-rgb) / 0.12)',
-                  borderTop: 'none',
-                  boxShadow: '0 2px 8px rgba(var(--shadow-rgb) / 0.10)',
-                }}
-                title="显示头部"
-              />
-            )}
-            {/* 顶部悬浮头部（默认隐藏，展开后可收起 / 退出全屏） */}
-            {fsHeaderVisible && (
-              <div
-                className="absolute top-0 left-0 right-0 z-20 px-6 pt-4 pointer-events-none"
-                style={{ animation: 'headerIn 0.18s ease' }}
-              >
-                <PageHeader
-                  title={plugin.name}
-                  onBack={handleBack}
-                  trailing={(
-                    <>
-                      <button
-                        onClick={() => setFsHeaderVisible(false)}
-                        title="收起头部"
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[13px] font-600"
-                        style={{ background: 'rgba(var(--primary-ink-rgb) / 0.10)', color: 'var(--primary-ink)' }}
-                      >
-                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
-                          <path d="M6 3l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        收起
-                      </button>
-                      {/* 子窗口本身就是「全屏」窗口，退出全屏只会露出里面的应用列表，
-                          所以这里不提供该按钮；关窗走返回键 / Esc / 系统标题栏关闭 */}
-                      {!IS_CHILD_WINDOW && <FullscreenToggle fullscreen onToggle={exitFullscreen} />}
-                    </>
-                  )}
-                />
-              </div>
-            )}
+            {/* 左上角悬浮返回：子应用里唯一的宿主入口。不铺整条横栏、不占布局高度，
+                而且默认让位（指针不动就淡出），免得压住插件自己的 logo / 标题。
+                鼠标移回胶囊位置、按 Esc、或从左边缘把手唤出侧栏点「全部应用」都能回去。 */}
+            <button
+              onClick={handleBack}
+              onMouseEnter={() => setBackHover(true)}
+              onMouseLeave={() => setBackHover(false)}
+              title={IS_CHILD_WINDOW ? '关闭窗口（Esc）' : '返回应用列表（Esc）'}
+              className={`shell-back absolute z-30 flex items-center gap-1 px-3 h-8 text-[13px] font-600${backVisible ? ' is-visible' : ''}`}
+              style={{ left: 16, top: 16, color: 'var(--primary-ink)' }}
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
+                <path d="M10 12L6 8l4-4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              返回
+            </button>
             {/* 左侧悬浮导航（应用 / 设置 / 主题 / 头像）：默认隐藏，左边缘竖条把手展开 */}
             <Sidebar
               active={page === 'settings' ? 'settings' : openApp === 'bookmarks-organizer' ? 'bookmarks' : 'all'}
