@@ -1,7 +1,7 @@
 ---
 source: script
 request: 2026-10-13-admin-conversation-history
-ranAt: "2026-10-14 13:18:56 CST"
+ranAt: "2026-10-14 13:58:33 CST"
 exitCode: 0
 ---
 
@@ -15,7 +15,7 @@ bash -c cd apps/backend && poetry run pytest tests/conversation -q
 
 ........................................................................ [ 83%]
 ..............                                                           [100%]
-86 passed in 4.28s
+86 passed in 3.61s
 结果：通过
 
 ### 后端回归：共享投影重构未破坏 embed 与 gateway（132 passed, 1 skipped 基线）
@@ -32,7 +32,7 @@ bash -c cd apps/backend && poetry run pytest tests/embed tests/gateway -q
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-132 passed, 1 skipped, 1 warning in 5.50s
+132 passed, 1 skipped, 1 warning in 4.15s
 结果：通过
 
 ### 后端 ruff
@@ -73,13 +73,13 @@ rendering chunks...
 
 [vite:dts] Start generate declaration files...
 computing gzip size...
-dist/style.css          43.52 kB │ gzip:   7.91 kB
-dist/xxai-agent.es.js  443.25 kB │ gzip: 135.63 kB
-[vite:dts] Declaration files built in 2714ms.
+dist/style.css          43.63 kB │ gzip:   7.89 kB
+dist/xxai-agent.es.js  443.28 kB │ gzip: 135.64 kB
+[vite:dts] Declaration files built in 1939ms.
 
-dist/style.css            43.52 kB │ gzip:   7.91 kB
-dist/xxai-agent.umd.cjs  299.81 kB │ gzip: 111.49 kB
-✓ built in 3.93s
+dist/style.css            43.63 kB │ gzip:   7.89 kB
+dist/xxai-agent.umd.cjs  299.84 kB │ gzip: 111.50 kB
+✓ built in 2.79s
 结果：通过
 
 ### ai-sdk 产物断言（验收 6）
@@ -89,11 +89,12 @@ assert_ai_sdk_dist
 ```
 
 dist 内 CSS 产物数量：1（期望 1）
-dist/style.css 内唯一 .xxai- 选择器数：158（基线 141，只增不减）
-dist 内 xxai-history 选择器数：17
+dist/style.css 内唯一 .xxai- 选择器数：159（基线 141，只增不减）
+dist 内 xxai-history 选择器数：18
 index.d.ts 中的新增导出：
 13:export { ConversationList, ConversationHistory } from './history';
 14:export type { ConversationSummaryPayload, ConversationPagePayload, ConversationLoopStepPayload, ConversationLoopRunPayload, ConversationMessagePayload, ConversationListParams, ConversationHistorySource, HistoryMessageLike } from './history';
+主题令牌选择器（.xxai-chat-window,.xxai-history-root）命中：1（期望 1）
 dist 内静态 import("mermaid") 次数：0（期望 0）
 dist 内静态 import("echarts") 次数：0（期望 0）
 结果：通过
@@ -131,7 +132,7 @@ ERROR src/lib/http.ts:23:5 no-console
 assert_frontend_bundle
 ```
 
-13:18:22 [vite] warning: `esbuild` option was specified by "vite:react-swc" plugin. This option is deprecated, please use `oxc` instead.
+13:57:20 [vite] warning: `esbuild` option was specified by "vite:react-swc" plugin. This option is deprecated, please use `oxc` instead.
 vite v8.0.3 building client environment for production...
 [2Ktransforming...✓ 4647 modules transformed.
 rendering chunks...
@@ -140,16 +141,16 @@ dist/index.html                                        4.29 kB │ gzip:   1.11 
 dist/assets/dashboard-light-P68E3aSp.png             450.98 kB
 dist/assets/dashboard-dark-XXx_X8s4.png              461.76 kB
 dist/assets/chats-CaOP_eO-.css                        27.42 kB │ gzip:   5.18 kB
-dist/assets/authenticated-layout-Be-EtaHx.css         42.39 kB │ gzip:   7.73 kB
+dist/assets/authenticated-layout-BA7Y5kF6.css         42.50 kB │ gzip:   7.71 kB
 dist/assets/index-CIF8n7rm.css                       117.85 kB │ gzip:  19.26 kB
 dist/assets/dist-DInpRvmT.js                           0.06 kB │ gzip:   0.08 kB
-dist/assets/404-CeGBKRAc.js                            0.07 kB │ gzip:   0.08 kB
-dist/assets/500-Dl0agiXG.js                            0.07 kB │ gzip:   0.08 kB
+dist/assets/404-BjHe1J4c.js                            0.07 kB │ gzip:   0.08 kB
+dist/assets/500-DVR8hKO3.js                            0.07 kB │ gzip:   0.08 kB
 dist/assets/403-CnGYRe_2.js                            0.07 kB │ gzip:   0.08 kB
 dist/assets/503-D8UYOtH4.js                            0.08 kB │ gzip:   0.09 kB
 dist/assets/401-_dAF7-6m.js                            0.08 kB │ gzip:   0.09 kB
-dist/assets/route-8lzcgqmH.js                          0.08 kB │ gzip:   0.09 kB
-dist/assets/route-Jm-NWuek2.js                         0.08 kB │ gzip:   0.09 kB
+dist/assets/route-Cixp6erI2.js                         0.08 kB │ gzip:   0.09 kB
+dist/assets/route-Cuk3kj-D.js                          0.08 kB │ gzip:   0.09 kB
 dist/assets/check-B_unxq20.js                          0.12 kB │ gzip:   0.14 kB
 dist/assets/chevron-down-Bc3q33zG.js                   0.12 kB │ gzip:   0.14 kB
 dist/assets/matchContext-qVyDZbt3.js                   0.14 kB │ gzip:   0.12 kB
@@ -158,7 +159,7 @@ dist/assets/plus-BtwyyI6O.js                           0.15 kB │ gzip:   0.15 
 dist/assets/arrow-left-k8R5G8rH.js                     0.16 kB │ gzip:   0.16 kB
 dist/assets/arrow-right-Ccm5WDmK.js                    0.16 kB │ gzip:   0.16 kB
 dist/assets/search-qyrdeIA3.js                         0.17 kB │ gzip:   0.17 kB
-dist/assets/auth-Bu3OOMxz.js                           0.19 kB │ gzip:   0.14 kB
+dist/assets/auth-CDTmhoIA.js                           0.19 kB │ gzip:   0.14 kB
 dist/assets/smartphone-BnwYA2km.js                     0.19 kB │ gzip:   0.18 kB
 dist/assets/rotate-cw-Dmq6BaNw.js                      0.20 kB │ gzip:   0.18 kB
 dist/assets/time-DAB8Fd-c.js                           0.20 kB │ gzip:   0.16 kB
@@ -183,7 +184,7 @@ dist/assets/refresh-cw-BkzRozVQ.js                     0.32 kB │ gzip:   0.22 
 dist/assets/bot-oM3mG9yd.js                            0.32 kB │ gzip:   0.23 kB
 dist/assets/trash-2-B2fUygZD.js                        0.32 kB │ gzip:   0.21 kB
 dist/assets/server-Dm-tJsVS.js                         0.33 kB │ gzip:   0.21 kB
-dist/assets/platform-B1xiJsdc.js                       0.34 kB │ gzip:   0.19 kB
+dist/assets/platform-B6TcIbaF.js                       0.34 kB │ gzip:   0.19 kB
 dist/assets/main-DxcJw0v8.js                           0.35 kB │ gzip:   0.26 kB
 dist/assets/useNavigate-lmXrTWj5.js                    0.35 kB │ gzip:   0.25 kB
 dist/assets/key-round-uT9PORNe.js                      0.35 kB │ gzip:   0.26 kB
@@ -194,121 +195,121 @@ dist/assets/dist-pgMOnGER.js                           0.37 kB │ gzip:   0.27 
 dist/assets/dist-Cv1otk6v.js                           0.42 kB │ gzip:   0.32 kB
 dist/assets/wrench-CG1GS8F2.js                         0.48 kB │ gzip:   0.31 kB
 dist/assets/cable-CQzS3SYI.js                          0.49 kB │ gzip:   0.27 kB
-dist/assets/conversation-list-island-CEX6dasa.js       0.51 kB │ gzip:   0.36 kB
+dist/assets/conversation-list-island-DYdEtODN.js       0.51 kB │ gzip:   0.36 kB
 dist/assets/dist-B7_KISy0.js                           0.53 kB │ gzip:   0.37 kB
 dist/assets/logo-CILc9ebc.js                           0.54 kB │ gzip:   0.36 kB
 dist/assets/auth-layout-D1pT3kM2.js                    0.54 kB │ gzip:   0.31 kB
 dist/assets/dist-dAck8dXE.js                           0.55 kB │ gzip:   0.35 kB
 dist/assets/redirect-l1N9PZdQ.js                       0.56 kB │ gzip:   0.33 kB
-dist/assets/model-usage-H0MX4364.js                    0.56 kB │ gzip:   0.28 kB
+dist/assets/model-usage-T5Llcd2u.js                    0.56 kB │ gzip:   0.29 kB
 dist/assets/content-section-3mtA9tK1.js                0.62 kB │ gzip:   0.32 kB
-dist/assets/role-DOWIRMYE.js                           0.63 kB │ gzip:   0.31 kB
-dist/assets/user-bIQc5N4O.js                           0.63 kB │ gzip:   0.32 kB
+dist/assets/role-CZ_WZxSQ.js                           0.63 kB │ gzip:   0.31 kB
+dist/assets/user-C8v-kNuW.js                           0.63 kB │ gzip:   0.32 kB
 dist/assets/textarea-CQfwcWSW.js                       0.67 kB │ gzip:   0.41 kB
 dist/assets/useRouter-DHFlR_BM.js                      0.69 kB │ gzip:   0.39 kB
 dist/assets/label-f5C3R6bW.js                          0.71 kB │ gzip:   0.45 kB
 dist/assets/maintenance-error-Dhs5_B-6.js              0.73 kB │ gzip:   0.41 kB
-dist/assets/embed-clients-DuxBT5C6.js                  0.75 kB │ gzip:   0.26 kB
+dist/assets/embed-clients-Ckg_myLC.js                  0.75 kB │ gzip:   0.27 kB
 dist/assets/separator-4expg4Xg.js                      0.80 kB │ gzip:   0.44 kB
 dist/assets/shim-cR3Cro0T.js                           0.82 kB │ gzip:   0.44 kB
-dist/assets/model-registry-DjOjH0N4.js                 0.83 kB │ gzip:   0.34 kB
+dist/assets/model-registry-B6Fwz26M.js                 0.83 kB │ gzip:   0.35 kB
 dist/assets/useSearch-Bt_TaNfj.js                      0.84 kB │ gzip:   0.47 kB
 dist/assets/input-CbSxoc5y.js                          0.86 kB │ gzip:   0.47 kB
 dist/assets/lazyRouteComponent-CTHFpIba.js             0.88 kB │ gzip:   0.52 kB
 dist/assets/forbidden-CNbNFgmp.js                      0.90 kB │ gzip:   0.49 kB
 dist/assets/learn-more-CPSXV_TV.js                     0.90 kB │ gzip:   0.53 kB
-dist/assets/http-BnWZrf_f.js                           0.91 kB │ gzip:   0.54 kB
+dist/assets/http-CpgpFk_N.js                           0.91 kB │ gzip:   0.54 kB
 dist/assets/unauthorized-error-Ce8T0eRz.js             0.91 kB │ gzip:   0.50 kB
-dist/assets/_error-BdPNe3Lr.js                         0.96 kB │ gzip:   0.50 kB
+dist/assets/_error-Di73nAST.js                         0.96 kB │ gzip:   0.51 kB
 dist/assets/header-CIOe-9e0.js                         0.97 kB │ gzip:   0.58 kB
-dist/assets/host-tools-DYV60zHT.js                     1.03 kB │ gzip:   0.29 kB
+dist/assets/host-tools-DWV89nA1.js                     1.03 kB │ gzip:   0.29 kB
 dist/assets/search-raB4hdoK.js                         1.03 kB │ gzip:   0.61 kB
-dist/assets/task-iY7j53AV.js                           1.07 kB │ gzip:   0.39 kB
-dist/assets/sign-in-DhqeKWr_.js                        1.09 kB │ gzip:   0.54 kB
+dist/assets/task-DGSNe8eQ.js                           1.07 kB │ gzip:   0.39 kB
+dist/assets/sign-in-D5O1wgTs.js                        1.09 kB │ gzip:   0.54 kB
 dist/assets/card-Cf574b3y.js                           1.10 kB │ gzip:   0.44 kB
 dist/assets/alert-D7KLLO6o.js                          1.11 kB │ gzip:   0.55 kB
 dist/assets/radio-group-Be4NMf8I.js                    1.11 kB │ gzip:   0.58 kB
-dist/assets/agent-BCk7K55f.js                          1.12 kB │ gzip:   0.37 kB
+dist/assets/agent-CKQCQHcH.js                          1.12 kB │ gzip:   0.37 kB
 dist/assets/help-center-t3xGil_Y.js                    1.12 kB │ gzip:   0.65 kB
 dist/assets/agent-form-schema-BEMz58YD.js              1.14 kB │ gzip:   0.65 kB
 dist/assets/preload-helper-C5gCWwwF.js                 1.19 kB │ gzip:   0.68 kB
 dist/assets/table-GmZL5s7g.js                          1.20 kB │ gzip:   0.48 kB
-dist/assets/users-BaXTtNsl.js                          1.20 kB │ gzip:   0.59 kB
+dist/assets/users-BF-2GZgP.js                          1.20 kB │ gzip:   0.58 kB
 dist/assets/badge-BpWRTDrE.js                          1.22 kB │ gzip:   0.59 kB
 dist/assets/dist-356OAPF5.js                           1.25 kB │ gzip:   0.63 kB
-dist/assets/mcp-servers-DRITq4ca.js                    1.30 kB │ gzip:   0.42 kB
+dist/assets/mcp-servers-Dcl-B-cm.js                    1.30 kB │ gzip:   0.42 kB
 dist/assets/theme-provider-D2sOwWPv.js                 1.37 kB │ gzip:   0.70 kB
 dist/assets/createLucideIcon-DTF1kO5E.js               1.38 kB │ gzip:   0.77 kB
 dist/assets/theme-switch-eYV8yii4.js                   1.40 kB │ gzip:   0.67 kB
 dist/assets/password-input-BOTawp3e.js                 1.42 kB │ gzip:   0.77 kB
-dist/assets/profile-dropdown-B4VSz6jV.js               1.46 kB │ gzip:   0.70 kB
-dist/assets/skills-BoYARwXZ.js                         1.65 kB │ gzip:   0.48 kB
-dist/assets/workflow-E-ikkSCg.js                       1.67 kB │ gzip:   0.60 kB
+dist/assets/profile-dropdown-uSjVx6_j.js               1.46 kB │ gzip:   0.70 kB
+dist/assets/skills-DXTVrSQG.js                         1.65 kB │ gzip:   0.48 kB
+dist/assets/workflow-BDshyUEH.js                       1.67 kB │ gzip:   0.60 kB
 dist/assets/form-CNzWSqP8.js                           1.73 kB │ gzip:   0.76 kB
 dist/assets/display-DIX5r8Ve.js                        1.79 kB │ gzip:   0.86 kB
-dist/assets/knowledge-D56dAvS8.js                      1.82 kB │ gzip:   0.61 kB
-dist/assets/sign-in-2-CtWFfgzr.js                      2.08 kB │ gzip:   0.85 kB
+dist/assets/knowledge-Ch0qaeOU.js                      1.82 kB │ gzip:   0.61 kB
+dist/assets/sign-in-2-DwFfhF9c.js                      2.08 kB │ gzip:   0.84 kB
 dist/assets/dist-CY59KiWW.js                           2.10 kB │ gzip:   0.93 kB
-dist/assets/use-active-platform-D-yCK5n_.js            2.15 kB │ gzip:   0.99 kB
+dist/assets/use-active-platform-CS5LWgiC.js            2.15 kB │ gzip:   0.99 kB
 dist/assets/forgot-password-D7Kjua5s.js                2.19 kB │ gzip:   1.07 kB
-dist/assets/useMutation-Cs9K34j5.js                    2.29 kB │ gzip:   0.96 kB
+dist/assets/useMutation-CghFJBnF.js                    2.29 kB │ gzip:   0.96 kB
 dist/assets/dialog-DmCdyanI.js                         2.37 kB │ gzip:   0.88 kB
 dist/assets/collapsible-B-8AajNw.js                    2.53 kB │ gzip:   1.05 kB
 dist/assets/switch-CZ0AEzoE.js                         2.79 kB │ gzip:   1.33 kB
-dist/assets/route-95YR7GeB.js                          3.21 kB │ gzip:   1.31 kB
-dist/assets/user-auth-form-CG_uD_Ty.js                 3.44 kB │ gzip:   1.50 kB
+dist/assets/route-DDUKX5xB.js                          3.21 kB │ gzip:   1.31 kB
+dist/assets/user-auth-form-DmLlcHxs.js                 3.44 kB │ gzip:   1.50 kB
 dist/assets/settings-BOsdi2JK.js                       3.45 kB │ gzip:   1.39 kB
 dist/assets/react-dom-B0mxLzjk.js                      3.54 kB │ gzip:   1.34 kB
 dist/assets/dist-BsE8wBPA.js                           3.56 kB │ gzip:   1.60 kB
 dist/assets/dist-DZrRphVz.js                           3.61 kB │ gzip:   1.59 kB
 dist/assets/tabs-ayKIPQ0T.js                           3.68 kB │ gzip:   1.54 kB
-dist/assets/route-B458YGbP.js                          3.75 kB │ gzip:   1.80 kB
-dist/assets/route-DI83qZ5i.js                          3.93 kB │ gzip:   1.59 kB
+dist/assets/route-WJOxWY7a.js                          3.75 kB │ gzip:   1.80 kB
+dist/assets/route-Cdo_cJwz.js                          3.93 kB │ gzip:   1.59 kB
 dist/assets/route-CTBBUw8M.js                          4.18 kB │ gzip:   1.21 kB
 dist/assets/button-DldY7v7e.js                         4.20 kB │ gzip:   1.81 kB
 dist/assets/checkbox-CI0rETjK.js                       4.31 kB │ gzip:   1.83 kB
 dist/assets/dist-CBH-cIYX.js                           4.46 kB │ gzip:   1.92 kB
-dist/assets/sign-up-B4Z0o9BA.js                        4.47 kB │ gzip:   1.54 kB
-dist/assets/appearance-8rEvopAP.js                     4.55 kB │ gzip:   1.36 kB
-dist/assets/_principalType._principalId-CV5WIAAe.js    4.68 kB │ gzip:   1.91 kB
+dist/assets/sign-up-CcTiLUwb.js                        4.47 kB │ gzip:   1.54 kB
+dist/assets/appearance-DwuwGIZy.js                     4.55 kB │ gzip:   1.36 kB
+dist/assets/_principalType._principalId-Dg_AuYJl.js    4.68 kB │ gzip:   1.91 kB
 dist/assets/notifications-CRo4R8MQ.js                  4.83 kB │ gzip:   1.33 kB
-dist/assets/user-management-DL3WnNv5.js                5.09 kB │ gzip:   2.05 kB
+dist/assets/user-management-C6OWZpQk.js                5.09 kB │ gzip:   2.05 kB
 dist/assets/confirm-dialog-tpJWlCC5.js                 5.30 kB │ gzip:   1.92 kB
-dist/assets/sign-out-dialog-Bq7BZvF_.js                5.43 kB │ gzip:   2.39 kB
+dist/assets/sign-out-dialog-B25yPD3k.js                5.43 kB │ gzip:   2.39 kB
 dist/assets/dist-CaO0vwCX.js                           5.45 kB │ gzip:   2.11 kB
 dist/assets/popover-CGawGqez.js                        5.58 kB │ gzip:   1.99 kB
-dist/assets/_conversationId-DLi0R6Vm.js                5.91 kB │ gzip:   2.52 kB
-dist/assets/apps-DxTvUo6N.js                           6.38 kB │ gzip:   2.28 kB
-dist/assets/ai-html-pages-IrvDiZ2a.js                  6.88 kB │ gzip:   2.67 kB
-dist/assets/platforms-rV-1j-9l.js                      6.93 kB │ gzip:   2.60 kB
-dist/assets/bots-BJlTlp10.js                           7.80 kB │ gzip:   2.89 kB
+dist/assets/_conversationId-DL0max7M.js                5.91 kB │ gzip:   2.52 kB
+dist/assets/apps-D-Sh3XgW.js                           6.38 kB │ gzip:   2.28 kB
+dist/assets/ai-html-pages-B6Qi6BUm.js                  6.88 kB │ gzip:   2.67 kB
+dist/assets/platforms-Dre4ubWQ.js                      6.93 kB │ gzip:   2.60 kB
+dist/assets/bots-CRM0gCjK.js                           7.80 kB │ gzip:   2.89 kB
 dist/assets/jsx-runtime-Bg_NI1en.js                    8.52 kB │ gzip:   3.25 kB
 dist/assets/useQuery-BZD8L8q4.js                       8.75 kB │ gzip:   3.20 kB
-dist/assets/conversations-BpNZ39Rs.js                  8.88 kB │ gzip:   2.90 kB
-dist/assets/roles-C97oK9Hm.js                          9.25 kB │ gzip:   3.19 kB
-dist/assets/_taskId-DAhSJNYf.js                        9.38 kB │ gzip:   3.24 kB
-dist/assets/wechat-bots-BxLK2MYN.js                    9.90 kB │ gzip:   3.71 kB
-dist/assets/users-CUaj44Fi.js                         10.91 kB │ gzip:   3.65 kB
+dist/assets/conversations-8-h0T1MB.js                  8.88 kB │ gzip:   2.90 kB
+dist/assets/roles-Bf4cSysy.js                          9.25 kB │ gzip:   3.19 kB
+dist/assets/_taskId-CFh7MDBg.js                        9.38 kB │ gzip:   3.24 kB
+dist/assets/wechat-bots-DsLyPRHL.js                    9.90 kB │ gzip:   3.71 kB
+dist/assets/users-CiINj4dP.js                         10.91 kB │ gzip:   3.66 kB
 dist/assets/brand-icons-BkLVeHJA.js                   11.03 kB │ gzip:   2.11 kB
-dist/assets/model-usage-WD21_nIU.js                   11.52 kB │ gzip:   3.56 kB
-dist/assets/authenticated-layout-o7gQ1BOH.js          11.65 kB │ gzip:   4.22 kB
-dist/assets/workflows-1JaExLyL.js                     11.83 kB │ gzip:   4.09 kB
-dist/assets/models-CFm0yR-b.js                        12.43 kB │ gzip:   4.20 kB
-dist/assets/tasks-B9HH0dNT.js                         12.70 kB │ gzip:   4.33 kB
+dist/assets/model-usage-DyOKA2mB.js                   11.52 kB │ gzip:   3.56 kB
+dist/assets/authenticated-layout-BSbgUhfa.js          11.65 kB │ gzip:   4.22 kB
+dist/assets/workflows-BqlzJ7bG.js                     11.83 kB │ gzip:   4.09 kB
+dist/assets/models-Cl7RDgle.js                        12.43 kB │ gzip:   4.20 kB
+dist/assets/tasks-uAc_QVO7.js                         12.70 kB │ gzip:   4.33 kB
 dist/assets/react-icons.esm-DbdEqYPm.js               12.79 kB │ gzip:   3.46 kB
 dist/assets/otp-B9JMh3_C.js                           12.89 kB │ gzip:   5.02 kB
 dist/assets/QueryClientProvider-CRtxJhSP.js           13.79 kB │ gzip:   4.75 kB
-dist/assets/embed-clients-BUt0_kY6.js                 14.07 kB │ gzip:   4.57 kB
-dist/assets/host-tools-9OHTUAzN.js                    14.14 kB │ gzip:   4.35 kB
+dist/assets/embed-clients-CaVnMeWd.js                 14.07 kB │ gzip:   4.57 kB
+dist/assets/host-tools-DYAJsoKS.js                    14.14 kB │ gzip:   4.35 kB
 dist/assets/command-PIpBrjX1.js                       14.32 kB │ gzip:   5.36 kB
-dist/assets/mcp-servers-DNJuwE0_.js                   14.56 kB │ gzip:   4.36 kB
-dist/assets/knowledge-bases-L0QxiLWy.js               16.35 kB │ gzip:   5.16 kB
-dist/assets/skills-DaBOvDwz.js                        19.62 kB │ gzip:   5.67 kB
+dist/assets/mcp-servers--JwMZ5Yi.js                   14.56 kB │ gzip:   4.36 kB
+dist/assets/knowledge-bases-B7Z5oGC1.js               16.35 kB │ gzip:   5.16 kB
+dist/assets/skills-D8tcV-uV.js                        19.62 kB │ gzip:   5.67 kB
 dist/assets/search-provider-D7o6uNLe.js               20.40 kB │ gzip:   7.01 kB
 dist/assets/select-C4sxqS2g.js                        21.66 kB │ gzip:   7.37 kB
-dist/assets/config-drawer-tvZfRD_m.js                 22.36 kB │ gzip:   4.61 kB
+dist/assets/config-drawer-IedWv2mD.js                 22.36 kB │ gzip:   4.62 kB
 dist/assets/link-CjQlDeTA.js                          22.58 kB │ gzip:   8.41 kB
-dist/assets/_workflowId-Di-a6klv.js                   23.72 kB │ gzip:   7.30 kB
+dist/assets/_workflowId-CDRDHj9j.js                   23.72 kB │ gzip:   7.30 kB
 dist/assets/utils-D09HVMnN.js                         26.86 kB │ gzip:   8.63 kB
 dist/assets/dist-BWfAzbbh.js                          32.57 kB │ gzip:   9.13 kB
 dist/assets/zod-BtquAv4q.js                           34.70 kB │ gzip:  12.20 kB
@@ -318,13 +319,13 @@ dist/assets/dist-Dr8-4Ar8.js                          45.80 kB │ gzip:  16.71 
 dist/assets/account-WUBLObhc.js                       75.42 kB │ gzip:  22.44 kB
 dist/assets/dist-DgMdLsca.js                          89.55 kB │ gzip:  24.72 kB
 dist/assets/zod-C2m4cF4N.js                          260.92 kB │ gzip:  59.69 kB
-dist/assets/index-yZgiI3C6.js                        284.61 kB │ gzip:  88.11 kB
-dist/assets/xxai-agent.es-DTiI9v57.js                288.39 kB │ gzip: 106.52 kB
-dist/assets/_agentId-T0Nf6SpW.js                     347.00 kB │ gzip: 101.44 kB
-dist/assets/users-Wskdvi7u.js                        497.40 kB │ gzip: 176.56 kB
-dist/assets/chats-BGum9TFX.js                        860.30 kB │ gzip: 297.88 kB
+dist/assets/index-CDN5ZXGq.js                        284.61 kB │ gzip:  88.09 kB
+dist/assets/xxai-agent.es-GsaSYs5F.js                288.43 kB │ gzip: 106.53 kB
+dist/assets/_agentId-azL8OHZ3.js                     347.00 kB │ gzip: 101.44 kB
+dist/assets/users-BT9cIrc1.js                        497.40 kB │ gzip: 176.56 kB
+dist/assets/chats-Iu9UpMdv.js                        860.30 kB │ gzip: 297.88 kB
 
-✓ built in 924ms
+✓ built in 742ms
 [plugin builtin:vite-reporter] 
 (!) Some chunks are larger than 500 kB after minification. Consider:
 - Using dynamic import() to code-split the application
@@ -332,8 +333,8 @@ dist/assets/chats-BGum9TFX.js                        860.30 kB │ gzip: 297.88 
 - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
 
 产物中的会话历史组件与样式：
-dist/assets/xxai-agent.es-DTiI9v57.js
-dist/assets/authenticated-layout-Be-EtaHx.css
+dist/assets/xxai-agent.es-GsaSYs5F.js
+dist/assets/authenticated-layout-BA7Y5kF6.css
 结果：通过
 
 ### front 镜像构建（docker-compose 的 front 服务）
@@ -345,7 +346,7 @@ docker compose build front
 镜像构建成功，最后 5 行输出：
 
 ```text
-#21 DONE 0.0s
+#21 DONE 0.1s
 
 #22 [front] resolving provenance for metadata file
  Service front  Built
@@ -396,7 +397,7 @@ python3 <联调脚本：mint admin token → 鉴权/主体/列表/详情/消息/
   [OK]   软删除后从默认列表消失
   [OK]   status=deleted 时可见
   [OK]   软删除后消息仍可查
-  已清理临时会话 #390
+  已清理临时会话 #392
 
 联调全部通过：真实 Postgres + 真实登录态 + 本次新增接口。
 结果：通过
@@ -423,6 +424,10 @@ node tools/harness/verify/2026-10-13-admin-conversation-history.browser.mjs
   [OK]   消息时间线渲染  消息数=2
   [OK]   Agent 执行过程默认可见  loop 卡片数=1
   [OK]   用量汇总已渲染
+  [OK]   窗口外也能取到 --agent-* 主题令牌  --agent-card=rgba(255, 255, 255, .78) 渐变=linear-gradient(145deg, #F0F9FF 0%, #F5F3FF 40%, #F0FDF4 100%)
+  [OK]   消息画布铺了 SDK 渐变底  background-image=linear-gradient(145deg, rgb(240, 249, 255) 0%, rgb(245, 243, 255) 40%, rgb(240, 253, 244) 100%)
+  [OK]   助手气泡有磨砂底色（非全透明）  background-color=rgba(255, 255, 255, 0.78)
+  [OK]   Agent 过程卡片有底色（非全透明）  background-color=rgba(255, 255, 255, 0.78)
   [OK]   关闭「显示 Agent 执行过程」后 loop 卡片消失  剩余=0
   第一层「全部会话」Tab（同一个 SDK 组件的第二种数据源用法）
   [OK]   「全部会话」Tab 渲染出会话条目  条目数=20
@@ -432,7 +437,7 @@ node tools/harness/verify/2026-10-13-admin-conversation-history.browser.mjs
   未捕获的前端异常（pageerror）：0
   控制台 error：1
     - Connection error: Error: WebSocket error
-    at n.onerror (http://localhost:5310/node_modules/.vite/deps/xxai-agent.js?v=eabcb1a7:216:135)
+    at n.onerror (http://localhost:5310/node_modules/.vite/deps/xxai-agent.js?v=ee1bb92a:216:135)
   [OK]   没有未捕获的前端异常
 
 浏览器验证全部通过：三层页面在真实后端数据下可用（截图见 /tmp/conv-history-e2e）。

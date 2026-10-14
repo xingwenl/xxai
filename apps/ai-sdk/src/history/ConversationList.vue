@@ -1,5 +1,5 @@
 <template>
-  <div class="xxai-history-list">
+  <div class="xxai-history-root xxai-history-list">
     <div v-if="loading && items.length === 0" class="xxai-history-hint xxai-history-hint--loading">
       {{ loadingText }}
     </div>
@@ -168,11 +168,17 @@ watch(
 </script>
 
 <style scoped>
+/* 与聊天窗口的会话侧栏同一套磨砂底：列表项是透明行 + 悬停提亮，不描边、不铺白卡片 */
 .xxai-history-list {
   display: flex;
   flex-direction: column;
   min-height: 0;
   gap: 8px;
+  padding: 8px;
+  border-radius: var(--agent-radius-md, 12px);
+  background: var(--agent-glass-surface);
+  backdrop-filter: var(--agent-glass-blur);
+  -webkit-backdrop-filter: var(--agent-glass-blur);
   color: var(--agent-foreground, #0f172a);
   font-family: var(--agent-font-sans, inherit);
 }
@@ -195,30 +201,28 @@ watch(
   flex: 1;
   min-height: 0;
   margin: 0;
-  padding: 0;
+  padding: 8px;
   list-style: none;
   overflow-y: auto;
+  scrollbar-width: thin;
 }
 
 .xxai-history-item {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 10px 12px;
-  border: 1px solid rgba(226, 232, 240, 0.9);
+  padding: 10px;
   border-radius: var(--agent-radius-md, 12px);
-  background: rgba(255, 255, 255, 0.7);
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background 0.15s ease;
 }
 
 .xxai-history-item + .xxai-history-item {
-  margin-top: 6px;
+  margin-top: 2px;
 }
 
 .xxai-history-item:hover {
-  background: #ffffff;
-  border-color: rgba(14, 165, 233, 0.4);
+  background: rgba(255, 255, 255, 0.75);
 }
 
 .xxai-history-item:focus-visible {

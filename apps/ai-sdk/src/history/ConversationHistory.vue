@@ -1,5 +1,5 @@
 <template>
-  <div class="xxai-history-thread">
+  <div class="xxai-history-root xxai-history-thread">
     <div v-if="loading && messages.length === 0" class="xxai-history-hint xxai-history-hint--loading">
       {{ loadingText }}
     </div>
@@ -116,9 +116,10 @@ watch(() => props.conversationId, () => void load(), { immediate: true })
 }
 
 /*
- * 后台是白底页面，而消息气泡的磨砂白与浅色文字是为 SDK 窗口内那层彩色
- * 渐变背景调的。这里用局部变量把消息区的底色调成中性色，避免在纯白页面上
- * 出现「半透明卡片 + 低对比文字」的观感问题，不触碰既有组件的样式定义。
+ * 消息区的画布与聊天窗口保持一致：消息气泡用的是半透明磨砂白（--agent-card /
+ * --agent-glass-surface），它需要底下那层很浅的彩色渐变才有对比，直接放在宿主
+ * 的纯白背景上会显得发灰、发脏。这里只补「画布」这一层，气泡本身的样式一律
+ * 交给既有组件，不做任何局部覆盖。
  */
 .xxai-history-messages {
   display: flex;
@@ -126,10 +127,9 @@ watch(() => props.conversationId, () => void load(), { immediate: true })
   gap: 16px;
   min-height: 0;
   overflow-y: auto;
-  padding: 8px 4px;
+  padding: 16px 12px;
+  border-radius: var(--agent-radius-md);
+  background: var(--agent-background-gradient);
   scrollbar-width: thin;
-  --agent-background: #f8fafc;
-  --agent-card: rgba(255, 255, 255, 0.92);
-  --agent-glass-surface: rgba(255, 255, 255, 0.92);
 }
 </style>

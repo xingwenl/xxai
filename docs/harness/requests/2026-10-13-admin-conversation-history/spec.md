@@ -79,6 +79,7 @@ approval:
 - 新增 `src/history/ConversationHistory.vue`：消息时间线（props: `source`、`conversationId`、`showAgentLoop?`、`emptyText?`），复用 `ChatMessage.vue` + `AgentLoopPanel.vue`。
 - 新增 `src/history/index.ts` 并在 `src/index.ts` **追加** `export { ConversationList, ConversationHistory } from './history'` 与相关类型（既有导出一行不动）；两个组件自有样式用 `xxai-history-*` 前缀的 scoped 样式，随既有单一样式文件输出。
 - 必要配套：新增 `src/ui/markdown/optional-engines.ts`，`mermaid-renderer.ts` / `echarts-renderer.ts` 改从它取说明符。原因是原代码里 `const specifier = 'mermaid'` 被打包器常量折叠，`dist` 中退化成静态 `import("mermaid")`，宿主即使不装图表引擎也会在 dev 预打包与生产构建阶段直接报 `Failed to resolve import "mermaid"`，与「可选依赖、缺失即降级为代码块」的设计相悖；改为跨模块映射后 dist 里保持非字面量 `import(Dc.mermaid)`。
+- 必要配套（样式）：`src/ui/styles/index.css` 里 46 个 `--agent-*` 主题令牌原先只声明在 `.xxai-chat-window` 上，而全库 135 处 `var(--agent-*)` 都没有 fallback ⇒ 消息组件渲染在聊天窗口之外时变量全部解析为空，页面退化成无底色、无圆角、无阴影的裸结构（后台 `/conversations` 最初就是这样）。改为把令牌块单独拆出、选择器写 `.xxai-chat-window, .xxai-history-root`，窗口自身的 `position: fixed` 等布局属性留在原 `.xxai-chat-window` 块；`ConversationList.vue` / `ConversationHistory.vue` 根元素加 `xxai-history-root` 接住令牌，消息画布沿用窗口那层 `--agent-background-gradient`（气泡是半透明磨砂白，需要这层浅色渐变才有对比），会话列表对齐既有侧栏的磨砂面与「透明行 + 悬停提亮」交互。
 - `package.json`：`scripts` 增加 `prepare: npm run build`（对 npm / registry 消费者有效）。**实测 pnpm 的 `file:` 依赖不执行该钩子**，故「克隆后先构建 SDK」作为人工前置步骤写进两个 README，不宣称自愈。
 
 **前端 `apps/front/`**
@@ -110,7 +111,7 @@ approval:
 3. `GET .../conversations/{id}/messages` 与同一会话的 `GET /api/v1/embed/conversations/{id}/messages` 在相同数据下返回**逐字段相同**的 payload（含 `loop.steps`）。
 4. 列表默认不返回 `status='deleted'` 的会话；软删除后该会话从默认列表消失，而消息与 `model_usage_records` 仍可查；显式 `status=deleted` 时可见。
 5. `agent_id`、`start_date`/`end_date`、`keyword`、`principal_type`+`principal_id` 四个筛选维度各自生效且可组合；`keyword` 能命中 `title` 与末条消息摘要两种来源。
-6. ai-sdk 构建后：`dist/style.css` 仍存在且仍是唯一 CSS 产物；既有导出（`createAgentClient`/`ChatWidget`/`MarkdownContent`）与既有 `xxai-*` 规则未减少；`ConversationList`/`ConversationHistory` 可从包主入口 import；`type-check` 通过。
-7. `apps/front` 以 `file:../ai-sdk` 安装后 `pnpm exec tsc -b` 通过、`pnpm lint` 不新增 error（存量 4 条基线除外），且 `/conversations` 三层页面在真实后端下可用（表头、分页、筛选、Agent 过程展开各一次真实点击）。
+6. ai-sdk 构建后：`dist/style.css` 仍存在且仍是唯一 CSS 产物；既有导出（`createAgentClient`/`ChatWidget`/`MarkdownContent`）与既有 `xxai-*` 规则未减少；`ConversationList`/`ConversationHistory` 可从包主入口 import；`type-check` 通过；`--agent-*` 令牌在 `.xxai-chat-window` 之外（`.xxai-history-root`）同样可取到，`mermaid`/`echarts` 仍是可选懒加载（dist 里无静态 import）。
+7. `apps/front` 以 `file:../ai-sdk` 安装后 `pnpm exec tsc -b` 通过、`pnpm lint` 不新增 error（存量 4 条基线除外），且 `/conversations` 三层页面在真实后端下可用（表头、分页、筛选、Agent 过程展开各一次真实点击），页面上的消息与 Agent 过程卡片带 SDK 主题令牌解析出的底色/圆角（浏览器断言 `--agent-card` 非空、画布有渐变、气泡非全透明）。
 
 **验证方式**：`tools/harness/verify/2026-10-13-admin-conversation-history.sh` 逐条执行——`pytest tests/conversation -q`（新增 `tests/conversation/test_admin_conversation_read.py` 覆盖验收 1–5，含 admin 与 embed 投影逐字段比对）、`ruff check`、`apps/ai-sdk` 的 `npm run type-check` 与 `build`（断言验收 6）、`apps/front` 的 `pnpm exec tsc -b --force`、`eslint`（按存量基线判定）、`vite build`；另有真实 Postgres 联调（本地 uvicorn）、`docker compose build front` 与容器托管检查（验证容器里能完成 SDK + front 的安装打包，且 nginx 能返回首页、产物含会话记录前端代码）与真实浏览器三层页面点击（`tools/harness/verify/2026-10-13-admin-conversation-history.browser.mjs`，缺 node/playwright/数据库/docker 时记为未执行项）。

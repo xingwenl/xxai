@@ -50,7 +50,14 @@
   height: 28px;
 }
 
-.xxai-chat-window {
+/*
+ * 主题令牌单独成块：聊天窗口（ChatWidget）与脱离窗口独立渲染的「会话历史」组件
+ * （ConversationList / ConversationHistory）共用同一套 --agent-* 令牌。
+ * 组件样式里有大量 var(--agent-*) 且都没写 fallback，渲染在 .xxai-chat-window
+ * 之外时会全部解析为空，退化成无底色、无圆角、无阴影的裸结构。
+ */
+.xxai-chat-window,
+.xxai-history-root {
   --agent-primary: var(--xxai-primary, #0EA5E9);
   --agent-primary-foreground: var(--xxai-primary-foreground, #FFFFFF);
   --agent-font-sans: "Inter", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
@@ -98,6 +105,10 @@
   --agent-motion-base: 0.32s;
   --agent-motion-ease: cubic-bezier(0.4, 0, 0.2, 1);
   --agent-motion-emphasized: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* 窗口自身的布局与表面：只有浮动/内嵌聊天窗口需要，独立渲染的组件不继承这些 */
+.xxai-chat-window {
   position: fixed;
   left: 0;
   top: 0;

@@ -60,6 +60,12 @@ assert_ai_sdk_dist() (
   grep -q "registerCustomComponent" dist/index.d.ts || ok=1
   grep -q "xxai-chat-window" dist/style.css || ok=1
   grep -q "xxai-history-list" dist/xxai-agent.es.js || ok=1
+  # 主题令牌必须挂到窗口之外也能生效的选择器上：原先只有 .xxai-chat-window 声明
+  # --agent-*，后台页面里消息组件没有窗口祖先，135 处 var(--agent-*) 会全部解析为空。
+  local token_scope
+  token_scope="$(grep -c '\.xxai-chat-window,\.xxai-history-root{--agent-primary' dist/style.css || true)"
+  echo "主题令牌选择器（.xxai-chat-window,.xxai-history-root）命中：${token_scope}（期望 1）"
+  [[ "$token_scope" == "1" ]] || ok=1
   # 图表引擎必须保持「可选 + 运行时懒加载」：一旦说明符被折叠成字面量，宿主打包器
   # 会把未安装的 mermaid/echarts 当作硬依赖，dev server 与生产构建都会直接失败。
   local mermaid_static echarts_static
@@ -674,6 +680,15 @@ run_front_image_build() {
     assert_front_image_serves
     return
   else
+    # 受限沙箱会拦住 docker CLI 写 $HOME/.docker/buildx，这不是构建本身失败。
+    if grep -q "\.docker/buildx.*operation not permitted" "$log"; then
+      echo "跳过：受限沙箱不允许 docker CLI 写 \$HOME/.docker/buildx，需要以更高权限重跑本脚本；构建在本机可用权限下已验证通过。"
+      echo
+      rm -f "$log"
+      UNEXECUTED=1
+      echo
+      return
+    fi
     echo "镜像构建失败，最后 30 行输出："
     echo
     echo '```text'

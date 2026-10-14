@@ -162,6 +162,54 @@ try {
   )
   await page.screenshot({ path: `${OUT}/layer3.png`, fullPage: false })
 
+  // 回归：SDK 的 --agent-* 令牌原本只声明在 .xxai-chat-window 上，组件在窗口之外
+  // 渲染时 135 处 var(--agent-*) 全部解析为空，页面会退化成无底色无圆角的裸结构。
+  const themeProbe = await page.evaluate(() => {
+    const read = (element, name) =>
+      element ? getComputedStyle(element).getPropertyValue(name).trim() : ''
+    const root = document.querySelector('.xxai-history-root')
+    const canvas = document.querySelector('.xxai-history-messages, .xxai-history-list')
+    // 只探助手气泡：用户气泡按 SDK 设计就是透明的（.xxai-user-message 已把底色清掉）。
+    const bubble = document.querySelector('.xxai-assistant-content .xxai-message-content-blocks')
+    const loopCard = document.querySelector('.xxai-loop-summary, .xxai-loop-card')
+    return {
+      rootFound: Boolean(root),
+      cardToken: read(root, '--agent-card'),
+      gradientToken: read(root, '--agent-background-gradient'),
+      canvasImage: canvas ? getComputedStyle(canvas).backgroundImage : '',
+      bubbleColor: bubble ? getComputedStyle(bubble).backgroundColor : null,
+      loopCardColor: loopCard ? getComputedStyle(loopCard).backgroundColor : null,
+    }
+  })
+  check(
+    '窗口外也能取到 --agent-* 主题令牌',
+    themeProbe.rootFound && themeProbe.cardToken !== '' && themeProbe.gradientToken !== '',
+    `--agent-card=${themeProbe.cardToken || '(空)'} 渐变=${themeProbe.gradientToken || '(空)'}`,
+  )
+  check(
+    '消息画布铺了 SDK 渐变底',
+    themeProbe.canvasImage.includes('gradient'),
+    `background-image=${themeProbe.canvasImage || '(空)'}`,
+  )
+  if (themeProbe.bubbleColor === null) {
+    console.log('    （本会话未渲染出助手气泡容器，跳过气泡底色断言）')
+  } else {
+    check(
+      '助手气泡有磨砂底色（非全透明）',
+      !/^rgba?\(0,\s*0,\s*0,\s*0\)$/.test(themeProbe.bubbleColor),
+      `background-color=${themeProbe.bubbleColor}`,
+    )
+  }
+  if (themeProbe.loopCardColor === null) {
+    console.log('    （本会话未渲染出 Agent 过程卡片，跳过卡片底色断言）')
+  } else {
+    check(
+      'Agent 过程卡片有底色（非全透明）',
+      !/^rgba?\(0,\s*0,\s*0,\s*0\)$/.test(themeProbe.loopCardColor),
+      `background-color=${themeProbe.loopCardColor}`,
+    )
+  }
+
   if ((await page.getByRole('switch').count()) > 0) {
     const switchButton = page.getByRole('switch').first()
     await switchButton.click()
