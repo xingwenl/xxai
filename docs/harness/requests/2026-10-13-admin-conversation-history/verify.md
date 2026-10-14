@@ -1,7 +1,7 @@
 ---
 source: script
 request: 2026-10-13-admin-conversation-history
-ranAt: "2026-10-14 12:21:17 CST"
+ranAt: "2026-10-14 13:18:56 CST"
 exitCode: 0
 ---
 
@@ -15,7 +15,7 @@ bash -c cd apps/backend && poetry run pytest tests/conversation -q
 
 ........................................................................ [ 83%]
 ..............                                                           [100%]
-86 passed in 4.25s
+86 passed in 4.28s
 结果：通过
 
 ### 后端回归：共享投影重构未破坏 embed 与 gateway（132 passed, 1 skipped 基线）
@@ -32,7 +32,7 @@ bash -c cd apps/backend && poetry run pytest tests/embed tests/gateway -q
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-132 passed, 1 skipped, 1 warning in 6.29s
+132 passed, 1 skipped, 1 warning in 5.50s
 结果：通过
 
 ### 后端 ruff
@@ -75,11 +75,11 @@ rendering chunks...
 computing gzip size...
 dist/style.css          43.52 kB │ gzip:   7.91 kB
 dist/xxai-agent.es.js  443.25 kB │ gzip: 135.63 kB
-[vite:dts] Declaration files built in 2457ms.
+[vite:dts] Declaration files built in 2714ms.
 
 dist/style.css            43.52 kB │ gzip:   7.91 kB
 dist/xxai-agent.umd.cjs  299.81 kB │ gzip: 111.49 kB
-✓ built in 3.54s
+✓ built in 3.93s
 结果：通过
 
 ### ai-sdk 产物断言（验收 6）
@@ -131,7 +131,7 @@ ERROR src/lib/http.ts:23:5 no-console
 assert_frontend_bundle
 ```
 
-12:20:11 [vite] warning: `esbuild` option was specified by "vite:react-swc" plugin. This option is deprecated, please use `oxc` instead.
+13:18:22 [vite] warning: `esbuild` option was specified by "vite:react-swc" plugin. This option is deprecated, please use `oxc` instead.
 vite v8.0.3 building client environment for production...
 [2Ktransforming...✓ 4647 modules transformed.
 rendering chunks...
@@ -324,7 +324,7 @@ dist/assets/_agentId-T0Nf6SpW.js                     347.00 kB │ gzip: 101.44 
 dist/assets/users-Wskdvi7u.js                        497.40 kB │ gzip: 176.56 kB
 dist/assets/chats-BGum9TFX.js                        860.30 kB │ gzip: 297.88 kB
 
-✓ built in 892ms
+✓ built in 924ms
 [plugin builtin:vite-reporter] 
 (!) Some chunks are larger than 500 kB after minification. Consider:
 - Using dynamic import() to code-split the application
@@ -334,6 +334,26 @@ dist/assets/chats-BGum9TFX.js                        860.30 kB │ gzip: 297.88 
 产物中的会话历史组件与样式：
 dist/assets/xxai-agent.es-DTiI9v57.js
 dist/assets/authenticated-layout-Be-EtaHx.css
+结果：通过
+
+### front 镜像构建（docker-compose 的 front 服务）
+
+```bash
+docker compose build front
+```
+
+镜像构建成功，最后 5 行输出：
+
+```text
+#21 DONE 0.0s
+
+#22 [front] resolving provenance for metadata file
+ Service front  Built
+#22 DONE 0.0s
+```
+
+托管检查：nginx 返回首页 200，产物中包含会话记录前端代码（xxai-history-list）。
+
 结果：通过
 
 ### 真实后端联调：Postgres 实数据 + 本地 uvicorn 验证平台级只读接口
@@ -376,7 +396,7 @@ python3 <联调脚本：mint admin token → 鉴权/主体/列表/详情/消息/
   [OK]   软删除后从默认列表消失
   [OK]   status=deleted 时可见
   [OK]   软删除后消息仍可查
-  已清理临时会话 #388
+  已清理临时会话 #390
 
 联调全部通过：真实 Postgres + 真实登录态 + 本次新增接口。
 结果：通过
@@ -412,7 +432,7 @@ node tools/harness/verify/2026-10-13-admin-conversation-history.browser.mjs
   未捕获的前端异常（pageerror）：0
   控制台 error：1
     - Connection error: Error: WebSocket error
-    at n.onerror (http://localhost:5310/node_modules/.vite/deps/xxai-agent.js?v=cb7fb0bc:216:135)
+    at n.onerror (http://localhost:5310/node_modules/.vite/deps/xxai-agent.js?v=eabcb1a7:216:135)
   [OK]   没有未捕获的前端异常
 
 浏览器验证全部通过：三层页面在真实后端数据下可用（截图见 /tmp/conv-history-e2e）。
@@ -430,6 +450,7 @@ node tools/harness/verify/2026-10-13-admin-conversation-history.browser.mjs
 
 - 自动化部分覆盖 spec.md 验收标准 1-7 中可脚本化的全部内容：后端鉴权/隔离（1）、会话主体聚合（2）、后台与 embed 投影逐字段一致（3）、软删除语义（4）、四个筛选维度（5）、ai-sdk 产物未破坏（6）、apps/front 类型检查/构建/无新增 lint error（7）。
 - 真实浏览器步骤（若未跳过）覆盖验收 7 的交互面：侧栏入口、会话主体表格与跳转、Vue 岛 ConversationList / ConversationHistory 挂载、消息时间线与 Agent 执行过程开关、用量汇总、「全部会话」Tab。
+- front 镜像构建与托管步骤覆盖部署形态：`apps/front` 的 `file:../ai-sdk` 依赖要求构建上下文同时提供 apps/front 与 apps/ai-sdk，因此 front 服务以仓库根为 context 并使用三阶段 Dockerfile（先构建 SDK 的 dist，再安装并打包 front）；构建后启动容器确认 nginx 能返回首页且产物内含本次新增的会话记录前端代码。
 - 已发现的既有缺陷（非本 request 引入，浏览器步骤中做了隔离）：后台悬浮 Agent 桥接请求 `GET /api/v1/embed/agent-token` 在本机返回 401，而 http 拦截器把 401 视为登出，会让后台页面跳回登录页。
 - 接入方式与剩余风险：`apps/front` 通过 `file:../ai-sdk` 依赖本地 SDK，而 pnpm 对 `file:` 依赖是复制且不执行 SDK 的 `prepare` 脚本，因此干净克隆后需先在 `apps/ai-sdk` 执行 `npm run build` 再装 `apps/front`（已写入两个 README）；改动 ai-sdk 源码后同样需要重建 dist 并在 apps/front 重跑 `pnpm install`。
 - 是否可归档：可归档（退出码 0 = 全部通过且无未执行项；3 = 其余通过但存在未执行项）。

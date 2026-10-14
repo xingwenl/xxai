@@ -90,6 +90,7 @@ approval:
 - `src/components/layout/data/sidebar-data.ts`：AI 管理分组新增「会话记录」项。
 - `src/features/tasks/task-detail-page.tsx` 与 `src/features/workflows/workflow-detail-page.tsx`：「查看会话 #N」改指新路由（原先指向后端不存在的 `/chats`）。
 - `vite.config.ts`：`server.proxy['/api'].target` 支持用 `VITE_PROXY_TARGET` 覆盖，便于把 dev server 接到临时后端实例做联调。
+- `docker-compose.yml` 的 `front` 服务改为以仓库根为构建上下文（`context: .` + `dockerfile: apps/front/Dockerfile`），`apps/front/Dockerfile` 改成三阶段：先构建 `apps/ai-sdk` 的 `dist`，再在 `/app` 安装并打包 front，使 `file:../ai-sdk` 解析到镜像内的 `/ai-sdk`；新增根 `.dockerignore`。原先是 `context: ./apps/front`，pnpm 会把 `file:../ai-sdk` 解析成上下文外的 `/ai-sdk` 并以 ENOENT 失败（`ENOENT … scandir '/ai-sdk'`）。
 
 **其它**：`CONTEXT.md` 新增术语「会话」「会话主体」「会话记录」；新增 `docs/adr/0003-conversation-history-read-boundary.md`；`apps/ai-sdk/README.md` 新增「会话历史组件」章节并注明「改源码后先构建 SDK 再装宿主」，`apps/front/README.md` 同步该前置步骤；同步 `docs/CHANGELOG.md`。
 
@@ -112,4 +113,4 @@ approval:
 6. ai-sdk 构建后：`dist/style.css` 仍存在且仍是唯一 CSS 产物；既有导出（`createAgentClient`/`ChatWidget`/`MarkdownContent`）与既有 `xxai-*` 规则未减少；`ConversationList`/`ConversationHistory` 可从包主入口 import；`type-check` 通过。
 7. `apps/front` 以 `file:../ai-sdk` 安装后 `pnpm exec tsc -b` 通过、`pnpm lint` 不新增 error（存量 4 条基线除外），且 `/conversations` 三层页面在真实后端下可用（表头、分页、筛选、Agent 过程展开各一次真实点击）。
 
-**验证方式**：`tools/harness/verify/2026-10-13-admin-conversation-history.sh` 逐条执行——`pytest tests/conversation -q`（新增 `tests/conversation/test_admin_conversation_read.py` 覆盖验收 1–5，含 admin 与 embed 投影逐字段比对）、`ruff check`、`apps/ai-sdk` 的 `npm run type-check` 与 `build`（断言验收 6）、`apps/front` 的 `pnpm exec tsc -b --force`、`eslint`（按存量基线判定）、`vite build`；另有真实 Postgres 联调（本地 uvicorn）与真实浏览器三层页面点击（`tools/harness/verify/2026-10-13-admin-conversation-history.browser.mjs`，缺 node/playwright/数据库时记为未执行项）。
+**验证方式**：`tools/harness/verify/2026-10-13-admin-conversation-history.sh` 逐条执行——`pytest tests/conversation -q`（新增 `tests/conversation/test_admin_conversation_read.py` 覆盖验收 1–5，含 admin 与 embed 投影逐字段比对）、`ruff check`、`apps/ai-sdk` 的 `npm run type-check` 与 `build`（断言验收 6）、`apps/front` 的 `pnpm exec tsc -b --force`、`eslint`（按存量基线判定）、`vite build`；另有真实 Postgres 联调（本地 uvicorn）、`docker compose build front` 与容器托管检查（验证容器里能完成 SDK + front 的安装打包，且 nginx 能返回首页、产物含会话记录前端代码）与真实浏览器三层页面点击（`tools/harness/verify/2026-10-13-admin-conversation-history.browser.mjs`，缺 node/playwright/数据库/docker 时记为未执行项）。

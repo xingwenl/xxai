@@ -245,8 +245,9 @@ services:
 
   front:
     build:
-      context: ./apps/front
-      dockerfile: Dockerfile
+      # 上下文是仓库根：front 以 file:../ai-sdk 依赖仓库内的 AI SDK，镜像内需要先构建该 SDK
+      context: .
+      dockerfile: apps/front/Dockerfile
       args:
         VITE_API_URL: /api/v1
     ports:

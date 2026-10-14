@@ -597,6 +597,96 @@ run_browser_e2e() {
   rm -f "$api_log" "$vite_log" /tmp/conv-history-browser-api.pid /tmp/conv-history-browser-vite.pid
 }
 
+# —— front 镜像构建：容器里必须能同时完成 ai-sdk 与 apps/front 的安装与打包 ——
+# apps/front 以 file:../ai-sdk 依赖仓库内的 SDK，因此 front 服务以仓库根为构建上下文；
+# 缺 docker 或 daemon 不可达时记为未执行项，构建失败记为失败。
+# 镜像托管检查：容器能起来、nginx 能返回首页、产物里带着本次新增的前端代码。
+# nginx.conf 的 proxy_pass 指向 compose 服务名 api，脱离 compose 单跑时用 --add-host 补上该名字，
+# 否则 nginx 会在启动时因 upstream 解析失败直接退出（与被验证的改动无关）。
+assert_front_image_serves() {
+  local container="conv-history-front-$$" i ok=0
+  if ! docker run -d --name "$container" --add-host api:127.0.0.1 ai-base-front >/dev/null 2>&1; then
+    echo "跳过：镜像已构建成功，但无法启动容器做托管检查。"
+    echo
+    UNEXECUTED=1
+    return
+  fi
+
+  for i in $(seq 1 10); do
+    if docker exec "$container" wget -q -O /dev/null http://127.0.0.1/ >/dev/null 2>&1; then
+      ok=1
+      break
+    fi
+    sleep 1
+  done
+
+  if [[ $ok -eq 1 ]] && docker exec "$container" sh -c "grep -rl 'xxai-history-list' /usr/share/nginx/html/assets >/dev/null" >/dev/null 2>&1; then
+    echo "托管检查：nginx 返回首页 200，产物中包含会话记录前端代码（xxai-history-list）。"
+    echo
+    echo "结果：通过"
+  else
+    echo "托管检查失败：镜像构建成功但页面不可访问或产物缺失，容器日志："
+    echo
+    echo '```text'
+    docker logs "$container" 2>&1 | tail -10
+    echo '```'
+    echo
+    echo "结果：失败"
+    FAIL=1
+  fi
+
+  docker rm -f "$container" >/dev/null 2>&1
+  echo
+}
+
+run_front_image_build() {
+  echo "### front 镜像构建（docker-compose 的 front 服务）"
+  echo
+  echo '```bash'
+  echo 'docker compose build front'
+  echo '```'
+  echo
+
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "跳过：本机没有 docker。"
+    echo
+    UNEXECUTED=1
+    return
+  fi
+
+  if ! docker info >/dev/null 2>&1; then
+    echo "跳过：docker daemon 不可达（docker CLI 需写入 \$HOME/.docker，受限沙箱下会失败）。"
+    echo
+    UNEXECUTED=1
+    return
+  fi
+
+  local log
+  log="$(mktemp /tmp/conv-history-docker-XXXXXX.log)"
+  if (cd "$REPO_ROOT" && docker compose build front) >"$log" 2>&1; then
+    echo "镜像构建成功，最后 5 行输出："
+    echo
+    echo '```text'
+    tail -5 "$log"
+    echo '```'
+    echo
+    rm -f "$log"
+    assert_front_image_serves
+    return
+  else
+    echo "镜像构建失败，最后 30 行输出："
+    echo
+    echo '```text'
+    tail -30 "$log"
+    echo '```'
+    echo
+    echo "结果：失败"
+    FAIL=1
+  fi
+  rm -f "$log"
+  echo
+}
+
 echo "## 已执行的命令与结果"
 echo
 
@@ -626,6 +716,8 @@ verify_step "apps/front lint：本次改动未新增 error（验收 7，按存�
 verify_step "apps/front 生产构建（验收 7：图表引擎保持可选懒加载后仍可构建）" \
   assert_frontend_bundle
 
+run_front_image_build
+
 run_live_smoke
 
 run_browser_e2e
@@ -633,7 +725,7 @@ run_browser_e2e
 echo "## 未执行项与原因"
 echo
 if [[ $UNEXECUTED -ne 0 ]]; then
-  echo "- 真实浏览器验证被跳过（本机缺 node / playwright-core / Chromium，或 Postgres 不可达），三层页面在真实 DOM 中的挂载与交互只有构建产物层面的证据；上面已打印具体跳过原因。"
+  echo "- 上面被标记为「跳过」的步骤即未执行项：真实浏览器验证需要 node + playwright-core + Chromium 且 Postgres 可达；front 镜像构建需要可用的 docker daemon。每处跳过原因已随步骤打印。"
 else
   echo "- 无未执行项。"
 fi
@@ -647,6 +739,7 @@ echo "## 验收结论"
 echo
 echo "- 自动化部分覆盖 spec.md 验收标准 1-7 中可脚本化的全部内容：后端鉴权/隔离（1）、会话主体聚合（2）、后台与 embed 投影逐字段一致（3）、软删除语义（4）、四个筛选维度（5）、ai-sdk 产物未破坏（6）、apps/front 类型检查/构建/无新增 lint error（7）。"
 echo "- 真实浏览器步骤（若未跳过）覆盖验收 7 的交互面：侧栏入口、会话主体表格与跳转、Vue 岛 ConversationList / ConversationHistory 挂载、消息时间线与 Agent 执行过程开关、用量汇总、「全部会话」Tab。"
+echo "- front 镜像构建与托管步骤覆盖部署形态：\`apps/front\` 的 \`file:../ai-sdk\` 依赖要求构建上下文同时提供 apps/front 与 apps/ai-sdk，因此 front 服务以仓库根为 context 并使用三阶段 Dockerfile（先构建 SDK 的 dist，再安装并打包 front）；构建后启动容器确认 nginx 能返回首页且产物内含本次新增的会话记录前端代码。"
 echo "- 已发现的既有缺陷（非本 request 引入，浏览器步骤中做了隔离）：后台悬浮 Agent 桥接请求 \`GET /api/v1/embed/agent-token\` 在本机返回 401，而 http 拦截器把 401 视为登出，会让后台页面跳回登录页。"
 echo "- 接入方式与剩余风险：\`apps/front\` 通过 \`file:../ai-sdk\` 依赖本地 SDK，而 pnpm 对 \`file:\` 依赖是复制且不执行 SDK 的 \`prepare\` 脚本，因此干净克隆后需先在 \`apps/ai-sdk\` 执行 \`npm run build\` 再装 \`apps/front\`（已写入两个 README）；改动 ai-sdk 源码后同样需要重建 dist 并在 apps/front 重跑 \`pnpm install\`。"
 echo "- 是否可归档：可归档（退出码 0 = 全部通过且无未执行项；3 = 其余通过但存在未执行项）。"

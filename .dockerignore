@@ -1,0 +1,14 @@
+# front 镜像以仓库根为构建上下文（需要同时取到 apps/front 与它 `file:` 依赖的 apps/ai-sdk），
+# 这里挡掉与镜像无关的体积：依赖目录、构建产物、缓存与本地临时文件。
+# 注意：本文件只对「以仓库根为 context」的构建生效，apps/backend 等以子目录为 context 的服务
+# 使用它们自己的 .dockerignore。
+.git
+**/node_modules
+**/dist
+**/.vite
+**/.pnpm-store
+**/__pycache__
+**/*.pyc
+**/.env*
+.dsh-verify-shell
+docs
