@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 
 from app.core.logging import get_logger
 from app.core.config import get_settings
@@ -22,6 +22,10 @@ from app.modules.conversation.runtime import (
 from app.modules.knowledge.runtime import build_embedding_model
 from app.modules.knowledge.services import build_citations, validate_embedding_dimension
 from app.modules.conversation.schemas import sanitize_content_blocks
+from app.modules.conversation.serializers import (
+    build_message_snapshots,
+    conversation_preview,
+)
 from app.modules.agent_runtime.event_adapters import event_to_legacy
 from app.modules.agent_runtime.langchain_adapter import build_langchain_messages
 from app.modules.agent_runtime.conversation_adapter import stream_runtime_as_conversation
@@ -1029,3 +1033,197 @@ async def _resolve_task_model(session, platform_id: int, model_id: int):
     return await ModelRegistryRepository(session).get_for_platform(
         model_id, platform_id
     )
+
+
+# ---------------------------------------------------------------------------
+# 后台会话记录（平台级只读视图）
+#
+# 与 embed 侧的区别只有两点：隔离条件从「会话主体」放宽到「平台」（管理员有权
+# 查阅本平台全部主体的会话），以及消息投影与 embed 共用同一份实现。所有函数都
+# 要求调用方已完成平台管理员校验（见 admin_router），这里不再重复鉴权。
+# ---------------------------------------------------------------------------
+
+
+def _console_time_range(start_date, end_date) -> tuple[datetime | None, datetime | None]:
+    """把日期区间转成半开区间 `[start_at, end_at)`，与用量统计口径一致。
+
+    用「次日零点」而非「当日 23:59:59」作为上界，避免毫秒级尾巴漏掉当天最后
+    一刻产生的会话。
+    """
+    start_at = datetime.combine(start_date, time.min) if start_date is not None else None
+    end_at = (
+        datetime.combine(end_date + timedelta(days=1), time.min)
+        if end_date is not None
+        else None
+    )
+    return start_at, end_at
+
+
+def _console_conversation_payload(row) -> dict:
+    """会话行 → 后台接口响应体。
+
+    末条消息摘要复用 serializers 里的单行化处理，使后台列表的预览与 embed
+    会话列表的预览口径一致（都是压成一行、超长截断）。
+    """
+    conversation = row.conversation
+    return {
+        "id": conversation.id,
+        "platform_id": conversation.platform_id,
+        "agent_id": conversation.agent_id,
+        "agent_name": row.agent_name,
+        "principal_type": row.principal_type,
+        "principal_id": row.principal_id,
+        "principal_name": row.principal_name,
+        "title": conversation.title,
+        "status": conversation.status,
+        "message_count": row.message_count,
+        "last_message_preview": conversation_preview(row.last_message_preview),
+        "last_message_at": row.last_message_at,
+        "created_at": conversation.created_at,
+    }
+
+
+def _console_usage_payload(usage: tuple[int, int, int, int]) -> dict:
+    """会话级用量汇总；计费口径与 /model-usage 页保持一致（同源表）。"""
+    prompt_tokens, completion_tokens, total_tokens, record_count = usage
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "record_count": record_count,
+    }
+
+
+async def list_console_conversation_principals(
+    session,
+    platform_id: int,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    principal_type: str | None = None,
+    keyword: str | None = None,
+    status: str | None = None,
+    include_deleted: bool = False,
+) -> dict:
+    """第一层：本平台内「有会话」的会话主体分页列表。"""
+    repo = ConversationRepository(session)
+    rows = await repo.list_principals_for_platform(
+        platform_id,
+        page=page,
+        page_size=page_size,
+        principal_type=principal_type,
+        keyword=keyword,
+        status=status,
+        include_deleted=include_deleted,
+    )
+    total = await repo.count_principals_for_platform(
+        platform_id,
+        principal_type=principal_type,
+        keyword=keyword,
+        status=status,
+        include_deleted=include_deleted,
+    )
+    return {
+        "items": [
+            {
+                "principal_type": row.principal_type,
+                "principal_id": row.principal_id,
+                "display_name": row.display_name,
+                "conversation_count": row.conversation_count,
+                "last_conversation_at": row.last_conversation_at,
+            }
+            for row in rows
+        ],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+async def list_console_conversations(
+    session,
+    platform_id: int,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    agent_id: int | None = None,
+    principal_type: str | None = None,
+    principal_id: int | None = None,
+    status: str | None = None,
+    include_deleted: bool = False,
+    start_date=None,
+    end_date=None,
+    keyword: str | None = None,
+) -> dict:
+    """第二层：平台内会话分页列表；默认排除软删除。"""
+    start_at, end_at = _console_time_range(start_date, end_date)
+    filters = {
+        "agent_id": agent_id,
+        "principal_type": principal_type,
+        "principal_id": principal_id,
+        "status": status,
+        "include_deleted": include_deleted,
+        "start_at": start_at,
+        "end_at": end_at,
+        "keyword": keyword,
+    }
+    repo = ConversationRepository(session)
+    rows = await repo.list_for_platform(
+        platform_id, page=page, page_size=page_size, **filters
+    )
+    total = await repo.count_for_platform(platform_id, **filters)
+    return {
+        "items": [_console_conversation_payload(row) for row in rows],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+async def get_console_conversation(session, platform_id: int, conversation_id: int) -> dict:
+    """第二层详情：单个会话 + 会话级用量汇总。
+
+    这里刻意包含已软删除的会话：删掉只是从默认列表隐藏，管理员仍能打开查看
+    历史消息与计费记录（见验收标准 4）。
+    """
+    repo = ConversationRepository(session)
+    row = await repo.get_for_platform(
+        conversation_id, platform_id, include_deleted=True
+    )
+    if row is None:
+        raise NotFoundException("conversation not found")
+    payload = _console_conversation_payload(row)
+    payload["usage"] = _console_usage_payload(
+        await repo.usage_for_conversation(conversation_id)
+    )
+    return payload
+
+
+async def list_console_conversation_messages(
+    session, platform_id: int, conversation_id: int
+) -> list[dict]:
+    """第三层：会话消息时间线（含每轮 Agent Loop 步骤）。
+
+    投影与 embed 的 `GET /embed/conversations/{id}/messages` 共用
+    `build_message_snapshots`，因此同一份数据下两者逐字段相同。
+    """
+    repo = ConversationRepository(session)
+    row = await repo.get_for_platform(
+        conversation_id, platform_id, include_deleted=True
+    )
+    if row is None:
+        raise NotFoundException("conversation not found")
+    messages = await repo.list_messages(conversation_id)
+    return await build_message_snapshots(
+        repo, conversation_id=conversation_id, messages=messages
+    )
+
+
+async def delete_console_conversation(
+    session, platform_id: int, conversation_id: int
+) -> None:
+    """软删除会话：非本平台或已删除一律按 404 处理，不泄露存在性。"""
+    repo = ConversationRepository(session)
+    deleted = await repo.soft_delete_for_platform(conversation_id, platform_id)
+    if not deleted:
+        raise NotFoundException("conversation not found")

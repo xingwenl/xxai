@@ -697,6 +697,8 @@ npm run test -- --run
 npm run type-check
 ```
 
+> ⚠️ `dist/` 不被 git 跟踪。仓库内以 `file:` 方式引用本 SDK 的宿主（`apps/front`、`apps/shop`）在 pnpm 下是**复制** `dist` 而非软链，且不会触发本包的 `prepare` 脚本。因此改动 `apps/ai-sdk/src` 之后，需要重新 `npm run build`，再到宿主目录重跑 `pnpm install` 才能生效；干净克隆时同样要先构建本包。
+
 本地 Demo 使用 `/api/agent-token?external_user_id=demo-user` 时，确认 AI Base 后端已配置 `EMBED_CLIENT_ID`、`EMBED_CLIENT_SECRET`、`EMBED_AGENT_ID` 和 `EMBED_ORIGIN`。
 
 ## 12. 发布到 npm
@@ -892,6 +894,64 @@ PROJECT_EMBED_ORIGIN = "http://127.0.0.1:5390"
 - `page_snapshot_stale` / `page_element_not_visible`：`page_click` / `page_type` 使用的 `snapshotId`/`ref` 已过期，需要先重新 `page_snapshot`。
 - `page_action_not_allowed`：目标元素是密码框、文件框或不可编辑元素。
 - `host_tool_result_too_large`：结果超过 32KiB，需要缩小返回内容（例如减少快照元素或文本长度）。
+
+## 16. 会话历史组件（宿主自备数据源）
+
+0.2.0 起，主入口额外导出两个**只负责渲染**的会话历史组件，用于「后台管理里查阅历史会话」这类不需要聊天窗口的场景：
+
+- `ConversationList`：会话列表（含分页、空态、加载态），点击条目触发 `select` 事件。
+- `ConversationHistory`：单个会话的消息时间线，复用聊天窗口里同一套消息渲染（含 Markdown、引用、以及可选的 Agent 执行过程卡片）。
+
+两者都**不发任何请求、不认识后端路径、不持有鉴权**：数据由宿主通过 `ConversationHistorySource` 注入。宿主只需实现两个方法：
+
+```ts
+import type { ConversationHistorySource } from 'xxai-agent'
+
+const source: ConversationHistorySource = {
+  // 返回 { items, total, page, page_size }，供列表分页与展示
+  async listConversations({ page, page_size }) {
+    const res = await fetch(`/api/v1/platforms/${platformId}/conversations?page=${page}&page_size=${page_size}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    return (await res.json()).data
+  },
+  // 返回消息数组，元素形状与 embed 的会话消息接口一致（含 loop 字段）
+  async listMessages(conversationId) {
+    const res = await fetch(`/api/v1/platforms/${platformId}/conversations/${conversationId}/messages`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    return (await res.json()).data
+  },
+}
+```
+
+组件属性：
+
+| 组件 | 属性 | 说明 |
+| --- | --- | --- |
+| `ConversationList` | `source`（必填） | 数据源 |
+| | `params` | `{ page?, page_size?, [key: string]: unknown }`，变化时自动重新拉取并重置到 `params.page` |
+| | `emptyText` / `loadingText` | 空态与加载态文案 |
+| | `@select` | 选中会话时触发，参数为会话摘要对象 |
+| `ConversationHistory` | `source`（必填） | 数据源 |
+| | `conversationId` | 切换会话时自动重新拉取 |
+| | `showAgentLoop` | 默认 `true`，是否渲染每轮的思考/工具/技能过程卡片 |
+| | `emptyText` / `loadingText` | 空态与加载态文案 |
+| | `@loaded` / `@error` | 加载成功（消息数组）/ 失败 |
+
+非 Vue 宿主（如 React）可以用 `createApp` 把组件挂到一个容器上，SDK 已把 Vue 运行时打包进产物，宿主不需要自行安装 Vue：
+
+```ts
+import { createApp } from 'xxai-agent'
+import { ConversationList } from 'xxai-agent'
+import 'xxai-agent/style.css'
+
+const app = createApp(ConversationList, { source })
+app.mount(document.getElementById('conversation-list')!)
+// 卸载时调用 app.unmount()，避免重复挂载残留
+```
+
+样式已并入既有单一样式文件，只需 `import 'xxai-agent/style.css'`；这些页面位于白色背景时组件内部会局部覆盖少量 `--agent-*` 变量，不会影响聊天窗口。
 
 ## License
 

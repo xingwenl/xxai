@@ -30,6 +30,7 @@ import { Route as AuthenticatedUsersIndexRouteImport } from './routes/_authentic
 import { Route as AuthenticatedTasksIndexRouteImport } from './routes/_authenticated/tasks/index'
 import { Route as AuthenticatedSettingsIndexRouteImport } from './routes/_authenticated/settings/index'
 import { Route as AuthenticatedHelpCenterIndexRouteImport } from './routes/_authenticated/help-center/index'
+import { Route as AuthenticatedConversationsIndexRouteImport } from './routes/_authenticated/conversations/index'
 import { Route as AuthenticatedChatsIndexRouteImport } from './routes/_authenticated/chats/index'
 import { Route as AuthenticatedAppsIndexRouteImport } from './routes/_authenticated/apps/index'
 import { Route as ClerkAuthenticatedUserManagementRouteImport } from './routes/clerk/_authenticated/user-management'
@@ -46,6 +47,7 @@ import { Route as AuthenticatedSettingsDisplayRouteImport } from './routes/_auth
 import { Route as AuthenticatedSettingsAppearanceRouteImport } from './routes/_authenticated/settings/appearance'
 import { Route as AuthenticatedSettingsAccountRouteImport } from './routes/_authenticated/settings/account'
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
+import { Route as AuthenticatedConversationsConversationIdRouteImport } from './routes/_authenticated/conversations/$conversationId'
 import { Route as AuthenticatedAiWechatBotsRouteImport } from './routes/_authenticated/ai/wechat-bots'
 import { Route as AuthenticatedAiSkillsRouteImport } from './routes/_authenticated/ai/skills'
 import { Route as AuthenticatedAiPlatformsRouteImport } from './routes/_authenticated/ai/platforms'
@@ -55,6 +57,7 @@ import { Route as AuthenticatedAiKnowledgeBasesRouteImport } from './routes/_aut
 import { Route as AuthenticatedAiHostToolsRouteImport } from './routes/_authenticated/ai/host-tools'
 import { Route as AuthenticatedAiEmbedClientsRouteImport } from './routes/_authenticated/ai/embed-clients'
 import { Route as AuthenticatedAiBotsIndexRouteImport } from './routes/_authenticated/ai/bots/index'
+import { Route as AuthenticatedConversationsPrincipalTypePrincipalIdRouteImport } from './routes/_authenticated/conversations/$principalType.$principalId'
 import { Route as AuthenticatedAiBotsAgentIdRouteImport } from './routes/_authenticated/ai/bots/$agentId'
 
 const ClerkRouteRoute = ClerkRouteRouteImport.update({
@@ -163,6 +166,12 @@ const AuthenticatedHelpCenterIndexRoute =
     path: '/help-center/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedConversationsIndexRoute =
+  AuthenticatedConversationsIndexRouteImport.update({
+    id: '/conversations/',
+    path: '/conversations/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedChatsIndexRoute = AuthenticatedChatsIndexRouteImport.update({
   id: '/chats/',
   path: '/chats/',
@@ -255,6 +264,12 @@ const AuthenticatedErrorsErrorRoute =
     path: '/errors/$error',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedConversationsConversationIdRoute =
+  AuthenticatedConversationsConversationIdRouteImport.update({
+    id: '/conversations/$conversationId',
+    path: '/conversations/$conversationId',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAiWechatBotsRoute =
   AuthenticatedAiWechatBotsRouteImport.update({
     id: '/ai/wechat-bots',
@@ -307,6 +322,12 @@ const AuthenticatedAiBotsIndexRoute =
     path: '/ai/bots/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedConversationsPrincipalTypePrincipalIdRoute =
+  AuthenticatedConversationsPrincipalTypePrincipalIdRouteImport.update({
+    id: '/conversations/$principalType/$principalId',
+    path: '/conversations/$principalType/$principalId',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAiBotsAgentIdRoute =
   AuthenticatedAiBotsAgentIdRouteImport.update({
     id: '/ai/bots/$agentId',
@@ -336,6 +357,7 @@ export interface FileRoutesByFullPath {
   '/ai/platforms': typeof AuthenticatedAiPlatformsRoute
   '/ai/skills': typeof AuthenticatedAiSkillsRoute
   '/ai/wechat-bots': typeof AuthenticatedAiWechatBotsRoute
+  '/conversations/$conversationId': typeof AuthenticatedConversationsConversationIdRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/settings/account': typeof AuthenticatedSettingsAccountRoute
   '/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
@@ -352,12 +374,14 @@ export interface FileRoutesByFullPath {
   '/clerk/user-management': typeof ClerkAuthenticatedUserManagementRoute
   '/apps/': typeof AuthenticatedAppsIndexRoute
   '/chats/': typeof AuthenticatedChatsIndexRoute
+  '/conversations/': typeof AuthenticatedConversationsIndexRoute
   '/help-center/': typeof AuthenticatedHelpCenterIndexRoute
   '/settings/': typeof AuthenticatedSettingsIndexRoute
   '/tasks/': typeof AuthenticatedTasksIndexRoute
   '/users/': typeof AuthenticatedUsersIndexRoute
   '/workflows/': typeof AuthenticatedWorkflowsIndexRoute
   '/ai/bots/$agentId': typeof AuthenticatedAiBotsAgentIdRoute
+  '/conversations/$principalType/$principalId': typeof AuthenticatedConversationsPrincipalTypePrincipalIdRoute
   '/ai/bots/': typeof AuthenticatedAiBotsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -381,6 +405,7 @@ export interface FileRoutesByTo {
   '/ai/platforms': typeof AuthenticatedAiPlatformsRoute
   '/ai/skills': typeof AuthenticatedAiSkillsRoute
   '/ai/wechat-bots': typeof AuthenticatedAiWechatBotsRoute
+  '/conversations/$conversationId': typeof AuthenticatedConversationsConversationIdRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/settings/account': typeof AuthenticatedSettingsAccountRoute
   '/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
@@ -397,12 +422,14 @@ export interface FileRoutesByTo {
   '/clerk/user-management': typeof ClerkAuthenticatedUserManagementRoute
   '/apps': typeof AuthenticatedAppsIndexRoute
   '/chats': typeof AuthenticatedChatsIndexRoute
+  '/conversations': typeof AuthenticatedConversationsIndexRoute
   '/help-center': typeof AuthenticatedHelpCenterIndexRoute
   '/settings': typeof AuthenticatedSettingsIndexRoute
   '/tasks': typeof AuthenticatedTasksIndexRoute
   '/users': typeof AuthenticatedUsersIndexRoute
   '/workflows': typeof AuthenticatedWorkflowsIndexRoute
   '/ai/bots/$agentId': typeof AuthenticatedAiBotsAgentIdRoute
+  '/conversations/$principalType/$principalId': typeof AuthenticatedConversationsPrincipalTypePrincipalIdRoute
   '/ai/bots': typeof AuthenticatedAiBotsIndexRoute
 }
 export interface FileRoutesById {
@@ -431,6 +458,7 @@ export interface FileRoutesById {
   '/_authenticated/ai/platforms': typeof AuthenticatedAiPlatformsRoute
   '/_authenticated/ai/skills': typeof AuthenticatedAiSkillsRoute
   '/_authenticated/ai/wechat-bots': typeof AuthenticatedAiWechatBotsRoute
+  '/_authenticated/conversations/$conversationId': typeof AuthenticatedConversationsConversationIdRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/_authenticated/settings/account': typeof AuthenticatedSettingsAccountRoute
   '/_authenticated/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
@@ -447,12 +475,14 @@ export interface FileRoutesById {
   '/clerk/_authenticated/user-management': typeof ClerkAuthenticatedUserManagementRoute
   '/_authenticated/apps/': typeof AuthenticatedAppsIndexRoute
   '/_authenticated/chats/': typeof AuthenticatedChatsIndexRoute
+  '/_authenticated/conversations/': typeof AuthenticatedConversationsIndexRoute
   '/_authenticated/help-center/': typeof AuthenticatedHelpCenterIndexRoute
   '/_authenticated/settings/': typeof AuthenticatedSettingsIndexRoute
   '/_authenticated/tasks/': typeof AuthenticatedTasksIndexRoute
   '/_authenticated/users/': typeof AuthenticatedUsersIndexRoute
   '/_authenticated/workflows/': typeof AuthenticatedWorkflowsIndexRoute
   '/_authenticated/ai/bots/$agentId': typeof AuthenticatedAiBotsAgentIdRoute
+  '/_authenticated/conversations/$principalType/$principalId': typeof AuthenticatedConversationsPrincipalTypePrincipalIdRoute
   '/_authenticated/ai/bots/': typeof AuthenticatedAiBotsIndexRoute
 }
 export interface FileRouteTypes {
@@ -479,6 +509,7 @@ export interface FileRouteTypes {
     | '/ai/platforms'
     | '/ai/skills'
     | '/ai/wechat-bots'
+    | '/conversations/$conversationId'
     | '/errors/$error'
     | '/settings/account'
     | '/settings/appearance'
@@ -495,12 +526,14 @@ export interface FileRouteTypes {
     | '/clerk/user-management'
     | '/apps/'
     | '/chats/'
+    | '/conversations/'
     | '/help-center/'
     | '/settings/'
     | '/tasks/'
     | '/users/'
     | '/workflows/'
     | '/ai/bots/$agentId'
+    | '/conversations/$principalType/$principalId'
     | '/ai/bots/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -524,6 +557,7 @@ export interface FileRouteTypes {
     | '/ai/platforms'
     | '/ai/skills'
     | '/ai/wechat-bots'
+    | '/conversations/$conversationId'
     | '/errors/$error'
     | '/settings/account'
     | '/settings/appearance'
@@ -540,12 +574,14 @@ export interface FileRouteTypes {
     | '/clerk/user-management'
     | '/apps'
     | '/chats'
+    | '/conversations'
     | '/help-center'
     | '/settings'
     | '/tasks'
     | '/users'
     | '/workflows'
     | '/ai/bots/$agentId'
+    | '/conversations/$principalType/$principalId'
     | '/ai/bots'
   id:
     | '__root__'
@@ -573,6 +609,7 @@ export interface FileRouteTypes {
     | '/_authenticated/ai/platforms'
     | '/_authenticated/ai/skills'
     | '/_authenticated/ai/wechat-bots'
+    | '/_authenticated/conversations/$conversationId'
     | '/_authenticated/errors/$error'
     | '/_authenticated/settings/account'
     | '/_authenticated/settings/appearance'
@@ -589,12 +626,14 @@ export interface FileRouteTypes {
     | '/clerk/_authenticated/user-management'
     | '/_authenticated/apps/'
     | '/_authenticated/chats/'
+    | '/_authenticated/conversations/'
     | '/_authenticated/help-center/'
     | '/_authenticated/settings/'
     | '/_authenticated/tasks/'
     | '/_authenticated/users/'
     | '/_authenticated/workflows/'
     | '/_authenticated/ai/bots/$agentId'
+    | '/_authenticated/conversations/$principalType/$principalId'
     | '/_authenticated/ai/bots/'
   fileRoutesById: FileRoutesById
 }
@@ -762,6 +801,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedHelpCenterIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/conversations/': {
+      id: '/_authenticated/conversations/'
+      path: '/conversations'
+      fullPath: '/conversations/'
+      preLoaderRoute: typeof AuthenticatedConversationsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/chats/': {
       id: '/_authenticated/chats/'
       path: '/chats'
@@ -874,6 +920,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedErrorsErrorRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/conversations/$conversationId': {
+      id: '/_authenticated/conversations/$conversationId'
+      path: '/conversations/$conversationId'
+      fullPath: '/conversations/$conversationId'
+      preLoaderRoute: typeof AuthenticatedConversationsConversationIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/ai/wechat-bots': {
       id: '/_authenticated/ai/wechat-bots'
       path: '/ai/wechat-bots'
@@ -937,6 +990,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAiBotsIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/conversations/$principalType/$principalId': {
+      id: '/_authenticated/conversations/$principalType/$principalId'
+      path: '/conversations/$principalType/$principalId'
+      fullPath: '/conversations/$principalType/$principalId'
+      preLoaderRoute: typeof AuthenticatedConversationsPrincipalTypePrincipalIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/ai/bots/$agentId': {
       id: '/_authenticated/ai/bots/$agentId'
       path: '/ai/bots/$agentId'
@@ -981,6 +1041,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAiPlatformsRoute: typeof AuthenticatedAiPlatformsRoute
   AuthenticatedAiSkillsRoute: typeof AuthenticatedAiSkillsRoute
   AuthenticatedAiWechatBotsRoute: typeof AuthenticatedAiWechatBotsRoute
+  AuthenticatedConversationsConversationIdRoute: typeof AuthenticatedConversationsConversationIdRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
   AuthenticatedSystemAiHtmlPagesRoute: typeof AuthenticatedSystemAiHtmlPagesRoute
   AuthenticatedSystemMcpServersRoute: typeof AuthenticatedSystemMcpServersRoute
@@ -990,11 +1051,13 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedWorkflowsWorkflowIdRoute: typeof AuthenticatedWorkflowsWorkflowIdRoute
   AuthenticatedAppsIndexRoute: typeof AuthenticatedAppsIndexRoute
   AuthenticatedChatsIndexRoute: typeof AuthenticatedChatsIndexRoute
+  AuthenticatedConversationsIndexRoute: typeof AuthenticatedConversationsIndexRoute
   AuthenticatedHelpCenterIndexRoute: typeof AuthenticatedHelpCenterIndexRoute
   AuthenticatedTasksIndexRoute: typeof AuthenticatedTasksIndexRoute
   AuthenticatedUsersIndexRoute: typeof AuthenticatedUsersIndexRoute
   AuthenticatedWorkflowsIndexRoute: typeof AuthenticatedWorkflowsIndexRoute
   AuthenticatedAiBotsAgentIdRoute: typeof AuthenticatedAiBotsAgentIdRoute
+  AuthenticatedConversationsPrincipalTypePrincipalIdRoute: typeof AuthenticatedConversationsPrincipalTypePrincipalIdRoute
   AuthenticatedAiBotsIndexRoute: typeof AuthenticatedAiBotsIndexRoute
 }
 
@@ -1009,6 +1072,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAiPlatformsRoute: AuthenticatedAiPlatformsRoute,
   AuthenticatedAiSkillsRoute: AuthenticatedAiSkillsRoute,
   AuthenticatedAiWechatBotsRoute: AuthenticatedAiWechatBotsRoute,
+  AuthenticatedConversationsConversationIdRoute:
+    AuthenticatedConversationsConversationIdRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
   AuthenticatedSystemAiHtmlPagesRoute: AuthenticatedSystemAiHtmlPagesRoute,
   AuthenticatedSystemMcpServersRoute: AuthenticatedSystemMcpServersRoute,
@@ -1018,11 +1083,14 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedWorkflowsWorkflowIdRoute: AuthenticatedWorkflowsWorkflowIdRoute,
   AuthenticatedAppsIndexRoute: AuthenticatedAppsIndexRoute,
   AuthenticatedChatsIndexRoute: AuthenticatedChatsIndexRoute,
+  AuthenticatedConversationsIndexRoute: AuthenticatedConversationsIndexRoute,
   AuthenticatedHelpCenterIndexRoute: AuthenticatedHelpCenterIndexRoute,
   AuthenticatedTasksIndexRoute: AuthenticatedTasksIndexRoute,
   AuthenticatedUsersIndexRoute: AuthenticatedUsersIndexRoute,
   AuthenticatedWorkflowsIndexRoute: AuthenticatedWorkflowsIndexRoute,
   AuthenticatedAiBotsAgentIdRoute: AuthenticatedAiBotsAgentIdRoute,
+  AuthenticatedConversationsPrincipalTypePrincipalIdRoute:
+    AuthenticatedConversationsPrincipalTypePrincipalIdRoute,
   AuthenticatedAiBotsIndexRoute: AuthenticatedAiBotsIndexRoute,
 }
 

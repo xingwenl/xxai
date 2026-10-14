@@ -153,8 +153,8 @@ importers:
         specifier: ^1.4.0
         version: 1.4.0
       xxai-agent:
-        specifier: ^0.1.6
-        version: 0.1.6(vue@3.5.40(typescript@6.0.2))
+        specifier: file:../ai-sdk
+        version: file:../ai-sdk(vue@3.5.40(typescript@6.0.2))
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -3748,8 +3748,8 @@ packages:
     resolution: {integrity: sha512-TEU+nJVUUnA4CYJFLvK5X9AOeH4KvDvhIfm0vV1GaQRtchnG0hgK5p8hw/xjv8cunWYCsiPCSDzObPyhEwq3KQ==}
     engines: {node: '>=0.4.0'}
 
-  xxai-agent@0.1.6:
-    resolution: {integrity: sha512-oe0puux3epXoidEkGByg7h7ck5k4m1Li0jbXe9tF7gD8CytAbVlPgFbySB0AsRap/zrw/mil32INBosEXfNozA==}
+  xxai-agent@file:../ai-sdk:
+    resolution: {directory: ../ai-sdk, type: directory}
     engines: {node: '>=18'}
     peerDependencies:
       vue: ^3.3.0
@@ -7363,7 +7363,7 @@ snapshots:
 
   xmlhttprequest-ssl@2.1.2: {}
 
-  xxai-agent@0.1.6(vue@3.5.40(typescript@6.0.2)):
+  xxai-agent@file:../ai-sdk(vue@3.5.40(typescript@6.0.2)):
     dependencies:
       dompurify: 3.4.13
       markdown-it: 15.0.0

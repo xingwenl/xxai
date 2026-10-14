@@ -8,6 +8,7 @@ import {
   createMarkdownFenceError,
   type MarkdownFenceRenderer
 } from './fence-registry'
+import { optionalEngineSpecifiers } from './optional-engines'
 
 /** Mermaid 的最小接口定义：SDK 不依赖 mermaid 包及其类型声明 */
 export interface MermaidLike {
@@ -110,7 +111,8 @@ async function resolveMermaid(): Promise<MermaidLike | null> {
 
   if (!enginePromise) {
     // 用非字面量说明符动态导入：既不引入 mermaid 依赖与类型，也避免打包器把引擎内联进产物。
-    const specifier = 'mermaid'
+    // 说明符取自跨模块的可变映射，防止常量折叠把它还原成静态 `import("mermaid")`。
+    const specifier = optionalEngineSpecifiers.mermaid
     enginePromise = import(/* @vite-ignore */ specifier)
       .then((module) => ((module as { default?: MermaidLike }).default || (module as MermaidLike)))
       .catch(() => null)

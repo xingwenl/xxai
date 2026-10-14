@@ -360,6 +360,7 @@ function RunRows({
             <StepRuns
               isLoading={detailQuery.isLoading}
               detail={detailQuery.data}
+              platformId={platformId}
             />
           </td>
         </tr>
@@ -395,9 +396,11 @@ function RunSummary({ run }: { run: WorkflowRun }) {
 function StepRuns({
   isLoading,
   detail,
+  platformId,
 }: {
   isLoading: boolean
   detail?: WorkflowRunDetail
+  platformId: number
 }) {
   if (isLoading) {
     return <p className='text-xs text-muted-foreground'>加载步骤明细...</p>
@@ -422,13 +425,19 @@ function StepRuns({
   return (
     <div className='flex flex-col gap-2 text-xs'>
       {steps.map((step) => (
-        <StepRunCard key={step.id} step={step} />
+        <StepRunCard key={step.id} step={step} platformId={platformId} />
       ))}
     </div>
   )
 }
 
-function StepRunCard({ step }: { step: WorkflowStepRun }) {
+function StepRunCard({
+  step,
+  platformId,
+}: {
+  step: WorkflowStepRun
+  platformId: number
+}) {
   return (
     <div className='rounded-md border bg-background p-2'>
       <div className='flex flex-wrap items-center gap-2'>
@@ -456,10 +465,11 @@ function StepRunCard({ step }: { step: WorkflowStepRun }) {
           {step.finished_at ? ` → ${formatDateTime(step.finished_at)}` : ''}
         </span>
         {step.conversation_id != null && (
-          // chats 路由已支持 ?conversation=<id> 直接定位会话。
+          // 会话记录页的第三层直接展示这条会话的消息与 Agent 过程（带平台参数以定位租户）。
           <Link
-            to='/chats'
-            search={{ conversation: step.conversation_id }}
+            to='/conversations/$conversationId'
+            params={{ conversationId: String(step.conversation_id) }}
+            search={{ platform: platformId }}
             className='underline'
           >
             查看会话 #{step.conversation_id}

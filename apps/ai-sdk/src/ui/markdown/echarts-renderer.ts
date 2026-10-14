@@ -7,6 +7,7 @@ import {
   createMarkdownFenceError,
   type MarkdownFenceRenderer
 } from './fence-registry'
+import { optionalEngineSpecifiers } from './optional-engines'
 
 export interface EChartsInstanceLike {
   setOption(option: unknown): void
@@ -125,7 +126,8 @@ async function resolveECharts(): Promise<EChartsLike | null> {
   }
 
   if (!enginePromise) {
-    const specifier = 'echarts'
+    // 同 mermaid：说明符不可被常量折叠，宿主没装 echarts 时保持"解析失败即降级"。
+    const specifier = optionalEngineSpecifiers.echarts
     enginePromise = import(/* @vite-ignore */ specifier)
       .then((module) => ((module as { default?: EChartsLike }).default || (module as EChartsLike)))
       .catch(() => null)

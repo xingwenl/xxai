@@ -94,6 +94,13 @@ Install dependencies
   pnpm install
 ```
 
+> ⚠️ 本仓库的 `apps/front` 通过 `file:../ai-sdk` 依赖本地 AI SDK（`xxai-agent`）。pnpm 对 `file:` 依赖是**复制**而非软链，也不会执行 SDK 的 `prepare` 脚本，所以克隆仓库后、或改动 `apps/ai-sdk/src` 之后，必须先构建 SDK 再安装：
+>
+> ```bash
+> cd ../ai-sdk && npm install && npm run build
+> cd ../front && pnpm install
+> ```
+
 Configure environment
 
 ```bash

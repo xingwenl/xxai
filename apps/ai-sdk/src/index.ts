@@ -77,3 +77,16 @@ export type {
 export { createApp, h }
 
 export { AgentClient } from './core'
+
+export { ConversationList, ConversationHistory } from './history'
+
+export type {
+  ConversationSummaryPayload,
+  ConversationPagePayload,
+  ConversationLoopStepPayload,
+  ConversationLoopRunPayload,
+  ConversationMessagePayload,
+  ConversationListParams,
+  ConversationHistorySource,
+  HistoryMessageLike
+} from './history'

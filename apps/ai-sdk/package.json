@@ -45,7 +45,8 @@
     "verify-package": "node scripts/verify-package.mjs",
     "prepublishOnly": "npm run build && npm run verify-package",
     "preview": "vite preview",
-    "demo": "cd demo && npx serve -l 5174"
+    "demo": "cd demo && npx serve -l 5174",
+    "prepare": "npm run build"
   },
   "devDependencies": {
     "@rollup/plugin-replace": "^6.0.3",

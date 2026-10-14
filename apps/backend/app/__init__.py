@@ -22,6 +22,7 @@ from app.modules.platform.router import router as platform_router
 from app.modules.system.router import router as system_router
 from app.modules.user.router import router as user_router
 from app.modules.conversation.router import router as conversation_router
+from app.modules.conversation.admin_router import router as conversation_admin_router
 from app.modules.embed.router import router as embed_router
 from app.modules.embed.token_router import router as agent_token_router
 from app.modules.shop_agent import shop_agent_router
@@ -94,6 +95,8 @@ def create_app() -> FastAPI:
     app.include_router(platform_router, prefix=settings.api_v1_prefix)
     app.include_router(user_router, prefix=settings.api_v1_prefix)
     app.include_router(conversation_router, prefix=settings.api_v1_prefix)
+    # 后台会话记录：平台级只读视图，与聊天入口（/agents/{id}/chat）同一模块不同作用域。
+    app.include_router(conversation_admin_router, prefix=settings.api_v1_prefix)
     app.include_router(embed_router, prefix=settings.api_v1_prefix)
     app.include_router(agent_token_router, prefix="/api")
     app.include_router(gateway_router, prefix=settings.api_v1_prefix)

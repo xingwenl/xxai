@@ -25,6 +25,8 @@ import { ToolRegistry } from './tool-registry'
 import { WebSocketTransport } from './websocket'
 import type { Transport } from './transport'
 import { createPageTools } from './page/tools'
+import { mapHistoryMessages } from '../history/map-history'
+import type { HistoryMessageLike } from '../history/map-history'
 
 let messageId = 0
 function generateId(): string {
@@ -914,36 +916,9 @@ export class AgentClient {
       throw new Error(`历史消息加载失败: ${response.status}`)
     }
     const body = await response.json() as {
-      data?: Array<{
-        id: number | string
-        role: string
-        content: string
-        status?: string
-        content_blocks?: Message['contentBlocks']
-        created_at?: string
-        loop?: AgentLoopRun
-        requestId?: string
-        request_id?: string
-      }>
+      data?: HistoryMessageLike[]
     }
-    return (body.data || []).map((item) => ({
-      id: String(item.id),
-      role: (item.role as Message['role']) || 'assistant',
-      type: 'text',
-      content: { type: 'text', text: item.content || '' },
-      contentBlocks: Array.isArray(item.content_blocks) && item.content_blocks.length
-        ? item.content_blocks
-        : [{
-            id: `${item.id}_text`,
-            type: 'markdown' as const,
-            text: item.content || '',
-            status: 'completed' as const
-          }],
-      loop: item.loop,
-      timestamp: item.created_at ? new Date(item.created_at) : new Date(),
-      conversationId,
-      requestId: item.requestId || item.request_id
-    }))
+    return mapHistoryMessages(body.data || [], conversationId)
   }
 
   /**

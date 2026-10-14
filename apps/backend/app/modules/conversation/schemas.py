@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -126,3 +127,61 @@ class RuntimeContext(BaseModel):
     builtin_tools: list[Any] = Field(default_factory=list)
     host_tools: list[Any] = Field(default_factory=list)
     conversation_id: int | None = None
+
+
+class ConversationPrincipalRead(BaseModel):
+    """会话主体聚合项：一个主体在本平台的会话数与最近活跃时间。"""
+
+    # 'user' = 后台用户（sys_users），'end_user' = 终端用户（platform_end_users）。
+    principal_type: str
+    principal_id: int
+    display_name: str | None = None
+    conversation_count: int
+    last_conversation_at: datetime | None = None
+
+
+class ConversationPrincipalPage(BaseModel):
+    items: list[ConversationPrincipalRead]
+    total: int
+    page: int
+    page_size: int
+
+
+class ConsoleConversationRead(BaseModel):
+    """后台会话记录列表项：会话头 + 列表渲染所需的轻量统计。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    platform_id: int
+    agent_id: int
+    agent_name: str | None = None
+    principal_type: str
+    principal_id: int
+    principal_name: str | None = None
+    title: str | None = None
+    status: str
+    message_count: int = 0
+    last_message_preview: str | None = None
+    last_message_at: datetime | None = None
+    created_at: datetime
+
+
+class ConsoleConversationPage(BaseModel):
+    items: list[ConsoleConversationRead]
+    total: int
+    page: int
+    page_size: int
+
+
+class ConsoleConversationUsage(BaseModel):
+    """会话级用量汇总，取自 model_usage_records（计费事实来源）。"""
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    record_count: int = 0
+
+
+class ConsoleConversationDetail(ConsoleConversationRead):
+    usage: ConsoleConversationUsage = Field(default_factory=ConsoleConversationUsage)

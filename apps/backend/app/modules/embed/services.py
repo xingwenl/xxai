@@ -5,6 +5,10 @@ from redis.asyncio import Redis
 from app.core.config import get_settings
 from app.core.security import hash_password, verify_password
 from app.modules.agent.repositories import AgentRepository
+from app.modules.conversation.serializers import (
+    build_message_snapshots,
+    conversation_preview,
+)
 from app.modules.embed.repositories import EmbedRepository
 from app.modules.embed.schemas import (
     EmbedConversationPage,
@@ -232,6 +236,11 @@ async def unbind_embed_client_agent(
 
 
 async def get_embed_message_snapshot(repo, *, conversation_id: int, claims: dict):
+    """embed 主体视角的消息快照。
+
+    投影构造与后台会话记录接口共用 `build_message_snapshots`，两处返回逐字段
+    相同，前端也就能用同一套渲染组件。
+    """
     messages = await repo.list_messages_for_principal(
         conversation_id,
         int(claims["platform_id"]),
@@ -239,63 +248,9 @@ async def get_embed_message_snapshot(repo, *, conversation_id: int, claims: dict
     )
     if messages is None:
         raise NotFoundException("conversation not found")
-    # 兼容轻量仓储替身和旧读取实现；真实仓储会返回完整内容块与 Loop 投影。
-    if not hasattr(repo, "list_loops"):
-        return messages
-    loops = await repo.list_loops(conversation_id)
-    loop_payloads = {}
-    for loop in loops:
-        steps = await repo.list_loop_steps(loop.id)
-        loop_payloads[loop.assistant_message_id] = {
-            "id": str(loop.id),
-            "requestId": loop.request_id,
-            "status": loop.status,
-            "summary": loop.summary,
-            "steps": [
-                {
-                    "id": str(step.id),
-                    "sequence": step.sequence,
-                    "stepType": step.step_type,
-                    "title": step.title,
-                    "status": step.status,
-                    "outputSummary": step.output_summary,
-                    "inputSummary": step.input_summary,
-                    "thinkingText": step.thinking_text,
-                    "toolName": step.tool_name,
-                    "skillName": step.skill_name,
-                    "citationRefs": step.citation_refs,
-                    "error": step.error,
-                }
-                for step in steps
-            ],
-        }
-    return [
-        {
-            "id": message.id,
-            "conversation_id": message.conversation_id,
-            "role": message.role,
-            "content": message.content,
-            "status": message.status,
-            "content_blocks": message.content_blocks,
-            "citations": message.citations,
-            "knowledge_grounded": message.knowledge_grounded,
-            "tool_call_id": message.tool_call_id,
-            "created_at": message.created_at,
-            "updated_at": message.updated_at,
-            "loop": loop_payloads.get(message.id),
-        }
-        for message in messages
-    ]
-
-
-def _conversation_preview(value: object, *, limit: int = 80) -> str | None:
-    """把末条消息压成单行摘要，供列表项显示。"""
-    if not isinstance(value, str):
-        return None
-    collapsed = " ".join(value.split())
-    if not collapsed:
-        return None
-    return collapsed if len(collapsed) <= limit else f"{collapsed[:limit]}…"
+    return await build_message_snapshots(
+        repo, conversation_id=conversation_id, messages=messages
+    )
 
 
 async def list_embed_conversations(
@@ -330,7 +285,7 @@ async def list_embed_conversations(
                 title=conversation.title,
                 created_at=conversation.created_at,
                 message_count=message_count,
-                last_message_preview=_conversation_preview(preview),
+                last_message_preview=conversation_preview(preview),
             )
             for conversation, message_count, preview in rows
         ],

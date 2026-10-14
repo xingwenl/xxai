@@ -310,7 +310,7 @@ function RunRows({
                 {expanded ? '收起过程' : '查看过程'}
               </button>
             )}
-            <RunDetail run={run} />
+            <RunDetail run={run} platformId={platformId} />
           </div>
         </td>
       </tr>
@@ -405,7 +405,7 @@ function RunSteps({
 }
 
 /** 执行记录详情：失败原因、跳过原因，以及可跳转到对应会话的入口。 */
-function RunDetail({ run }: { run: TaskRun }) {
+function RunDetail({ run, platformId }: { run: TaskRun; platformId: number }) {
   if (run.status === 'skipped') {
     return (
       <span className='text-xs text-muted-foreground'>
@@ -421,11 +421,12 @@ function RunDetail({ run }: { run: TaskRun }) {
     )
   }
   if (run.conversation_id != null) {
-    // chats 路由已支持 ?conversation=<id> 直接定位会话。
+    // 会话记录页的第三层直接展示这条会话的消息与 Agent 过程（带平台参数以定位租户）。
     return (
       <Link
-        to='/chats'
-        search={{ conversation: run.conversation_id }}
+        to='/conversations/$conversationId'
+        params={{ conversationId: String(run.conversation_id) }}
+        search={{ platform: platformId }}
         className='text-xs underline'
       >
         查看会话 #{run.conversation_id}
