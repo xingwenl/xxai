@@ -132,6 +132,17 @@ class Settings:
     skill_runner_shared_secret: str
     skill_runner_timeout_seconds: int
     skill_runner_max_output_bytes: int
+    # 按 GitHub 源添加技能：由 API 进程主动出网拉取公开仓库的技能目录，
+    # 再交给既有的技能包导入链路。目标主机恒为 api.github.com。
+    skill_source_import_enabled: bool
+    skill_source_http_timeout_seconds: float
+    # 单次来源导入允许的文件数与总体积上限：超限即拒绝，避免一次导入把
+    # 请求耗时与内存拖垮（技能目录通常只有 1~5 个文件）。
+    skill_source_max_files: int
+    skill_source_max_total_bytes: int
+    # 可选 GitHub Token：只提升 REST 限流额度（匿名 60 次/小时 → 5000 次/小时），
+    # 不改变网络带宽。
+    github_token: str | None
     knowledge_context_max_chars: int
     conversation_history_window_seconds: int
     tool_snapshot_max_chars: int
@@ -311,6 +322,24 @@ def get_settings() -> Settings:
         skill_runner_max_output_bytes=int(
             os.getenv("SKILL_RUNNER_MAX_OUTPUT_BYTES", str(64 * 1024))
         ),
+        skill_source_import_enabled=_get_bool(
+            "SKILL_SOURCE_IMPORT_ENABLED", default=True
+        ),
+        # 单次 GitHub 请求 20 秒：实测本机到 api.github.com 的列树请求约 8 秒。
+        skill_source_http_timeout_seconds=float(
+            os.getenv("SKILL_SOURCE_HTTP_TIMEOUT_SECONDS", "20")
+        ),
+        skill_source_max_files=min(
+            300, max(1, int(os.getenv("SKILL_SOURCE_MAX_FILES", "120")))
+        ),
+        skill_source_max_total_bytes=min(
+            25 * 1024 * 1024,
+            max(
+                1024,
+                int(os.getenv("SKILL_SOURCE_MAX_TOTAL_BYTES", str(10 * 1024 * 1024))),
+            ),
+        ),
+        github_token=(os.getenv("GITHUB_TOKEN") or "").strip() or None,
         knowledge_context_max_chars=int(
             os.getenv("KNOWLEDGE_CONTEXT_MAX_CHARS", "24000")
         ),

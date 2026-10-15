@@ -7,7 +7,20 @@ from app.core.config import get_settings
 from app.modules.skill.importers import (
     ParsedSkillPackage,
     parse_skill_package,
+    slugify,
     store_skill_package_files,
+)
+from app.modules.skill.schemas import (
+    SkillPackageDetail,
+    SkillPackageImportResult,
+    SkillSourceImportRequest,
+    SkillSourcePreviewData,
+    SkillSourceSkillItem,
+)
+from app.modules.skill.source_resolver import (
+    build_source_package_zip,
+    list_source_skills,
+    select_skill_entries,
 )
 from app.shared.exceptions import (
     BadRequestException,
@@ -38,9 +51,20 @@ async def import_skill_package(
     *,
     filename: str,
     content: bytes,
+    manifest_extra: dict | None = None,
+    package_name: str | None = None,
 ):
+    """解析并落库一个技能包 zip。
+
+    ``package_name`` 为用户显式指定的技能包名称：留空时沿用 ``parse_skill_package``
+    推导出的名称（manifest 名 > 单技能名 > zip 文件名）。显式指定时以用户输入为准，
+    否则页面上填写的名称会被 SKILL.md 里的 name 悄悄覆盖。
+    """
     parsed = parse_skill_package(filename, content)
-    package_slug = await _unique_package_slug(repo, platform_id, parsed.slug)
+    display_name = (package_name or "").strip()[:120] or parsed.name
+    package_slug = await _unique_package_slug(
+        repo, platform_id, slugify(display_name) or parsed.slug
+    )
     skill_values = []
     for candidate in parsed.candidates:
         skill_values.append(
@@ -66,13 +90,16 @@ async def import_skill_package(
         return await repo.create_package_with_assets(
             platform_id,
             package_values={
-                "name": parsed.name,
+                "name": display_name,
                 "slug": package_slug,
                 "package_type": parsed.package_type,
                 "source_filename": filename,
                 "storage_path": str(storage_path),
                 "storage_key": str(storage_path.relative_to(storage_root)),
-                "manifest": _manifest_with_candidates(parsed),
+                "manifest": {
+                    **_manifest_with_candidates(parsed),
+                    **(manifest_extra or {}),
+                },
                 "warnings": parsed.warnings,
                 "allow_script_execution": False,
                 "is_active": True,
@@ -91,6 +118,68 @@ async def import_skill_package(
     except Exception:
         shutil.rmtree(storage_path, ignore_errors=True)
         raise
+
+
+async def preview_source_skills(source: str) -> SkillSourcePreviewData:
+    """列出某个 GitHub 源中可选的技能，只读且不落库。"""
+    _require_source_import_enabled()
+    resolved, entries = await list_source_skills(source)
+    return SkillSourcePreviewData(
+        repository=resolved.repository,
+        ref=resolved.ref,
+        subpath=resolved.subpath,
+        skills=[
+            SkillSourceSkillItem(
+                name=entry.name,
+                slug=entry.slug,
+                path=entry.path,
+                skill_path=entry.skill_path,
+                file_count=entry.file_count,
+                total_bytes=entry.total_bytes,
+                has_scripts=entry.has_scripts,
+            )
+            for entry in entries
+        ],
+    )
+
+
+async def import_skill_package_from_source(
+    repo, platform_id: int, payload: SkillSourceImportRequest
+):
+    """按 GitHub 源导入技能：拉取选中目录后复用既有 zip 导入链路落库。
+
+    这里刻意不另写一份落库逻辑——打包成 zip 之后交给 ``import_skill_package``，
+    校验、上限、role 分类、manifest 组装全部沿用既有实现。
+    """
+    _require_source_import_enabled()
+    resolved, entries = await list_source_skills(payload.source)
+    selected = select_skill_entries(entries, payload.skills)
+    content, filename = await build_source_package_zip(resolved, selected)
+    package = await import_skill_package(
+        repo,
+        platform_id,
+        filename=filename,
+        content=content,
+        package_name=payload.package_name,
+        manifest_extra={
+            "source": {
+                "type": "github",
+                "repository": resolved.repository,
+                "ref": resolved.ref,
+                "path": resolved.subpath,
+                "skills": [entry.path for entry in selected],
+            }
+        },
+    )
+    return SkillPackageImportResult(
+        package=SkillPackageDetail.model_validate(package),
+        warnings=package.warnings,
+    )
+
+
+def _require_source_import_enabled() -> None:
+    if not get_settings().skill_source_import_enabled:
+        raise BadRequestException("按 GitHub 源添加技能的功能已关闭")
 
 
 async def update_skill_package(repo, platform_id: int, package_id: int, payload):

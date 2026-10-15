@@ -1,5 +1,6 @@
-import { useState, type ChangeEvent, type ReactNode } from 'react'
+import { useMemo, useState, type ChangeEvent, type ReactNode } from 'react'
 import { z } from 'zod'
+import { AxiosError } from 'axios'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -8,9 +9,12 @@ import {
   Code2,
   Edit,
   Eye,
+  GitBranch,
+  Loader2,
   PackageOpen,
   Plus,
   RefreshCw,
+  Search,
   Server,
   ShieldCheck,
   Trash2,
@@ -25,16 +29,19 @@ import {
   deleteSkill,
   getSkillPackage,
   importSkillPackage,
+  importSkillPackageFromSource,
   listSkillScriptExecutions,
   listAgentSkills,
   listSkillPackages,
   listSkills,
+  previewSkillSource,
   unbindSkill,
   updateSkillPackage,
   updateSkill,
   type Skill,
   type SkillInput,
   type SkillPackage,
+  type SkillSourcePreviewData,
 } from '@/api/skills'
 import {
   AlertDialog,
@@ -48,6 +55,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -103,6 +111,7 @@ export function SkillsPage() {
   const [deleting, setDeleting] = useState<Skill | null>(null)
   const [bindingSkill, setBindingSkill] = useState<Skill | null>(null)
   const [detailPackageId, setDetailPackageId] = useState<number>()
+  const [sourceDialogOpen, setSourceDialogOpen] = useState(false)
   const platformsQuery = useQuery({
     queryKey: ['platforms'],
     queryFn: listPlatforms,
@@ -276,6 +285,14 @@ export function SkillsPage() {
                   disabled={!activePlatformId || importMutation.isPending}
                 />
               </label>
+            </Button>
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={() => setSourceDialogOpen(true)}
+              disabled={!activePlatformId}
+            >
+              <GitBranch className='size-4' />从 GitHub 添加
             </Button>
             <Button
               size='sm'
@@ -564,6 +581,13 @@ export function SkillsPage() {
         isSaving={saveMutation.isPending}
         onSubmit={(values) => saveMutation.mutate(values)}
       />
+      {activePlatformId != null && (
+        <SourceImportDialog
+          platformId={activePlatformId}
+          open={sourceDialogOpen}
+          onOpenChange={setSourceDialogOpen}
+        />
+      )}
       <Dialog
         open={detailPackageId != null}
         onOpenChange={(open) => !open && setDetailPackageId(undefined)}
@@ -688,6 +712,286 @@ function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/** 提取后端错误信息（4xx 响应体 message 优先），用于对话框内联展示。 */
+function resolveErrorMessage(error: unknown) {
+  if (error instanceof AxiosError) {
+    return (
+      error.response?.data?.message ?? error.message ?? '请求失败，请稍后重试'
+    )
+  }
+  if (error instanceof Error) return error.message
+  return '请求失败，请稍后重试'
+}
+
+/**
+ * 按 GitHub 源添加技能：先列出源内的可选技能（只读），勾选后再导入。
+ * 列表可能上百条，因此提供关键词过滤与全选当前结果。
+ */
+function SourceImportDialog({
+  platformId,
+  open,
+  onOpenChange,
+}: {
+  platformId: number
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const queryClient = useQueryClient()
+  const [source, setSource] = useState('')
+  const [packageName, setPackageName] = useState('')
+  const [filter, setFilter] = useState('')
+  const [preview, setPreview] = useState<SkillSourcePreviewData | null>(null)
+  const [previewedSource, setPreviewedSource] = useState('')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [error, setError] = useState<string | null>(null)
+  const reset = () => {
+    setSource('')
+    setPackageName('')
+    setFilter('')
+    setPreview(null)
+    setPreviewedSource('')
+    setSelected(new Set())
+    setError(null)
+  }
+  const handleOpenChange = (next: boolean) => {
+    if (!next) reset()
+    onOpenChange(next)
+  }
+  const previewMutation = useMutation({
+    mutationFn: () => previewSkillSource(platformId, source.trim()),
+    onMutate: () => {
+      setError(null)
+      // 换源后旧的勾选不再有效，先清空避免导入到别的仓库的路径
+      setSelected(new Set())
+    },
+    onSuccess: (data) => {
+      setPreview(data)
+      setPreviewedSource(source.trim())
+      setFilter('')
+    },
+    onError: (mutationError) => setError(resolveErrorMessage(mutationError)),
+  })
+  const importMutation = useMutation({
+    mutationFn: () =>
+      importSkillPackageFromSource(platformId, {
+        source: previewedSource,
+        skills: Array.from(selected),
+        ...(packageName.trim() ? { package_name: packageName.trim() } : {}),
+      }),
+    onMutate: () => setError(null),
+    onSuccess: async (result) => {
+      toast.success(`技能包已导入：${result.package.name}`)
+      if (result.warnings?.length) {
+        toast.warning(result.warnings.join('；'))
+      }
+      await queryClient.invalidateQueries({ queryKey: ['skills', platformId] })
+      await queryClient.invalidateQueries({
+        queryKey: ['skill-packages', platformId],
+      })
+      reset()
+      onOpenChange(false)
+    },
+    onError: (mutationError) => setError(resolveErrorMessage(mutationError)),
+  })
+  const skills = useMemo(() => preview?.skills ?? [], [preview])
+  const filteredSkills = useMemo(() => {
+    const keyword = filter.trim().toLowerCase()
+    if (!keyword) return skills
+    return skills.filter(
+      (item) =>
+        item.name.toLowerCase().includes(keyword) ||
+        item.path.toLowerCase().includes(keyword)
+    )
+  }, [skills, filter])
+  const isBusy = previewMutation.isPending || importMutation.isPending
+  // 列出后又改了源，勾选的 path 可能已不属于当前源，要求重新列出
+  const sourceChangedSincePreview =
+    preview != null && source.trim() !== previewedSource
+  const toggleSkill = (path: string) => {
+    setSelected((previous) => {
+      const next = new Set(previous)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
+    })
+  }
+  const selectAllFiltered = () => {
+    setSelected((previous) => {
+      const next = new Set(previous)
+      filteredSkills.forEach((item) => next.add(item.path))
+      return next
+    })
+  }
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className='max-h-[90vh] max-w-3xl overflow-y-auto'>
+        <DialogHeader>
+          <DialogTitle>从 GitHub 添加技能</DialogTitle>
+          <DialogDescription>
+            输入仓库地址后先列出源里的技能，勾选需要的再导入。
+          </DialogDescription>
+        </DialogHeader>
+        <div className='grid gap-2'>
+          <Label htmlFor='skill-source'>GitHub 源</Label>
+          <div className='flex gap-2'>
+            <Input
+              id='skill-source'
+              placeholder='owner/repo，例如 travisjneuman/.claude'
+              value={source}
+              disabled={isBusy}
+              onChange={(event) => setSource(event.target.value)}
+            />
+            <Button
+              type='button'
+              variant='outline'
+              onClick={() => previewMutation.mutate()}
+              disabled={!source.trim() || isBusy}
+            >
+              {previewMutation.isPending && (
+                <Loader2 className='size-4 animate-spin' />
+              )}
+              {previewMutation.isPending ? '列出中...' : '列出技能'}
+            </Button>
+          </div>
+          <p className='text-xs text-muted-foreground'>
+            也支持 https://github.com/owner/repo/tree/&lt;分支&gt;/&lt;目录&gt;
+            形式的链接。
+          </p>
+          {sourceChangedSincePreview && (
+            <p className='text-xs text-destructive'>
+              源已修改，请重新点击“列出技能”后再导入。
+            </p>
+          )}
+        </div>
+        <div className='grid gap-2'>
+          <Label htmlFor='skill-package-name'>技能包名称（可选）</Label>
+          <Input
+            id='skill-package-name'
+            placeholder='留空由后端按 <repo>-skills 生成'
+            value={packageName}
+            disabled={isBusy}
+            onChange={(event) => setPackageName(event.target.value)}
+          />
+        </div>
+        {error && (
+          <div className='rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive'>
+            {error}
+          </div>
+        )}
+        {preview && (
+          <div className='space-y-3'>
+            <div className='flex flex-wrap items-center justify-between gap-2'>
+              <div className='text-sm text-muted-foreground'>
+                {preview.repository} · {preview.ref}
+                {preview.subpath ? ` · ${preview.subpath}` : ''} · 共{' '}
+                {skills.length} 个技能
+              </div>
+              <div className='flex items-center gap-2'>
+                <span className='text-xs text-muted-foreground'>
+                  已选 {selected.size} / {skills.length}
+                </span>
+                <Button
+                  type='button'
+                  variant='ghost'
+                  size='sm'
+                  onClick={selectAllFiltered}
+                  disabled={!filteredSkills.length || isBusy}
+                >
+                  全选当前
+                </Button>
+                <Button
+                  type='button'
+                  variant='ghost'
+                  size='sm'
+                  onClick={() => setSelected(new Set())}
+                  disabled={!selected.size || isBusy}
+                >
+                  清空
+                </Button>
+              </div>
+            </div>
+            <div className='flex items-center gap-2'>
+              <Search className='size-4 shrink-0 text-muted-foreground' />
+              <Input
+                placeholder='按名称或路径过滤'
+                value={filter}
+                disabled={isBusy}
+                onChange={(event) => setFilter(event.target.value)}
+              />
+            </div>
+            <div className='max-h-72 overflow-auto rounded-md border'>
+              {filteredSkills.length ? (
+                <div className='divide-y'>
+                  {filteredSkills.map((item) => (
+                    <label
+                      key={item.path}
+                      className='flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-muted/50'
+                    >
+                      <Checkbox
+                        checked={selected.has(item.path)}
+                        disabled={isBusy}
+                        onCheckedChange={() => toggleSkill(item.path)}
+                      />
+                      <div className='min-w-0 flex-1'>
+                        <div className='truncate text-sm font-medium'>
+                          {item.name}
+                        </div>
+                        <div className='truncate font-mono text-xs text-muted-foreground'>
+                          {item.path}
+                        </div>
+                      </div>
+                      <div className='shrink-0 text-xs text-muted-foreground'>
+                        {item.file_count} 个文件 ·{' '}
+                        {formatBytes(item.total_bytes)}
+                        {item.has_scripts && (
+                          <Badge variant='outline' className='ms-2'>
+                            含脚本
+                          </Badge>
+                        )}
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <p className='px-3 py-8 text-center text-sm text-muted-foreground'>
+                  {skills.length
+                    ? '没有匹配的技能，换个关键词试试'
+                    : '该源里没有识别到技能，确认仓库中存在包含 SKILL.md 的目录'}
+                </p>
+              )}
+            </div>
+            <p className='text-xs text-muted-foreground'>
+              显示 {filteredSkills.length} / {skills.length} 条
+            </p>
+          </div>
+        )}
+        <DialogFooter>
+          <Button
+            type='button'
+            variant='outline'
+            onClick={() => handleOpenChange(false)}
+            disabled={importMutation.isPending}
+          >
+            取消
+          </Button>
+          <Button
+            type='button'
+            onClick={() => importMutation.mutate()}
+            disabled={!selected.size || isBusy || sourceChangedSincePreview}
+          >
+            {importMutation.isPending && (
+              <Loader2 className='size-4 animate-spin' />
+            )}
+            {importMutation.isPending
+              ? '导入中...'
+              : `导入选中（${selected.size}）`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
 }
 
 function SkillDialog({

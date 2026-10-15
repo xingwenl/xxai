@@ -120,6 +120,39 @@ class SkillPackageImportResult(BaseModel):
     warnings: list[str]
 
 
+class SkillSourcePreviewRequest(BaseModel):
+    """按源预览的入参：仓库定位（owner/repo 或 github.com 链接）。"""
+
+    source: str = Field(min_length=1, max_length=500)
+
+
+class SkillSourceSkillItem(BaseModel):
+    """仓库中被识别为一个技能的可选目录。"""
+
+    name: str
+    slug: str
+    path: str
+    skill_path: str
+    file_count: int
+    total_bytes: int
+    has_scripts: bool
+
+
+class SkillSourcePreviewData(BaseModel):
+    repository: str
+    ref: str
+    subpath: str
+    skills: list[SkillSourceSkillItem]
+
+
+class SkillSourceImportRequest(BaseModel):
+    """按源导入的入参：``skills`` 传目录 path/name/slug，``'*'`` 表示全选。"""
+
+    source: str = Field(min_length=1, max_length=500)
+    skills: list[str] = Field(min_length=1, max_length=100)
+    package_name: str | None = Field(default=None, max_length=120)
+
+
 class SkillScriptExecutionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

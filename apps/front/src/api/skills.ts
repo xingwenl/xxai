@@ -93,6 +93,35 @@ export type SkillImportResult = {
   warnings: string[]
 }
 
+/**
+ * GitHub 源里可被识别为一个技能的可选目录。
+ * 列表接口刻意不返回 description，避免逐个拉取 SKILL.md 打满 GitHub 匿名调用额度。
+ */
+export type SkillSourceSkillItem = {
+  name: string
+  slug: string
+  path: string
+  skill_path: string
+  file_count: number
+  total_bytes: number
+  has_scripts: boolean
+}
+
+export type SkillSourcePreviewData = {
+  repository: string
+  ref: string
+  subpath: string
+  skills: SkillSourceSkillItem[]
+}
+
+export type SkillSourceImportPayload = {
+  source: string
+  /** 选中的技能目录 path；传 ['*'] 表示全选 */
+  skills: string[]
+  /** 不传时由后端按 `<repo>-skills` 生成 */
+  package_name?: string
+}
+
 export type SkillScriptExecution = {
   id: number
   platform_id: number
@@ -177,6 +206,34 @@ export async function importSkillPackage(
   const { data } = await http.post<SkillImportResult>(
     `/platforms/${platformId}/skills/import`,
     formData
+  )
+  return data
+}
+
+/**
+ * 列出某个 GitHub 源里可选的技能（只读，不落库），供用户勾选后再导入。
+ */
+export async function previewSkillSource(
+  platformId: number,
+  source: string
+): Promise<SkillSourcePreviewData> {
+  const { data } = await http.post<SkillSourcePreviewData>(
+    `/platforms/${platformId}/skill-packages/source-skills`,
+    { source }
+  )
+  return data
+}
+
+/**
+ * 导入 GitHub 源中选中的技能，响应形状与 zip 导入一致。
+ */
+export async function importSkillPackageFromSource(
+  platformId: number,
+  payload: SkillSourceImportPayload
+): Promise<SkillImportResult> {
+  const { data } = await http.post<SkillImportResult>(
+    `/platforms/${platformId}/skill-packages/import-source`,
+    payload
   )
   return data
 }

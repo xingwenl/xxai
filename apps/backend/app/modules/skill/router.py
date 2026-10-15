@@ -17,6 +17,9 @@ from app.modules.skill.schemas import (
     SkillPackageRead,
     SkillPackageUpdate,
     SkillScriptExecutionListData,
+    SkillSourceImportRequest,
+    SkillSourcePreviewData,
+    SkillSourcePreviewRequest,
     SkillRead,
     SkillUpdate,
 )
@@ -25,6 +28,8 @@ from app.modules.skill.services import (
     create_skill,
     delete_skill,
     import_skill_package,
+    import_skill_package_from_source,
+    preview_source_skills,
     unbind_skill,
     update_skill_package,
     update_skill,
@@ -100,6 +105,41 @@ async def import_skill_package_endpoint(
         data=SkillPackageImportResult(package=detail, warnings=package.warnings),
         message="skill package imported",
     )
+
+
+@router.post(
+    "/skill-packages/source-skills",
+    response_model=ApiResponse[SkillSourcePreviewData],
+)
+async def preview_skill_source_endpoint(
+    platform_id: int,
+    payload: SkillSourcePreviewRequest,
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """列出某个 GitHub 源里可选的技能；只读，不落库。"""
+    await _require_admin(platform_id, current_user.id, session)
+    data = await preview_source_skills(payload.source)
+    return success_response(data=data, message="skill source listed")
+
+
+@router.post(
+    "/skill-packages/import-source",
+    response_model=ApiResponse[SkillPackageImportResult],
+    status_code=status.HTTP_201_CREATED,
+)
+async def import_skill_source_endpoint(
+    platform_id: int,
+    payload: SkillSourceImportRequest,
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """从 GitHub 源导入选中的技能，复用既有技能包导入链路。"""
+    await _require_admin(platform_id, current_user.id, session)
+    result = await import_skill_package_from_source(
+        SkillRepository(session), platform_id, payload
+    )
+    return success_response(data=result, message="skill package imported from source")
 
 
 @router.get("/skill-packages", response_model=ApiResponse[SkillPackageListData])
