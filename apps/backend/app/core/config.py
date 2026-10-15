@@ -169,6 +169,19 @@ class Settings:
     # 单个平台的工作流数量上限：工作流会按计划反复执行并落运行记录，
     # 不做上限时一个平台可以无限堆积定义，把调度队列拖垮。
     workflow_max_per_platform: int
+    # 运行期委派（delegate_tasks）：模型自主发起的并发子 Agent 运行所需的显式闸。
+    # 单次调用可派的子任务数、同时跑几个、每个子运行的模型轮次上限与整体超时，
+    # 以及单个子任务回给父模型的输出字节上限。
+    # 子运行必须有自己的轮次上限：父运行的一轮里一次派生就会把子运行的整轮预算
+    # 花掉，而子运行的 token 不会并回父运行的 usage，沿用 agent_max_iterations
+    # 会让一次委派的成本量级失控。
+    delegation_max_tasks: int
+    delegation_max_concurrency: int
+    delegation_max_iterations: int
+    delegation_timeout_seconds: int
+    delegation_output_max_bytes: int
+    # 注入委派工具描述的可派智能体清单条数上限：清单太长会挤占模型上下文。
+    delegation_max_agents_in_prompt: int
 
 
 def _build_database_url() -> str:
@@ -378,5 +391,26 @@ def get_settings() -> Settings:
         # 工作流默认上限比任务低：一条工作流一次运行会拆成多步、产生多条步骤记录。
         workflow_max_per_platform=max(
             1, int(os.getenv("WORKFLOW_MAX_PER_PLATFORM", "50"))
+        ),
+        # 运行期委派：默认单次最多 8 个子任务、同时最多 4 个（对齐 Pi subagent
+        # 示例的 MAX_PARALLEL_TASKS / MAX_CONCURRENCY）。上界被工具契约（
+        # input_schema 的 maxItems）与并发池实现规模夹住，配置只能把它们调小。
+        delegation_max_tasks=min(8, max(1, int(os.getenv("DELEGATION_MAX_TASKS", "8")))),
+        delegation_max_concurrency=min(
+            8, max(1, int(os.getenv("DELEGATION_MAX_CONCURRENCY", "4")))
+        ),
+        # 子运行默认 8 轮（父 Agent 默认 20 轮）、整体 300 秒；单个子任务回给父模型
+        # 的输出上限 50KB（对齐 Pi 的 PER_TASK_OUTPUT_CAP）。
+        delegation_max_iterations=max(
+            1, int(os.getenv("DELEGATION_MAX_ITERATIONS", "8"))
+        ),
+        delegation_timeout_seconds=max(
+            30, int(os.getenv("DELEGATION_TIMEOUT_SECONDS", "300"))
+        ),
+        delegation_output_max_bytes=max(
+            1024, int(os.getenv("DELEGATION_OUTPUT_MAX_BYTES", "51200"))
+        ),
+        delegation_max_agents_in_prompt=max(
+            1, int(os.getenv("DELEGATION_MAX_AGENTS_IN_PROMPT", "50"))
         ),
     )

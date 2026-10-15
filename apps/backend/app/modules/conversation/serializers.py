@@ -16,35 +16,87 @@ from app.modules.conversation.models import (
 PREVIEW_LIMIT = 80
 
 
-def build_loop_payload(loop: AgentLoopRun, steps: list[AgentLoopStep]) -> dict:
+def build_delegated_run_payload(
+    loop: AgentLoopRun,
+    *,
+    agent_slug: str | None = None,
+    agent_name: str | None = None,
+) -> dict:
+    """把一次**子运行**压成读侧投影里的条目。
+
+    只暴露展示需要的字段：模型与工具的完整过程在子运行自己的会话里，读侧不去
+    展开（父子是两条独立会话，跨会话拼过程会让这份投影失去稳定形状）。
+    """
+    return {
+        "id": str(loop.id),
+        "agentSlug": agent_slug,
+        "agentName": agent_name or agent_slug,
+        "status": loop.status,
+        "summary": loop.summary,
+        "conversationId": str(loop.conversation_id),
+    }
+
+
+def build_loop_payload(
+    loop: AgentLoopRun,
+    steps: list[AgentLoopStep],
+    delegated_runs: list[dict] | None = None,
+) -> dict:
     """把一次 Agent Loop 及其步骤压成前端可直接渲染的 payload。
 
     键名用 camelCase 与 ai-sdk 的 `AgentLoopRun` 对齐（`requestId`/`stepType`/
     `outputSummary` 等），前端无需再做一次字段改名。
+
+    ``delegatedRuns``/``delegatedRunIds`` 只在**确实有委派**时出现：没有委派的
+    运行，这份投影与引入委派之前逐字相同（这是回归口径的一部分）。
     """
-    return {
+    payload = {
         "id": str(loop.id),
         "requestId": loop.request_id,
         "status": loop.status,
         "summary": loop.summary,
-        "steps": [
-            {
-                "id": str(step.id),
-                "sequence": step.sequence,
-                "stepType": step.step_type,
-                "title": step.title,
-                "status": step.status,
-                "outputSummary": step.output_summary,
-                "inputSummary": step.input_summary,
-                "thinkingText": step.thinking_text,
-                "toolName": step.tool_name,
-                "skillName": step.skill_name,
-                "citationRefs": step.citation_refs,
-                "error": step.error,
-            }
-            for step in steps
-        ],
+        "steps": [_step_payload(step) for step in steps],
     }
+    if delegated_runs:
+        payload["delegatedRuns"] = delegated_runs
+    return payload
+
+
+def _step_payload(step: AgentLoopStep) -> dict:
+    """单个步骤的投影；委派产生的 ``delegatedRunIds`` 只在非空时附带。"""
+    payload = {
+        "id": str(step.id),
+        "sequence": step.sequence,
+        "stepType": step.step_type,
+        "title": step.title,
+        "status": step.status,
+        "outputSummary": step.output_summary,
+        "inputSummary": step.input_summary,
+        "thinkingText": step.thinking_text,
+        "toolName": step.tool_name,
+        "skillName": step.skill_name,
+        "citationRefs": step.citation_refs,
+        "error": step.error,
+    }
+    delegated_ids = delegated_run_ids(step)
+    if delegated_ids:
+        payload["delegatedRunIds"] = delegated_ids
+    return payload
+
+
+def delegated_run_ids(step: AgentLoopStep) -> list[str]:
+    """从步骤扩展元数据里读出该步骤派生出的子运行 ID。
+
+    "同一次扇出"的分组键记在父步骤自己的 metadata 上，而不是给
+    ``agent_loop_runs`` 再加一个指向步骤的外键：工具步骤记录是在整轮运行收尾时
+    才补建的，而子运行在工具执行期间就已落库，那一刻父步骤行还不存在。
+    """
+    metadata = getattr(step, "step_metadata", None)
+    metadata = metadata if isinstance(metadata, dict) else {}
+    raw = metadata.get("delegatedRunIds")
+    if not isinstance(raw, list):
+        return []
+    return [str(item) for item in raw]
 
 
 async def build_message_snapshots(
@@ -62,8 +114,9 @@ async def build_message_snapshots(
         return messages
     loop_payloads: dict[int | None, dict] = {}
     for loop in await repo.list_loops(conversation_id):
+        delegated_runs = await load_delegated_runs(repo, loop.id)
         loop_payloads[loop.assistant_message_id] = build_loop_payload(
-            loop, await repo.list_loop_steps(loop.id)
+            loop, await repo.list_loop_steps(loop.id), delegated_runs
         )
     return [
         {
@@ -81,6 +134,17 @@ async def build_message_snapshots(
             "loop": loop_payloads.get(message.id),
         }
         for message in messages
+    ]
+
+
+async def load_delegated_runs(repo, loop_run_id: int) -> list[dict]:
+    """读一次运行的子运行列表；仓储没有对应能力时返回空（兼容轻量替身）。"""
+    if not hasattr(repo, "list_child_loops"):
+        return []
+    rows = await repo.list_child_loops(loop_run_id)
+    return [
+        build_delegated_run_payload(child, agent_slug=slug, agent_name=name)
+        for child, slug, name in rows
     ]
 
 

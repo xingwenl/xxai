@@ -86,6 +86,12 @@ class AgentLoopRun(BaseModel, TimeModel):
         String(30), nullable=False, default="running", server_default="running", comment="运行状态：running、completed、failed、cancelled、waiting_confirmation"
     )
     summary: Mapped[str | None] = mapped_column(Text, nullable=True, comment="面向用户的安全过程摘要")
+    parent_loop_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agent_loop_runs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="父运行 ID：非空表示这是一次被派生的子运行",
+    )
     run_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSON, nullable=False, default=dict, server_default="{}", comment="运行扩展元数据，不保存完整 Prompt 或敏感数据"
     )

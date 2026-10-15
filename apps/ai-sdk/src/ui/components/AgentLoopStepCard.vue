@@ -40,6 +40,20 @@
         <summary>返回的结果</summary>
         <pre class="xxai-loop-code">{{ outputDetail }}</pre>
       </details>
+      <details v-if="childRuns.length" class="xxai-loop-collapse" open>
+        <summary>子运行（{{ childRuns.length }} 个）</summary>
+        <ul class="xxai-loop-delegated">
+          <li v-for="run in childRuns" :key="run.id" class="xxai-loop-delegated-item">
+            <div class="xxai-loop-delegated-head">
+              <span class="xxai-loop-badge">{{ delegatedRunName(run) }}</span>
+              <span class="xxai-loop-delegated-status" :class="`state-${run.status}`">
+                {{ delegatedStatusText(run.status) }}
+              </span>
+            </div>
+            <span v-if="run.summary" class="xxai-loop-delegated-summary">{{ run.summary }}</span>
+          </li>
+        </ul>
+      </details>
     </template>
 
     <div v-else-if="step.stepType === 'skill_instruction'" class="xxai-loop-detail-line">
@@ -65,7 +79,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import type { AgentLoopStep, AgentLoopStepStatus, KnowledgeCitation } from '../../core';
+import type { AgentLoopStep, AgentLoopStepStatus, DelegatedRun, KnowledgeCitation } from '../../core';
 import {
   THINKING_PLACEHOLDER,
   toolInputSummary,
@@ -79,7 +93,11 @@ import {
   truncateText,
 } from '../message-presentation';
 
-const props = defineProps<{ step: AgentLoopStep }>();
+const props = defineProps<{
+  step: AgentLoopStep;
+  /** 所属 loop 的子运行摘要：把步骤的 `delegatedRunIds` 解析成可读条目。 */
+  delegatedRuns?: DelegatedRun[];
+}>();
 
 const kind = computed(() => {
   const step = props.step;
@@ -113,6 +131,31 @@ const thinkingPlaceholder = computed(() => THINKING_PLACEHOLDER);
 const inputSummary = computed(() => toolInputSummary(props.step));
 const outputDetail = computed(() => toolOutputDetail(props.step));
 const thinkingOpen = ref(props.step.status === 'running');
+
+// 只读展开：按步骤记下的 ID 从所属 loop 的子运行列表里取。
+// 两个字段都可省略，任一缺失时视为「没有子运行」，退化成改动前的渲染。
+const childRuns = computed<DelegatedRun[]>(() => {
+  const ids = props.step.delegatedRunIds;
+  if (!ids?.length) return [];
+  const runsById = new Map((props.delegatedRuns || []).map((run) => [run.id, run]));
+  return ids
+    .map((id) => runsById.get(id))
+    .filter((run): run is DelegatedRun => Boolean(run));
+});
+
+function delegatedRunName(run: DelegatedRun): string {
+  return run.agentName?.trim() || run.agentSlug;
+}
+
+function delegatedStatusText(status: string): string {
+  return ({
+    running: '执行中',
+    completed: '已完成',
+    failed: '失败',
+    cancelled: '已取消',
+    waiting_confirmation: '待确认',
+  } as Record<string, string>)[status] || status;
+}
 
 function onThinkingToggle(event: Event) {
   thinkingOpen.value = (event.target as HTMLDetailsElement).open;
@@ -301,6 +344,44 @@ function passage(citation: KnowledgeCitation): string {
   display: grid;
   gap: 4px;
   margin-top: 2px;
+}
+.xxai-loop-delegated {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.xxai-loop-delegated-item {
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.5);
+  line-height: 1.4;
+}
+.xxai-loop-delegated-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.xxai-loop-delegated-status {
+  color: #10b981;
+  font-weight: 500;
+}
+.xxai-loop-delegated-status.state-failed,
+.xxai-loop-delegated-status.state-cancelled {
+  color: #dc2626;
+}
+.xxai-loop-delegated-status.state-waiting_confirmation {
+  color: #f59e0b;
+}
+.xxai-loop-delegated-summary {
+  display: block;
+  margin-top: 2px;
+  opacity: 0.85;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .xxai-loop-reference {
   display: flex;

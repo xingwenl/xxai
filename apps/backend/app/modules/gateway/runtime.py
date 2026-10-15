@@ -677,6 +677,8 @@ async def stream_embed_chat(
         retrieval_input_summary=f"检索当前问题（{len(message)} 字符）",
     )
     await repo.save_loop(loop)
+    # 与 REST 链路同一口径：运行记录创建后立刻挂回上下文，供委派类工具使用。
+    context.loop_run_id = loop.id
     events = LoopEventBuilder(conversation, loop, request_id=request_id)
     yield events.loop_started()
     await repo.save_loop(loop)

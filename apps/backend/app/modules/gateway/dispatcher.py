@@ -152,6 +152,9 @@ class RuntimeToolDispatcher:
                 conversation_id=self.context.conversation_id,
                 platform_end_user_id=self.end_user_id,
                 session=self.session,
+                # 运行记录由 stream_embed_chat 创建后回填到 context；
+                # 委派类工具据此把子运行挂到本次运行下。
+                loop_run_id=getattr(self.context, "loop_run_id", None),
             )
         if getattr(tool, "kind", None) == "skill_script":
             return await execute_skill_script(

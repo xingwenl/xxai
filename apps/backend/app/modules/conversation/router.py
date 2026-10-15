@@ -81,6 +81,7 @@ async def _prepare(
         mcp_repo=tool_mcp_repo,
         tool_session=tool_session,
         conversation_id_provider=lambda: getattr(context, "conversation_id", None),
+        loop_run_id_provider=lambda: getattr(context, "loop_run_id", None),
     )
 
     return agent, context, citations, invoke

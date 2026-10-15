@@ -92,11 +92,24 @@ def build_runtime_tool_list(context) -> list:
 async def build_loop_payload(
     repo: ConversationRepository, loop_id: int, conversation_id: int
 ) -> dict | None:
+    """把一次运行及其步骤组装成前端可渲染的 payload。
+
+    与 ``serializers.build_loop_payload`` 是两份**不同**的投影（这里多带
+    ``skillVersion``，那份多带 ``inputSummary``），因此不能互相替换；委派的两个
+    键（``delegatedRuns``/``delegatedRunIds``）在两边都只在确实有委派时出现，
+    未使用委派的运行投影与引入委派之前逐字相同。
+    """
+
+    from app.modules.conversation.serializers import (
+        delegated_run_ids,
+        load_delegated_runs,
+    )
+
     loop = await repo.get_loop(loop_id, conversation_id)
     if loop is None:
         return None
     steps = await repo.list_loop_steps(loop.id)
-    return {
+    payload = {
         "id": str(loop.id),
         "requestId": loop.request_id,
         "status": loop.status,
@@ -115,10 +128,17 @@ async def build_loop_payload(
                 "skillVersion": step.skill_version,
                 "citationRefs": step.citation_refs,
                 "error": step.error,
+                **(
+                    {"delegatedRunIds": ids} if (ids := delegated_run_ids(step)) else {}
+                ),
             }
             for step in steps
         ],
     }
+    delegated_runs = await load_delegated_runs(repo, loop.id)
+    if delegated_runs:
+        payload["delegatedRuns"] = delegated_runs
+    return payload
 
 
 async def build_loop_with_steps(
@@ -130,12 +150,16 @@ async def build_loop_with_steps(
     skill_usages: list[dict] | None = None,
     *,
     retrieval_input_summary: str | None = None,
+    parent_loop_run_id: int | None = None,
 ):
     """创建 Loop 与检索/技能初始步骤（仅 flush，不提交）。
 
     提交时机由调用方控制：REST 路径在全部步骤创建后统一 save_loop，
     Embed 网关路径按原逻辑在每类步骤创建后分别 save_loop，保证两边
     落库进度一致。
+
+    ``parent_loop_run_id`` 只在「这次运行是被别的运行委派出来的」时非空：
+    子运行是普通运行记录加一条父运行指针，读侧据此还原委派树。
     """
     loop = await repo.create_loop(
         conversation.id,
@@ -143,6 +167,7 @@ async def build_loop_with_steps(
         request_id=request_id,
         status="running",
         summary="正在处理请求",
+        parent_loop_run_id=parent_loop_run_id,
     )
     retrieval = await repo.create_loop_step(
         loop.id,
@@ -185,6 +210,8 @@ async def _start_loop(
     request_id: str,
     citations: list[dict],
     skill_usages: list[dict] | None = None,
+    *,
+    parent_loop_run_id: int | None = None,
 ):
     loop, retrieval, skill_steps = await build_loop_with_steps(
         repo,
@@ -193,6 +220,7 @@ async def _start_loop(
         request_id,
         citations,
         skill_usages,
+        parent_loop_run_id=parent_loop_run_id,
     )
     await repo.save_loop(loop)
     return loop, retrieval, skill_steps
@@ -438,12 +466,17 @@ async def _run_execute_chat_model_round(
     message: str,
     citations: list[dict],
     request_id: str,
+    max_iterations: int | None = None,
 ) -> GraphResult:
     """执行 REST 非流式对话的模型轮次（统一 AgentRuntime）。
 
     AgentLoop 是唯一主循环实现：这里只负责按上下文组装 LangChain 消息、
     构建 runtime（含上下文护栏与 context-length 降级恢复），并把统一结果
     收敛为 REST 的 GraphResult，供 execute_chat 统一失败收尾。
+
+    ``max_iterations`` 缺省沿用全局 ``agent_max_iterations``；委派产生的子运行
+    传自己的（更小的）上限——父运行的一轮里一次委派就会把子运行的整轮预算花掉，
+    两者不该共用同一档。
     """
 
     system_prompt = build_system_prompt(
@@ -458,7 +491,7 @@ async def _run_execute_chat_model_round(
             messages,
             window_tokens=resolve_context_window_tokens(context.version),
         ),
-        max_turns=get_settings().agent_max_iterations,
+        max_turns=max_iterations or get_settings().agent_max_iterations,
         on_model_error=make_context_degrade_recoverer(system_prompt, message),
     )
     messages = build_langchain_messages(
@@ -500,6 +533,7 @@ async def _run_chat_model_round_or_orchestration(
     user_id: int | None,
     end_user_id: int | None,
     allow_orchestration: bool,
+    max_iterations: int | None = None,
 ):
     """一轮对话的产出：绑定编排时交给工作流，否则走普通的单 Agent 模型循环。
 
@@ -546,6 +580,7 @@ async def _run_chat_model_round_or_orchestration(
         message=message,
         citations=citations,
         request_id=request_id,
+        max_iterations=max_iterations,
     )
 
 
@@ -612,6 +647,8 @@ async def execute_chat(
     invoke_tool_fn=None,
     end_user_id: int | None = None,
     allow_orchestration: bool = True,
+    parent_loop_run_id: int | None = None,
+    max_iterations: int | None = None,
 ):
     logger.info(
         "Conversation chat started platform_id=%s user_id=%s end_user_id=%s agent_id=%s conversation_id=%s message_chars=%s citation_count=%s",
@@ -647,7 +684,11 @@ async def execute_chat(
         f"conversation-{conversation.id}",
         citations,
         context.skill_usages,
+        parent_loop_run_id=parent_loop_run_id,
     )
+    # 把本次运行的 ID 挂回上下文：委派类工具要在执行期就知道"我是哪一次运行派出来的"，
+    # 而运行记录在这里才创建。与 conversation_id 同一套延迟求值口径。
+    context.loop_run_id = loop.id
     runtime_tools = build_runtime_tool_list(context)
     try:
         result = await _run_chat_model_round_or_orchestration(
@@ -663,6 +704,7 @@ async def execute_chat(
             user_id=user_id,
             end_user_id=end_user_id,
             allow_orchestration=allow_orchestration,
+            max_iterations=max_iterations,
         )
     except Exception as error:
         # REST 非流式与流式入口共用同一错误语义：模型失败不能把 loop 留在
@@ -740,6 +782,7 @@ async def stream_chat(
     invoke_tool_fn=None,
     on_model_task_started=None,
     allow_orchestration: bool = True,
+    max_iterations: int | None = None,
 ):
     logger.info(
         "Conversation stream chat started platform_id=%s user_id=%s agent_id=%s conversation_id=%s message_chars=%s citation_count=%s",
@@ -776,6 +819,8 @@ async def stream_chat(
         citations,
         context.skill_usages,
     )
+    # 与 execute_chat 同一口径：运行记录创建后立刻挂回上下文，供委派类工具使用。
+    context.loop_run_id = loop.id
     yield {
         "type": "agent_loop_started",
         "conversation": conversation,
@@ -854,7 +899,7 @@ async def stream_chat(
                 messages,
                 window_tokens=resolve_context_window_tokens(context.version),
             ),
-            max_turns=get_settings().agent_max_iterations,
+            max_turns=max_iterations or get_settings().agent_max_iterations,
             on_model_error=make_context_degrade_recoverer(system_prompt, message),
             on_task_started=on_model_task_started,
         )
@@ -1059,6 +1104,10 @@ async def execute_unattended_chat(
     confirmation_decider=None,
     tool_session=None,
     allow_orchestration: bool = True,
+    allow_delegation: bool = True,
+    platform_tools_only: bool = False,
+    parent_loop_run_id: int | None = None,
+    max_iterations: int | None = None,
 ):
     """无人值守执行一轮 Agent 对话（非 HTTP 入口）。
 
@@ -1075,6 +1124,12 @@ async def execute_unattended_chat(
     每轮都新建会话（``conversation_id=None``），因此一次任务运行对应一个
     独立会话，执行记录可以精确回溯到它。返回
     ``(conversation, assistant_message, GraphResult)``。
+
+    另有四个参数专供**委派产生的子运行**使用，默认值让既有调用方行为不变：
+    ``allow_delegation=False`` 时本 Agent 的工具清单里没有委派工具（深度恒为 1
+    就断在这里）；``platform_tools_only=True`` 时剔除 MCP 工具（子运行不允许
+    触碰 side_effect="external" 的能力）；``parent_loop_run_id`` 把本次运行挂到
+    派生它的父运行下；``max_iterations`` 用子运行自己的（更小的）轮次上限。
     """
 
     from app.modules.agent.repositories import AgentRepository
@@ -1110,6 +1165,8 @@ async def execute_unattended_chat(
         BuiltinToolRepository(session),
         agent_id=agent_id,
         platform_id=platform_id,
+        allow_delegation=allow_delegation,
+        platform_tools_only=platform_tools_only,
     )
     citations = await retrieve_citations(
         KnowledgeRepository(session), context.knowledge_bases, message
@@ -1126,6 +1183,7 @@ async def execute_unattended_chat(
         platform_end_user_id=end_user_id,
         conversation_id_provider=lambda: getattr(context, "conversation_id", None),
         confirmation_decider=confirmation_decider,
+        loop_run_id_provider=lambda: getattr(context, "loop_run_id", None),
     )
 
     model = build_chat_model(
@@ -1154,6 +1212,8 @@ async def execute_unattended_chat(
         citations=[citation.model_dump() for citation in citations],
         invoke_tool_fn=invoke,
         allow_orchestration=allow_orchestration,
+        parent_loop_run_id=parent_loop_run_id,
+        max_iterations=max_iterations,
     )
 
 

@@ -684,3 +684,72 @@ def test_loop_does_not_retry_when_recoverer_returns_none():
         pass
     else:
         raise AssertionError("expected OtherError to propagate")
+
+
+def test_loop_runs_delegation_serially_and_keeps_sibling_tool_result():
+    """委派工具走同一条串行工具通道：父 loop 不并发，失败也不拖累同批工具。
+
+    并发池在 `delegate_tasks` 内部，不在 `AgentLoop` 里——这条断言是「父 loop
+    语义零改动」的守门人：一旦有人在 loop 层加并发，这里立刻失败。
+    """
+    events = []
+    contexts = []
+    order = []
+    in_flight = 0
+    max_in_flight = 0
+    model_calls = 0
+
+    async def model(messages, *, emit):
+        nonlocal model_calls
+        model_calls += 1
+        contexts.append(list(messages))
+        if model_calls == 1:
+            return ModelTurn(
+                tool_calls=[
+                    ToolCall("call-1", "delegate_tasks"),
+                    ToolCall("call-2", "runtime_info"),
+                ]
+            )
+        return ModelTurn(content="两个工具都回来了")
+
+    async def invoke(call):
+        nonlocal in_flight, max_in_flight
+        in_flight += 1
+        max_in_flight = max(max_in_flight, in_flight)
+        order.append(call.name)
+        try:
+            # 模拟子运行耗时不均：委派明显更慢，若 loop 并发执行则会重叠
+            await asyncio.sleep(0.02 if call.name == "delegate_tasks" else 0)
+        finally:
+            in_flight -= 1
+        if call.name == "delegate_tasks":
+            return ToolOutcome(
+                status="failed",
+                call_id=call.id,
+                error={"code": "delegation_timeout", "message": "子运行超时"},
+            )
+        return ToolOutcome(
+            status="completed", call_id=call.id, result={"platform": "acme"}
+        )
+
+    async def on_event(event):
+        events.append(event)
+
+    result = asyncio.run(
+        AgentLoop(
+            model=model,
+            tool_invoker=invoke,
+            hooks=AgentRuntimeHooks(on_event=on_event),
+        ).run([])
+    )
+
+    assert max_in_flight == 1
+    assert order == ["delegate_tasks", "runtime_info"]
+    assert result.content == "两个工具都回来了"
+    completed = [event for event in events if event.type == "tool_completed"]
+    assert [event.payload["status"] for event in completed] == ["failed", "completed"]
+    # 委派的失败以一个稳定错误码交回父模型，而不是异常或整批中止
+    assert completed[0].payload["error"]["code"] == "delegation_timeout"
+    assert contexts[1][-2].status == "failed"
+    assert contexts[1][-2].error["code"] == "delegation_timeout"
+    assert contexts[1][-1].status == "completed"

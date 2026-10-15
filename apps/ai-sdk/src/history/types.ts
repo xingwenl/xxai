@@ -46,6 +46,9 @@ export interface ConversationPagePayload {
  * 字段类型与 `AgentLoopStep` 对应字段逐一对齐（`status` 用
  * `AgentLoopStepStatus`、`error` 用 `AgentLoopStep['error']`），
  * 从而保证 payload 可直接赋值给 `Message['loop']`。
+ *
+ * `delegatedRunIds` 与 `ConversationLoopRunPayload['delegatedRuns']` 是运行期
+ * 动态委派的读侧投影：工具步骤记下本次扇出的子运行 ID，子运行明细挂在 loop 上。
  */
 export interface ConversationLoopStepPayload {
   id: string
@@ -59,6 +62,7 @@ export interface ConversationLoopStepPayload {
   toolName: AgentLoopStep['toolName']
   skillName: AgentLoopStep['skillName']
   citationRefs: AgentLoopStep['citationRefs']
+  delegatedRunIds: AgentLoopStep['delegatedRunIds']
   error: AgentLoopStep['error']
 }
 
@@ -68,6 +72,7 @@ export interface ConversationLoopRunPayload {
   requestId: AgentLoopRun['requestId']
   status: AgentLoopStatus
   summary: AgentLoopRun['summary']
+  delegatedRuns: AgentLoopRun['delegatedRuns']
   steps: ConversationLoopStepPayload[]
 }
 

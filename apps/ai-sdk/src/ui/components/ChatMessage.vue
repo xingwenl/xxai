@@ -27,7 +27,11 @@
                 v-else-if="entry.kind === 'group'"
                 :steps="entry.steps"
               />
-              <AgentLoopStepCard v-else :step="entry.step" />
+              <AgentLoopStepCard
+                v-else
+                :step="entry.step"
+                :delegated-runs="message.loop?.delegatedRuns"
+              />
             </div>
             <div class="xxai-timeline-entry">
               <MessageContent

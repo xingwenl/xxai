@@ -506,6 +506,112 @@ def test_get_run_detail_empty_when_never_executed() -> None:
             )
             assert detail.steps == []
             assert detail.loop_id is None
+            # 未使用委派时字段为 None（前端据此静默不渲染）
+            assert detail.delegatedRuns is None
+        await engine.dispose()
+
+    asyncio.run(run())
+
+
+def test_get_run_detail_exposes_delegated_runs() -> None:
+    """委派子运行在任务详情里可读：步骤带子运行 ID，详情带子运行摘要。
+
+    任务详情不经会话页，委派结果只能靠这份投影看见；字段名与 conversation
+    侧契约一致（camelCase），前端两处渲染共用同一形状。
+    """
+
+    async def run():
+        engine, session_factory = await _make_session()
+        async with session_factory() as session:
+            platform, agent, admin, _member = await _seed(session)
+            task = await services.create_task(
+                session,
+                platform_id=platform.id,
+                payload=_payload(agent.id),
+                owner_user_id=admin.id,
+            )
+            from app.modules.conversation.models import (
+                AgentLoopRun,
+                AgentLoopStep,
+                Conversation,
+            )
+            from app.modules.tasks.models import TaskRun
+
+            parent_conversation = Conversation(
+                platform_id=platform.id,
+                agent_id=agent.id,
+                user_id=admin.id,
+                title="父会话",
+            )
+            session.add(parent_conversation)
+            await session.flush()
+            parent_loop = AgentLoopRun(
+                conversation_id=parent_conversation.id,
+                request_id="svc-delegated",
+                status="completed",
+            )
+            session.add(parent_loop)
+            await session.flush()
+
+            child_conversation = Conversation(
+                platform_id=platform.id,
+                agent_id=agent.id,
+                user_id=admin.id,
+                title="子会话",
+            )
+            session.add(child_conversation)
+            await session.flush()
+            child_loop = AgentLoopRun(
+                conversation_id=child_conversation.id,
+                request_id="svc-delegated-child",
+                status="completed",
+                summary="子运行完成",
+                parent_loop_run_id=parent_loop.id,
+            )
+            session.add(child_loop)
+            await session.flush()
+
+            session.add(
+                AgentLoopStep(
+                    loop_run_id=parent_loop.id,
+                    sequence=1,
+                    step_type="builtin_tool",
+                    title="调用工具：delegate_tasks",
+                    status="succeeded",
+                    tool_name="delegate_tasks",
+                    step_metadata={"delegatedRunIds": [str(child_loop.id)]},
+                )
+            )
+            task_run = TaskRun(
+                task_id=task.id,
+                status="completed",
+                trigger_kind="scheduled",
+                conversation_id=parent_conversation.id,
+                agent_loop_run_id=parent_loop.id,
+            )
+            session.add(task_run)
+            await session.commit()
+
+            detail = await services.get_run_detail(
+                session, task=task, run_id=task_run.id
+            )
+            assert detail.steps[0].delegatedRunIds == [str(child_loop.id)]
+            assert detail.delegatedRuns is not None
+            child = detail.delegatedRuns[0]
+            assert child.id == str(child_loop.id)
+            assert child.agentSlug == agent.slug
+            assert child.status == "completed"
+            assert child.summary == "子运行完成"
+            assert child.conversationId == str(child_conversation.id)
+            # 序列化后的键名是前端契约（camelCase），不能退化成 snake_case
+            assert set(child.model_dump()) == {
+                "id",
+                "agentSlug",
+                "agentName",
+                "status",
+                "summary",
+                "conversationId",
+            }
         await engine.dispose()
 
     asyncio.run(run())

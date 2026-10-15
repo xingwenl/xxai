@@ -127,6 +127,9 @@ class RuntimeContext(BaseModel):
     builtin_tools: list[Any] = Field(default_factory=list)
     host_tools: list[Any] = Field(default_factory=list)
     conversation_id: int | None = None
+    # 本次运行在 agent_loop_runs 里的 ID：运行记录创建后由 execute_chat/stream_chat
+    # 回填，供委派类工具把子运行挂到父运行下（与 conversation_id 同一套延迟求值口径）。
+    loop_run_id: int | None = None
 
 
 class ConversationPrincipalRead(BaseModel):

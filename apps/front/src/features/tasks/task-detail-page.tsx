@@ -9,6 +9,7 @@ import {
   listTaskRuns,
   runTaskNow,
   type TaskRun,
+  type TaskRunDelegatedRun,
   type TaskRunDetail,
 } from '@/api/task'
 import { formatDateTime } from '@/lib/time'
@@ -32,6 +33,15 @@ const SKIP_REASON_TEXT: Record<string, string> = {
   overlapped: '上一次运行尚未结束',
   task_paused: '任务已暂停',
   deadline_missed: '错过触发点（不补跑）',
+}
+
+/** 子运行状态文案；取值与后端 `agent_loop_runs.status` 一致，未知值原样透传。 */
+const DELEGATED_RUN_STATUS_TEXT: Record<string, string> = {
+  running: '执行中',
+  completed: '已完成',
+  failed: '失败',
+  cancelled: '已取消',
+  waiting_confirmation: '待确认',
 }
 
 export function TaskDetailPage() {
@@ -395,12 +405,67 @@ function RunSteps({
             </p>
           )}
           {step.error && <p className='text-destructive mt-1'>错误：{step.error}</p>}
+          <StepDelegatedRuns
+            runIds={step.delegatedRunIds}
+            delegatedRuns={detail?.delegatedRuns}
+          />
         </div>
       ))}
       {run.error_message && (
         <p className='text-destructive'>运行错误：{run.error_message}</p>
       )}
     </div>
+  )
+}
+
+/**
+ * 工具步骤下只读展开的子运行清单（运行期动态委派）。
+ *
+ * 步骤只记子运行 ID，明细从本次运行的 `delegatedRuns` 里取——两个字段都可能为
+ * 空（后端未使用委派时下发 null），任一为空时静默不渲染，退化成改动前的视图；
+ * 不发请求、不做跳转。
+ */
+function StepDelegatedRuns({
+  runIds,
+  delegatedRuns,
+}: {
+  runIds?: string[] | null
+  delegatedRuns?: TaskRunDelegatedRun[] | null
+}) {
+  const runsById = new Map((delegatedRuns ?? []).map((run) => [run.id, run]))
+  const childRuns = (runIds ?? [])
+    .map((id) => runsById.get(id))
+    .filter((run): run is TaskRunDelegatedRun => run != null)
+
+  if (childRuns.length === 0) return null
+
+  return (
+    <details className='mt-1' open>
+      <summary className='cursor-pointer text-muted-foreground'>
+        子运行（{childRuns.length} 个）
+      </summary>
+      <ul className='mt-1 flex flex-col gap-1'>
+        {childRuns.map((run) => (
+          <li key={run.id} className='rounded bg-muted/50 p-2'>
+            <div className='flex flex-wrap items-center gap-2'>
+              <span className='font-medium'>
+                {run.agentName || run.agentSlug}
+              </span>
+              <Badge
+                variant={run.status === 'failed' ? 'destructive' : 'outline'}
+              >
+                {DELEGATED_RUN_STATUS_TEXT[run.status] ?? run.status}
+              </Badge>
+            </div>
+            {run.summary && (
+              <p className='mt-1 whitespace-pre-wrap text-muted-foreground'>
+                {run.summary}
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
+    </details>
   )
 }
 

@@ -298,6 +298,22 @@ class ConversationRepository:
         )
         return list(result.scalars().all())
 
+    async def list_child_loops(self, parent_loop_run_id: int):
+        """列出挂在该运行下的子运行（委派产生），并带上子 Agent 的 slug/name。
+
+        子运行各自有一条独立会话，Agent 归属只能经 ``conversations.agent_id``
+        取；用 outerjoin 是为了让「Agent 已被删除」的历史子运行仍然能读出来
+        （那时 slug/name 为 None，展示层退化成只显示状态）。
+        """
+        result = await self.session.execute(
+            select(AgentLoopRun, Agent.slug, Agent.name)
+            .join(Conversation, Conversation.id == AgentLoopRun.conversation_id)
+            .outerjoin(Agent, Agent.id == Conversation.agent_id)
+            .where(AgentLoopRun.parent_loop_run_id == parent_loop_run_id)
+            .order_by(AgentLoopRun.id)
+        )
+        return list(result.all())
+
     async def get_loop(self, loop_id: int, conversation_id: int):
         return await self.session.scalar(
             select(AgentLoopRun).where(

@@ -139,6 +139,48 @@ class AgentRepository(BaseRepository[Agent]):
             return None
         return agent if agent.default_version.published_at is not None else None
 
+    async def get_published_active_agent_by_slug(
+        self, platform_id: int, slug: str
+    ) -> Agent | None:
+        """按 slug 取本平台「已发布且已启用」的智能体。
+
+        「列入可派清单」与「真正被派生子运行」必须用同一个谓词判定，否则
+        清单里出现的 Agent 会在执行时被拒（或反过来：清单没列出的却能派），
+        所以两个入口都走这一个函数。
+        """
+        result = await self.session.execute(
+            select(Agent)
+            .join(AgentVersion, AgentVersion.id == Agent.default_version_id)
+            .where(
+                Agent.platform_id == platform_id,
+                Agent.slug == slug,
+                Agent.is_active.is_(True),
+                AgentVersion.published_at.is_not(None),
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_published_active_agents(
+        self, platform_id: int, *, limit: int = 50
+    ) -> list[Agent]:
+        """列出本平台「已发布且已启用」的智能体，按 slug 排序。
+
+        调用方是委派工具的描述注入：清单会进模型上下文，因此条数由调用方
+        显式限制（``limit`` 在 SQL 层生效，不会先取全量再截断）。
+        """
+        result = await self.session.execute(
+            select(Agent)
+            .join(AgentVersion, AgentVersion.id == Agent.default_version_id)
+            .where(
+                Agent.platform_id == platform_id,
+                Agent.is_active.is_(True),
+                AgentVersion.published_at.is_not(None),
+            )
+            .order_by(Agent.slug.asc())
+            .limit(max(1, limit))
+        )
+        return list(result.scalars().all())
+
     async def get_published_agent_for_user(self, agent_id: int, user_id: int):
         result = await self.session.execute(
             select(Agent)

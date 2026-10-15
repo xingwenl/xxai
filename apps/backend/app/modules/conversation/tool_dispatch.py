@@ -62,11 +62,15 @@ def build_tool_invoker(
     user_id: int | None = None,
     platform_end_user_id: int | None = None,
     confirmation_decider: ConfirmationDecider | None = None,
+    loop_run_id_provider: Callable[[], int | None] | None = None,
 ) -> Callable[..., Awaitable[Any]]:
     """构造工具调用函数，供 REST 聊天与无人值守任务共用。
 
     ``conversation_id_provider`` 用回调而不是直接传值：会话 id 要等
     ``execute_chat`` 内部解析会话后才存在，而分派函数必须先构造出来。
+    ``loop_run_id_provider`` 同理——运行记录在 ``build_loop_with_steps``
+    里才创建，委派类工具要用它把子运行挂到父运行下；未传时恒为 None，
+    非委派场景行为不变。
     """
 
     loaded_skill_cache: dict[str, Any] = {}
@@ -95,6 +99,9 @@ def build_tool_invoker(
                 user_id=user_id,
                 platform_end_user_id=platform_end_user_id,
                 session=tool_session,
+                loop_run_id=(
+                    loop_run_id_provider() if loop_run_id_provider is not None else None
+                ),
             )
 
         if kind == "skill_script":

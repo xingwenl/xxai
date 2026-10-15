@@ -154,7 +154,26 @@ class TaskRunStepRead(BaseModel):
     thinking_text: str | None = None
     tool_name: str | None = None
     skill_name: str | None = None
+    # 本步骤（一次委派工具调用）扇出的子运行 ID；未使用委派时为 None。
+    # 字段名刻意用 camelCase，与 conversation 侧的步骤契约保持同一份形状。
+    delegatedRunIds: list[str] | None = None
     error: str | None = None
+
+
+class TaskRunDelegatedRun(BaseModel):
+    """父运行派生的子运行摘要（运行期动态委派）。
+
+    只读视图：子运行有自己的会话与运行记录，任务详情页只展示渲染所需的终态
+    信息。字段名与 conversation 侧 `delegatedRuns` 契约逐字一致，免得同一个
+    概念在两处契约里各长一套名字。
+    """
+
+    id: str
+    agentSlug: str
+    agentName: str
+    status: str
+    summary: str | None = None
+    conversationId: str | None = None
 
 
 class TaskRunDetail(BaseModel):
@@ -168,4 +187,6 @@ class TaskRunDetail(BaseModel):
     loop_id: str | None = None
     loop_status: str | None = None
     loop_summary: str | None = None
+    # 本次运行派生的子运行；未使用委派时为 None（字段名同 conversation 侧契约）。
+    delegatedRuns: list[TaskRunDelegatedRun] | None = None
     steps: list[TaskRunStepRead] = Field(default_factory=list)

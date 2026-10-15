@@ -58,6 +58,7 @@ async def invoke_builtin_tool(
     user_id: int | None = None,
     platform_end_user_id: int | None = None,
     session=None,
+    loop_run_id: int | None = None,
 ) -> BuiltinToolOutcome:
     """旧入口：参数与返回结构不变，直接执行注册表里的业务工具 handler。"""
     definition = get_builtin_tool(tool.name)
@@ -95,6 +96,7 @@ async def invoke_builtin_tool(
         conversation_id=conversation_id,
         user_id=user_id,
         platform_end_user_id=platform_end_user_id,
+        loop_run_id=loop_run_id,
         session=session,
         asset_repo=asset_repo,
         shop_token=shop_token,
@@ -134,4 +136,17 @@ async def invoke_builtin_tool(
             return BuiltinToolOutcome(
                 status="failed", result={"error": {"code": "tool_failed"}}
             )
+    return _outcome_from_result(result)
+
+
+def _outcome_from_result(result: Any) -> BuiltinToolOutcome:
+    """把 handler 结果包装成统一 outcome，并摘出保留键 ``_metadata``。
+
+    ``_metadata`` 是工具与落库链路之间的私有通道（目前只用于回传派生子运行的
+    ID），必须在这里摘掉：否则它会随 result 一起被摘要回填给模型。
+    """
+    if isinstance(result, dict) and isinstance(result.get("_metadata"), dict):
+        payload = dict(result)
+        metadata = payload.pop("_metadata")
+        return BuiltinToolOutcome(status="completed", result=payload, metadata=metadata)
     return BuiltinToolOutcome(status="completed", result=result)

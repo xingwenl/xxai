@@ -41,7 +41,11 @@
         :key="item.kind === 'group' ? 'skill-group' : item.step.id"
       >
         <AgentLoopSkillGroup v-if="item.kind === 'group'" :steps="item.steps" />
-        <AgentLoopStepCard v-else :step="item.step" />
+        <AgentLoopStepCard
+          v-else
+          :step="item.step"
+          :delegated-runs="message.loop?.delegatedRuns"
+        />
       </template>
     </div>
   </section>

@@ -200,6 +200,22 @@ export async function listTaskRuns(
   return toPage<TaskRun>(data)
 }
 
+/**
+ * 父运行派生的子运行摘要（运行期动态委派）。
+ *
+ * 只读：子运行有独立会话与运行记录，这里只带渲染所需的终态信息，
+ * 契约字段名与 ai-sdk 的 `DelegatedRun` 一致（camelCase）。
+ */
+export type TaskRunDelegatedRun = {
+  /** 子运行 ID（后端 `agent_loop_runs.id` 字符串化）。 */
+  id: string
+  agentSlug: string
+  agentName: string
+  status: string
+  summary: string | null
+  conversationId: string | null
+}
+
 /** 执行过程中的一步。 */
 export type TaskRunStep = {
   id: string
@@ -211,6 +227,8 @@ export type TaskRunStep = {
   thinking_text: string | null
   tool_name: string | null
   skill_name: string | null
+  /** 本步骤（一次委派工具调用）扇出的子运行 ID；无子运行时为 null。 */
+  delegatedRunIds?: string[] | null
   error: string | null
 }
 
@@ -220,6 +238,8 @@ export type TaskRunDetail = {
   loop_id: string | null
   loop_status: string | null
   loop_summary: string | null
+  /** 本次运行派生的子运行摘要；无子运行时为 null。 */
+  delegatedRuns?: TaskRunDelegatedRun[] | null
   steps: TaskRunStep[]
 }
 

@@ -801,7 +801,7 @@ def tool_step_values(tool_event: dict, sequence: int) -> dict:
     input_summary = tool_event.get("input_summary") or _runtime_arguments_summary(
         tool_event, limit=300
     )
-    return {
+    values = {
         "sequence": sequence,
         "step_type": tool_event.get("tool_type", "host_tool"),
         "title": f"调用工具：{tool_event['tool']}",
@@ -840,7 +840,12 @@ def tool_step_values(tool_event: dict, sequence: int) -> dict:
             else None
         ),
     }
-
+    # 工具自带的私有元数据（目前只有委派工具用它回传派生子运行 ID）。
+    # 仅在有内容时写入：未使用该通道的工具，落库形状与改造前逐字一致。
+    tool_metadata = getattr(outcome, "metadata", None)
+    if isinstance(tool_metadata, dict) and tool_metadata:
+        values["step_metadata"] = tool_metadata
+    return values
 
 def build_step_payload(
     step,
@@ -1142,6 +1147,76 @@ def format_sse_event(event: dict[str, Any]) -> str:
     )
 
 
+async def _apply_delegation_policy(
+    builtin_tools: list[Any],
+    *,
+    agent_repo,
+    platform_id: int,
+    allow_delegation: bool,
+) -> list[Any]:
+    """按委派策略裁剪内置工具清单，并把可派智能体清单注入委派工具的描述。
+
+    两条规则都只在这里落地：
+
+    1. ``allow_delegation=False``（子运行）时直接摘掉委派工具——深度恒为 1 靠的
+       是"工具根本不在清单里"，而不是运行期再判断一次；
+    2. 允许委派且该 Agent 确实绑定了委派工具时，把静态工具定义换成一份**带本平台
+       可派智能体清单**的版本。静态 ``@business_tool`` 的 description 在导入期就固定，
+       无法按平台变化，只能在组装运行时上下文这一刻替换。
+    """
+
+    from dataclasses import replace
+
+    from app.core.config import get_settings
+    from app.modules.tools.business.delegate_tasks import (
+        DELEGATE_TASKS_TOOL_NAME,
+        build_agent_catalog_description,
+    )
+
+    def _is_delegate(tool: Any) -> bool:
+        return getattr(tool, "name", None) == DELEGATE_TASKS_TOOL_NAME
+
+    if not any(_is_delegate(tool) for tool in builtin_tools):
+        return builtin_tools
+    if not allow_delegation:
+        return [tool for tool in builtin_tools if not _is_delegate(tool)]
+
+    try:
+        agents = await agent_repo.list_published_active_agents(
+            platform_id,
+            limit=get_settings().delegation_max_agents_in_prompt,
+        )
+    except Exception:
+        # 清单只是给模型的提示，查库失败不该让整轮对话失败：退化成空清单，
+        # 委派工具仍可用（参数校验会给出明确拒绝）。
+        logger.warning(
+            "Delegatable agent catalog query failed platform_id=%s",
+            platform_id,
+            exc_info=True,
+        )
+        agents = []
+    catalog = [
+        (
+            getattr(agent, "slug", "") or "",
+            getattr(agent, "name", None) or getattr(agent, "slug", "") or "",
+        )
+        for agent in agents
+    ]
+    return [
+        (
+            replace(
+                tool,
+                description=build_agent_catalog_description(
+                    getattr(tool, "description", "") or "", catalog
+                ),
+            )
+            if _is_delegate(tool)
+            else tool
+        )
+        for tool in builtin_tools
+    ]
+
+
 async def load_runtime_context(
     agent_repo,
     knowledge_repo,
@@ -1151,6 +1226,8 @@ async def load_runtime_context(
     *,
     agent_id: int,
     platform_id: int,
+    allow_delegation: bool = True,
+    platform_tools_only: bool = False,
 ) -> RuntimeContext:
     """
     加载指定 Agent 的运行时上下文
@@ -1173,6 +1250,11 @@ async def load_runtime_context(
         mcp_repo: MCP 仓库实例，用于查询关联的 MCP 工具
         agent_id: Agent 唯一标识
         platform_id: 平台唯一标识
+        allow_delegation: 是否允许本 Agent 使用委派工具。子运行固定传 False：
+            子运行不允许再派生（深度恒为 1），且它的工具清单里绝不能出现
+            ``delegate_tasks``——这条闸必须落在代码里，不能靠"用户别这么配"。
+            为 True 且该 Agent 确实绑定了委派工具时，工具描述会被替换成一份
+            **带本平台可派智能体清单**的版本（静态工具定义无法按平台变化）。
 
     Returns:
         RuntimeContext: 组装好的运行时上下文对象
@@ -1195,11 +1277,24 @@ async def load_runtime_context(
     knowledge_bases = await knowledge_repo.list_enabled_for_agent(agent_id, platform_id)
 
     # 加载 MCP 工具列表
-    mcp_tools = await mcp_repo.list_enabled_tools_for_agent(agent_id, platform_id)
+    # 委派产生的子运行会传 platform_tools_only=True：MCP 工具默认 side_effect
+    # 为 "external"，而子运行没有任何渠道把确认弹给人，只能静默批准或不可用，
+    # 因此整类剔除（宿主工具本来就不在这条无人值守链路的清单里）。
+    mcp_tools = (
+        []
+        if platform_tools_only
+        else await mcp_repo.list_enabled_tools_for_agent(agent_id, platform_id)
+    )
     builtin_tools = (
         await builtin_tool_repo.list_enabled_tools_for_agent(agent_id, platform_id)
         if builtin_tool_repo is not None
         else []
+    )
+    builtin_tools = await _apply_delegation_policy(
+        builtin_tools,
+        agent_repo=agent_repo,
+        platform_id=platform_id,
+        allow_delegation=allow_delegation,
     )
 
     # 构建技能脚本工具（将技能绑定转换为可调用的工具对象）

@@ -327,6 +327,7 @@ async def get_run_detail(session: AsyncSession, *, task: Task, run_id: int):
     from app.modules.conversation.repositories import ConversationRepository
     from app.modules.conversation.services import build_loop_payload
     from app.modules.tasks.schemas import (
+        TaskRunDelegatedRun,
         TaskRunDetail,
         TaskRunRead,
         TaskRunStepRead,
@@ -353,14 +354,21 @@ async def get_run_detail(session: AsyncSession, *, task: Task, run_id: int):
             thinking_text=step.get("thinkingText"),
             tool_name=step.get("toolName"),
             skill_name=step.get("skillName"),
+            delegatedRunIds=step.get("delegatedRunIds"),
             error=step.get("error"),
         )
         for step in (loop_payload or {}).get("steps", [])
+    ]
+    # 子运行摘要直接沿用 conversation 侧的投影结果（未委派时该键不存在 → None）。
+    delegated_runs = [
+        TaskRunDelegatedRun.model_validate(item)
+        for item in (loop_payload or {}).get("delegatedRuns") or []
     ]
     return TaskRunDetail(
         run=TaskRunRead.model_validate(run),
         loop_id=(loop_payload or {}).get("id"),
         loop_status=(loop_payload or {}).get("status"),
         loop_summary=(loop_payload or {}).get("summary"),
+        delegatedRuns=delegated_runs or None,
         steps=steps,
     )

@@ -68,6 +68,23 @@ export type AgentLoopStepType =
 export type AgentLoopStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 'waiting_confirmation'
 export type AgentLoopStepStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'waiting_confirmation' | 'waiting_question'
 
+/**
+ * 父运行派生的子运行摘要（运行期动态委派）。
+ *
+ * 只读投影：每个子运行有独立的会话与运行记录，这里只带渲染所需的终态信息，
+ * 不含子运行自己的步骤明细，也不参与实时进度（子运行过程事件不回父会话）。
+ */
+export interface DelegatedRun {
+  /** 子运行 ID（后端 `agent_loop_runs.id` 字符串化）。 */
+  id: string
+  agentSlug: string
+  agentName: string
+  /** 与 `AgentLoopStatus` 同源；后端新增状态时按原样透传。 */
+  status: AgentLoopStatus | string
+  summary: string | null
+  conversationId: string | null
+}
+
 export interface AgentLoopStep {
   id: string
   sequence: number
@@ -81,6 +98,8 @@ export interface AgentLoopStep {
   skillName?: string
   skillVersion?: string
   citationRefs?: KnowledgeCitation[]
+  /** 本步骤（一次委派工具调用）扇出的子运行 ID；无子运行时省略或为空数组。 */
+  delegatedRunIds?: string[]
   error?: Record<string, unknown>
   startedAt?: string
   completedAt?: string
@@ -92,6 +111,8 @@ export interface AgentLoopRun {
   requestId: string
   status: AgentLoopStatus
   summary?: string
+  /** 本次运行派生的子运行摘要；无子运行时省略或为空数组。 */
+  delegatedRuns?: DelegatedRun[]
   steps: AgentLoopStep[]
 }
 
