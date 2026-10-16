@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseProtocolEvent } from '../protocol'
+import { PROTOCOL_VERSION, SDK_VERSION, parseProtocolEvent } from '../protocol'
+
+// 与后端 tests/gateway/test_event_parity.py 共用同一份 golden：
+// 后端保证「SSE 与 WS 两个编码器产出这批信封」，SDK 保证「这批信封都能被解析」。
+import goldenEvents from './fixtures/run-events.golden.json'
+import packageJson from '../../../package.json'
 
 describe('protocol v1', () => {
   it('parses a message delta and ignores unknown optional fields', () => {
@@ -132,5 +137,51 @@ describe('protocol v1', () => {
       ],
       allowFreeText: true
     })
+  })
+})
+
+describe('shared run-event golden', () => {
+  it('reports the package version instead of a hardcoded literal', () => {
+    expect(SDK_VERSION).toBe(packageJson.version)
+  })
+
+  it('parses every golden envelope without falling back to unknown', () => {
+    const parsed = goldenEvents.map((envelope) => parseProtocolEvent(envelope))
+
+    expect(goldenEvents.length).toBeGreaterThanOrEqual(18)
+    expect(parsed.map((event) => event.type)).toEqual(
+      goldenEvents.map((envelope) => envelope.type)
+    )
+    expect(parsed.every((event) => event.type !== 'unknown')).toBe(true)
+    expect(parsed.every((event) => event.protocolVersion === PROTOCOL_VERSION)).toBe(true)
+  })
+
+  it('keeps camelCase envelope keys and usage on message_completed', () => {
+    const completed = goldenEvents.find((envelope) => envelope.type === 'message_completed')
+    expect(completed).toBeDefined()
+
+    const event = parseProtocolEvent(completed)
+    expect(event.conversationId).toBe('101')
+    expect(event.requestId).toBe('req-golden')
+    expect(event.payload).toMatchObject({
+      knowledgeGrounded: true,
+      usage: { total_tokens: 15 }
+    })
+  })
+
+  it('reads tool call and tool result payloads by name', () => {
+    const call = parseProtocolEvent(
+      goldenEvents.find((envelope) => envelope.type === 'tool_call')
+    )
+    const result = parseProtocolEvent(
+      goldenEvents.find((envelope) => envelope.type === 'tool_result')
+    )
+
+    expect(call.payload).toEqual({
+      name: 'http_get',
+      input: 'GET https://example.com',
+      callId: 'call_1'
+    })
+    expect(result.payload).toMatchObject({ name: 'http_get', status: 'completed' })
   })
 })

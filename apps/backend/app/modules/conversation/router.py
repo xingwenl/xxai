@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import AsyncIterator
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
@@ -19,8 +20,12 @@ from app.modules.conversation.services import (
 )
 from app.modules.conversation.runtime import (
     build_agent_error_payload,
-    format_sse_event,
     load_runtime_context,
+)
+from app.modules.agent_runtime.events import (
+    error as protocol_error,
+    run_events_from_stream_item,
+    to_sse_block,
 )
 from app.modules.knowledge.repositories import KnowledgeRepository
 from app.modules.conversation.tool_dispatch import build_tool_invoker
@@ -148,6 +153,9 @@ async def chat_endpoint(
         tool_session: AsyncSession,
         model_tasks: set[asyncio.Task],
     ) -> AsyncIterator[str]:
+        # 每次 SSE 请求一个稳定 requestId：断线重连时用于对齐同一次回答的进度。
+        request_id = f"sse-{uuid4().hex}"
+        sequence = 0
         try:
             agent, context, citations, invoke = await _prepare(
                 agent_id,
@@ -156,25 +164,6 @@ async def chat_endpoint(
                 session,
                 tool_session=tool_session,
             )
-            sequence = 0
-
-            def emit(
-                event_type: str,
-                payload_data: dict,
-                conversation_id: int,
-                message_id: int | None,
-            ):
-                nonlocal sequence
-                sequence += 1
-                return format_sse_event(
-                    {
-                        "type": event_type,
-                        "conversation_id": conversation_id,
-                        "message_id": message_id,
-                        "sequence": sequence,
-                        "payload": payload_data,
-                    }
-                )
 
             async for item in stream_chat(
                 ConversationRepository(session),
@@ -194,68 +183,20 @@ async def chat_endpoint(
                 invoke_tool_fn=invoke,
                 on_model_task_started=model_tasks.add,
             ):
-                conversation = item["conversation"]
-                if item["type"] == "message_delta":
-                    yield emit(
-                        "message_delta",
-                        {"content": item["content"]},
-                        conversation.id,
-                        None,
-                    )
-                    continue
-                if item["type"].startswith("agent_"):
-                    yield emit(
-                        item["type"],
-                        item.get("payload", {}),
-                        item["conversation"].id,
-                        getattr(item.get("assistant"), "id", None),
-                    )
-                    continue
-                if item["type"] in {
-                    "tool_call",
-                    "tool_result",
-                    "confirmation_required",
-                }:
-                    yield emit(item["type"], item["payload"], conversation.id, None)
-                    continue
-                if item["type"] == "error":
-                    yield emit("error", item["payload"], conversation.id, None)
-                    return
-                assistant = item["assistant"]
-                result = item["result"]
-                for citation in result.citations:
-                    yield emit("citation", citation, conversation.id, assistant.id)
-                yield emit(
-                    "message_completed",
-                    {
-                        "content": result.content,
-                        "contentBlocks": assistant.content_blocks,
-                        "citations": result.citations,
-                        "knowledge_grounded": result.knowledge_grounded,
-                        "loop": (
-                            {
-                                "id": str(result.loop_id),
-                                "requestId": f"conversation-{conversation.id}",
-                                "status": "completed",
-                                "summary": "已完成回答",
-                                "steps": [],
-                            }
-                            if result.loop_id
-                            else None
-                        ),
-                    },
-                    conversation.id,
-                    assistant.id,
-                )
+                # 服务层 item 统一由 agent_runtime.events 映射为线协议事件，
+                # SSE 只做编码，避免与 WebSocket 各组装一套事件形状。
+                for event in run_events_from_stream_item(item, request_id=request_id):
+                    sequence += 1
+                    yield to_sse_block(event, sequence=sequence)
         except Exception as error:
-            yield format_sse_event(
-                {
-                    "type": "error",
-                    "conversation_id": payload.conversation_id or 0,
-                    "message_id": None,
-                    "sequence": 1,
-                    "payload": build_agent_error_payload(error),
-                }
+            sequence += 1
+            yield to_sse_block(
+                protocol_error(
+                    request_id=request_id,
+                    payload=build_agent_error_payload(error),
+                    conversation_id=payload.conversation_id,
+                ),
+                sequence=sequence,
             )
 
     async def events() -> AsyncIterator[str]:

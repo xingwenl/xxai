@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { FakeWebSocket } from '../../test/fake-websocket'
+import { SDK_VERSION } from '../protocol'
 import { WebSocketTransport } from '../websocket'
 
 const ready = (payload: Record<string, unknown> = {}) => ({
@@ -27,7 +28,7 @@ describe('SDK protocol compatibility', () => {
     await Promise.resolve()
     expect(JSON.parse(socket.sent[0]).payload).toMatchObject({
       protocolVersion: 1,
-      sdkVersion: '0.1.0'
+      sdkVersion: SDK_VERSION
     })
     socket.receive(ready({ serverVersion: '0.1.0', minimumSdkVersion: '0.1.0', capabilities: ['replay'] }))
     await connecting

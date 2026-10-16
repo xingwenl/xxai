@@ -1,5 +1,9 @@
+import packageJson from '../../package.json'
+
 export const PROTOCOL_VERSION = 1 as const
-export const SDK_VERSION = '0.1.0' as const
+// 单一来源：SDK 版本号直接取自 package.json，避免与产物版本漂移。
+// 网关的兼容矩阵会比对这里上报的版本，写死字面量会让上报不可信。
+export const SDK_VERSION: string = packageJson.version
 
 export type ProtocolEventType =
   | 'session_ready'
@@ -32,7 +36,10 @@ export type ProtocolPayload =
   | Record<string, never>
   | { content: string }
   | { title: string; text: string; sourceUrl?: string }
-  | { name: string; status: string }
+  // 工具调用通知：client 读 payload.name / payload.input。
+  | { name: string; input?: unknown; callId?: string }
+  // 工具执行结果：client 读 payload.name / payload.result。
+  | { name: string; result?: unknown; status?: string; error?: unknown }
   | { callId: string; name: string; arguments: unknown; sideEffect?: string; requiresConfirmation?: boolean }
   | {
       callId: string

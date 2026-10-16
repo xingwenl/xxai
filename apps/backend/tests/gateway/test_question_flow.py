@@ -9,7 +9,7 @@ import pytest
 
 from app.modules.gateway.connection import validate_incoming_message
 from app.modules.gateway.dispatcher import RuntimeToolDispatcher
-from app.modules.gateway.events import event_to_protocol_payload
+from app.modules.agent_runtime.events import question_required
 from app.modules.gateway.router import (
     _cancel_pending_request_futures,
     _handle_confirmation_resolve,
@@ -67,15 +67,16 @@ def test_question_tool_sends_event_and_returns_user_answer():
             )
         )
         event = await event_queue.get()
-        assert event["type"] == "question_required"
-        assert event["question_id"] == "call_q1"
-        assert event["question"] == "如何处理重复订单？"
-        assert event["options"] == [
+        assert event.type == "question_required"
+        # 事件形状即线协议 payload（camell 命名），与 WS 出站一致。
+        assert event.payload["questionId"] == "call_q1"
+        assert event.payload["question"] == "如何处理重复订单？"
+        assert event.payload["options"] == [
             {"id": "skip", "label": "跳过"},
             {"id": "merge", "label": "合并"},
         ]
-        assert event["allow_free_text"] is True
-        assert event["expires_at"] is not None
+        assert event.payload["allowFreeText"] is True
+        assert event.payload["expiresAt"] is not None
 
         pending_questions["call_q1"].set_result({"selectedOptionId": "merge"})
         return await task
@@ -223,19 +224,20 @@ def test_inbound_item_id_is_not_used_as_request_filter():
         )
 
 
-def test_event_to_protocol_payload_converts_question_required():
-    payload = event_to_protocol_payload(
-        "question_required",
-        {
-            "question_id": "q_1",
-            "question": "选择处理方式",
-            "description": "发现重复订单",
-            "options": [{"id": "a", "label": "A"}],
-            "allow_free_text": True,
-            "require_selection": True,
-            "expires_at": "2026-08-24T12:00:00+00:00",
-        },
-    )
+def test_question_required_event_uses_protocol_payload():
+    """ask_user 的线协议 payload 由事件构造器唯一定义（不再走旧转换表）。"""
+
+    payload = question_required(
+        conversation_id=None,
+        request_id="req-1",
+        question_id="q_1",
+        question="选择处理方式",
+        description="发现重复订单",
+        options=[{"id": "a", "label": "A"}],
+        allow_free_text=True,
+        require_selection=True,
+        expires_at="2026-08-24T12:00:00+00:00",
+    ).payload
     assert payload == {
         "questionId": "q_1",
         "question": "选择处理方式",

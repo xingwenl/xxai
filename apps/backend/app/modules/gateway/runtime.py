@@ -25,9 +25,9 @@ from app.modules.conversation.runtime import (
     rewrite_image_markdown,
     GraphResult,
 )
-from app.modules.gateway.events import (
+from app.modules.agent_runtime.events import (
     LoopEventBuilder,
-    build_message_started,
+    message_started,
 )
 from app.modules.conversation.schemas import sanitize_content_blocks
 from app.modules.asset.repositories import AssetRepository
@@ -663,7 +663,7 @@ async def stream_embed_chat(
     )
     # 先通知前端请求已被接受，后续模型调用可能需要等待外部服务或页面工具；
     # 在用户消息落库之后再通知，保证客户端中途取消时消息仍然持久化。
-    yield build_message_started(
+    yield message_started(
         conversation_id=conversation.id,
         request_id=request_id,
     )

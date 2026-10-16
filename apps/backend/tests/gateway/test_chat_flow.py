@@ -11,7 +11,17 @@ from app.modules.gateway.runtime import (
     stream_embed_chat,
 )
 from app.modules.gateway.runtime import _finish_embed_chat
-from app.modules.gateway.events import LoopEventBuilder
+from app.modules.agent_runtime.events import LoopEventBuilder, to_wire
+
+
+def wire(event, sequence: int = 1) -> dict:
+    """把运行时事件转成线协议信封。
+
+    网关内部现在统一产出 ``RunEvent``；断言针对客户端真正收到的形状，
+    因此这里统一走 ``to_wire``，也顺带覆盖信封字段。
+    """
+
+    return to_wire(event, sequence=sequence)
 
 
 class FakeConversation:
@@ -226,7 +236,7 @@ def test_embed_chat_binds_host_tools_to_model():
             host_tools=[host_tool],
             runtime_tools=[runtime_tool],
         ):
-            events.append(event)
+            events.append(wire(event, len(events) + 1))
         return events
 
     events = asyncio.run(run())
@@ -303,7 +313,7 @@ def test_embed_chat_dispatches_registered_host_tool_call():
             runtime_tools=[lookup_runtime_tool()],
             invoke_host_tool_fn=invoke_host_tool,
         ):
-            events.append(event)
+            events.append(wire(event, len(events) + 1))
         return model, events
 
     model, events = asyncio.run(run())
@@ -349,7 +359,7 @@ def test_embed_stream_sends_terminal_error_and_marks_loop_failed():
             request_id="req-502",
             citations=[],
         ):
-            events.append(event)
+            events.append(wire(event, len(events) + 1))
         return repo, events
 
     repo, events = asyncio.run(collect())
@@ -397,7 +407,7 @@ def test_embed_stream_runtime_gray_sends_terminal_error_and_marks_loop_failed(
             request_id="req-502-gray",
             citations=[],
         ):
-            events.append(event)
+            events.append(wire(event, len(events) + 1))
         return repo, events
 
     repo, events = asyncio.run(run())
@@ -431,7 +441,7 @@ def test_embed_chat_emits_started_deltas_citation_and_completed():
             request_id="req-1",
             citations=[{"title": "FAQ", "text": "说明"}],
         ):
-            events.append(event["type"])
+            events.append(wire(event, len(events) + 1)["type"])
 
         assert events[:4] == [
             "message_started",
@@ -480,7 +490,7 @@ def test_embed_chat_runtime_gray_keeps_legacy_event_shape(monkeypatch):
             request_id="req-gray",
             citations=[{"title": "FAQ", "text": "说明"}],
         ):
-            events.append(event["type"])
+            events.append(wire(event, len(events) + 1)["type"])
 
         assert events[:4] == [
             "message_started",
@@ -525,7 +535,7 @@ def test_embed_chat_records_model_usage_in_independent_detail_table():
             request_id="req-usage",
             citations=[],
         ):
-            events.append(event)
+            events.append(wire(event, len(events) + 1))
 
         completed = events[-1]
         assert completed["type"] == "message_completed"
@@ -574,8 +584,8 @@ def test_embed_chat_emits_loaded_skill_steps_before_generation():
             request_id="req-skill",
             citations=[],
         ):
-            if event["type"].startswith("agent_step"):
-                events.append(event)
+            if str(event.type).startswith("agent_step"):
+                events.append(wire(event, len(events) + 1))
 
         skill_event = next(event for event in events if event["payload"]["stepType"] == "skill_instruction")
         generation_event = next(event for event in events if event["payload"]["stepType"] == "model_generation")
@@ -660,7 +670,7 @@ def test_cancelled_embed_chat_gray_does_not_write_assistant_completion(
             ):
                 # 等模型流式正文真正开始后再取消，确保取消点穿过灰度
                 # AgentRuntime 引擎路径，而不是只停在事件序列前端。
-                if _event["type"] == "message_delta":
+                if _event.type == "message_delta":
                     raise asyncio.CancelledError
 
         try:
@@ -734,7 +744,7 @@ def test_failed_tool_outcome_does_not_mark_agent_loop_failed():
             client_id=None,
             events=LoopEventBuilder(conversation, loop, request_id="req-tool-failed"),
         ):
-            events.append(event)
+            events.append(wire(event, len(events) + 1))
 
         failed_step = next(
             event
@@ -837,7 +847,7 @@ def test_embed_chat_gray_max_turns_wrapup_terminates_like_legacy():
                 runtime_tools=[lookup_runtime_tool()],
                 invoke_host_tool_fn=invoke_ws_lookup,
             ):
-                events.append(event)
+                events.append(wire(event, len(events) + 1))
         finally:
             object.__setattr__(
                 settings, "agent_max_iterations", original_max_turns
@@ -990,7 +1000,7 @@ def _run_embed_confirm_scenario(gray, approved):
                 runtime_tools=[pay_runtime_tool()],
                 invoke_host_tool_fn=invoke,
             ):
-                events.append(event)
+                events.append(wire(event, len(events) + 1))
             return events
 
         task = asyncio.create_task(consume())
@@ -1145,7 +1155,7 @@ def test_embed_chat_gray_ask_user_resumes_like_legacy():
                 runtime_tools=[ask_user_runtime_tool()],
                 invoke_host_tool_fn=invoke,
             ):
-                events.append(event)
+                events.append(wire(event, len(events) + 1))
             return events
 
         task = asyncio.create_task(consume())

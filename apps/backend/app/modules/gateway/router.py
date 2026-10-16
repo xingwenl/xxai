@@ -7,7 +7,6 @@
 
 import asyncio
 import json
-from datetime import UTC, datetime
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from redis.asyncio import Redis
@@ -68,7 +67,12 @@ from app.modules.host_tool.services import (
 )
 from app.modules.builtin_tool.repositories import BuiltinToolRepository
 from app.modules.gateway.dispatcher import RuntimeToolDispatcher
-from app.modules.gateway.events import build_error, event_to_protocol_payload
+from app.modules.agent_runtime.events import (
+    RunEvent,
+    RunEventType,
+    error as protocol_error,
+    to_wire,
+)
 from app.modules.agent_runtime.errors import cancellation_error
 from app.modules.agent_runtime.runtime import cancel_and_join_tasks
 from app.modules.agent_runtime.adapters import tool_call_from_legacy
@@ -758,7 +762,7 @@ async def produce_embed_request(
         # 同一份稳定错误语义。前端可据此结束发送态，连接层随后仍会完成
         # Future 清理和 request registry 的终态收敛。
         await event_queue.put(
-            build_error(
+            protocol_error(
                 request_id=request_id,
                 payload=cancellation_error().as_payload(),
             )
@@ -768,7 +772,7 @@ async def produce_embed_request(
         # 后台 Task 不能静默失败，否则前端会永久停留在发送中；详细堆栈只写服务端日志。
         logger.exception("Embed chat request failed: %s", request_id)
         await event_queue.put(
-            build_error(
+            protocol_error(
                 request_id=request_id,
                 payload=build_agent_error_payload(exc),
             )
@@ -914,22 +918,26 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
         conversation_id: int | None = None,
         request_id: str | None = None,
     ) -> str:
-        """生成带单调 sequence 的协议事件，并统一附加关联 ID。"""
+        """生成带单调 sequence 的协议事件，并统一附加关联 ID。
+
+        信封形状由 agent_runtime.events.to_wire 唯一定义；这里只负责分配
+        当前连接的 sequence 并序列化成 WS 文本帧。
+        """
         nonlocal sequence
-        value = {
-            "id": f"evt_{sequence}",
-            "type": event_type,
-            "protocolVersion": 1,
-            "sequence": sequence,
-            "timestamp": datetime.now(UTC).isoformat(),
-            "payload": event_payload,
-        }
-        if conversation_id is not None:
-            value["conversationId"] = str(conversation_id)
-        if request_id is not None:
-            value["requestId"] = request_id
+        encoded = json.dumps(
+            to_wire(
+                RunEvent(
+                    type=event_type,
+                    payload=event_payload,
+                    conversation_id=conversation_id,
+                    request_id=request_id,
+                ),
+                sequence=sequence,
+            ),
+            ensure_ascii=False,
+        )
         sequence += 1
-        return json.dumps(value)
+        return encoded
 
     try:
         # 握手后必须在短时间内收到 auth，防止未认证连接长期占用资源。
@@ -1096,7 +1104,7 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
         registry = RequestRegistry()
         active_request: str | None = None
         active_task: asyncio.Task | None = None
-        event_queue: asyncio.Queue[dict | None] = asyncio.Queue()
+        event_queue: asyncio.Queue[RunEvent | None] = asyncio.Queue()
 
         receive_task: asyncio.Task | None = None
         while True:
@@ -1112,12 +1120,14 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
             if queue_task in done:
                 event = queue_task.result()
                 if event is not None:
-                    # 业务侧事件已带协议 payload；dispatcher 等内部来源事件
-                    # 仍由 events 注册表转换为协议 payload。最后统一附加
-                    # sequence、会话和请求 ID。
-                    event_type = event["type"]
-                    if event_type == "message_completed" and quota_service is not None:
-                        usage = event["payload"].get("usage") or {}
+                    # 事件出站形状已由 agent_runtime.events 统一（业务侧与
+                    # dispatcher 内部来源都产出 RunEvent），这里只负责
+                    # sequence、配额记账、重放落库与发送。
+                    if (
+                        event.type == RunEventType.MESSAGE_COMPLETED
+                        and quota_service is not None
+                    ):
+                        usage = event.payload.get("usage") or {}
                         total_tokens = usage.get("total_tokens")
                         if isinstance(total_tokens, int) and total_tokens > 0:
                             consume = await quota_service.consume_capped(
@@ -1133,7 +1143,7 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                             if not consume.available:
                                 logger.warning(
                                     "model token quota accounting unavailable request_id=%s",
-                                    event.get("request_id"),
+                                    event.request_id,
                                 )
                             elif consume.exceeded:
                                 record_quota_rejection(
@@ -1141,24 +1151,16 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                                 )
                                 logger.warning(
                                     "model token quota exceeded request_id=%s amount=%s current=%s limit=%s",
-                                    event.get("request_id"),
+                                    event.request_id,
                                     total_tokens,
                                     consume.current,
                                     consume.limit,
                                 )
-                    event_payload = event.get("payload")
-                    if event_payload is None:
-                        event_payload = event_to_protocol_payload(event_type, event)
-                    conversation_id = event.get("conversation_id")
-                    request_id = event.get("request_id")
-                    encoded = envelope(
-                        event_type,
-                        event_payload,
-                        conversation_id=conversation_id,
-                        request_id=request_id,
-                    )
-                    if conversation_id is not None:
-                        await replay_store.append(conversation_id, json.loads(encoded))
+                    wire = to_wire(event, sequence=sequence)
+                    sequence += 1
+                    encoded = json.dumps(wire, ensure_ascii=False)
+                    if event.conversation_id is not None:
+                        await replay_store.append(event.conversation_id, wire)
                     await websocket.send_text(encoded)
                 else:
                     # produce 以 None 标记事件流结束；释放 active request 后才能接收下一条消息。

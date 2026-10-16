@@ -30,6 +30,11 @@ from app.modules.skill.services import load_bound_skill_instruction
 from app.modules.skill_runner.client import SkillRunnerClient
 from app.modules.skill_runner.services import execute_skill_script
 from app.modules.agent_runtime.contracts import ToolCall
+from app.modules.agent_runtime.events import (
+    confirmation_required,
+    host_tool_call,
+    question_required,
+)
 
 # 单次请求允许模型提问的次数上限，防止模型滥用提问替代正常回复。
 MAX_QUESTIONS_PER_REQUEST = 3
@@ -242,24 +247,21 @@ class RuntimeToolDispatcher:
         # 事件入队后等待 WebSocket 连接层回传用户答案；模型 Task 暂停期间
         # 连接主循环仍可接收 question_answer 并设置 Future，避免死锁。
         await self.event_queue.put(
-            {
-                "type": "question_required",
-                "conversation_id": None,
-                "request_id": self.request_id,
-                "question_id": question_id,
-                "question": str(arguments["question"]),
-                "description": (
+            question_required(
+                conversation_id=None,
+                request_id=self.request_id,
+                question_id=question_id,
+                question=str(arguments["question"]),
+                description=(
                     str(arguments["description"])
                     if arguments.get("description")
                     else None
                 ),
-                "options": options,
-                "allow_free_text": bool(arguments.get("allowFreeText", True)),
-                "require_selection": bool(
-                    arguments.get("requireSelection", True)
-                ),
-                "expires_at": expires_at.isoformat(),
-            }
+                options=options,
+                allow_free_text=bool(arguments.get("allowFreeText", True)),
+                require_selection=bool(arguments.get("requireSelection", True)),
+                expires_at=expires_at.isoformat(),
+            )
         )
         try:
             answer = await asyncio.wait_for(
@@ -300,19 +302,17 @@ class RuntimeToolDispatcher:
         # 与宿主工具共用同一套时间归一化：MCP 确认过期时间同样来自数据库。
         timeout_seconds = wait_timeout_seconds(expires_at, default=600.0)
         await self.event_queue.put(
-            {
-                "type": "confirmation_required",
-                "conversation_id": None,
-                "request_id": self.request_id,
-                "call_id": call_id,
-                "name": tool.name,
-                "tool_type": "mcp_tool",
-                "side_effect": tool.side_effect,
-                "arguments": redact_sensitive(arguments),
-                "expires_at": (
-                    expires_at.isoformat() if expires_at else None
-                ),
-            }
+            confirmation_required(
+                conversation_id=None,
+                request_id=self.request_id,
+                call_id=call_id,
+                name=tool.name,
+                tool_type="mcp_tool",
+                side_effect=tool.side_effect,
+                # 参数由事件构造器统一脱敏，这里传入原始参数。
+                arguments=arguments,
+                expires_at=(expires_at.isoformat() if expires_at else None),
+            )
         )
         try:
             approved = await asyncio.wait_for(
@@ -473,17 +473,16 @@ class RuntimeToolDispatcher:
                 summarize_for_log(redact_sensitive(arguments)),
             )
             await self.event_queue.put(
-                {
-                    "type": "host_tool_call",
-                    "conversation_id": None,
-                    "request_id": self.request_id,
-                    "call_id": call_id,
-                    "name": tool.name,
-                    "arguments": arguments,
-                    "side_effect": tool.side_effect,
-                    "requires_confirmation": existing.status
+                host_tool_call(
+                    conversation_id=None,
+                    request_id=self.request_id,
+                    call_id=call_id,
+                    name=tool.name,
+                    arguments=arguments,
+                    side_effect=tool.side_effect,
+                    requires_confirmation=existing.status
                     == "awaiting_confirmation",
-                }
+                )
             )
             try:
                 # 此处只暂停模型 Task；WebSocket 主循环仍可接收结果并唤醒

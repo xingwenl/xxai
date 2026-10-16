@@ -135,3 +135,27 @@ _Avoid_: 用户、所属用户、会话所有者、principal
 **会话记录（Conversation Record）**:
 后台管理中对平台内会话及其消息的只读查阅视图（主体聚合、会话列表、消息与 Agent 过程）。它是读侧概念，不含发起对话或继续对话的能力。
 _Avoid_: 聊天记录、消息记录、IM 记录
+
+**运行事件（Run Event）**:
+一次 Agent 运行中对外可观察的一步，形状为 `RunEvent`（信封 + camelCase payload），由 `agent_runtime` 唯一构造。它既不是内部的 `AgentEvent`，也不是某条传输自己的事件对象——两条传输拿到的是同一个 `RunEvent`，各自只负责编码成字节。
+_Avoid_: 事件消息、帧、websocket event、SSE event、agent 事件
+
+**事件信封（Event Envelope）**:
+包住事件 payload 的固定外层：`id`、`type`、`protocolVersion`、`sequence`、`timestamp`，以及可选的 `conversationId`、`requestId`。传输编码只把信封与 payload 序列化，不增删字段。
+_Avoid_: 头部、外层结构、事件元数据
+
+**传输能力子集（Transport Capability Subset）**:
+某条传输实际能承载的事件类型集合。WS 独有 `session_ready`/`pong`/`host_tool_call`/`question_required`，SSE 独有 `tool_call`/`tool_result`。它是传输的固有限制，不写成 `session_ready.capabilities` 字段，只记录在 ADR。
+_Avoid_: 能力开关、协议差异、capabilities
+
+**平台模型（Platform Model）**:
+平台内登记的一个可调用模型条目（`platform_models` 一行）：模型类型、上游模型名、服务地址、加密后的密钥、能力与选项、是否启用。它是平台资产，独立于任何 Agent 版本存在。
+_Avoid_: 模型配置、模型供应商、模型资源、模型账号
+
+**模型绑定（Model Binding）**:
+「某个 Agent 的某个能力角色用哪个平台模型」的唯一表达（`agent_model_bindings` 一行，每 Agent 每角色至多一条）。角色取值为 `chat` 与 `image_generate`/`image_read`/`embedding`。
+_Avoid_: 模型选择、默认模型、模型关联、模型引用
+
+**对话模型（Chat Model）**:
+一个 Agent 在对话中实际使用的主模型，由该 Agent 的 `role='chat'` 绑定决定；没有绑定时回落环境变量的默认模型。它不是 Agent 版本的属性。
+_Avoid_: 主模型、大模型、LLM、Agent 模型

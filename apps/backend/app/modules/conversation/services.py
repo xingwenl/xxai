@@ -973,7 +973,12 @@ async def stream_chat(
             yield {
                 "type": "tool_call",
                 "conversation": conversation,
-                "payload": {"tool": item["tool"], "toolCallId": call_id},
+                # input 用已落库的参数摘要：协议层只负责命名，不再重新序列化。
+                "payload": {
+                    "tool": item["tool"],
+                    "toolCallId": call_id,
+                    "input": tool_step.input_summary,
+                },
             }
             continue
         if item["type"] == "tool_completed":
@@ -1006,6 +1011,11 @@ async def stream_chat(
                     else "tool_result"
                 ),
                 "conversation": conversation,
+                # 协议层需要工具名/类型/入参来组装线协议 payload；服务层只补充
+                # 上下文，不改动 outcome.model_dump() 的既有内容。
+                "tool": item.get("tool"),
+                "tool_type": item.get("tool_type"),
+                "arguments": item.get("arguments"),
                 "payload": outcome.model_dump(),
             }
             if str(outcome.status) == "confirmation_required":

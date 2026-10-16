@@ -35,6 +35,12 @@ from app.modules.skill_runner.tools import (
 )
 from app.modules.conversation.schemas import RuntimeContext
 from app.modules.agent_runtime.contracts import ToolOutcome
+from app.modules.agent_runtime.events import (
+    # 事件模型下沉到 agent_runtime/events.py 后按原路径再导出：REST/网关两侧
+    # 只在 events.py 定义一次 payload 与 SSE 编码，这里保留历史 import 位置。
+    build_step_payload as build_step_payload,
+    format_sse_event as format_sse_event,
+)
 from app.modules.agent_runtime.tool_events import (
     build_tool_event as build_runtime_tool_event,
     normalize_tool_step_status,
@@ -847,47 +853,6 @@ def tool_step_values(tool_event: dict, sequence: int) -> dict:
         values["step_metadata"] = tool_metadata
     return values
 
-def build_step_payload(
-    step,
-    *,
-    loop_run_id,
-    sequence: int | None = None,
-    citation_refs: list | None = None,
-    with_input: bool = False,
-    with_output: bool = False,
-    with_tool: bool = False,
-    with_skill: bool = False,
-    with_thinking: bool = False,
-) -> dict[str, Any]:
-    """构造 agent_step_* 事件的 payload，统一协议字段命名。
-
-    ``with_thinking`` 控制 thinkingText 是否总是输出：网关路径默认仅在
-    存在思考文本时携带该字段；REST 流式路径保持 always-present 语义。
-    """
-    payload = {
-        "loopRunId": str(loop_run_id),
-        "stepId": str(step.id),
-        "sequence": step.sequence if sequence is None else sequence,
-        "stepType": step.step_type,
-        "title": step.title,
-        "status": step.status,
-    }
-    if with_input:
-        payload["inputSummary"] = step.input_summary
-    if with_output:
-        payload["outputSummary"] = step.output_summary
-    thinking = getattr(step, "thinking_text", None)
-    if with_thinking or thinking:
-        payload["thinkingText"] = thinking
-    if with_tool:
-        payload["toolName"] = step.tool_name
-    if with_skill:
-        payload["skillName"] = step.skill_name
-        payload["skillVersion"] = step.skill_version
-    if citation_refs is not None:
-        payload["citationRefs"] = citation_refs
-    return payload
-
 
 def _iter_image_assets(tool_events: list[dict] | None):
     """遍历图片工具结果中的受保护图片资源。"""
@@ -1125,26 +1090,6 @@ def merge_token_usage(
         key: current[key] + incoming[key]
         for key in ("prompt_tokens", "completion_tokens", "total_tokens")
     }
-
-
-def format_sse_event(event: dict[str, Any]) -> str:
-    """
-    将事件字典格式化为 Server-Sent Events (SSE) 字符串
-
-    SSE 格式为：
-        event: <事件类型>\\n
-        data: <JSON 数据>\\n\\n
-
-    Args:
-        event: 事件字典，必须包含 "type" 键，其他键将序列化为 JSON data
-
-    Returns:
-        符合 SSE 规范的字符串，使用 UTF-8 编码和紧凑 JSON 格式
-    """
-    return (
-        f"event: {event['type']}\n"
-        f"data: {json.dumps(event, ensure_ascii=False, separators=(',', ':'))}\n\n"
-    )
 
 
 async def _apply_delegation_policy(

@@ -247,7 +247,7 @@ def test_timestamptz_audit_expiry_keeps_full_wait_window():
         # Future 必须在下发时仍然挂在连接容器里，否则页面结果会被判为迟到。
         assert "call-tz" in pending
         assert wait_timeout_seconds(audit.expires_at, default=0.0) > 590
-        pending[call["call_id"]].set_result({"title": "tz-page"})
+        pending[call.payload["callId"]].set_result({"title": "tz-page"})
         return await asyncio.wait_for(task, timeout=2), pending
 
     outcome, pending = asyncio.run(scenario())
@@ -277,7 +277,7 @@ def test_legacy_naive_column_values_are_still_accepted():
             )
         )
         call = await asyncio.wait_for(dispatcher.event_queue.get(), timeout=2)
-        pending[call["call_id"]].set_result({"ok": True})
+        pending[call.payload["callId"]].set_result({"ok": True})
         return await asyncio.wait_for(task, timeout=2), audit
 
     outcome, audit = asyncio.run(scenario())
