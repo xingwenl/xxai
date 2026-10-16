@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { type AxiosRequestConfig } from 'axios'
 import { useNavigate } from '@tanstack/react-router'
 import {
   createAgentClient,
@@ -7,7 +8,7 @@ import {
 } from 'xxai-agent'
 import 'xxai-agent/style.css'
 import { useAuthStore } from '@/stores/auth-store'
-import { http } from '@/lib/http'
+import { http, type AuthResetOptOut } from '@/lib/http'
 import { resolveInternalRoute } from './routes'
 
 type AgentTokenResponse = {
@@ -30,13 +31,20 @@ function getWebSocketEndpoint(agentId: string): string {
 async function requestAgentToken(
   displayName: string
 ): Promise<AgentTokenResponse> {
-  const { data } = await http.get<AgentTokenResponse>('/embed/agent-token', {
+  const config: AxiosRequestConfig & AuthResetOptOut = {
     params: {
       display_name: displayName,
       origin: location.origin,
       host_tool_names: 'navigate_to_page',
     },
-  })
+    // 悬浮 Agent 是可选能力：Embed Client 来源白名单没覆盖当前后台地址时这里会 401，
+    // 但用户的后台登录态仍然有效，不能因为旁路能力失败把人踢回登录页。
+    skipAuthReset: true,
+  }
+  const { data } = await http.get<AgentTokenResponse>(
+    '/embed/agent-token',
+    config
+  )
   return data
 }
 
