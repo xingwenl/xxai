@@ -123,15 +123,26 @@ verify_step "种子 Agent 走完一轮对话（POST /api/v1/agents/1/chat，非�
 SKILL_STEPS="$(count_rows "select count(*) from agent_loop_steps where step_type='skill_instruction' and skill_name='开发示例技能';")"
 verify_step "该轮对话里出现了种子技能的注入步骤 skill_instruction（计数 ${SKILL_STEPS}）" test "${SKILL_STEPS}" -gt 0
 
+# -------------------------------------------------- 端到端对话（真实模型端点）
+real_model_chat() {
+  local token resp
+  token="$(curl -s -X POST http://127.0.0.1:8000/api/v1/auth/login -H 'Content-Type: application/json' -d '{"account":"admin","password":"admin123456"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["access_token"])')"
+  resp="$(curl -s -m 120 -X POST http://127.0.0.1:8000/api/v1/agents/1/chat -H "Authorization: Bearer ${token}" -H 'Content-Type: application/json' -d '{"message":"用一句话自我介绍","stream":false}')"
+  printf '%s' "${resp}" | head -c 260
+  echo
+  printf '%s' "${resp}" | grep -q '"success":true'
+}
+verify_step "真实模型端点出词（常驻 api :8000，依赖根 .env 的 OPENAI_BASE_URL / OPENAI_API_KEY / MODEL_DEFAULT_NAME）" real_model_chat
+
 # ------------------------------------------------------------------ Harness
 verify_step "python3 tools/harness/audit.py" python3 tools/harness/audit.py
 
 echo "## 未执行项与原因"
 echo
-echo "- 真实模型端点出词：仓库根 .env 指向的 relay（0029.zhongzhuan.wang）账号返回 403 INSUFFICIENT_BALANCE，"
-echo "  恒失败且不可重复。改用 tools/harness/verify/2026-10-16-dev-env-seed.stub-model.py 本地假模型替代验证，"
-echo "  业务链路（uvicorn → conversation → agent_runtime → ModelUsageRecord）全部真实，只有最外一跳换成固定应答。"
+echo "- 真实模型端点出词这一步依赖外部服务：仓库根 .env 的 OPENAI_BASE_URL / OPENAI_API_KEY 必须可用且余额充足。"
+echo "  端点不可用时该步会失败——那是环境问题，不是种子问题；链路本身的权威证据是上面走本地假模型的那两步。"
 echo "- 浏览器 / 前端页面：本次只验证后端 API 与数据库，未打开 http://localhost:8080 做人工点击；前端是既有代码，本次未改。"
+echo "- AI SDK 嵌入通道（apps/ai-sdk demo）：未在浏览器里跑通 WebSocket 会话；已验证 POST /api/v1/embed/tokens 用种子 embed client 换取 token 返回 200。"
 echo "- 无人值守任务调度（tasks/cron）与工作流实际执行：种子只创建定义，未触发跑批。"
 UNEXECUTED=1
 echo
@@ -141,7 +152,8 @@ echo
 echo "- 可重建性（验收标准①⑦）：reset 一条命令后 fingerprint 稳定；单独重跑 seed 与第二次完整 reset 后 fingerprint 都不变，"
 echo "  说明开发环境的状态完全由仓库内的种子脚本 + 技能包源文件决定，数据库里没有唯一副本。"
 echo "- 登录与鉴权（②）：种子管理员可登录，/auth/me 返回同账号。"
-echo "- 可对话 Agent（③）：列表可见、default_version_id 指向已发布版本；端到端对话在本地假模型下跑通并落库。"
+echo "- 可对话 Agent（③）：列表可见、default_version_id 指向已发布版本；走本地假模型的端到端对话与走真实模型端点的对话各跑通一轮并落库。"
+echo "  真实出词还要求 docker-compose.yml 把 MODEL_DEFAULT_NAME 透传进容器（本次补上），否则 agent_versions.model_name 会回落到代码默认值、与 .env 的端点对不上（表现为 400 unsupported_model）。"
 echo "- 技能包（④）：包 / 技能 / 绑定 / 文件清单四者齐全，文件行数与仓库源文件数一致。"
 echo "- 工作流（⑤）：可见且 status=active，definition 由既有静态校验器生成（见 docs/runbooks/dev-environment.md）。"
 echo "- Harness 合规（⑥）：audit.py 退出码 0。"

@@ -1,7 +1,7 @@
 ---
 source: script
 request: 2026-10-16-dev-env-seed
-ranAt: "2026-10-16 14:27:46 CST"
+ranAt: "2026-10-16 17:35:36 CST"
 exitCode: 3
 ---
 
@@ -10,10 +10,10 @@ exitCode: 3
 ### 重置前 conversations 行数（脏状态证据，用于佐证下面确实清了库）
 
 ```bash
-printf %s\n 1
+printf %s\n 3
 ```
 
-1
+3
 结果：通过
 
 ### 一条命令重建开发环境：bash apps/backend/scripts/reset_dev_db.sh
@@ -151,7 +151,7 @@ test ask_user,get_runtime_info,http_get = ask_user,get_runtime_info,http_get
 ### 控制台登录返回 access_token
 
 ```bash
-test -n eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzkyMjE4NDU1fQ.yaKljhJf0_UKM57jgokQBhgO7P-7lj7FH9LQyfE0i3o
+test -n eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzkyMjI5NzIwfQ.Y4mDao1b1epcSeqX4HnPDciV1TuchuwfYfqqOYRHldk
 ```
 
 结果：通过
@@ -159,7 +159,7 @@ test -n eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzkyMjE4NDU
 ### GET /api/v1/auth/me 返回种子管理员 admin
 
 ```bash
-bash -c curl -s http://127.0.0.1:8000/api/v1/auth/me -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzkyMjE4NDU1fQ.yaKljhJf0_UKM57jgokQBhgO7P-7lj7FH9LQyfE0i3o' | grep -q '"account":"admin"'
+bash -c curl -s http://127.0.0.1:8000/api/v1/auth/me -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzkyMjI5NzIwfQ.Y4mDao1b1epcSeqX4HnPDciV1TuchuwfYfqqOYRHldk' | grep -q '"account":"admin"'
 ```
 
 结果：通过
@@ -167,7 +167,7 @@ bash -c curl -s http://127.0.0.1:8000/api/v1/auth/me -H 'Authorization: Bearer e
 ### GET /api/v1/platforms/1/agents 能看到已发布的开发助手
 
 ```bash
-bash -c curl -s 'http://127.0.0.1:8000/api/v1/platforms/1/agents' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzkyMjE4NDU1fQ.yaKljhJf0_UKM57jgokQBhgO7P-7lj7FH9LQyfE0i3o' | grep -q 'dev-assistant'
+bash -c curl -s 'http://127.0.0.1:8000/api/v1/platforms/1/agents' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzkyMjI5NzIwfQ.Y4mDao1b1epcSeqX4HnPDciV1TuchuwfYfqqOYRHldk' | grep -q 'dev-assistant'
 ```
 
 结果：通过
@@ -175,7 +175,7 @@ bash -c curl -s 'http://127.0.0.1:8000/api/v1/platforms/1/agents' -H 'Authorizat
 ### GET /api/v1/platforms/1/skill-packages 能看到种子技能包
 
 ```bash
-bash -c curl -s 'http://127.0.0.1:8000/api/v1/platforms/1/skill-packages' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzkyMjE4NDU1fQ.yaKljhJf0_UKM57jgokQBhgO7P-7lj7FH9LQyfE0i3o' | grep -q 'dev-sample-skill'
+bash -c curl -s 'http://127.0.0.1:8000/api/v1/platforms/1/skill-packages' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzkyMjI5NzIwfQ.Y4mDao1b1epcSeqX4HnPDciV1TuchuwfYfqqOYRHldk' | grep -q 'dev-sample-skill'
 ```
 
 结果：通过
@@ -183,7 +183,7 @@ bash -c curl -s 'http://127.0.0.1:8000/api/v1/platforms/1/skill-packages' -H 'Au
 ### GET /api/v1/platforms/1/skills 能看到种子技能
 
 ```bash
-bash -c curl -s 'http://127.0.0.1:8000/api/v1/platforms/1/skills' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzkyMjE4NDU1fQ.yaKljhJf0_UKM57jgokQBhgO7P-7lj7FH9LQyfE0i3o' | grep -q '开发示例技能'
+bash -c curl -s 'http://127.0.0.1:8000/api/v1/platforms/1/skills' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzkyMjI5NzIwfQ.Y4mDao1b1epcSeqX4HnPDciV1TuchuwfYfqqOYRHldk' | grep -q '开发示例技能'
 ```
 
 结果：通过
@@ -191,7 +191,7 @@ bash -c curl -s 'http://127.0.0.1:8000/api/v1/platforms/1/skills' -H 'Authorizat
 ### GET /api/v1/platforms/1/workflows 能看到 active 工作流且带 definition
 
 ```bash
-bash -c curl -s 'http://127.0.0.1:8000/api/v1/platforms/1/workflows' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzkyMjE4NDU1fQ.yaKljhJf0_UKM57jgokQBhgO7P-7lj7FH9LQyfE0i3o' | grep -q '"status":"active"' && curl -s 'http://127.0.0.1:8000/api/v1/platforms/1/workflows' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzkyMjE4NDU1fQ.yaKljhJf0_UKM57jgokQBhgO7P-7lj7FH9LQyfE0i3o' | grep -q '"definition"'
+bash -c curl -s 'http://127.0.0.1:8000/api/v1/platforms/1/workflows' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzkyMjI5NzIwfQ.Y4mDao1b1epcSeqX4HnPDciV1TuchuwfYfqqOYRHldk' | grep -q '"status":"active"' && curl -s 'http://127.0.0.1:8000/api/v1/platforms/1/workflows' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzkyMjI5NzIwfQ.Y4mDao1b1epcSeqX4HnPDciV1TuchuwfYfqqOYRHldk' | grep -q '"definition"'
 ```
 
 结果：通过
@@ -199,7 +199,7 @@ bash -c curl -s 'http://127.0.0.1:8000/api/v1/platforms/1/workflows' -H 'Authori
 ### GET /api/v1/platforms/1/mcp-servers 能看到种子 MCP 配置
 
 ```bash
-bash -c curl -s 'http://127.0.0.1:8000/api/v1/platforms/1/mcp-servers' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzkyMjE4NDU1fQ.yaKljhJf0_UKM57jgokQBhgO7P-7lj7FH9LQyfE0i3o' | grep -q 'dev-sample-mcp'
+bash -c curl -s 'http://127.0.0.1:8000/api/v1/platforms/1/mcp-servers' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzkyMjI5NzIwfQ.Y4mDao1b1epcSeqX4HnPDciV1TuchuwfYfqqOYRHldk' | grep -q 'dev-sample-mcp'
 ```
 
 结果：通过
@@ -218,7 +218,7 @@ bash -c python3 tools/harness/verify/2026-10-16-dev-env-seed.stub-model.py 18801
 bash -c docker compose run -d --rm --no-deps --name seed-verify-api -p 18001:8000 -e OPENAI_BASE_URL=http://host.docker.internal:18801/v1 -e OPENAI_API_KEY=stub api uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-f1b493144686698689cbaa4e9a79f7dfa25c70fe284c93797f4afaa0e72ac660
+dc666c8fcccbad1be10a1b45874a4fa513a8ea1393e8189050a7f60f411ab053
 结果：通过
 
 ### 轮询等临时容器就绪（首次启动约 10 秒）
@@ -247,6 +247,15 @@ test 1 -gt 0
 
 结果：通过
 
+### 真实模型端点出词（常驻 api :8000，依赖根 .env 的 OPENAI_BASE_URL / OPENAI_API_KEY / MODEL_DEFAULT_NAME）
+
+```bash
+real_model_chat
+```
+
+{"success":true,"message":"ok","data":{"conversation_id":2,"message_id":4,"content":"我是「开发助手」，基于 deepseek/deepseek-v4.1-flash 模型（Agent v1 / 服务 0.0.1，温度 0.2），负责本仓库的本地开发与联调支持。","citations"
+结果：通过
+
 ### python3 tools/harness/audit.py
 
 ```bash
@@ -259,10 +268,10 @@ v2 requests: 10  存量跳过: 59  ERROR: 0  WARN: 0
 
 ## 未执行项与原因
 
-- 真实模型端点出词：仓库根 .env 指向的 relay（0029.zhongzhuan.wang）账号返回 403 INSUFFICIENT_BALANCE，
-  恒失败且不可重复。改用 tools/harness/verify/2026-10-16-dev-env-seed.stub-model.py 本地假模型替代验证，
-  业务链路（uvicorn → conversation → agent_runtime → ModelUsageRecord）全部真实，只有最外一跳换成固定应答。
+- 真实模型端点出词这一步依赖外部服务：仓库根 .env 的 OPENAI_BASE_URL / OPENAI_API_KEY 必须可用且余额充足。
+  端点不可用时该步会失败——那是环境问题，不是种子问题；链路本身的权威证据是上面走本地假模型的那两步。
 - 浏览器 / 前端页面：本次只验证后端 API 与数据库，未打开 http://localhost:8080 做人工点击；前端是既有代码，本次未改。
+- AI SDK 嵌入通道（apps/ai-sdk demo）：未在浏览器里跑通 WebSocket 会话；已验证 POST /api/v1/embed/tokens 用种子 embed client 换取 token 返回 200。
 - 无人值守任务调度（tasks/cron）与工作流实际执行：种子只创建定义，未触发跑批。
 
 ## 验收结论
@@ -270,7 +279,8 @@ v2 requests: 10  存量跳过: 59  ERROR: 0  WARN: 0
 - 可重建性（验收标准①⑦）：reset 一条命令后 fingerprint 稳定；单独重跑 seed 与第二次完整 reset 后 fingerprint 都不变，
   说明开发环境的状态完全由仓库内的种子脚本 + 技能包源文件决定，数据库里没有唯一副本。
 - 登录与鉴权（②）：种子管理员可登录，/auth/me 返回同账号。
-- 可对话 Agent（③）：列表可见、default_version_id 指向已发布版本；端到端对话在本地假模型下跑通并落库。
+- 可对话 Agent（③）：列表可见、default_version_id 指向已发布版本；走本地假模型的端到端对话与走真实模型端点的对话各跑通一轮并落库。
+  真实出词还要求 docker-compose.yml 把 MODEL_DEFAULT_NAME 透传进容器（本次补上），否则 agent_versions.model_name 会回落到代码默认值、与 .env 的端点对不上（表现为 400 unsupported_model）。
 - 技能包（④）：包 / 技能 / 绑定 / 文件清单四者齐全，文件行数与仓库源文件数一致。
 - 工作流（⑤）：可见且 status=active，definition 由既有静态校验器生成（见 docs/runbooks/dev-environment.md）。
 - Harness 合规（⑥）：audit.py 退出码 0。
