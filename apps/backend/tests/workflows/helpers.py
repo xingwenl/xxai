@@ -7,7 +7,8 @@
 - ``seed``：平台 + 已发布 Agent + 两个用户（其一是平台管理员），
   已发布 Agent 是 ``services.create_workflow`` 的前置条件
   （``AgentRepository.get_published_agent`` 要求 default_version 已发布）；
-- ``agent_step`` / ``tool_step``：构造步骤 dict，避免每个用例重复拼字段。
+- ``agent_step`` / ``tool_step`` / ``condition_step`` / ``predicate``：构造步骤与
+  谓词 dict，避免每个用例重复拼字段。
 
 ``seed`` 用 ``session.info["seed_seq"]`` 递增后缀，避免同一用例里建第二个平台时
 ``Platform.code`` 唯一约束冲突（照抄 ``tests/tasks/test_scheduler.py``）。
@@ -176,6 +177,61 @@ def tool_step(step_id: str, tool_name: str, **overrides) -> dict:
         "max_retries": 0,
         "default_output": None,
         "timeout_seconds": None,
+    }
+    step.update(overrides)
+    return step
+
+
+def output_ref(step_id: str) -> str:
+    """谓词左操作数 / 提示词里引用的 ``{{step_id.output}}`` 字面量。"""
+
+    return "{{" + step_id + ".output}}"
+
+
+def predicate(
+    op: str,
+    *,
+    left: str | None = None,
+    right: str | None = None,
+    children: list[dict] | None = None,
+) -> dict:
+    """构造一个谓词 dict（``ConditionPredicate.model_dump()`` 的形状）。"""
+
+    return {"op": op, "left": left, "right": right, "children": children}
+
+
+def condition_step(
+    step_id: str,
+    *,
+    branches: list[dict] | None = None,
+    **overrides,
+) -> dict:
+    """构造一个合法 condition 步骤 dict。
+
+    条件步骤没有执行体：``prompt`` / ``tool_name`` / ``agent_id`` /
+    ``input_bindings`` 一律为空，判定结果直接来自 ``branches`` 里第一个成立的
+    谓词。缺省只给一个无条件分支——它必须对**任何**上游都合法，因此不能内置
+    「读某个步骤输出」的谓词；要真正判定的用例请自己传 ``branches``。
+    """
+
+    step = {
+        "step_id": step_id,
+        "name": f"条件 {step_id}",
+        "kind": "condition",
+        "depends_on": None,
+        "position": None,
+        "agent_id": None,
+        "prompt": None,
+        "tool_name": None,
+        "tool_arguments": {},
+        "input_bindings": {},
+        "on_error": "abort",
+        "max_retries": 0,
+        "default_output": None,
+        "timeout_seconds": None,
+        "branches": (
+            branches if branches is not None else [{"name": "only", "when": None}]
+        ),
     }
     step.update(overrides)
     return step

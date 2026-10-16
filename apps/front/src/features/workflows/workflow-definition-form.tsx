@@ -1,6 +1,12 @@
 import { useMemo, useState } from 'react'
 import {
   MAX_PARALLEL_BRANCHES,
+  type ConditionComparisonOp,
+  type ConditionLogicalOp,
+  type ConditionComparisonPredicate,
+  type ConditionLogicalPredicate,
+  type ConditionOp,
+  type ConditionPredicate,
   type Workflow,
   type WorkflowNodePosition,
   type WorkflowStepKind,
@@ -28,8 +34,17 @@ import {
   useCanvasNodes,
 } from '@/features/workflows/workflow-canvas-model'
 import {
+  DEFAULT_HANDLE,
+  MAX_CONDITION_BRANCHES,
+  MAX_PREDICATE_CHILDREN,
+  MAX_PREDICATE_DEPTH,
+  baseStepId,
+  branchHandle,
   collectTemplateReferences,
+  declaredHandles,
+  dependencyEntry,
   extractMentions,
+  handleLabel,
   resolveDependencies,
   toDependsOnWrite,
   validateDag,
@@ -39,6 +54,7 @@ import {
 /** 下拉框不允许空字符串值，用哨兵值表示「不覆盖 / 未选择」。 */
 const NO_AGENT_OVERRIDE = '__default__'
 const NO_PREVIOUS_STEP = '__none__'
+const NO_PREDICATE_REFERENCE = '__none__'
 
 /** 目前唯一可引用的输出路径；后端保存时也只接受这一个值。 */
 const OUTPUT_PATH = 'output'
@@ -46,15 +62,153 @@ const OUTPUT_PATH = 'output'
 /** 每步失败后的额外重试次数；上限与后端 validators.MAX_STEP_RETRIES 对齐。 */
 const MAX_RETRIES_OPTIONS = [0, 1, 2, 3, 4, 5]
 
+/** 步骤类型的中文标签，与画布节点上的 Badge 保持同一套措辞。 */
+const KIND_LABEL: Record<WorkflowStepKind, string> = {
+  agent: 'Agent 步骤',
+  tool: '工具步骤',
+  condition: '条件步骤',
+}
+
 const ON_ERROR_OPTIONS: { value: WorkflowStepOnError; label: string }[] = [
   { value: 'abort', label: '中止整条工作流（abort）' },
   {
     value: 'continue_with_default',
     label: '使用兜底输出继续（continue_with_default）',
   },
-  // fail_branch 依赖边上的失败出口，v1 没有分支，故保留枚举值并明确标注暂不可用。
-  { value: 'fail_branch', label: '失败分支（fail_branch，暂未实现）' },
+  // fail_branch 让失败走到本步的失败出口，下游可以只接失败边；
+  // 整条 run 仍以 completed 收尾，不会因为这一步失败就红掉。
+  { value: 'fail_branch', label: '失败走失败出口（fail_branch）' },
 ]
+
+/** 谓词的比较算子；`not_empty` 不需要比较值，`matches` 的比较值是正则。 */
+const COMPARISON_OP_OPTIONS: { value: ConditionComparisonOp; label: string }[] =
+  [
+    { value: 'equals', label: '等于（equals）' },
+    { value: 'contains', label: '包含（contains）' },
+    { value: 'not_empty', label: '非空（not_empty）' },
+    { value: 'matches', label: '匹配正则（matches）' },
+  ]
+
+/** 谓词的组合算子：all/any 组合多个子条件，not 只取反一个。 */
+const LOGICAL_OP_OPTIONS: { value: ConditionLogicalOp; label: string }[] = [
+  { value: 'all', label: '全部成立（all）' },
+  { value: 'any', label: '任一成立（any）' },
+  { value: 'not', label: '取反（not）' },
+]
+
+/** 从下拉里挑出来的上游出口：entry 是可以直接写进 depends_on 的依赖条目。 */
+type DependencyOption = {
+  /** `step_id`（成功出口）或 `step_id@出口名` */
+  entry: string
+  /** 展示用文案：名称 · 出口 */
+  label: string
+}
+
+/**
+ * 条件分支草稿：when 为 null 即无条件兜底分支（保证前面的条件都不成立时仍有路可走），
+ * 因此它必须恰好有一个且排在最后。
+ */
+type BranchDraft = { name: string; when: ConditionPredicate | null }
+
+/** 从某个步骤出发的出口选项：条件步骤每个分支一个，普通步骤是成功出口（fail_branch 多失败出口）。 */
+function dependencyOptionsOf(step: StepDraft): DependencyOption[] {
+  const stepId = step.step_id.trim()
+  if (!stepId) return []
+  return declaredHandles(step).map((handle) => ({
+    entry: dependencyEntry(stepId, handle),
+    label: `${step.name || stepId} · ${handleLabel(handle)}`,
+  }))
+}
+
+/** 把某个上游依赖条目渲染成「名称 · 出口」，条目里的 step_id 可能已经不存在（悬空）。 */
+function describeDependency(
+  entry: string,
+  steps: StepDraft[]
+): DependencyOption {
+  const stepId = baseStepId(entry)
+  const step = steps.find((candidate) => candidate.step_id.trim() === stepId)
+  const name = step ? step.name || stepId : `${stepId}（已删除）`
+  return { entry, label: `${name} · ${handleLabel(branchHandle(entry))}` }
+}
+
+/** 引用模板的唯一合法形状，与后端 validators.OUTPUT_PATH 约定一致。 */
+function referenceTemplate(stepId: string): string {
+  return `{{${stepId}.output}}`
+}
+
+/** 新建一个比较谓词；默认 not_empty 是因为它不需要比较值，用户只挑一个上游引用就能用。 */
+function newComparisonPredicate(left = ''): ConditionPredicate {
+  return { op: 'not_empty', left, right: null }
+}
+
+/**
+ * 条件步骤的最小骨架：一个条件分支 + 一个兜底分支。
+ * 兜底分支必须在最后，所以这里连顺序一起定下来。
+ */
+function newBranchDrafts(firstUpstreamId?: string): BranchDraft[] {
+  return [
+    {
+      name: 'branch_1',
+      when: newComparisonPredicate(
+        firstUpstreamId ? referenceTemplate(firstUpstreamId) : ''
+      ),
+    },
+    { name: 'fallback', when: null },
+  ]
+}
+
+/** 新增分支时避开重名：条件分支名在单个步骤内必须唯一。 */
+function nextBranchName(branches: BranchDraft[]): string {
+  const used = new Set(branches.map((branch) => branch.name.trim()))
+  let seq = branches.length + 1
+  while (used.has(`branch_${seq}`)) seq += 1
+  return `branch_${seq}`
+}
+
+/** 按子条件下标路径替换谓词节点，返回新的谓词树（保持不可变更新）。 */
+function replacePredicateAt(
+  predicate: ConditionPredicate,
+  path: number[],
+  next: ConditionPredicate
+): ConditionPredicate {
+  if (path.length === 0) return next
+  if (!Array.isArray((predicate as { children?: unknown }).children)) {
+    return predicate
+  }
+  const logical = predicate as ConditionLogicalPredicate
+  const [head, ...rest] = path
+  return {
+    ...logical,
+    children: logical.children.map((child, index) =>
+      index === head ? replacePredicateAt(child, rest, next) : child
+    ),
+  }
+}
+
+/** 切换算子时把谓词换成对应形状：比较算子只带 left/right，组合算子只带 children。 */
+function convertPredicate(
+  predicate: ConditionPredicate,
+  op: ConditionOp,
+  left: string
+): ConditionPredicate {
+  if (op === 'all' || op === 'any' || op === 'not') {
+    const existing = (predicate as ConditionLogicalPredicate).children
+    const children: ConditionPredicate[] =
+      Array.isArray(existing) && existing.length > 0
+        ? existing
+        : [newComparisonPredicate(left)]
+    return { op, children: op === 'not' ? children.slice(0, 1) : children }
+  }
+  const previous = 'left' in predicate && predicate.left ? predicate.left : left
+  // 在比较算子之间来回切换时保留已填的比较值，只有切到 not_empty 才清掉。
+  const previousRight = 'right' in predicate ? (predicate.right ?? '') : ''
+  return {
+    op,
+    left: previous,
+    // not_empty 不带比较值，其它两个算子必须填，先给空串让校验提示用户补齐。
+    right: op === 'not_empty' ? null : previousRight,
+  }
+}
 
 /**
  * 步骤草稿：接口里的 tool_arguments 是对象、input_bindings 是 record，
@@ -78,8 +232,13 @@ type StepDraft = {
   /**
    * 已折算成显式数组的上游依赖；null 的缺省语义在 toDraft 时已按序列前驱展开，
    * 这样画布与校验都只需要处理一种形态。
+   *
+   * 数组元素是依赖条目 `step_id` 或 `step_id@出口名`（缺省后缀即成功出口），
+   * 也就是「走这个出口才触发本步」。
    */
   depends_on: string[]
+  /** 仅条件步骤使用：分支出口与判定条件，恰好一个兜底分支且排在最后 */
+  branches: BranchDraft[]
   /** 画布坐标；null 表示还没在画布上摆放，渲染时按拓扑层自动布局 */
   position: WorkflowNodePosition | null
 }
@@ -117,6 +276,11 @@ function toStepDraft(step: WorkflowStepWrite, dependsOn: string[]): StepDraft {
       step.timeout_seconds == null ? '' : String(step.timeout_seconds),
     max_retries: step.max_retries ?? 0,
     depends_on: dependsOn,
+    // 非条件步骤的 branches 恒为 null，这里统一折算成空数组，编辑态只有一种形态。
+    branches: (step.branches ?? []).map((branch) => ({
+      name: branch.name,
+      when: branch.when ?? null,
+    })),
     position: step.position ?? null,
   }
 }
@@ -157,6 +321,7 @@ function newStepDraft(seq: number, dependsOn: string[]): StepDraft {
     timeout_seconds: '',
     max_retries: 0,
     depends_on: dependsOn,
+    branches: [],
     position: null,
   }
 }
@@ -369,6 +534,9 @@ function toStepWrite(
   stepIds: string[],
   index: number
 ): WorkflowStepWrite {
+  // 条件步骤没有执行体：除了下面这些字段一律置空，保存时也必须把
+  // 超时与重试吐成 null——后端对条件步骤声明这两个字段会直接 400。
+  const isCondition = step.kind === 'condition'
   return {
     step_id: step.step_id.trim(),
     name: step.name.trim(),
@@ -378,22 +546,36 @@ function toStepWrite(
     tool_name: step.kind === 'tool' ? step.tool_name.trim() || null : null,
     // 这两个字段后端是非空字典，显式传 null 会被 422 拒绝；
     // 参数为空时提交 {}，语义与后端「空参数」一致。
-    tool_arguments:
-      step.kind === 'tool'
+    tool_arguments: isCondition
+      ? {}
+      : step.kind === 'tool'
         ? (parseToolArguments(step.tool_arguments_text) ?? {})
         : {},
-    input_bindings: groupBindings(step),
-    on_error: step.on_error,
+    input_bindings: isCondition ? {} : groupBindings(step),
+    on_error: isCondition ? 'abort' : step.on_error,
     default_output:
-      step.on_error === 'continue_with_default'
+      !isCondition && step.on_error === 'continue_with_default'
         ? step.default_output.trim() || null
         : null,
-    timeout_seconds: step.timeout_seconds.trim()
-      ? Number(step.timeout_seconds)
-      : null,
-    max_retries: step.max_retries > 0 ? step.max_retries : null,
+    timeout_seconds: isCondition
+      ? null
+      : step.timeout_seconds.trim()
+        ? Number(step.timeout_seconds)
+        : null,
+    max_retries: isCondition
+      ? null
+      : step.max_retries > 0
+        ? step.max_retries
+        : null,
     // 与缺省语义等价的线性单依赖仍写成 null，存量定义保存后形状不变。
     depends_on: toDependsOnWrite(resolved, stepIds, index),
+    // 分支名即出口名；when 为 null 就是兜底分支，顺序由数组顺序决定。
+    branches: isCondition
+      ? step.branches.map((branch) => ({
+          name: branch.name.trim(),
+          when: branch.when ?? null,
+        }))
+      : null,
     position: step.position,
   }
 }
@@ -441,14 +623,16 @@ export function WorkflowDefinitionForm({
     [issues, stepIds]
   )
   /**
-   * 每个步骤的祖先集合（直接或间接依赖）。
-   * 属性面板的「引用步骤」下拉只列祖先，让用户根本选不到会被后端拒绝的目标。
+   * 每个步骤的祖先集合（直接或间接依赖，按基础 step_id 算）。
+   * 属性面板的「引用步骤」下拉与条件谓词的引用下拉都只列祖先，
+   * 让用户根本选不到会被后端拒绝的目标。
    */
   const ancestorsByStep = useMemo(() => {
     const parents = new Map<string, string[]>()
     stepIds.forEach((stepId) => parents.set(stepId, []))
     resolved.forEach((deps, index) => {
-      deps.forEach((dep) => parents.get(stepIds[index])?.push(dep))
+      // 依赖条目可能带出口后缀，血缘只认基础 step_id：同一上游走哪个出口都算祖先。
+      deps.forEach((dep) => parents.get(stepIds[index])?.push(baseStepId(dep)))
     })
     const result = new Map<string, Set<string>>()
     stepIds.forEach((stepId) => {
@@ -481,18 +665,88 @@ export function WorkflowDefinitionForm({
     }))
   }
 
-  /** 把某个步骤 id 从其它步骤的依赖与输入绑定里摘干净，避免留下悬空引用。 */
+  /**
+   * 把某个步骤 id 从其它步骤的依赖、输入绑定与条件谓词里摘干净，避免留下悬空引用。
+   * 依赖条目按基础 step_id 比对，这样同一个上游的每条出口边都会被清掉。
+   */
   function detachReferences(
     steps: StepDraft[],
     removedId: string
   ): StepDraft[] {
     if (!removedId) return steps
+    // 谓词里引用被删步骤时把 left 清空：用户能一眼看到「缺引用」并重新选，
+    // 比留着一条指向不存在步骤的引用更好修。
+    const clearPredicate = (
+      predicate: ConditionPredicate | null
+    ): ConditionPredicate | null => {
+      if (!predicate) return null
+      if (Array.isArray((predicate as { children?: unknown }).children)) {
+        const logical = predicate as ConditionLogicalPredicate
+        return {
+          ...logical,
+          children: logical.children.map(
+            (child) => clearPredicate(child) ?? newComparisonPredicate()
+          ),
+        }
+      }
+      const comparison = predicate as ConditionComparisonPredicate
+      return baseStepId(comparison.left) === removedId
+        ? { ...comparison, left: '' }
+        : comparison
+    }
     return steps.map((step) => ({
       ...step,
-      depends_on: step.depends_on.filter((dep) => dep !== removedId),
+      depends_on: step.depends_on.filter(
+        (dep) => baseStepId(dep) !== removedId
+      ),
       bindings: step.bindings.filter(
         (binding) => binding.step_id.trim() !== removedId
       ),
+      branches: step.branches.map((branch) => ({
+        ...branch,
+        when: clearPredicate(branch.when),
+      })),
+    }))
+  }
+
+  /**
+   * 切换步骤类型。条件的切换要顺手把不属于目标类型的字段清干净，
+   * 否则用户会带着一批后端必然拒绝的字段去保存。
+   */
+  function changeStepKind(index: number, kind: WorkflowStepKind) {
+    setDraft((prev) => ({
+      ...prev,
+      steps: prev.steps.map((step, i) => {
+        if (i !== index || step.kind === kind) return step
+        if (kind === 'condition') {
+          // 条件步骤只做判定：执行体字段、超时、重试、失败策略都不允许存在。
+          // 最小骨架给「一个条件分支 + 一个兜底分支」，用户改分支名就能用。
+          return {
+            ...step,
+            kind,
+            agent_id: null,
+            prompt: '',
+            tool_name: '',
+            tool_arguments_text: '',
+            bindings: [],
+            default_output: '',
+            on_error: 'abort',
+            timeout_seconds: '',
+            max_retries: 0,
+            branches:
+              step.branches.length > 0
+                ? step.branches
+                : newBranchDrafts(
+                    step.depends_on[0]
+                      ? baseStepId(step.depends_on[0])
+                      : undefined
+                  ),
+          }
+        }
+        // 非条件步骤没有分支出口，残留 branches 会被后端当成非法字段
+        // （条件步骤才有出口声明，普通步骤的出口由 on_error 决定）。
+        return { ...step, kind, branches: [] }
+      }),
     }))
   }
 
@@ -522,15 +776,19 @@ export function WorkflowDefinitionForm({
     setSelectedStepId(next.step_id)
   }
 
-  /** 在画布上从 source 拉到 target：target 依赖 source（入边即依赖）。 */
-  function connectSteps(source: string, target: string) {
+  /**
+   * 在画布上从 source 的某个出口拉到 target：target 依赖这个出口。
+   * 写入的依赖条目是 `step_id`（成功出口）或 `step_id@出口名`。
+   */
+  function connectSteps(source: string, target: string, handle: string) {
     const targetIndex = draft.steps.findIndex(
       (step) => step.step_id.trim() === target
     )
     if (targetIndex < 0) return
     const step = draft.steps[targetIndex]
-    if (step.depends_on.includes(source)) return
-    updateStep(targetIndex, { depends_on: [...step.depends_on, source] })
+    const entry = dependencyEntry(source.trim(), handle)
+    if (step.depends_on.includes(entry)) return
+    updateStep(targetIndex, { depends_on: [...step.depends_on, entry] })
   }
 
   function removeDependency(stepIndex: number, dep: string) {
@@ -542,17 +800,20 @@ export function WorkflowDefinitionForm({
 
   function removeEdges(edges: { id: string }[]) {
     edges.forEach((edge) => {
-      // edge.id 由 edgeId(source, target) 生成，形如 "a->b"；拆不出就跳过。
-      const separator = '->'
-      const at = edge.id.indexOf(separator)
+      // edge.id 由 edgeId(source, target, handle) 生成：
+      // 成功出口是 "a->b"，具名出口是 "a:分支名->b"；拆不出就跳过。
+      const at = edge.id.indexOf('->')
       if (at <= 0) return
       const from = edge.id.slice(0, at)
-      const to = edge.id.slice(at + separator.length)
+      const to = edge.id.slice(at + 2)
+      const colon = from.indexOf(':')
+      const source = colon < 0 ? from : from.slice(0, colon)
+      const handle = colon < 0 ? DEFAULT_HANDLE : from.slice(colon + 1)
       const targetIndex = draft.steps.findIndex(
         (step) => step.step_id.trim() === to
       )
       if (targetIndex < 0) return
-      removeDependency(targetIndex, from)
+      removeDependency(targetIndex, dependencyEntry(source, handle))
     })
   }
 
@@ -641,14 +902,25 @@ export function WorkflowDefinitionForm({
   }
 
   const selectedUpstreams = selectedStep?.depends_on ?? []
-  const addableDependencies = selectedStep
-    ? draft.steps.filter(
-        (step) =>
-          step.step_id.trim() !== selectedStep.step_id.trim() &&
-          !selectedUpstreams.includes(step.step_id.trim()) &&
-          stepIdSet.has(step.step_id.trim())
-      )
+  /**
+   * 可添加的上游依赖：按「步骤 × 出口」展开，同一导出边的条目只出现一次。
+   * 依赖的是出口而不是步骤——条件步骤有多个分支出口，普通步骤还有失败出口。
+   */
+  const addableDependencies: DependencyOption[] = selectedStep
+    ? draft.steps.flatMap((step) => {
+        const candidateId = step.step_id.trim()
+        if (!candidateId || candidateId === selectedStep.step_id.trim())
+          return []
+        if (!stepIdSet.has(candidateId)) return []
+        return dependencyOptionsOf(step).filter(
+          (option) => !selectedUpstreams.includes(option.entry)
+        )
+      })
     : []
+  /** 已添加的上游依赖（chips）：保留原始条目，才能按具体出口精确移除。 */
+  const selectedUpstreamChips: DependencyOption[] = selectedUpstreams.map(
+    (entry) => describeDependency(entry, draft.steps)
+  )
   const referenceOptions = selectedStep
     ? draft.steps.filter((step) =>
         (ancestorsByStep.get(selectedStep.step_id.trim()) ?? new Set()).has(
@@ -763,8 +1035,9 @@ export function WorkflowDefinitionForm({
           <div className='mb-2'>
             <h2 className='text-lg font-semibold'>步骤（DAG 画布）</h2>
             <p className='text-sm text-muted-foreground'>
-              连线表示「先跑上游再跑下游」，汇聚节点等所有上游完成；引用只能指向上游步骤，
-              同一层最多并行 {MAX_PARALLEL_BRANCHES} 个步骤。
+              连线从上游的出口拉向下游：至少有一条依赖边到达本步才会执行，否则本步记为跳过并向下游
+              继续传播（跳过传播）。引用只能指向上游步骤，同一层最多并行{' '}
+              {MAX_PARALLEL_BRANCHES} 个步骤。
             </p>
           </div>
           <WorkflowCanvas
@@ -805,9 +1078,7 @@ export function WorkflowDefinitionForm({
             agents={agents}
             upstreamOptions={addableDependencies}
             referenceOptions={referenceOptions}
-            upstreamSteps={draft.steps.filter((step) =>
-              selectedUpstreams.includes(step.step_id.trim())
-            )}
+            upstreamChips={selectedUpstreamChips}
             issues={issues.filter(
               (issue) =>
                 issue.stepId === null ||
@@ -816,15 +1087,18 @@ export function WorkflowDefinitionForm({
             onChange={(patch) => {
               if (selectedIndex >= 0) updateStep(selectedIndex, patch)
             }}
-            onAddDependency={(stepId) => {
+            onChangeKind={(kind) => {
+              if (selectedIndex >= 0) changeStepKind(selectedIndex, kind)
+            }}
+            onAddDependency={(entry) => {
               if (selectedIndex >= 0) {
                 updateStep(selectedIndex, {
-                  depends_on: [...selectedUpstreams, stepId],
+                  depends_on: [...selectedUpstreams, entry],
                 })
               }
             }}
-            onRemoveDependency={(stepId) => {
-              if (selectedIndex >= 0) removeDependency(selectedIndex, stepId)
+            onRemoveDependency={(entry) => {
+              if (selectedIndex >= 0) removeDependency(selectedIndex, entry)
             }}
             onAddBinding={() => {
               if (selectedIndex >= 0) addBinding(selectedIndex)
@@ -881,9 +1155,10 @@ function StepPropertyPanel({
   agents,
   upstreamOptions,
   referenceOptions,
-  upstreamSteps,
+  upstreamChips,
   issues,
   onChange,
+  onChangeKind,
   onAddDependency,
   onRemoveDependency,
   onAddBinding,
@@ -893,13 +1168,17 @@ function StepPropertyPanel({
   step: StepDraft | null
   index: number
   agents: { id: number; name: string }[]
-  upstreamOptions: StepDraft[]
+  /** 还没添加过的上游出口 */
+  upstreamOptions: DependencyOption[]
+  /** 可作为引用来源的上游步骤（祖先集合） */
   referenceOptions: StepDraft[]
-  upstreamSteps: StepDraft[]
+  /** 已添加的上游依赖条目（带出口后缀） */
+  upstreamChips: DependencyOption[]
   issues: DagIssue[]
   onChange: (patch: Partial<StepDraft>) => void
-  onAddDependency: (stepId: string) => void
-  onRemoveDependency: (stepId: string) => void
+  onChangeKind: (kind: WorkflowStepKind) => void
+  onAddDependency: (entry: string) => void
+  onRemoveDependency: (entry: string) => void
   onAddBinding: () => void
   onUpdateBinding: (
     bindingIndex: number,
@@ -924,14 +1203,95 @@ function StepPropertyPanel({
     agentOptions.push({ id: step.agent_id, name: `#${step.agent_id}` })
   }
   const referenceCandidates = referenceOptions
+  const isCondition = step.kind === 'condition'
+  // 收窄后的别名：下面的闭包里要反复读草稿，直接用参数会被 TS 判成可能为 null。
+  const current: StepDraft = step
+
+  /**
+   * 条件分支的整表替换：分支顺序即判定顺序，兜底分支必须留在最后，
+   * 因此所有增删改都收敛到这一个入口，避免各处漏掉顺序约束。
+   */
+  const setBranches = (branches: BranchDraft[]) => onChange({ branches })
+
+  /** 新增条件分支：默认 not_empty 判定，并保证插在兜底分支之前。 */
+  function addBranch() {
+    if (current.branches.length >= MAX_CONDITION_BRANCHES) return
+    const fallbackIndex = current.branches.findIndex((branch) => !branch.when)
+    const next: BranchDraft = {
+      name: nextBranchName(current.branches),
+      when: newComparisonPredicate(
+        referenceCandidates[0]
+          ? referenceTemplate(referenceCandidates[0].step_id.trim())
+          : ''
+      ),
+    }
+    const branches = [...current.branches]
+    // 新条件分支插在兜底分支之前，兜底永远保持在最后一位。
+    branches.splice(
+      fallbackIndex < 0 ? branches.length : fallbackIndex,
+      0,
+      next
+    )
+    setBranches(branches)
+  }
+
+  function removeBranch(branchIndex: number) {
+    setBranches(current.branches.filter((_, i) => i !== branchIndex))
+  }
+
+  /** 上下移动条件分支；兜底分支的位置由「必须最后」这条规则独占，不参与移动。 */
+  function moveBranch(branchIndex: number, offset: -1 | 1) {
+    const branches = [...current.branches]
+    const target = branchIndex + offset
+    if (target < 0 || target >= branches.length) return
+    if (!branches[branchIndex].when || !branches[target].when) return
+    ;[branches[branchIndex], branches[target]] = [
+      branches[target],
+      branches[branchIndex],
+    ]
+    setBranches(branches)
+  }
+
+  /**
+   * 把某个条件分支设为兜底（when 清空）并移到末尾；
+   * 原来的兜底分支恢复成一个 not_empty 条件，保证「恰好一个兜底」不被破坏。
+   */
+  function makeFallback(branchIndex: number) {
+    const target = current.branches[branchIndex]
+    const rest = current.branches.filter((_, i) => i !== branchIndex)
+    const next = rest.map((branch) =>
+      branch.when
+        ? branch
+        : {
+            ...branch,
+            when: newComparisonPredicate(
+              referenceCandidates[0]
+                ? referenceTemplate(referenceCandidates[0].step_id.trim())
+                : ''
+            ),
+          }
+    )
+    setBranches([...next, { ...target, when: null }])
+  }
+
+  /**
+   * 替换某个分支的谓词整棵树。
+   * 只有根节点会走到这里：子条件的增删改由谓词编辑器自己递归替换后整体交回，
+   * 这样面板层不必关心里面的层级路径。
+   */
+  function updatePredicate(branchIndex: number, next: ConditionPredicate) {
+    setBranches(
+      current.branches.map((branch, i) =>
+        i === branchIndex ? { ...branch, when: next } : branch
+      )
+    )
+  }
 
   return (
     <div className='flex flex-col gap-3 rounded-md border p-3'>
       <div className='flex flex-wrap items-center gap-2'>
         <span className='text-sm font-medium'>第 {index + 1} 步</span>
-        <Badge variant='outline'>
-          {step.kind === 'agent' ? 'Agent 步骤' : '工具步骤'}
-        </Badge>
+        <Badge variant='outline'>{KIND_LABEL[step.kind]}</Badge>
         <span className='text-xs text-muted-foreground'>{step.step_id}</span>
       </div>
 
@@ -957,18 +1317,10 @@ function StepPropertyPanel({
         />
       </Field>
 
-      <Field label='类型'>
+      <Field label='类型' hint='条件步骤只做判定，不调模型也不调工具'>
         <Select
           value={step.kind}
-          onValueChange={(value) =>
-            // 切到 Agent 步骤时清空输入绑定：绑定只属于工具步骤，留着会在保存时
-            // 被后端以「agent 步骤不得声明 input_bindings」直接拒绝。
-            onChange(
-              value === 'agent'
-                ? { kind: value as WorkflowStepKind, bindings: [] }
-                : { kind: value as WorkflowStepKind }
-            )
-          }
+          onValueChange={(value) => onChangeKind(value as WorkflowStepKind)}
         >
           <SelectTrigger>
             <SelectValue />
@@ -976,25 +1328,29 @@ function StepPropertyPanel({
           <SelectContent>
             <SelectItem value='agent'>Agent 步骤</SelectItem>
             <SelectItem value='tool'>工具步骤</SelectItem>
+            <SelectItem value='condition'>条件步骤</SelectItem>
           </SelectContent>
         </Select>
       </Field>
 
-      <Field label='上游依赖' hint='本步等这些步骤全部完成后才执行；空 = 起点'>
-        {upstreamSteps.length === 0 ? (
+      <Field
+        label='上游依赖'
+        hint='这些出口里至少有一条到达本步才执行；没有依赖就是起点，空着不写也会执行'
+      >
+        {upstreamChips.length === 0 ? (
           <p className='text-xs text-muted-foreground'>
             没有上游依赖，本步会在工作流开始时执行。
           </p>
         ) : (
           <div className='flex flex-wrap gap-1'>
-            {upstreamSteps.map((upstream) => (
+            {upstreamChips.map((chip) => (
               <Button
-                key={upstream.step_id}
+                key={chip.entry}
                 size='sm'
                 variant='outline'
-                onClick={() => onRemoveDependency(upstream.step_id.trim())}
+                onClick={() => onRemoveDependency(chip.entry)}
               >
-                {upstream.name || upstream.step_id} ✕
+                {chip.label} ✕
               </Button>
             ))}
           </div>
@@ -1002,15 +1358,12 @@ function StepPropertyPanel({
         {upstreamOptions.length > 0 && (
           <Select value='' onValueChange={(value) => onAddDependency(value)}>
             <SelectTrigger className='mt-2 w-full'>
-              <SelectValue placeholder='添加上游依赖' />
+              <SelectValue placeholder='添加上游出口' />
             </SelectTrigger>
             <SelectContent>
               {upstreamOptions.map((candidate) => (
-                <SelectItem
-                  key={candidate.step_id}
-                  value={candidate.step_id.trim()}
-                >
-                  {candidate.name || candidate.step_id}
+                <SelectItem key={candidate.entry} value={candidate.entry}>
+                  {candidate.label}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -1018,36 +1371,50 @@ function StepPropertyPanel({
         )}
       </Field>
 
-      <Field
-        label='步骤超时（秒）'
-        hint='留空则用工作流级超时；填写时 30–7200 秒'
-      >
-        <Input
-          type='number'
-          value={step.timeout_seconds}
-          onChange={(event) =>
-            onChange({ timeout_seconds: event.target.value })
-          }
-        />
-      </Field>
+      {isCondition ? (
+        <p className='rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground'>
+          条件步骤不做执行体，因此没有超时、重试与失败策略：判定本身不会失败，
+          命中哪条分支就写进本步的模型可见输出，供下游引用。
+        </p>
+      ) : (
+        <>
+          <Field
+            label='步骤超时（秒）'
+            hint='留空则用工作流级超时；填写时 30–7200 秒'
+          >
+            <Input
+              type='number'
+              value={step.timeout_seconds}
+              onChange={(event) =>
+                onChange({ timeout_seconds: event.target.value })
+              }
+            />
+          </Field>
 
-      <Field label='失败重试次数' hint='用同一份输入重试；用尽后失败策略才生效'>
-        <Select
-          value={String(step.max_retries)}
-          onValueChange={(value) => onChange({ max_retries: Number(value) })}
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {MAX_RETRIES_OPTIONS.map((count) => (
-              <SelectItem key={count} value={String(count)}>
-                {count === 0 ? '不重试' : `额外重试 ${count} 次`}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </Field>
+          <Field
+            label='失败重试次数'
+            hint='用同一份输入重试；用尽后失败策略才生效'
+          >
+            <Select
+              value={String(step.max_retries)}
+              onValueChange={(value) =>
+                onChange({ max_retries: Number(value) })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {MAX_RETRIES_OPTIONS.map((count) => (
+                  <SelectItem key={count} value={String(count)}>
+                    {count === 0 ? '不重试' : `额外重试 ${count} 次`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+        </>
+      )}
 
       {step.kind === 'agent' ? (
         <>
@@ -1092,7 +1459,7 @@ function StepPropertyPanel({
             />
           </Field>
         </>
-      ) : (
+      ) : step.kind === 'tool' ? (
         <>
           <Field label='工具名'>
             <Input
@@ -1117,41 +1484,76 @@ function StepPropertyPanel({
             />
           </Field>
         </>
-      )}
+      ) : null}
 
-      <Field label='失败策略'>
-        <Select
-          value={step.on_error}
-          onValueChange={(value) =>
-            onChange({ on_error: value as WorkflowStepOnError })
-          }
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {ON_ERROR_OPTIONS.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </Field>
-
-      {step.on_error === 'continue_with_default' && (
-        <Field
-          label='兜底输出'
-          hint='这一步失败时写进模型可见输出的内容，供后续步骤继续'
-        >
-          <Textarea
-            rows={2}
-            value={step.default_output}
-            onChange={(event) =>
-              onChange({ default_output: event.target.value })
+      {isCondition ? (
+        /* 条件步骤的出口就是它自己的分支，判定顺序按分支数组顺序来。 */
+        <ConditionBranchEditor
+          branches={step.branches}
+          leftOptions={referenceCandidates.map((candidate) => {
+            const candidateId = candidate.step_id.trim()
+            return {
+              value: referenceTemplate(candidateId),
+              label: `${candidate.name || candidateId}（${candidateId}）`,
             }
-          />
-        </Field>
+          })}
+          onRename={(branchIndex, name) =>
+            setBranches(
+              current.branches.map((branch, i) =>
+                i === branchIndex ? { ...branch, name } : branch
+              )
+            )
+          }
+          onAdd={addBranch}
+          onRemove={removeBranch}
+          onMove={moveBranch}
+          onMakeFallback={makeFallback}
+          onUpdatePredicate={updatePredicate}
+        />
+      ) : (
+        <>
+          <Field label='失败策略'>
+            <Select
+              value={step.on_error}
+              onValueChange={(value) =>
+                onChange({ on_error: value as WorkflowStepOnError })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ON_ERROR_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+
+          {step.on_error === 'continue_with_default' && (
+            <Field
+              label='兜底输出'
+              hint='这一步失败时写进模型可见输出的内容，供后续步骤继续'
+            >
+              <Textarea
+                rows={2}
+                value={step.default_output}
+                onChange={(event) =>
+                  onChange({ default_output: event.target.value })
+                }
+              />
+            </Field>
+          )}
+
+          {step.on_error === 'fail_branch' && (
+            <p className='rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground'>
+              失败时从本步的「失败」出口继续，整条 run 仍以 completed 收尾；
+              需要有人在画布上从这个出口拉一条线，否则下游不会因为这次失败而执行。
+            </p>
+          )}
+        </>
       )}
 
       {/* 输入绑定只属于工具步骤：Agent 步骤通过提示词里的 {{步骤.output}} 取数，
@@ -1224,6 +1626,295 @@ function StepPropertyPanel({
           >
             添加绑定
           </Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * 条件分支编辑器：分支顺序就是判定顺序，兜底分支固定在最后。
+ *
+ * 分支名即出口名，所以这里的改名/增删会同时改变画布上这个节点的出口，
+ * 以及其它步骤「添加上游出口」下拉里的候选项。
+ */
+function ConditionBranchEditor({
+  branches,
+  leftOptions,
+  onRename,
+  onAdd,
+  onRemove,
+  onMove,
+  onMakeFallback,
+  onUpdatePredicate,
+}: {
+  branches: BranchDraft[]
+  leftOptions: { value: string; label: string }[]
+  onRename: (branchIndex: number, name: string) => void
+  onAdd: () => void
+  onRemove: (branchIndex: number) => void
+  onMove: (branchIndex: number, offset: -1 | 1) => void
+  onMakeFallback: (branchIndex: number) => void
+  onUpdatePredicate: (branchIndex: number, next: ConditionPredicate) => void
+}) {
+  return (
+    <div className='flex flex-col gap-3 rounded-md border p-3'>
+      <div>
+        <Label>条件分支</Label>
+        <p className='mt-1 text-xs text-muted-foreground'>
+          按顺序判定，命中第一条成立的分支；最多 {MAX_CONDITION_BRANCHES} 条，
+          且必须有一条兜底分支排在最后。分支名就是画布上的出口名。
+        </p>
+      </div>
+
+      {branches.length === 0 && (
+        <p className='text-xs text-destructive'>
+          还没有分支出口：条件步骤至少要有一个分支，否则这一步没有路可走。
+        </p>
+      )}
+
+      {branches.map((branch, branchIndex) => (
+        <div key={branchIndex} className='rounded-md border p-2'>
+          <div className='flex flex-wrap items-center gap-2'>
+            <Input
+              className='w-36'
+              placeholder='分支名'
+              value={branch.name}
+              onChange={(event) => onRename(branchIndex, event.target.value)}
+            />
+            {branch.when ? (
+              <Badge variant='secondary'>条件分支</Badge>
+            ) : (
+              <Badge>兜底分支</Badge>
+            )}
+            <div className='ml-auto flex items-center gap-1'>
+              <Button
+                size='sm'
+                variant='ghost'
+                disabled={!branch.when || branchIndex === 0}
+                onClick={() => onMove(branchIndex, -1)}
+              >
+                上移
+              </Button>
+              <Button
+                size='sm'
+                variant='ghost'
+                // 下一位若是兜底分支就不能换位：兜底必须始终留在最后。
+                disabled={!branch.when || branchIndex >= branches.length - 2}
+                onClick={() => onMove(branchIndex, 1)}
+              >
+                下移
+              </Button>
+              {branch.when && (
+                <Button
+                  size='sm'
+                  variant='ghost'
+                  onClick={() => onMakeFallback(branchIndex)}
+                >
+                  设为兜底
+                </Button>
+              )}
+              {branch.when && (
+                <Button
+                  size='sm'
+                  variant='ghost'
+                  onClick={() => onRemove(branchIndex)}
+                >
+                  删除
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {branch.when ? (
+            <PredicateEditor
+              predicate={branch.when}
+              depth={1}
+              leftOptions={leftOptions}
+              onChange={(next) => onUpdatePredicate(branchIndex, next)}
+            />
+          ) : (
+            <p className='mt-2 text-xs text-muted-foreground'>
+              无条件兜底：前面所有分支都不成立时走这里，因此它不能移动也不能删除。
+            </p>
+          )}
+        </div>
+      ))}
+
+      {branches.length < MAX_CONDITION_BRANCHES && (
+        <Button size='sm' variant='outline' onClick={onAdd}>
+          添加条件分支
+        </Button>
+      )}
+    </div>
+  )
+}
+
+/**
+ * 谓词编辑器（递归）：比较算子编辑 left/right，组合算子编辑子条件。
+ *
+ * 嵌到第 MAX_PREDICATE_DEPTH 层时只允许比较算子——再嵌一层就会被后端拒绝，
+ * 与其等保存报错，不如在这里直接把逻辑算子的选项换成提示。
+ */
+function PredicateEditor({
+  predicate,
+  depth,
+  leftOptions,
+  onChange,
+}: {
+  predicate: ConditionPredicate
+  /** 根节点为 1，子条件逐层 +1，与后端 MAX_PREDICATE_DEPTH 的口径一致 */
+  depth: number
+  leftOptions: { value: string; label: string }[]
+  onChange: (next: ConditionPredicate) => void
+}) {
+  // 「有没有 children 这个键」用来区分组合算子与比较算子（也是 TS 收窄联合类型的判据）；
+  // 但后端 `model_dump()` 会把省略的 children 补成 `null`，所以真正取列表时只认数组
+  // （读侧已在 api/workflow.ts 里归一化，这里再兜一层，避免把 null 当列表用）。
+  const logical = 'children' in predicate
+  const children: ConditionPredicate[] =
+    logical && Array.isArray((predicate as { children?: unknown }).children)
+      ? (predicate as ConditionLogicalPredicate).children
+      : []
+  const op = predicate.op
+  const logicalDisabled = depth >= MAX_PREDICATE_DEPTH
+
+  // 引用可能指向刚被删掉/改名的上游，那样它不在候选里；补一条当前值，
+  // 让用户看得见这条引用并自己改，而不是下拉框莫名显示成空。
+  const leftValue = logical ? '' : predicate.left
+  const candidates =
+    leftValue && !leftOptions.some((option) => option.value === leftValue)
+      ? [...leftOptions, { value: leftValue, label: `${leftValue}（当前值）` }]
+      : leftOptions
+
+  return (
+    <div className='mt-2 rounded-md border bg-muted/20 p-2'>
+      <div className='flex flex-wrap items-center gap-2'>
+        <Select
+          value={op}
+          onValueChange={(value) =>
+            onChange(
+              convertPredicate(predicate, value as ConditionOp, leftValue)
+            )
+          }
+        >
+          <SelectTrigger className='w-40'>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {COMPARISON_OP_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+            {LOGICAL_OP_OPTIONS.map((option) => (
+              <SelectItem
+                key={option.value}
+                value={option.value}
+                disabled={logicalDisabled}
+              >
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {logicalDisabled && (
+          <span className='text-xs text-muted-foreground'>
+            已到最大嵌套层数 {MAX_PREDICATE_DEPTH}，这一层只能是比较算子
+          </span>
+        )}
+      </div>
+
+      {logical ? (
+        <div className='mt-2 flex flex-col gap-2 border-l pl-2'>
+          <p className='text-xs text-muted-foreground'>
+            {predicate.op === 'not'
+              ? '取反：唯一的子条件不成立时这条分支成立。'
+              : `${predicate.op === 'all' ? '全部' : '任一'}子条件成立时这条分支成立（最多 ${MAX_PREDICATE_CHILDREN} 个）。`}
+          </p>
+          {children.map((child, index) => (
+            <div key={index}>
+              <PredicateEditor
+                predicate={child}
+                depth={depth + 1}
+                leftOptions={leftOptions}
+                onChange={(next) =>
+                  // 递归层只替换自己这棵子树，整棵树由根节点统一交回面板。
+                  onChange(replacePredicateAt(predicate, [index], next))
+                }
+              />
+              {predicate.op !== 'not' && (
+                <Button
+                  size='sm'
+                  variant='ghost'
+                  onClick={() =>
+                    onChange({
+                      op: predicate.op,
+                      children: children.filter((_, i) => i !== index),
+                    })
+                  }
+                >
+                  移除子条件
+                </Button>
+              )}
+            </div>
+          ))}
+          {predicate.op !== 'not' &&
+            children.length < MAX_PREDICATE_CHILDREN && (
+              <Button
+                size='sm'
+                variant='outline'
+                onClick={() =>
+                  onChange({
+                    op: predicate.op,
+                    children: [
+                      ...children,
+                      newComparisonPredicate(leftOptions[0]?.value ?? ''),
+                    ],
+                  })
+                }
+              >
+                添加子条件
+              </Button>
+            )}
+        </div>
+      ) : (
+        <div className='mt-2 flex flex-wrap items-center gap-2'>
+          <Select
+            value={leftValue || NO_PREDICATE_REFERENCE}
+            onValueChange={(value) =>
+              onChange({
+                ...predicate,
+                left: value === NO_PREDICATE_REFERENCE ? '' : value,
+              })
+            }
+          >
+            <SelectTrigger className='w-52'>
+              <SelectValue placeholder='引用上游输出' />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_PREDICATE_REFERENCE}>未选择</SelectItem>
+              {candidates.map((candidate) => (
+                <SelectItem key={candidate.value} value={candidate.value}>
+                  {candidate.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {predicate.op === 'not_empty' ? (
+            <span className='text-xs text-muted-foreground'>
+              只要这个引用不是空值就成立
+            </span>
+          ) : (
+            <Input
+              className={predicate.op === 'matches' ? 'w-56 font-mono' : 'w-40'}
+              placeholder={predicate.op === 'matches' ? '正则表达式' : '比较值'}
+              value={predicate.right ?? ''}
+              onChange={(event) =>
+                onChange({ ...predicate, right: event.target.value })
+              }
+            />
+          )}
         </div>
       )}
     </div>

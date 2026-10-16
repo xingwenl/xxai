@@ -10,13 +10,24 @@
   依赖编译出来。缺省 ``depends_on`` 表示「依赖序列中的前一个步骤」，因此
   改造前保存的线性定义无需迁移；显式 ``[]`` 表示起点（并行分支的第二条靠
   它声明）。
-- 引用（``input_bindings`` 的 ``value_selector``、提示词里的 ``{{step.path}}``）
-  只能指向**上游（直接或间接依赖）**的 ``step_id``，且路径只允许 ``output``。
-  并行分支之间互不可见——这正是「分支不可互读变量」的落点。
+- 依赖条目可以带**出口后缀** ``"<step_id>@<handle>"``：不带后缀等价于
+  ``@default``（成功出口）。``kind="condition"`` 的条件步骤没有 ``default``
+  出口，只有自己的具名分支出口；声明了 ``on_error="fail_branch"`` 的步骤额外
+  多一个 ``failed`` 出口。这一步能到达哪些出口由 ``declared_handles`` 定义，
+  依赖与边都只能引用其中真实存在的出口——指向一个永远不会到达的出口，等于
+  让下游静默变成长眠步骤。
+- 条件步骤不调模型、不调工具：它声明一组具名分支，**必须恰好有一个**无条件
+  兜底分支且排在最后；分支判定是对上游输出的纯数据谓词（``op`` =
+  ``equals`` / ``contains`` / ``not_empty`` / ``matches``，可用 ``all`` /
+  ``any`` / ``not`` 组合）。
+- 引用（``input_bindings`` 的数组选择器、提示词里的 ``{{step.path}}``、谓词
+  的 ``left``）只能指向**上游（直接或间接依赖）**的 ``step_id``，且路径只允许
+  ``output``。并行分支之间互不可见——这正是「分支不可互读变量」的落点。
 - 依赖无环、不指向不存在的步骤、不自引用、不重复；单层并行宽度有上限。
 - ``step_id`` 唯一且格式稳定（它会成为历史运行记录的一部分，不能是自增行号）；
 - 步骤数不超过 ``max_steps``；
-- 边两端的 ``step_id`` 必须存在，且边集必须与 ``depends_on`` 推导出的边集一致
+- 边两端的 ``step_id`` 必须存在、出口必须是源步骤真的会到达的出口，且边集
+  必须与 ``depends_on`` 推导出的 ``(source, handle, target)`` 三元组集合一致
   （``compile_definition`` 生成边，这里做防御性复核，防止定义被写坏）。
 
 依赖数据库的校验（Agent 是否属于本平台、工具是否可用且副作用可自动批准）
@@ -50,10 +61,35 @@ STEP_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 # 与其等到渲染时才报「引用不到」，不如保存时就拒绝。
 OUTPUT_PATH = "output"
 
-STEP_KINDS = ("agent", "tool")
+STEP_KINDS = ("agent", "tool", "condition")
 ON_ERROR_STRATEGIES = ("abort", "continue_with_default", "fail_branch")
-# v1 落地的失败策略；fail_branch 依赖边上的 source_handle，枚举值先占住、行为后加。
-IMPLEMENTED_ON_ERROR_STRATEGIES = ("abort", "continue_with_default")
+
+# 依赖条目里的出口后缀分隔符：``"a@branch"`` 表示「依赖 a 的 branch 出口」，
+# 不带后缀等价于 ``"a@default"``。
+HANDLE_SEPARATOR = "@"
+# 隐式出口：步骤成功时到达的出口。条件步骤没有这个出口。
+DEFAULT_HANDLE = "default"
+# 隐式出口：``on_error="fail_branch"`` 的步骤失败时到达的出口。
+FAILED_HANDLE = "failed"
+# 分支名不允许占用这两个隐式出口名，否则画布上无法区分「分支」与「成功/失败」。
+RESERVED_HANDLES = (DEFAULT_HANDLE, FAILED_HANDLE)
+
+# 单个条件步骤的分支数上限：与单层并行宽度同量级，分支名是要画在画布上的。
+MAX_CONDITION_BRANCHES = 8
+# 组合谓词的子节点上限：纯数据结构的深度/宽度不该由客户端任意放大。
+MAX_PREDICATE_CHILDREN = 16
+# 谓词嵌套层数上限：``all``/``any`` 是可以互相套的，不设界就等于让客户端
+# 提交一棵任意深的树，保存期校验与运行期求值都会跟着退化成递归炸弹。
+MAX_PREDICATE_DEPTH = 4
+# 比较类谓词的算子，与 ``all`` / ``any`` / ``not`` 三个组合算子互斥。
+PREDICATE_OPS = ("equals", "contains", "not_empty", "matches")
+PREDICATE_LOGICAL_OPS = ("all", "any", "not")
+# ``matches`` 用的正则长度上限：保存期会 re.compile 预编译，长正则本身既是
+# 拒绝服务面，也是「用户其实想干别的」的信号。
+MAX_REGEX_LENGTH = 200
+
+# 谓词左操作数的书写形式示例，只用于错误文案，让用户一次就能看懂该写什么。
+REFERENCE_EXAMPLE = "{{step_id." + OUTPUT_PATH + "}}"
 
 # 单步额外重试次数上限：重试会重复消耗模型调用与工具副作用，宁少勿多。
 MAX_STEP_RETRIES = 5
@@ -83,6 +119,75 @@ def is_truncated(text: str | None) -> bool:
     return bool(text) and text.endswith(TRUNCATION_MARKER)
 
 
+def split_dependency(entry: str) -> tuple[str, str | None]:
+    """把一条依赖条目拆成 ``(step_id, handle)``；没有后缀时 handle 为 ``None``。
+
+    ``None`` 与 ``"default"`` 在前缀处等价，之所以区分保留：``None`` 代表
+    「用户没写出口」这个事实，把它原样存回定义才能让存量线性定义逐字不变。
+    """
+
+    step_id, separator, handle = entry.partition(HANDLE_SEPARATOR)
+    if not separator:
+        return step_id, None
+    return step_id, handle
+
+
+def normalize_handle(handle: str | None) -> str:
+    """把可选的出口后缀折算成具体出口名：缺省即成功出口。"""
+
+    return handle or DEFAULT_HANDLE
+
+
+def base_step_id(entry: str) -> str:
+    """取一条依赖条目的基础 ``step_id``（剥掉 ``@handle`` 后缀）。
+
+    拓扑分层、环检测、上游范围都按基础 ``step_id`` 计算：出口只决定「这条边
+    何时到达」，不改变「谁是上游」。混在一起会让同一对节点因为出口不同而被
+    当成两条依赖，分层与祖先判定随之失真。
+    """
+
+    return split_dependency(entry)[0]
+
+
+def edge_id_of(source: str, handle: str, target: str) -> str:
+    """边的稳定标识：成功出口沿用改造前的 ``a->b`` 写法，具名出口才带后缀。"""
+
+    normalized = normalize_handle(handle)
+    if normalized == DEFAULT_HANDLE:
+        return f"{source}->{target}"
+    return f"{source}:{normalized}->{target}"
+
+
+def branch_names(step: dict[str, Any]) -> list[str]:
+    """条件步骤声明的分支名（不含隐含语义），其它步骤返回空列表。"""
+
+    if step.get("kind") != "condition":
+        return []
+    branches = step.get("branches")
+    if not isinstance(branches, list):
+        return []
+    return [
+        str(branch.get("name"))
+        for branch in branches
+        if isinstance(branch, dict) and branch.get("name")
+    ]
+
+
+def declared_handles(step: dict[str, Any]) -> set[str]:
+    """一个步骤**真的会到达**的出口集合。
+
+    这是「依赖只能指向真实出口」的唯一判据：条件步骤只有具名分支，
+    普通步骤恒有 ``default``，声明了 ``fail_branch`` 的多一个 ``failed``。
+    """
+
+    if step.get("kind") == "condition":
+        return set(branch_names(step))
+    handles = {DEFAULT_HANDLE}
+    if (step.get("on_error") or "abort") == "fail_branch":
+        handles.add(FAILED_HANDLE)
+    return handles
+
+
 def resolve_depends_on(steps: list[dict[str, Any]]) -> list[list[str]]:
     """把每个步骤的 ``depends_on`` 解析成显式列表。
 
@@ -93,6 +198,8 @@ def resolve_depends_on(steps: list[dict[str, Any]]) -> list[list[str]]:
     - ``depends_on == []`` → 显式声明「不依赖任何步骤」，即一个起点。并行分支
       的第二条及以后必须写它，否则会被当成线性后继。
 
+    元素是**依赖条目原文**（可能带 ``@handle`` 后缀），不是纯 step_id：出口
+    信息是执行语义的一部分，在这里剥掉就等于丢掉了「走哪条分支」。
     返回的列表与 ``steps`` 一一对应；元素顺序即步骤声明依赖的顺序。
     """
 
@@ -115,43 +222,50 @@ def resolve_depends_on(steps: list[dict[str, Any]]) -> list[list[str]]:
 def compile_definition(steps: list[dict[str, Any]]) -> dict[str, Any]:
     """把有序步骤列表编译成 ``{nodes, edges}`` 定义。
 
-    边由 ``depends_on`` 生成（``source -> target``），一律带
-    ``source_handle: "default"``：该字段是给日后的条件分支占位的，v1 不产生别的取值。
-    ``depends_on`` 原样存进 node（缺省仍是 ``None``），这样定义能自解释依赖、
-    而线性定义又不需要额外迁移。
+    边由 ``depends_on`` 生成，出口取自依赖条目里的 ``@handle`` 后缀（缺省
+    ``default``）。``depends_on`` 原样存进 node（缺省仍是 ``None``），这样定义
+    能自解释依赖，而线性定义又不需要额外迁移。
+    ``branches`` 只在条件步骤上出现：线性/并行定义编译出的 node 键集因此与
+    改造前逐字相同，存量定义的快照不会因为这次改造而变形。
     """
 
     nodes: list[dict[str, Any]] = []
     for seq, step in enumerate(steps):
-        nodes.append(
-            {
-                "step_id": step["step_id"],
-                "name": step["name"],
-                "kind": step["kind"],
-                "seq": seq,
-                "depends_on": step.get("depends_on"),
-                "position": step.get("position"),
-                "agent_id": step.get("agent_id"),
-                "prompt": step.get("prompt"),
-                "tool_name": step.get("tool_name"),
-                "tool_arguments": step.get("tool_arguments") or {},
-                "input_bindings": step.get("input_bindings") or {},
-                "on_error": step.get("on_error") or "abort",
-                "max_retries": int(step.get("max_retries") or 0),
-                "default_output": step.get("default_output"),
-                "timeout_seconds": step.get("timeout_seconds"),
-            }
-        )
+        node = {
+            "step_id": step["step_id"],
+            "name": step["name"],
+            "kind": step["kind"],
+            "seq": seq,
+            "depends_on": step.get("depends_on"),
+            "position": step.get("position"),
+            "agent_id": step.get("agent_id"),
+            "prompt": step.get("prompt"),
+            "tool_name": step.get("tool_name"),
+            "tool_arguments": step.get("tool_arguments") or {},
+            "input_bindings": step.get("input_bindings") or {},
+            "on_error": step.get("on_error") or "abort",
+            "max_retries": int(step.get("max_retries") or 0),
+            "default_output": step.get("default_output"),
+            "timeout_seconds": step.get("timeout_seconds"),
+        }
+        if step.get("branches") is not None:
+            node["branches"] = step["branches"]
+        nodes.append(node)
 
     edges: list[dict[str, Any]] = []
     for step, dependencies in zip(steps, resolve_depends_on(steps)):
-        for source in dependencies:
+        for entry in dependencies:
+            source, handle = split_dependency(str(entry))
+            handle = normalize_handle(handle)
+            # 成功出口的 edge_id 保持改造前的写法：它是定义里可读的稳定标识。
+            # 具名出口才带上出口名，否则同一对节点的两条分支边会撞 id。
+            edge_id = edge_id_of(source, handle, str(step["step_id"]))
             edges.append(
                 {
-                    "edge_id": f"{source}->{step['step_id']}",
+                    "edge_id": edge_id,
                     "source": source,
                     "target": step["step_id"],
-                    "source_handle": "default",
+                    "source_handle": handle,
                 }
             )
     return {"nodes": nodes, "edges": edges}
@@ -162,8 +276,9 @@ def steps_from_definition(definition: dict[str, Any] | None) -> list[dict[str, A
 
     nodes = list((definition or {}).get("nodes") or [])
     nodes.sort(key=lambda node: int(node.get("seq") or 0))
-    return [
-        {
+    steps: list[dict[str, Any]] = []
+    for node in nodes:
+        step = {
             "step_id": node.get("step_id"),
             "name": node.get("name"),
             "kind": node.get("kind"),
@@ -179,8 +294,12 @@ def steps_from_definition(definition: dict[str, Any] | None) -> list[dict[str, A
             "default_output": node.get("default_output"),
             "timeout_seconds": node.get("timeout_seconds"),
         }
-        for node in nodes
-    ]
+        # 与 compile_definition 对称：没有 branches 键的 node 还原出没有该键的
+        # step，往返因此逐字一致（存量定义的快照不因改造而失真）。
+        if "branches" in node:
+            step["branches"] = node.get("branches")
+        steps.append(step)
+    return steps
 
 
 def execution_layers(steps: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
@@ -238,6 +357,10 @@ def validate_steps(steps: list[dict[str, Any]], *, max_steps: int) -> None:
         label = f"step '{step_id}'"
         _validate_input_bindings(step, upstream=ancestors[step_id], label=label)
         _validate_template_references(step, upstream=ancestors[step_id], label=label)
+        if step["kind"] == "condition":
+            # 分支谓词只能读上游输出，因此引用校验和输入绑定走同一条路：
+            # 先把图建出来（分层已顺带判环），再逐个比对祖先集合。
+            _validate_condition_branches(step, upstream=ancestors[step_id], label=label)
 
 
 def validate_definition(
@@ -251,8 +374,7 @@ def validate_definition(
 
     steps = steps_from_definition(definition)
     validate_steps(steps, max_steps=max_steps)
-    step_ids = {step["step_id"] for step in steps}
-    _validate_edges(step_ids, definition=definition)
+    _validate_edges(steps, definition=definition)
     _validate_edge_consistency(steps, definition=definition)
     return steps
 
@@ -281,6 +403,12 @@ def _validate_step_shape(step: dict[str, Any], *, index: int, seen: set[str]) ->
     kind = step.get("kind")
     if kind not in STEP_KINDS:
         raise BadRequestException(f"{label} has an unknown kind: {kind}")
+    if kind != "condition" and step.get("branches"):
+        # 只有条件步骤有分支出口。普通步骤自产多个出口会让「下游该等谁」
+        # 无从判断，因此这里直接拒绝，而不是静默忽略。
+        raise BadRequestException(
+            f"{label} is not a condition step and cannot declare branches"
+        )
     if kind == "agent":
         prompt = step.get("prompt")
         if not isinstance(prompt, str) or not prompt.strip():
@@ -297,7 +425,7 @@ def _validate_step_shape(step: dict[str, Any], *, index: int, seen: set[str]) ->
                 f"{label} is an agent step and cannot declare input_bindings; "
                 "reference previous steps in the prompt instead"
             )
-    else:
+    elif kind == "tool":
         tool_name = step.get("tool_name")
         if not isinstance(tool_name, str) or not tool_name.strip():
             raise BadRequestException(
@@ -307,6 +435,8 @@ def _validate_step_shape(step: dict[str, Any], *, index: int, seen: set[str]) ->
             raise BadRequestException(
                 f"{label} is a tool step and cannot declare a prompt"
             )
+    else:
+        _validate_condition_step_shape(step, label=label)
 
     on_error = step.get("on_error") or "abort"
     if on_error not in ON_ERROR_STRATEGIES:
@@ -337,6 +467,227 @@ def _validate_step_shape(step: dict[str, Any], *, index: int, seen: set[str]) ->
         )
 
 
+def _validate_condition_step_shape(step: dict[str, Any], *, label: str) -> None:
+    """校验条件步骤自身的形状（分支结构与「不带执行体」的约束）。
+
+    条件步骤不调模型、不调工具、不连会话，因此任何执行体字段都是误配；
+    本函数只管**与上游无关**的那部分，谓词里的引用在
+    ``_validate_condition_branches`` 里连同祖先集合一起校验。
+    """
+
+    for field, description in (
+        ("prompt", "prompt"),
+        ("tool_name", "tool_name"),
+        ("agent_id", "agent_id"),
+    ):
+        if step.get(field):
+            raise BadRequestException(
+                f"{label} is a condition step and cannot declare {description}"
+            )
+    if step.get("input_bindings"):
+        raise BadRequestException(
+            f"{label} is a condition step and cannot declare input_bindings; "
+            "read upstream steps in the branch predicates instead"
+        )
+    if step.get("tool_arguments"):
+        raise BadRequestException(
+            f"{label} is a condition step and cannot declare tool_arguments"
+        )
+    on_error = step.get("on_error") or "abort"
+    if on_error != "abort":
+        # 条件步骤没有执行体，也就没有可兜底的失败面；声明别的策略只会让读者
+        # 以为「这一步可能失败」。
+        raise BadRequestException(
+            f"{label} is a condition step and can only use on_error=abort"
+        )
+    if step.get("default_output"):
+        raise BadRequestException(
+            f"{label} is a condition step and cannot declare default_output"
+        )
+    if step.get("max_retries"):
+        # 没有执行体就没有可重试的失败面，声明重试次数只会误导读者。
+        raise BadRequestException(
+            f"{label} is a condition step and cannot declare max_retries"
+        )
+    if step.get("timeout_seconds"):
+        raise BadRequestException(
+            f"{label} is a condition step and cannot declare timeout_seconds"
+        )
+
+    branches = step.get("branches")
+    if not isinstance(branches, list) or not branches:
+        raise BadRequestException(
+            f"{label} is a condition step and requires at least one branch"
+        )
+    if len(branches) > MAX_CONDITION_BRANCHES:
+        raise BadRequestException(
+            f"{label} has {len(branches)} branches, "
+            f"which exceeds MAX_CONDITION_BRANCHES {MAX_CONDITION_BRANCHES}"
+        )
+
+    names: list[str] = []
+    fallback_index: int | None = None
+    for index, branch in enumerate(branches):
+        if not isinstance(branch, dict):
+            raise BadRequestException(f"{label} branch #{index + 1} must be an object")
+        name = branch.get("name")
+        if not isinstance(name, str) or not STEP_ID_PATTERN.match(name):
+            raise BadRequestException(
+                f"{label} branch #{index + 1} has an invalid name: "
+                "must match [A-Za-z0-9_-]{1,64}"
+            )
+        if name in RESERVED_HANDLES:
+            raise BadRequestException(
+                f"{label} branch name '{name}' is reserved for the implicit outlet"
+            )
+        if name in names:
+            raise BadRequestException(f"{label} has a duplicated branch name: {name}")
+        names.append(name)
+        if branch.get("when") is None:
+            if fallback_index is not None:
+                raise BadRequestException(
+                    f"{label} has more than one unconditional branch; "
+                    "exactly one fallback is required"
+                )
+            fallback_index = index
+
+    if fallback_index is None:
+        # 没有兜底出口意味着「所有条件都不成立」时这一步无路可走，下游会被
+        # 静默跳过——那是最难排查的一类工作流 bug，因此在保存期就要求写全。
+        raise BadRequestException(
+            f"{label} requires exactly one unconditional fallback branch"
+        )
+    if fallback_index != len(branches) - 1:
+        raise BadRequestException(
+            f"{label} fallback branch must be the last one; "
+            f"'{names[fallback_index]}' is at #{fallback_index + 1}"
+        )
+
+
+def _validate_condition_branches(
+    step: dict[str, Any], *, upstream: set[str], label: str
+) -> None:
+    """逐个校验条件步骤的分支谓词；祖先集合一起传入用于引用范围判定。"""
+
+    for branch in step.get("branches") or []:
+        when = branch.get("when")
+        if when is None:
+            # 无条件兜底分支没有谓词可校验。
+            continue
+        _validate_predicate(
+            when,
+            upstream=upstream,
+            label=f"{label} branch '{branch.get('name')}'",
+            depth=1,
+        )
+
+
+def _validate_predicate(
+    predicate: Any, *, upstream: set[str], label: str, depth: int
+) -> None:
+    """校验一份结构化谓词：算子在白名单内、形状对、引用只指向上游。
+
+    谓词是**纯数据**，保存期就把形状和正则验掉，运行期求值才不会遇到
+    「读到一半才发现算子不存在」这种只能算运行失败的情况。
+    """
+
+    if not isinstance(predicate, dict):
+        raise BadRequestException(f"{label} predicate must be an object")
+
+    # 「没写 children」与「children 是 null」必须落成同一种形状：请求体里省略这个键时
+    # pydantic 的 model_dump 会补出一个 None，若原样落库，读侧就会看到「有这个键、
+    # 值是 null」，把 null 当子条件列表用会直接崩。保存期归一化掉，
+    # 编译出的快照里比较算子永远不带 children 键。
+    if predicate.get("children") is None:
+        predicate.pop("children", None)
+
+    op = predicate.get("op")
+    if op in PREDICATE_LOGICAL_OPS:
+        if predicate.get("left") is not None or predicate.get("right") is not None:
+            raise BadRequestException(
+                f"{label} predicate '{op}' is a combinator and cannot declare left/right"
+            )
+        children = predicate.get("children")
+        if not isinstance(children, list) or not children:
+            raise BadRequestException(
+                f"{label} predicate '{op}' requires a non-empty children list"
+            )
+        if len(children) > MAX_PREDICATE_CHILDREN:
+            raise BadRequestException(
+                f"{label} predicate '{op}' has {len(children)} children, "
+                f"which exceeds MAX_PREDICATE_CHILDREN {MAX_PREDICATE_CHILDREN}"
+            )
+        if op == "not" and len(children) != 1:
+            # 多子节点的 ``not`` 会变成「一个都不成立」这种读不懂的语义，只收一个。
+            raise BadRequestException(
+                f"{label} predicate 'not' takes exactly one child, got {len(children)}"
+            )
+        if depth >= MAX_PREDICATE_DEPTH:
+            raise BadRequestException(
+                f"{label} predicate nesting exceeds MAX_PREDICATE_DEPTH "
+                f"{MAX_PREDICATE_DEPTH}"
+            )
+        for child in children:
+            _validate_predicate(child, upstream=upstream, label=label, depth=depth + 1)
+        return
+
+    if op not in PREDICATE_OPS:
+        raise BadRequestException(f"{label} has an unknown predicate op: {op}")
+    if predicate.get("children") is not None:
+        # 比较算子不是组合算子：混用会让「到底以哪个为准」没有唯一答案。
+        raise BadRequestException(
+            f"{label} predicate '{op}' is a comparison and cannot declare children"
+        )
+
+    left = predicate.get("left")
+    if not isinstance(left, str) or not left.strip():
+        raise BadRequestException(
+            f"{label} predicate '{op}' requires a left operand like "
+            f"'{REFERENCE_EXAMPLE}'"
+        )
+    match = TEMPLATE_REFERENCE_PATTERN.fullmatch(left.strip())
+    if match is None:
+        raise BadRequestException(
+            f"{label} predicate '{op}' left must be exactly one reference like "
+            f"'{REFERENCE_EXAMPLE}', got '{left}'"
+        )
+    source_id, path = match.groups()
+    if source_id not in upstream:
+        # 与模板引用校验同一措辞：两处说的是同一件事，文案统一才好排查。
+        raise BadRequestException(
+            f"{label} predicate references '{source_id}', "
+            "which is not an upstream step"
+        )
+    if path != OUTPUT_PATH:
+        raise BadRequestException(
+            f"{label} predicate path must be '{OUTPUT_PATH}', got '{path}'"
+        )
+
+    right = predicate.get("right")
+    if op == "not_empty":
+        if right is not None:
+            raise BadRequestException(
+                f"{label} predicate 'not_empty' does not take a right operand"
+            )
+        return
+    if not isinstance(right, str) or not right:
+        raise BadRequestException(
+            f"{label} predicate '{op}' requires a non-empty right operand"
+        )
+    if op == "matches":
+        if len(right) > MAX_REGEX_LENGTH:
+            raise BadRequestException(
+                f"{label} predicate 'matches' pattern exceeds "
+                f"MAX_REGEX_LENGTH {MAX_REGEX_LENGTH}"
+            )
+        try:
+            re.compile(right)
+        except re.error as exc:
+            raise BadRequestException(
+                f"{label} predicate 'matches' has an invalid regular expression: {exc}"
+            ) from exc
+
+
 def _is_position(value: Any) -> bool:
     """画布坐标：``{"x": number, "y": number}``，只影响前端布局。"""
 
@@ -352,30 +703,50 @@ def _is_position(value: Any) -> bool:
 def _validate_depends_on(
     steps: list[dict[str, Any]], dependencies: list[list[Any]]
 ) -> None:
-    """校验依赖结构：存在、不自引用、不重复。
+    """校验依赖结构：存在、不自引用、不重复、出口真实存在。
 
     环检测不在这里，而在 ``_dependency_layers``（分层与判环是同一件事）。
     """
 
-    known = {step["step_id"] for step in steps}
+    by_id = {step["step_id"]: step for step in steps}
     for step, declared in zip(steps, dependencies):
         step_id = step["step_id"]
         label = f"step '{step_id}'"
-        seen_dependencies: set[str] = set()
-        for dependency in declared:
-            if not isinstance(dependency, str) or not dependency.strip():
+        seen_dependencies: set[tuple[str, str]] = set()
+        for entry in declared:
+            if not isinstance(entry, str) or not entry.strip():
                 raise BadRequestException(f"{label} has an empty depends_on entry")
-            if dependency == step_id:
+            source, handle = split_dependency(entry.strip())
+            if not source:
+                raise BadRequestException(
+                    f"{label} has a depends_on entry without a step_id: {entry}"
+                )
+            if handle == "":
+                raise BadRequestException(
+                    f"{label} has an empty handle in depends_on: {entry}"
+                )
+            if source == step_id:
                 raise BadRequestException(f"{label} cannot depend on itself")
-            if dependency not in known:
+            source_step = by_id.get(source)
+            if source_step is None:
                 raise BadRequestException(
-                    f"{label} depends_on references an unknown step: {dependency}"
+                    f"{label} depends_on references an unknown step: {source}"
                 )
-            if dependency in seen_dependencies:
+            normalized = normalize_handle(handle)
+            # 重复按 ``(source, 出口)`` 判定而不是条目原文：``a`` 与 ``a@default``
+            # 是同一条边，放过去就会编译出两条 edge_id 相同的边。
+            if (source, normalized) in seen_dependencies:
                 raise BadRequestException(
-                    f"{label} has a duplicated dependency: {dependency}"
+                    f"{label} has a duplicated dependency: {entry}"
                 )
-            seen_dependencies.add(dependency)
+            seen_dependencies.add((source, normalized))
+
+            available = declared_handles(source_step)
+            if normalized not in available:
+                raise BadRequestException(
+                    f"{label} depends_on '{entry}' uses an outlet that step "
+                    f"'{source}' never reaches; available: {sorted(available)}"
+                )
 
 
 def _dependency_layers(
@@ -384,8 +755,10 @@ def _dependency_layers(
     """Kahn 分层：返回每层可并发执行的 step_id，并在有环时抛错。"""
 
     order = [step["step_id"] for step in steps]
+    # 分层只关心「谁等谁」：出口后缀在这里剥掉，否则 ``a@branch`` 会被当成一个
+    # 不存在的步骤，让整层永远 ready 不了（表现为假的环）。
     pending: dict[str, set[str]] = {
-        step_id: {str(item) for item in declared}
+        step_id: {base_step_id(str(item)) for item in declared}
         for step_id, declared in zip(order, dependencies)
     }
     layers: list[list[str]] = []
@@ -416,7 +789,7 @@ def _ancestor_map(
     """算出每个步骤的全部上游（直接 + 间接依赖），用于引用校验。"""
 
     parents: dict[str, list[str]] = {
-        step["step_id"]: [str(item) for item in declared]
+        step["step_id"]: [base_step_id(str(item)) for item in declared]
         for step, declared in zip(steps, dependencies)
     }
     cache: dict[str, set[str]] = {}
@@ -531,48 +904,59 @@ def _collect_strings(value: Any) -> list[str]:
     return []
 
 
-def _validate_edges(step_ids: set[str], *, definition: dict[str, Any] | None) -> None:
-    """复核边两端都指向存在的步骤，且边的出口值只有 ``default``。"""
+def _validate_edges(
+    steps: list[dict[str, Any]], *, definition: dict[str, Any] | None
+) -> None:
+    """复核边两端都指向存在的步骤，且出口是源步骤真的会到达的出口。"""
 
     if definition is None:
         return
+    by_id = {str(step["step_id"]): step for step in steps}
     for edge in definition.get("edges") or []:
         source = edge.get("source")
         target = edge.get("target")
-        if source not in step_ids or target not in step_ids:
+        if source not in by_id or target not in by_id:
             raise BadRequestException(
                 f"edge {edge.get('edge_id')} references an unknown step: {source}->{target}"
             )
-        handle = edge.get("source_handle") or "default"
-        if handle != "default":
-            # v1 不实现分支，出现别的出口说明定义被写坏了。
+        handle = normalize_handle(edge.get("source_handle"))
+        available = declared_handles(by_id[str(source)])
+        if handle not in available:
+            # 指向一个永远不会到达的出口，等于让下游静默变成长眠步骤。
             raise BadRequestException(
-                f"edge {edge.get('edge_id')} has unsupported source_handle: {handle}"
+                f"edge {edge.get('edge_id')} uses an outlet that step '{source}' "
+                f"never reaches: {handle}; available: {sorted(available)}"
             )
 
 
 def _validate_edge_consistency(
     steps: list[dict[str, Any]], *, definition: dict[str, Any] | None
 ) -> None:
-    """边集必须与 ``depends_on`` 推导出的边集完全一致。
+    """边集必须与 ``depends_on`` 推导出的 ``(source, handle, target)`` 集合一致。
 
     运行期只读 steps（由 nodes 还原），不读 edges。若不校验一致性，一份
     edges 与 depends_on 互相矛盾的定义会「看起来有图、跑起来按另一个图」，
-    这比直接拒绝难查得多。
+    这比直接拒绝难查得多。出口必须一起比对：只比 ``(source, target)`` 的话，
+    「依赖 a@yes」与「依赖 a@no」在快照里长得一模一样。
     """
 
-    derived = {
-        (source, step["step_id"])
-        for step, dependencies in zip(steps, resolve_depends_on(steps))
-        for source in dependencies
-    }
+    derived: set[tuple[str, str, str]] = set()
+    for step, dependencies in zip(steps, resolve_depends_on(steps)):
+        for entry in dependencies:
+            source, handle = split_dependency(str(entry))
+            derived.add((source, normalize_handle(handle), str(step["step_id"])))
     stored = {
-        (edge.get("source"), edge.get("target"))
+        (
+            str(edge.get("source")),
+            normalize_handle(edge.get("source_handle")),
+            str(edge.get("target")),
+        )
         for edge in ((definition or {}).get("edges") or [])
     }
     if stored != derived:
-        missing = sorted(f"{source}->{target}" for source, target in derived - stored)
-        extra = sorted(f"{source}->{target}" for source, target in stored - derived)
+        # 成功出口沿用 ``a->b`` 的可读写法，具名出口才带后缀。
+        missing = sorted(edge_id_of(*edge) for edge in derived - stored)
+        extra = sorted(edge_id_of(*edge) for edge in stored - derived)
         raise BadRequestException(
             "workflow definition edges do not match depends_on: "
             f"missing={missing or '[]'} extra={extra or '[]'}"

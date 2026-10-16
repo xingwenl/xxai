@@ -249,11 +249,12 @@ def test_validate_steps_accepts_max_retries_at_the_boundary() -> None:
     assert steps_from_definition(definition)[0]["max_retries"] == 2
 
 
-def test_validate_steps_accepts_fail_branch_enum_without_implementing_it() -> None:
-    """锁：``fail_branch`` 在枚举里占位，保存期放行；v1 只有 runner 侧行为差异。
+def test_validate_steps_accepts_fail_branch() -> None:
+    """锁：``fail_branch`` 保存期放行——失败走 ``failed`` 出口，不再是枚举占位。
 
-    这是「代码实际行为」而不是文档承诺：``ON_ERROR_STRATEGIES`` 含三档，
-    ``IMPLEMENTED_ON_ERROR_STRATEGIES`` 只有两档，validate_steps 用的是前者。
+    改造前 ``ON_ERROR_STRATEGIES`` 含三档、``IMPLEMENTED_ON_ERROR_STRATEGIES``
+    只有两档，靠「保存期放行 + runner 当成 abort」占位。现在 runner 真的实现了
+    它，占位常量随之删除，这条锁断言的是「保存期仍然放行且不再有第二份枚举」。
     """
 
     steps = [agent_step("a", on_error="fail_branch")]
@@ -474,14 +475,21 @@ def test_validate_definition_rejects_edge_to_an_unknown_step() -> None:
     assert "references an unknown step" in str(excinfo.value)
 
 
-def test_validate_definition_rejects_non_default_source_handle() -> None:
-    """锁：``source_handle`` 非 default 被拒（v1 不实现分支，出现别的出口说明定义被写坏）。"""
+def test_validate_definition_rejects_an_outlet_the_step_never_reaches() -> None:
+    """锁：边指向一个源步骤永远不会到达的出口时被拒。
+
+    改造前这条锁的措辞是「``source_handle`` 非 default 一律被拒」（v1 不实现
+    分支）。条件分支落地后具名出口是合法形态，判据随之从「是不是 default」
+    升级为「是不是 ``declared_handles`` 里的出口」——普通 Agent 步骤依然只有
+    ``default``，所以这条被写坏的定义仍然必须被拒。
+    """
 
     definition = compile_definition([agent_step("first"), agent_step("second")])
     definition["edges"][0]["source_handle"] = "on_failure"
     with pytest.raises(BadRequestException) as excinfo:
         validate_definition(definition, max_steps=50)
-    assert "has unsupported source_handle: on_failure" in str(excinfo.value)
+    assert "never reaches: on_failure" in str(excinfo.value)
+    assert "available: ['default']" in str(excinfo.value)
 
 
 def test_validate_definition_accepts_a_compiled_definition() -> None:

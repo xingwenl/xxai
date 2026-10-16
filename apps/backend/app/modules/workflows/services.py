@@ -46,7 +46,11 @@ from app.modules.workflows.schemas import (
     WorkflowStepRunDetail,
     WorkflowUpdate,
 )
-from app.shared.exceptions import BadRequestException, ConflictException, NotFoundException
+from app.shared.exceptions import (
+    BadRequestException,
+    ConflictException,
+    NotFoundException,
+)
 from app.shared.pagination import PageData, PaginationParams
 
 
@@ -111,7 +115,9 @@ async def _ensure_tool_step_available(
     )
     tool = next((c for c in tools if getattr(c, "name", None) == tool_name), None)
     if tool is None:
-        raise BadRequestException(f"工具 {tool_name} 不在 Agent {agent_id} 的可用工具清单中")
+        raise BadRequestException(
+            f"工具 {tool_name} 不在 Agent {agent_id} 的可用工具清单中"
+        )
     side_effect = getattr(tool, "side_effect", None)
     if side_effect in NEVER_AUTO_APPROVE_SIDE_EFFECTS:
         raise BadRequestException(
@@ -127,10 +133,19 @@ async def _validate_step_references(
     default_agent_id: int,
     steps: list[dict[str, Any]],
 ) -> None:
-    """校验步骤里需要查库的引用：Agent 与工具。"""
-    await _ensure_published_agent(session, agent_id=default_agent_id, platform_id=platform_id)
+    """校验步骤里需要查库的引用：Agent 与工具。
+
+    条件步骤没有执行体（既不建会话也不调工具），也就没有可查的引用；这里显式
+    跳过而不是靠「字段为空所以顺带跳过」，是为了让「条件步骤不查库」这件事在
+    代码里是可读的约定，而不是巧合。
+    """
+    await _ensure_published_agent(
+        session, agent_id=default_agent_id, platform_id=platform_id
+    )
     tool_cache: dict[int, list[Any]] = {}
     for step in steps:
+        if step.get("kind") == "condition":
+            continue
         step_agent_id = step.get("agent_id")
         if step_agent_id is not None:
             await _ensure_published_agent(
@@ -165,7 +180,9 @@ async def create_workflow(
     repo = WorkflowRepository(session)
     total = await repo.count_for_platform(platform_id)
     if total >= settings.workflow_max_per_platform:
-        raise ConflictException(f"平台工作流数量已达上限（{settings.workflow_max_per_platform}）")
+        raise ConflictException(
+            f"平台工作流数量已达上限（{settings.workflow_max_per_platform}）"
+        )
 
     steps = [step.model_dump() for step in payload.steps]
     # 顺序固定：先纯数据校验（便宜、无 IO），再查库校验，最后才落库。
@@ -251,7 +268,9 @@ async def get_workflow_or_404(
     return workflow
 
 
-def assert_can_manage(workflow: Workflow, *, user_id: int, is_platform_admin: bool) -> None:
+def assert_can_manage(
+    workflow: Workflow, *, user_id: int, is_platform_admin: bool
+) -> None:
     """校验管理权限：管理员放行，其余只认 owner。
 
     越权时抛 404 而不是 403：403 等于承认「这条定义存在」，会泄露他人工作流的

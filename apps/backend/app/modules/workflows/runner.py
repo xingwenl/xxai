@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -67,6 +68,11 @@ OUTPUT_PATH = validators.OUTPUT_PATH
 # 会瞬间打出 N×M 个模型请求。默认 4 同时对齐了本机 Pi 的 MAX_CONCURRENCY = 4。
 MAX_PARALLEL_STEPS = 4
 
+# 步骤被跳过的原因文案。跳过是「依赖的出口都没到达」这一正常结果，不是错误；
+# 但运行记录里只有 error_message 一列能携带自由文本，所以原因写在这里，
+# 前端才有东西可显示（否则用户只看到一个没有解释的灰节点）。
+SKIPPED_MESSAGE = "依赖的出口均未到达，本步骤被跳过"
+
 
 class StepFailedError(Exception):
     """单步执行失败；消息会原样进入步骤运行记录，供排障。"""
@@ -88,10 +94,16 @@ class ExecutionTally:
 
 @dataclass
 class _StepOutcome:
-    """单步结果：进 ``outputs`` 的可见输出 + 是否算作已完成。"""
+    """单步结果：进 ``outputs`` 的可见输出 + 是否算作已完成 + 到达的出口。
+
+    ``handle`` 是本步**实际走到**的出口（``validators.DEFAULT_HANDLE`` /
+    ``FAILED_HANDLE`` / 条件步骤的分支名）：下游步骤能不能执行，取决于它声明的
+    依赖边是否落在上游已经到达的出口里。
+    """
 
     visible: str
     completed: bool
+    handle: str
 
 
 async def run_workflow_run(
@@ -260,7 +272,8 @@ def terminal_step_id(steps: list[dict[str, Any]]) -> str:
 
     referenced: set[str] = set()
     for dependencies in validators.resolve_depends_on(steps):
-        referenced.update(dependencies)
+        # 依赖可能带 ``@出口`` 后缀；比较「谁被依赖」时只认基础 step_id。
+        referenced.update(validators.base_step_id(str(item)) for item in dependencies)
     sinks = [
         str(step["step_id"]) for step in steps if str(step["step_id"]) not in referenced
     ]
@@ -387,6 +400,13 @@ async def execute_steps(
     全部产生终态记录。失败默认 fail-fast，但**先等已启动的同层分支收尾再抛**——
     直接取消会让已发生的工具副作用处于不确定状态，也会让步骤记录停在 running。
 
+    执行的判据是**依赖边到达**（不是「依赖步骤成功」）：一条依赖边 ``a@handle``
+    在上游 a 走到了 ``handle`` 出口时到达；一个步骤只要有**任意一条**依赖边到达
+    就执行，全部依赖都没到达（上游被跳过、或走了别的分支）时它自己落
+    ``status='skipped'`` 并沿下游继续传播。顶层步骤（无依赖）恒执行。这样条件
+    分支不需要「汇聚步骤必须等齐所有分支」这种隐藏约定：写 ``depends_on`` 的
+    人已经用出口把「等谁」说清楚了。
+
     ``turn_prefix`` 只加在**入口层**（第一层，即没有任何依赖的那一层）的 Agent
     步骤提示词前面，用于把「当前这轮用户消息 + 会话历史」喂给编排；后续层只拿
     自己的提示词与上游输出，这样并发分支之间不会因为共享整段对话而耦合。
@@ -396,10 +416,38 @@ async def execute_steps(
     # seq 取定义里的位次而不是层内下标：它只用于稳定排序展示，
     # 并行之后「数组下标」已经不再等于执行顺序。
     seq_by_id = {str(step["step_id"]): index for index, step in enumerate(steps)}
+    # 每个步骤声明的依赖条目原文（可能带 ``@出口``），用于判定「边是否到达」。
+    dependency_map = {
+        str(step["step_id"]): [str(entry) for entry in entries]
+        for step, entries in zip(steps, validators.resolve_depends_on(steps))
+    }
     outputs: dict[str, str] = {}
+    # 已到达的出口：step_id → 它已经走到的出口集合。缺席或空集合都表示「还没到达」。
+    arrived: dict[str, set[str]] = {}
     semaphore = asyncio.Semaphore(MAX_PARALLEL_STEPS)
 
     for layer_index, layer in enumerate(layers):
+        runnable: list[dict[str, Any]] = []
+        unreached: list[dict[str, Any]] = []
+        for step in layer:
+            entries = dependency_map.get(str(step["step_id"]), [])
+            (runnable if _has_arrived(entries, arrived) else unreached).append(step)
+
+        if unreached:
+            # 被跳过的步骤也要留一条记录：否则「这一步去哪儿了」在运行记录里查不到，
+            # 用户只会看到一条断掉的图。
+            await _record_skipped_steps(
+                session_factory,
+                workflow_run_id=workflow_run_id,
+                steps=unreached,
+                seq_by_id=seq_by_id,
+            )
+            # 跳过的步骤按空输出参与后续渲染：没走的分支等于「没有产出」，这是
+            # 正常结果而不是缺失。写入空串之后，下游的 {{step.output}} 与谓词取到
+            # 的都是同一份语义（空串），不必在渲染层再判一次「是不是被跳过」。
+            for step in unreached:
+                outputs[str(step["step_id"])] = ""
+
         results = await asyncio.gather(
             *(
                 _execute_one_step(
@@ -422,7 +470,7 @@ async def execute_steps(
                     tally=tally,
                     turn_prefix=turn_prefix if layer_index == 0 else "",
                 )
-                for step in layer
+                for step in runnable
             ),
             # 不用默认的「一个失败就取消其余」：同层分支要么已经产生副作用，
             # 要么正在产生，收齐它们的终态再判定失败，运行记录才是可解释的。
@@ -430,18 +478,67 @@ async def execute_steps(
         )
 
         failure: BaseException | None = None
-        for step, result in zip(layer, results):
+        for step, result in zip(runnable, results):
             if isinstance(result, BaseException):
                 if failure is None:
                     failure = result
                 continue
-            outputs[str(step["step_id"])] = result.visible
+            step_id = str(step["step_id"])
+            outputs[step_id] = result.visible
+            arrived.setdefault(step_id, set()).add(result.handle)
             if result.completed:
                 tally.completed_steps += 1
         if failure is not None:
             raise failure
 
     return outputs
+
+
+def _has_arrived(entries: list[str], arrived: dict[str, set[str]]) -> bool:
+    """「至少一条依赖边到达」才执行；没有任何依赖（顶层）恒执行。
+
+    ``entries`` 是依赖条目原文。全部依赖都没到达时返回 ``False``——调用方据此
+    把这一步记成 ``skipped``，而不是执行它或让整条 run 失败。
+    """
+
+    if not entries:
+        return True
+    for entry in entries:
+        source, handle = validators.split_dependency(entry)
+        if validators.normalize_handle(handle) in arrived.get(source, set()):
+            return True
+    return False
+
+
+async def _record_skipped_steps(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    workflow_run_id: int,
+    steps: list[dict[str, Any]],
+    seq_by_id: dict[str, int],
+) -> None:
+    """给未到达的步骤各写一条 ``status='skipped'`` 记录（每步恰好一条）。
+
+    ``uq_workflow_step_runs_run_step`` 约束「一条 run 内每个 step_id 只有一条
+    记录」，因此这里必须在执行之前、且只写一次；跳过是正常结果而非错误，
+    但记录里仍写明原因，否则前端只能显示一个没有解释的灰节点。
+    """
+
+    async with session_factory() as session:
+        repository = WorkflowStepRunRepository(session)
+        for step in steps:
+            step_id = str(step["step_id"])
+            step_run = await repository.create_step_run(
+                run_id=workflow_run_id,
+                step_id=step_id,
+                seq=seq_by_id[step_id],
+                node_type=str(step["kind"]),
+                status="skipped",
+            )
+            await repository.finish_step_run(
+                step_run, status="skipped", error_message=SKIPPED_MESSAGE
+            )
+        await session.commit()
 
 
 async def _execute_one_step(
@@ -487,6 +584,30 @@ async def _execute_one_step(
             seq,
             kind,
         )
+
+        if kind == "condition":
+            # 条件步骤没有执行体：不建会话、不调模型、不调工具、无副作用，
+            # 只按声明顺序求出第一个成立的分支名。命中结果同时作为可见输出与
+            # 到达出口——前者让运行记录能解释「为什么走了这条线」，后者决定
+            # 下游谁执行、谁跳过。
+            branch = _match_branch(step, outputs)
+            async with session_factory() as session:
+                step_run = await session.get(WorkflowStepRun, step_run_id)
+                if step_run is not None:
+                    await WorkflowStepRunRepository(session).finish_step_run(
+                        step_run,
+                        status="succeeded",
+                        model_visible_output=branch,
+                        raw_output=branch,
+                    )
+                await session.commit()
+            logger.info(
+                "Workflow condition step finished run_id=%s step_id=%s branch=%s",
+                workflow_run_id,
+                step_id,
+                branch,
+            )
+            return _StepOutcome(visible=branch, completed=True, handle=branch)
 
         # 步骤可声明 max_retries：失败后拿同一份输入重试，retry_count 记累计尝试次数。
         # 重试只覆盖「这一次执行抛错」，不改 on_error 策略——兜底值仍然要等全部
@@ -594,7 +715,9 @@ async def _execute_one_step(
                 len(raw),
                 attempt,
             )
-            return _StepOutcome(visible=visible, completed=True)
+            return _StepOutcome(
+                visible=visible, completed=True, handle=validators.DEFAULT_HANDLE
+            )
 
         message = f"{type(last_error).__name__}: {last_error}"
         on_error = str(step.get("on_error") or "abort")
@@ -626,8 +749,19 @@ async def _execute_one_step(
 
         if on_error == "continue_with_default":
             # 带兜底值继续：状态仍记为 failed，但 on_error_applied 为真，
-            # 运行记录因此能如实指出「哪一步是带着兜底值过去的」。
-            return _StepOutcome(visible=fallback, completed=True)
+            # 运行记录因此能如实指出「哪一步是带着兜底值过去的」。出口是成功出口：
+            # 兜底值就是这一步交付给下游的东西。
+            return _StepOutcome(
+                visible=fallback, completed=True, handle=validators.DEFAULT_HANDLE
+            )
+        if on_error == "fail_branch":
+            # 失败走隐式 ``failed`` 出口：这一步不再往上抛，整条 run 仍以
+            # completed 收尾——补救由声明了 ``a@failed`` 的下游步骤负责，而只声明
+            # ``a``（= @default）的下游会因为出口没到达而跳过。状态仍是 failed、
+            # on_error_applied 仍是 False（失败没有被「处理掉」，只是换了条路走）。
+            return _StepOutcome(
+                visible="", completed=False, handle=validators.FAILED_HANDLE
+            )
         raise StepFailedError(f"步骤 '{step_id}' 失败：{message}") from last_error
 
 
@@ -819,6 +953,81 @@ def _resolve_selector(selector: Any, outputs: dict[str, str]) -> str:
     if source_id not in outputs:
         raise StepFailedError(f"引用的步骤 '{source_id}' 尚无输出")
     return outputs[source_id]
+
+
+def evaluate_predicate(predicate: dict[str, Any], outputs: dict[str, str]) -> bool:
+    """对一份已通过保存期校验的结构化谓词求值（纯数据，无副作用）。
+
+    形状合法性由 ``validators`` 在保存期判定，这里只负责求值；遇到白名单外的
+    算子仍然抛错（定义可能来自数据库里的历史快照，不能假设它一定干净）。
+
+    左操作数指向的上游若没有输出（该步被跳过、或走的是 ``failed`` 出口），按
+    **空字符串**参与比较。跳过是条件分支的正常结果，把它变成运行失败会让
+    「另一条分支」这种最常见的用法直接不可用。
+    """
+
+    op = str(predicate.get("op") or "")
+    if op in validators.PREDICATE_LOGICAL_OPS:
+        values = [
+            evaluate_predicate(child, outputs)
+            for child in (predicate.get("children") or [])
+        ]
+        if op == "all":
+            return all(values)
+        if op == "any":
+            return any(values)
+        # not：保存期保证恰好一个子节点，因此等价于「子节点为假」。
+        return not any(values)
+    if op not in validators.PREDICATE_OPS:
+        raise StepFailedError(f"未知的条件谓词算子：{op}")
+
+    value = _predicate_operand(predicate.get("left"), outputs)
+    right = predicate.get("right")
+    if op == "equals":
+        return value == str(right)
+    if op == "contains":
+        return str(right) in value
+    if op == "not_empty":
+        return bool(value.strip())
+    # matches：正则在保存期已预编译过，这里只做匹配。
+    return re.search(str(right), value) is not None
+
+
+def _predicate_operand(left: Any, outputs: dict[str, str]) -> str:
+    """解析谓词左操作数（``{{step_id.output}}``）并取出上游输出。
+
+    取不到输出时返回空字符串而不是抛错：上游被跳过属于正常执行路径（详见
+    ``evaluate_predicate``）。只有「写法本身不合法」才是错误。
+    """
+
+    match = validators.TEMPLATE_REFERENCE_PATTERN.fullmatch(str(left or "").strip())
+    if match is None:
+        raise StepFailedError(
+            "条件谓词的左操作数必须是 '{{step_id.output}}' 形式，收到：" + repr(left)
+        )
+    source_id, path = match.groups()
+    if path != OUTPUT_PATH:
+        raise StepFailedError(
+            f"不支持的输出路径 '{path}'：每一步只发布 '{OUTPUT_PATH}'"
+        )
+    return outputs.get(source_id, "")
+
+
+def _match_branch(step: dict[str, Any], outputs: dict[str, str]) -> str:
+    """按声明顺序返回第一个成立的分支名。
+
+    无条件兜底分支必然命中（保存期要求它存在且排在最后），因此走到函数末尾的
+    ``raise`` 只会在定义被写坏时触发——那时把它当运行失败比静默取第一个分支好，
+    否则用户会拿到一个「看起来跑通了、其实判错了」的结果。
+    """
+
+    for branch in step.get("branches") or []:
+        when = branch.get("when")
+        if when is None or evaluate_predicate(when, outputs):
+            return str(branch.get("name"))
+    raise StepFailedError(
+        f"条件步骤 '{step.get('step_id')}' 没有任何分支命中：定义缺少无条件兜底分支"
+    )
 
 
 async def fail_running_steps(

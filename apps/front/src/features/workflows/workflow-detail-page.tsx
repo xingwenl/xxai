@@ -445,7 +445,11 @@ function StepRunCard({
         <span className='text-muted-foreground'>#{step.seq}</span>
         <span className='font-medium'>{step.step_id}</span>
         <Badge variant='outline'>
-          {step.node_type === 'agent' ? 'Agent' : '工具'}
+          {step.node_type === 'agent'
+            ? 'Agent'
+            : step.node_type === 'condition'
+              ? '条件'
+              : '工具'}
         </Badge>
         <Badge
           variant={STEP_STATUS_VARIANT[step.status]?.variant ?? 'secondary'}

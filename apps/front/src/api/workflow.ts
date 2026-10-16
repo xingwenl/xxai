@@ -1,7 +1,10 @@
 import { http } from '@/lib/http'
 
-/** 工作流步骤类型：agent 跑一轮 Agent 对话，tool 直接调用一个工具。 */
-export type WorkflowStepKind = 'agent' | 'tool'
+/**
+ * 工作流步骤类型：agent 跑一轮 Agent 对话，tool 直接调用一个工具，
+ * condition 只按上游输出做结构化判定（不调模型、不调工具、不产生会话）。
+ */
+export type WorkflowStepKind = 'agent' | 'tool' | 'condition'
 
 /**
  * 同一拓扑层里互不依赖的步骤数上限，与后端 MAX_PARALLEL_BRANCHES 对齐。
@@ -9,11 +12,63 @@ export type WorkflowStepKind = 'agent' | 'tool'
  */
 export const MAX_PARALLEL_BRANCHES = 8
 
-/** 步骤失败策略：abort 中止整条工作流；continue_with_default 用兜底输出继续；fail_branch 为预留值（v1 暂未实现）。 */
+/** 步骤失败策略：abort 中止整条工作流；continue_with_default 用兜底输出继续；fail_branch 走 @failed 出口继续，整条 run 仍以 completed 收尾。 */
 export type WorkflowStepOnError =
   | 'abort'
   | 'continue_with_default'
   | 'fail_branch'
+
+/**
+ * 依赖条目里的出口限定分隔符：`"<step_id>@<handle>"` 表示「只在该上游走这条出口时到达」，
+ * 不带后缀等价于 `"<step_id>@default"`。与后端 validators.HANDLE_SEPARATOR 对齐；
+ * 出口决定运行期能否到达（到达触发），基础 step_id 才是依赖关系本身。
+ */
+export const BRANCH_HANDLE_SEPARATOR = '@'
+
+/**
+ * 比较类谓词算子：left 只能是一个 {{step_id.output}} 引用，right 仅 not_empty 可缺省
+ * （matches 的 right 是正则表达式）。谓词刻意不做表达式字符串：结构化形状才能在保存期
+ * 就把未知算子、非上游引用、非法正则全部拦下。
+ */
+export type ConditionComparisonOp =
+  | 'equals'
+  | 'contains'
+  | 'not_empty'
+  | 'matches'
+
+/** 组合类谓词算子：all/any 的 children 为 1..16 个，not 恰好 1 个；嵌套深度上限 4。 */
+export type ConditionLogicalOp = 'all' | 'any' | 'not'
+
+export type ConditionOp = ConditionComparisonOp | ConditionLogicalOp
+
+/** 比较类谓词：把某个上游步骤的输出与一个字面量做比较；不带 children。 */
+export type ConditionComparisonPredicate = {
+  op: ConditionComparisonOp
+  /** 恰好一个 {{step_id.output}} 形式的模板引用 */
+  left: string
+  /** 比较值；op=not_empty 时不需要（后端也拒绝多余的值） */
+  right?: string | null
+}
+
+/** 组合类谓词：把若干子谓词用 all / any / not 组合起来；不带 left / right。 */
+export type ConditionLogicalPredicate = {
+  op: ConditionLogicalOp
+  children: ConditionPredicate[]
+}
+
+export type ConditionPredicate =
+  | ConditionComparisonPredicate
+  | ConditionLogicalPredicate
+
+/**
+ * 条件步骤的一个分支：判定按数组顺序取第一个为真的分支。
+ * when 为空（null/undefined）即无条件兜底分支——它保证条件全不成立时这一步仍有路可走，
+ * 因此必须恰好有一个且排在最后。
+ */
+export type ConditionBranch = {
+  name: string
+  when?: ConditionPredicate | null
+}
 
 /** 画布坐标；只影响画布布局，不参与执行语义。 */
 export type WorkflowNodePosition = { x: number; y: number }
@@ -46,6 +101,11 @@ export type WorkflowStep = {
    * 显式 [] = 起点（并行分支的第二条及以后必须写它）；显式数组 = 这些上游全部完成后才执行。
    */
   depends_on: string[] | null
+  /**
+   * 仅 kind=condition 时使用：本步声明的分支出口（分支名即出口名），
+   * 恰好一个无条件兜底分支且必须排在最后；其它类型的步骤为 null。
+   */
+  branches: ConditionBranch[] | null
   /** 画布坐标；null 表示还没在画布上摆放，前端按拓扑层自动布局 */
   position: WorkflowNodePosition | null
 }
@@ -129,7 +189,7 @@ export type WorkflowStepRun = {
   run_id: number
   step_id: string
   seq: number
-  node_type: 'agent' | 'tool'
+  node_type: WorkflowStepKind
   status: 'running' | 'succeeded' | 'failed' | 'skipped' | 'waiting'
   retry_count: number
   /** 该步失败后是否用了兜底值（on_error=continue_with_default 生效时为 true） */
@@ -191,6 +251,45 @@ function nodeToPosition(value: unknown): WorkflowNodePosition | null {
   return { x, y }
 }
 
+/**
+ * 读侧收敛谓词形状：后端的 `model_dump()` 会把请求里省略的 `children` 补成 `null`，
+ * 而编辑器用「有没有 children 这个键」判断它是不是组合算子 —— 留着 `children: null`
+ * 会让渲染层把 null 当子条件列表用（`.map` 直接抛错）、也让保存校验误判成
+ * 「比较算子带了子条件」。这里把「不是数组的 children」整键丢掉，并递归处理子条件。
+ */
+function toPredicate(value: unknown): ConditionPredicate | null {
+  if (!value || typeof value !== 'object') return null
+  const source = value as Record<string, unknown>
+  const children = (value as { children?: unknown }).children
+  const predicate: Record<string, unknown> = { ...source }
+  if (Array.isArray(children)) {
+    predicate.children = children.map((child) => toPredicate(child) ?? child)
+  } else {
+    delete predicate.children
+  }
+  return predicate as ConditionPredicate
+}
+
+/**
+ * 把后端 node 的 branches 收敛成编辑器能直接用的形状：
+ * 没有分支名或不是对象的条目直接丢弃，避免脏数据在分支编辑器里渲染成空白行。
+ */
+function nodeToBranches(value: unknown): ConditionBranch[] | null {
+  if (!Array.isArray(value)) return null
+  const branches = value
+    .filter(
+      (item): item is ConditionBranch =>
+        !!item &&
+        typeof item === 'object' &&
+        typeof (item as ConditionBranch).name === 'string'
+    )
+    .map((branch) => ({
+      name: branch.name,
+      when: toPredicate(branch.when),
+    }))
+  return branches.length > 0 ? branches : null
+}
+
 function nodeToStep(node: WorkflowNode): WorkflowStep {
   const dependsOn = Array.isArray(node.depends_on)
     ? node.depends_on.filter((item): item is string => typeof item === 'string')
@@ -209,6 +308,7 @@ function nodeToStep(node: WorkflowNode): WorkflowStep {
     timeout_seconds: node.timeout_seconds ?? null,
     max_retries: node.max_retries ?? 0,
     depends_on: dependsOn,
+    branches: nodeToBranches(node.branches),
     position: nodeToPosition(node.position),
   }
 }
