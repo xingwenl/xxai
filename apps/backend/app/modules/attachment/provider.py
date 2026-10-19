@@ -160,16 +160,26 @@ def _infer_from_model_name(model_name: str) -> ProviderAttachmentCapabilities:
     return ProviderAttachmentCapabilities()
 
 
-async def resolve_attachment_capabilities(version) -> ProviderAttachmentCapabilities:
-    """解析发布版本的附件能力，优先级：显式配置 → OpenRouter → 模型名 → 保守默认。"""
+async def resolve_attachment_capabilities(
+    version,
+    *,
+    model_name: str = "",
+    base_url: str = "",
+    api_key: str | None = None,
+) -> ProviderAttachmentCapabilities:
+    """解析发布版本的附件能力，优先级：显式配置 → OpenRouter → 模型名 → 保守默认。
+
+    模型名/地址/密钥由调用方传入（来自平台模型注册表的解析结果），本函数不再从
+    版本行读取它们；``version`` 只用于读取显式声明的 ``capabilities``。
+    """
     configured = getattr(version, "capabilities", None)
     if configured:
         capabilities = ProviderAttachmentCapabilities.from_mapping(configured)
         if capabilities is not None:
             return capabilities
 
-    model_name = getattr(version, "model_name", None) or ""
-    base_url = getattr(version, "model_base_url", None) or ""
+    model_name = model_name or ""
+    base_url = base_url or ""
     cache_key = f"{base_url}|{model_name}"
     cached = _cache_get(cache_key)
     if cached is not None:
@@ -177,12 +187,6 @@ async def resolve_attachment_capabilities(version) -> ProviderAttachmentCapabili
 
     capabilities: ProviderAttachmentCapabilities | None = None
     if is_openrouter(base_url):
-        api_key = None
-        encrypted = getattr(version, "api_key_encrypted", None)
-        if encrypted:
-            from app.modules.agent.services import decrypt_secret
-
-            api_key = decrypt_secret(encrypted)
         capabilities = await _query_openrouter_capabilities(model_name, base_url, api_key)
     if capabilities is None:
         capabilities = _infer_from_model_name(model_name)

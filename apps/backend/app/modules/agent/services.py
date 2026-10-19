@@ -1,6 +1,6 @@
 import base64
 import hashlib
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from cryptography.fernet import Fernet, InvalidToken
 from langchain_openai import ChatOpenAI
@@ -21,6 +21,11 @@ from app.shared.exceptions import (
     ConflictException,
     NotFoundException,
 )
+
+if TYPE_CHECKING:
+    # 仅用于类型标注：model_registry.resolver 反过来依赖本模块的
+    # encrypt_secret/decrypt_secret，运行期导入会形成循环。
+    from app.modules.model_registry.resolver import ResolvedModel
 
 
 def _fernet(master_key: str) -> Fernet:
@@ -58,12 +63,9 @@ async def create_agent_version(
 ):
     if await repo.get_agent(agent_id, platform_id) is None:
         raise NotFoundException("agent not found")
-    encrypted_payload = payload
-    if payload.api_key:
-        encrypted_payload = payload.model_copy(
-            update={"api_key": encrypt_secret(payload.api_key)}
-        )
-    return await repo.create_version(agent_id, encrypted_payload)
+    # 模型三要素（模型名/地址/密钥）已归平台模型注册表所有，版本行只承载
+    # 提示词与采样参数，因此这里不再有 api_key 加密步骤。
+    return await repo.create_version(agent_id, payload)
 
 
 async def update_agent(
@@ -298,10 +300,17 @@ def _resolve_thinking_options(
 def build_chat_model(
     version,
     *,
+    resolved: "ResolvedModel | None",
     session_id_provider: SessionIdProvider | None = None,
     thinking: bool | None = None,
 ) -> ChatOpenAI:
-    """按 Agent 版本构造 ChatOpenAI 客户端。
+    """按「解析出的平台模型 + Agent 版本级参数」构造 ChatOpenAI 客户端。
+
+    模型三要素（模型名/服务地址/密钥）来自 :func:`resolve_chat_model` 的解析结果，
+    版本行只提供采样温度与模型参数。``resolved`` 为 ``None`` 表示该 Agent 没有绑定
+    对话模型，此时回落到环境变量默认值（``MODEL_DEFAULT_NAME`` /
+    ``MODEL_DEFAULT_BASE_URL`` / ``OPENAI_API_KEY``），保住开发环境零配置可用。
+    参数显式必填，避免漏传时静默走回落分支。
 
     ``session_id_provider`` 为可选的会话 id 惰性求值入口，用于 OpenCode 兼容头；
     非 OpenCode 端点不会产生任何额外请求头。
@@ -311,11 +320,15 @@ def build_chat_model(
     """
 
     settings = get_settings()
-    api_key = (
-        decrypt_secret(version.api_key_encrypted) if version.api_key_encrypted else None
-    )
-    base_url = version.model_base_url or settings.model_default_base_url
-    model_name = version.model_name or settings.model_default_name
+    if resolved is not None:
+        # 平台模型未配置密钥时允许借用环境变量里的平台级密钥。
+        api_key = resolved.api_key or settings.openai_api_key
+        base_url = resolved.base_url or settings.model_default_base_url
+        model_name = resolved.model_name
+    else:
+        api_key = settings.openai_api_key
+        base_url = settings.model_default_base_url
+        model_name = settings.model_default_name
     # default_headers 单独取出后再合并，避免直接展开时与兼容头互相覆盖。
     raw_options = dict(version.model_options or {})
     configured_headers = raw_options.pop("default_headers", None)

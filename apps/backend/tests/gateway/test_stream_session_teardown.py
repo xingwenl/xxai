@@ -80,6 +80,14 @@ def test_early_stream_end_joins_model_task_before_closing_sessions(monkeypatch):
         monkeypatch.setattr(
             gateway_router, "build_chat_model", lambda *args, **kwargs: object()
         )
+
+        # 对话主模型解析要查库；本用例只关心释放时序，固定返回 None（回落 .env 默认值）。
+        async def fake_resolve_chat_model(*args, **kwargs):
+            return None
+
+        monkeypatch.setattr(
+            gateway_router, "resolve_chat_model", fake_resolve_chat_model
+        )
         monkeypatch.setattr(
             gateway_router,
             "RuntimeToolDispatcher",

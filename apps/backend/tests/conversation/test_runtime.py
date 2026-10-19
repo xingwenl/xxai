@@ -559,11 +559,11 @@ def test_runtime_metadata_block_includes_whitelisted_fields_and_skips_missing():
 
     block = build_runtime_metadata_block(
         SimpleNamespace(
-            model_name="gpt-5.2",
             version=3,
             temperature=0.2,
             capabilities={"image": True, "native_file": False, "text_retrieval": True},
-        )
+        ),
+        chat_model_name="gpt-5.2",
     )
     assert block is not None
     assert "【运行时信息】" in block
@@ -579,13 +579,13 @@ def test_runtime_metadata_block_never_leaks_secret_fields():
 
     block = build_runtime_metadata_block(
         SimpleNamespace(
-            model_name="gpt-5.2",
             version=1,
             temperature=0.2,
             capabilities={"image": True},
             api_key_encrypted="secret-encrypted",
             model_base_url="http://internal.example.com/v1",
-        )
+        ),
+        chat_model_name="gpt-5.2",
     )
     assert "secret-encrypted" not in block
     assert "internal.example.com" not in block

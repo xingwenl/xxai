@@ -51,7 +51,6 @@ async def _seed(session):
         agent_id=agent.id,
         version=1,
         system_prompt="助手",
-        model_name="gpt-4o-mini",
         created_at=datetime.now(UTC),
         published_at=datetime.now(UTC),
     )

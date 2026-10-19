@@ -41,7 +41,6 @@ def test_get_agent_detail_loads_current_version_and_isolates_platform():
                 agent_id=agent.id,
                 version=1,
                 system_prompt="你是客服助手",
-                model_name="gpt-4o-mini",
                 temperature=0.2,
                 created_at=datetime.now(UTC),
                 published_at=datetime.now(UTC),
@@ -56,7 +55,7 @@ def test_get_agent_detail_loads_current_version_and_isolates_platform():
             assert detail is not None
             assert detail.default_version_id == version.id
             assert detail.default_version is not None
-            assert detail.default_version.model_name == "gpt-4o-mini"
+            assert detail.default_version.system_prompt == "你是客服助手"
 
             assert await repo.get_agent_detail(agent.id, other_platform.id) is None
 

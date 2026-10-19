@@ -8,6 +8,7 @@ export const MODEL_TYPES = [
 ] as const
 
 export const BINDING_ROLES = [
+  'chat',
   'image_generate',
   'image_read',
   'embedding',

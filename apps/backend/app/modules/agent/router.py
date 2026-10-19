@@ -40,9 +40,7 @@ async def _require_platform_admin(
 
 
 def _version_read(version) -> AgentVersionRead:
-    return AgentVersionRead.model_validate(
-        {**version.__dict__, "has_api_key": bool(version.api_key_encrypted)}
-    )
+    return AgentVersionRead.model_validate(version)
 
 
 @router.get("", response_model=ApiResponse[AgentListData])

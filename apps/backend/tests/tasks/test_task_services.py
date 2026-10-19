@@ -51,7 +51,6 @@ async def _seed(session):
         agent_id=agent.id,
         version=1,
         system_prompt="你是定时任务助手",
-        model_name="gpt-4o-mini",
         temperature=0.2,
         created_at=datetime.now(UTC),
         published_at=datetime.now(UTC),

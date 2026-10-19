@@ -406,11 +406,15 @@ def build_snapshot_injection_message(
 def resolve_context_window_tokens(
     version: Any, *, model_name: str | None = None
 ) -> int | None:
-    """解析版本模型的上下文窗口：显式列值 > 内置模型名映射 > 未命中返回 None。"""
+    """解析版本模型的上下文窗口：显式列值 > 内置模型名映射 > 未命中返回 None。
+
+    模型名由调用方传入（来自平台模型注册表的解析结果）；版本行自本次改动起
+    不再承载模型名，因此没有可回落的兜底来源。
+    """
     explicit = getattr(version, "context_window_tokens", None)
     if explicit is not None and int(explicit) > 0:
         return int(explicit)
-    name = (model_name or getattr(version, "model_name", None) or "").strip()
+    name = (model_name or "").strip()
     if not name:
         return None
     if name in KNOWN_MODEL_CONTEXT_WINDOWS:
@@ -958,6 +962,21 @@ def build_agent_error_payload(error: BaseException) -> dict[str, Any]:
                 "exceptionType": type(error).__name__,
             },
         }
+    # 平台侧自带稳定错误码的异常（如对话模型被停用的 chat_model_unavailable）
+    # 原样上报，便于客户端区分「配置问题」与「上游故障」：这类问题重试无用。
+    stable_code = getattr(error, "error_code", None)
+    if isinstance(stable_code, str) and stable_code:
+        raw_message = str(error).strip() or type(error).__name__
+        return {
+            "code": stable_code,
+            "message": raw_message[:500],
+            "retryable": False,
+            "details": {
+                "statusCode": str(getattr(error, "status_code", "") or ""),
+                "error": raw_message[:500],
+                "exceptionType": type(error).__name__,
+            },
+        }
     raw_message = str(error).strip() or type(error).__name__
     status_code = getattr(error, "status_code", None)
     response = getattr(error, "response", None)
@@ -1296,16 +1315,17 @@ async def load_runtime_context(
 _RUNTIME_METADATA_CAPABILITY_KEYS = ("image", "native_file", "text_retrieval")
 
 
-def build_runtime_metadata_block(version) -> str | None:
+def build_runtime_metadata_block(version, *, chat_model_name: str | None = None) -> str | None:
     """构建注入系统提示词的运行时信息段（字段白名单）。
 
     只披露模型名、Agent 版本、服务版本、SDK 最低版本、温度与能力摘要；
-    绝不包含 api_key_encrypted / model_base_url 等敏感配置。字段缺失时跳过对应行，
-    全部缺失返回 None（调用方不追加段落）。
+    绝不包含 api_key / model_base_url 等敏感配置。模型名来自调用方传入的
+    ``chat_model_name``（平台模型注册表的解析结果），版本行不再承载模型信息。
+    字段缺失时跳过对应行，全部缺失返回 None（调用方不追加段落）。
     """
     settings = get_settings()
     lines = []
-    model_name = getattr(version, "model_name", None)
+    model_name = chat_model_name
     if model_name:
         lines.append(f"- 模型：{model_name}")
     version_no = getattr(version, "version", None)
@@ -1339,6 +1359,8 @@ def build_system_prompt(
     citations: list[dict],
     host_tools: list[Any] | None = None,
     caller_system_prompt: str | None = None,
+    *,
+    chat_model_name: str | None = None,
 ):
     """
     构建系统提示词，将多个上下文片段组合为完整的系统提示
@@ -1361,7 +1383,9 @@ def build_system_prompt(
         str: 拼接完成的系统提示词，各段落之间以双换行符分隔
     """
     sections = [version.system_prompt]
-    runtime_block = build_runtime_metadata_block(version)
+    runtime_block = build_runtime_metadata_block(
+        version, chat_model_name=chat_model_name
+    )
     if runtime_block:
         sections.append(runtime_block)
     if caller_system_prompt and caller_system_prompt.strip():

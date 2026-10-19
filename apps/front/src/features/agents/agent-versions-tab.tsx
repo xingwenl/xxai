@@ -101,10 +101,8 @@ export function AgentVersionsTab({
             <TableHeader>
               <TableRow>
                 <TableHead>版本</TableHead>
-                <TableHead>模型</TableHead>
+                <TableHead>系统提示词</TableHead>
                 <TableHead>Temperature</TableHead>
-                <TableHead>API Key</TableHead>
-                <TableHead>Base URL</TableHead>
                 <TableHead>创建 / 发布时间</TableHead>
                 <TableHead className='w-44 text-end'>操作</TableHead>
               </TableRow>
@@ -113,7 +111,7 @@ export function AgentVersionsTab({
               {versionsQuery.isLoading ? (
                 Array.from({ length: 4 }).map((_, index) => (
                   <TableRow key={index}>
-                    <TableCell colSpan={6}>
+                    <TableCell colSpan={5}>
                       <Skeleton className='h-8 w-full' />
                     </TableCell>
                   </TableRow>
@@ -132,16 +130,10 @@ export function AgentVersionsTab({
                           {isCurrent && <Badge>使用中</Badge>}
                         </div>
                       </TableCell>
-                      <TableCell className='font-mono text-xs'>
-                        {version.model_name}
+                      <TableCell className='max-w-md truncate text-xs text-muted-foreground'>
+                        {version.system_prompt}
                       </TableCell>
                       <TableCell>{version.temperature}</TableCell>
-                      <TableCell>
-                        {version.has_api_key ? '已配置' : '未配置'}
-                      </TableCell>
-                      <TableCell>
-                        {version.model_base_url}
-                      </TableCell>
                       <TableCell className='text-xs text-muted-foreground'>
                         <div>
                           创建{' '}

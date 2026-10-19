@@ -115,13 +115,20 @@ def test_prepare_binds_tool_execution_to_tool_session(monkeypatch):
             tool_dispatch, "load_bound_skill_instruction", fake_skill_instruction
         )
         monkeypatch.setattr(tool_dispatch, "invoke_tool", fake_mcp)
+        # 本用例只关心工具 Session 绑定：对话主模型解析走真实实现会查库，
+        # 这里固定返回 None（等于该 Agent 未绑定模型，回落 .env 默认值）。
+        monkeypatch.setattr(
+            conversation_router,
+            "resolve_chat_model",
+            lambda *args, **kwargs: _async_result(None),
+        )
         monkeypatch.setattr(
             tool_dispatch, "AssetRepository",
             lambda session: SimpleNamespace(session=session),
         )
 
         current_user = SimpleNamespace(id=5)
-        _, _, _, invoke = await conversation_router._prepare(
+        _, _, _, invoke, _ = await conversation_router._prepare(
             1,
             ChatRequest(message="你好"),
             current_user,

@@ -29,6 +29,10 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 
 const ROLE_META: Record<BindingRole, { label: string; description: string }> = {
+  chat: {
+    label: '对话',
+    description: '对话主链路使用的模型；未绑定时回退运行栈的全局默认模型',
+  },
   image_generate: {
     label: '生图',
     description: '内置「生成图片」工具使用的模型',

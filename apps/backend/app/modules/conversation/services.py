@@ -480,7 +480,11 @@ async def _run_execute_chat_model_round(
     """
 
     system_prompt = build_system_prompt(
-        context.version, context.skill_instructions, citations
+        context.version,
+        context.skill_instructions,
+        citations,
+        # 模型名来自平台模型注册表解析出的实际调用模型（版本行已无该字段）。
+        chat_model_name=getattr(model, "model_name", None),
     )
     runtime = build_langchain_runtime(
         model,
@@ -489,7 +493,11 @@ async def _run_execute_chat_model_round(
         streaming=False,
         context_transform=lambda messages: apply_runtime_context_guardrail(
             messages,
-            window_tokens=resolve_context_window_tokens(context.version),
+            # 模型名取自实际调用模型：注册表解析后版本行不再有模型名，
+            # 不传就会让内置窗口映射失效（护栏静默关闭）。
+            window_tokens=resolve_context_window_tokens(
+                context.version, model_name=getattr(model, "model_name", None)
+            ),
         ),
         max_turns=max_iterations or get_settings().agent_max_iterations,
         on_model_error=make_context_degrade_recoverer(system_prompt, message),
@@ -874,7 +882,10 @@ async def stream_chat(
     next_step_sequence = generation_sequence + 1
     runtime_tools = build_runtime_tool_list(context)
     system_prompt = build_system_prompt(
-        context.version, context.skill_instructions, citations
+        context.version,
+        context.skill_instructions,
+        citations,
+        chat_model_name=getattr(model, "model_name", None),
     )
     # 绑定编排时用「同一套 AgentEvent」替换模型流：下游从事件消费到 assistant
     # 落库全都不用改，两条来源在收尾处自然合流。
@@ -897,7 +908,10 @@ async def stream_chat(
             streaming=True,
             context_transform=lambda messages: apply_runtime_context_guardrail(
                 messages,
-                window_tokens=resolve_context_window_tokens(context.version),
+                # 同上：模型名必须来自实际调用模型，否则窗口映射失效。
+                window_tokens=resolve_context_window_tokens(
+                    context.version, model_name=getattr(model, "model_name", None)
+                ),
             ),
             max_turns=max_iterations or get_settings().agent_max_iterations,
             on_model_error=make_context_degrade_recoverer(system_prompt, message),
@@ -1148,6 +1162,7 @@ async def execute_unattended_chat(
     from app.modules.conversation.tool_dispatch import build_tool_invoker
     from app.modules.knowledge.repositories import KnowledgeRepository
     from app.modules.mcp.repositories import McpRepository
+    from app.modules.model_registry.resolver import resolve_chat_model
     from app.modules.skill.repositories import SkillRepository
 
     # 执行身份二选一，与会话的 principal 约束保持一致。
@@ -1196,18 +1211,16 @@ async def execute_unattended_chat(
         loop_run_id_provider=lambda: getattr(context, "loop_run_id", None),
     )
 
+    # 对话模型与「任务级覆盖」走同一处解析：model_id 非空时以任务指定模型为准，
+    # 为空则用 Agent 绑定的 chat 模型，都没绑定才回落 `.env` 默认值。
+    resolved = await resolve_chat_model(
+        session, platform_id=platform_id, agent_id=agent_id, model_id=model_id
+    )
     model = build_chat_model(
         context.version,
+        resolved=resolved,
         session_id_provider=lambda: getattr(context, "conversation_id", None),
     )
-    if model_id is not None:
-        # 任务可覆盖智能体默认模型；解析不到就沿用智能体自身配置，
-        # 不因为一个失效的模型 ID 把整轮运行打断。
-        override = await _resolve_task_model(session, platform_id, model_id)
-        if override is not None and override.model_name:
-            model.model_name = override.model_name
-            if override.base_url:
-                model.openai_api_base = override.base_url
 
     return await execute_chat(
         ConversationRepository(session),
@@ -1224,16 +1237,6 @@ async def execute_unattended_chat(
         allow_orchestration=allow_orchestration,
         parent_loop_run_id=parent_loop_run_id,
         max_iterations=max_iterations,
-    )
-
-
-async def _resolve_task_model(session, platform_id: int, model_id: int):
-    """解析任务指定的平台模型；不存在或不属于该平台时返回 None。"""
-
-    from app.modules.model_registry.repositories import ModelRegistryRepository
-
-    return await ModelRegistryRepository(session).get_for_platform(
-        model_id, platform_id
     )
 
 

@@ -480,6 +480,7 @@ async def _finish_embed_chat(
     end_user_id: int,
     client_id: str | None,
     events: LoopEventBuilder,
+    model_name: str | None = None,
 ) -> AsyncIterator[dict]:
     """保存助手消息、用量和剩余工具步骤，输出收尾事件流。"""
     content_blocks = sanitize_content_blocks(
@@ -515,7 +516,9 @@ async def _finish_embed_chat(
             conversation_id=conversation.id,
             message_id=assistant.id,
             request_id=request_id,
-            model_name=getattr(context.version, "model_name", None),
+            # 用量记录里的模型名快照取自实际调用的模型（注册表解析结果）；
+            # 版本行自本次改动起不再承载模型名，读它只会记成 NULL。
+            model_name=model_name,
             prompt_tokens=result.usage["prompt_tokens"],
             completion_tokens=result.usage["completion_tokens"],
             total_tokens=result.usage["total_tokens"],
@@ -587,6 +590,7 @@ async def stream_embed_chat(
     on_model_task_started=None,
     attachments: list[dict] | None = None,
     allow_orchestration: bool = True,
+    resolved_model=None,
 ) -> AsyncIterator[dict]:
     """把一次 Embed 消息转换为网关事件流。
 
@@ -615,7 +619,14 @@ async def stream_embed_chat(
         conversation_id=conversation_id,
         request_id=request_id,
     )
-    capabilities = await resolve_attachment_capabilities(context.version)
+    # 附件能力要按「实际调用到的模型」判断，因此用解析结果而非版本行
+    # （版本行自本次改动起不再承载模型名/地址/密钥）。
+    capabilities = await resolve_attachment_capabilities(
+        context.version,
+        model_name=resolved_model.model_name if resolved_model else "",
+        base_url=(resolved_model.base_url if resolved_model else None) or "",
+        api_key=resolved_model.api_key if resolved_model else None,
+    )
     (
         image_parts,
         document_text_parts,
@@ -732,6 +743,7 @@ async def stream_embed_chat(
         # 请求提示词变化；清单取实际绑定集合，保证提示词与 bind_tools 一致。
         host_tools=tools if host_tool_list else None,
         caller_system_prompt=system_prompt,
+        chat_model_name=getattr(model, "model_name", None),
     )
     runtime = build_langchain_runtime(
         model,
@@ -740,7 +752,9 @@ async def stream_embed_chat(
         streaming=True,
         context_transform=lambda messages: apply_runtime_context_guardrail(
             messages,
-            window_tokens=resolve_context_window_tokens(context.version),
+            window_tokens=resolve_context_window_tokens(
+                context.version, model_name=getattr(model, "model_name", None)
+            ),
         ),
         max_turns=get_settings().agent_max_iterations,
         on_model_error=make_multimodal_degrade_recoverer(ws_system_prompt, message),
@@ -912,5 +926,10 @@ async def stream_embed_chat(
         end_user_id=end_user_id,
         client_id=client_id,
         events=events,
+        model_name=(
+            resolved_model.model_name
+            if resolved_model
+            else getattr(model, "model_name", None)
+        ),
     ):
         yield event

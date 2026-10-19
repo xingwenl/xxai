@@ -71,7 +71,6 @@ async def _seed(session) -> SimpleNamespace:
         agent_id=agent.id,
         version=1,
         system_prompt="你是测试助手",
-        model_name="test-model",
         created_at=datetime.now(UTC),
         published_at=datetime.now(UTC),
     )

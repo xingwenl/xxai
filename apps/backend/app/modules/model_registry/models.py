@@ -99,7 +99,7 @@ class AgentModelBinding(BaseModel, TimeModel):
         String(40),
         nullable=False,
         index=True,
-        comment="能力角色：image_generate/image_read/embedding",
+        comment="能力角色：chat/image_generate/image_read/embedding",
     )
     model: Mapped[PlatformModel] = relationship(
         back_populates="bindings", lazy="selectin"

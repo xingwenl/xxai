@@ -101,7 +101,6 @@ async def _add_agent(session, *, platform_id: int, slug: str):
         agent_id=agent.id,
         version=1,
         system_prompt="你是子智能体",
-        model_name="test-model",
         created_at=datetime.now(UTC),
         published_at=datetime.now(UTC),
     )

@@ -52,9 +52,6 @@ class AgentListData(BaseModel):
 
 class AgentVersionCreate(BaseModel):
     system_prompt: str = Field(min_length=1)
-    model_name: str = Field(min_length=1, max_length=120)
-    model_base_url: str | None = Field(default=None, max_length=500)
-    api_key: str | None = Field(default=None, min_length=1)
     temperature: float = Field(default=0.2, ge=0, le=2)
     model_options: dict[str, Any] = Field(default_factory=dict)
     context_window_tokens: int | None = Field(
@@ -78,15 +75,12 @@ class AgentVersionRead(BaseModel):
     agent_id: int
     version: int
     system_prompt: str
-    model_name: str
-    model_base_url: str | None = None
     temperature: float
     model_options: dict[str, Any]
     context_window_tokens: int | None = None
     capabilities: dict[str, Any] | None = None
     created_at: datetime
     published_at: datetime | None = None
-    has_api_key: bool = False
 
 
 class AgentDetailRead(AgentRead):

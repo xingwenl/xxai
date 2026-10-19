@@ -106,8 +106,6 @@ export function AgentDetailPage() {
                 <span className='font-medium text-foreground'>
                   v{currentVersion.version}
                 </span>
-                <span className='mx-2'>·</span>
-                {currentVersion.model_name}
               </>
             ) : agent ? (
               '尚未发布版本'

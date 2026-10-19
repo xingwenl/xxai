@@ -20,9 +20,6 @@ import { Textarea } from '@/components/ui/textarea'
 
 export const versionSchema = z.object({
   system_prompt: z.string().min(1, '请输入系统提示词'),
-  model_name: z.string().min(1, '请输入模型名称').max(120),
-  model_base_url: z.string().url('请输入有效 URL').optional().or(z.literal('')),
-  api_key: z.string().optional(),
   temperature: z.coerce.number().min(0).max(2),
   capabilities_enabled: z.boolean().optional(),
   capabilities: z.object({
@@ -71,9 +68,6 @@ export function AgentVersionForm({
     resolver: zodResolver(versionSchema),
     defaultValues: {
       system_prompt: '',
-      model_name: 'gpt-4o-mini',
-      model_base_url: '',
-      api_key: '',
       temperature: 0.2,
       capabilities_enabled: false,
       capabilities: {
@@ -89,9 +83,6 @@ export function AgentVersionForm({
     mutationFn: (values: VersionForm) => {
       const input: AgentVersionInput = {
         system_prompt: values.system_prompt,
-        model_name: values.model_name,
-        model_base_url: values.model_base_url || undefined,
-        api_key: values.api_key || undefined,
         temperature: values.temperature,
         model_options: {},
         capabilities: values.capabilities_enabled
@@ -116,48 +107,9 @@ export function AgentVersionForm({
         onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
         className='grid gap-4'
       >
-        <FormField
-          control={form.control}
-          name='model_name'
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>模型名称</FormLabel>
-              <FormControl>
-                <Input {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name='model_base_url'
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>模型地址</FormLabel>
-              <FormControl>
-                <Input
-                  placeholder='可选，例如 https://api.openai.com/v1'
-                  {...field}
-                />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name='api_key'
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>API Key</FormLabel>
-              <FormControl>
-                <Input type='password' placeholder='仅本次提交' {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+        <p className='text-sm text-muted-foreground'>
+          对话模型在「模型管理」页配置并绑定到本智能体，版本只保存提示词与采样参数。
+        </p>
         <FormField
           control={form.control}
           name='temperature'

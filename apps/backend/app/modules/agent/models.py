@@ -100,15 +100,6 @@ class AgentVersion(BaseModel):
     system_prompt: Mapped[str] = mapped_column(
         Text, nullable=False, comment="系统提示词"
     )
-    model_name: Mapped[str] = mapped_column(
-        String(120), nullable=False, comment="模型名称"
-    )
-    model_base_url: Mapped[str | None] = mapped_column(
-        String(500), nullable=True, comment="模型服务地址"
-    )
-    api_key_encrypted: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="加密后的模型 API Key"
-    )
     temperature: Mapped[float] = mapped_column(
         nullable=False, default=0.2, server_default="0.2", comment="模型采样温度"
     )

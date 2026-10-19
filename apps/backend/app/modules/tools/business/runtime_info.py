@@ -18,6 +18,7 @@ from app.modules.conversation.models import ModelUsageRecord
 from app.modules.embed.models import PlatformEmbedClient
 from app.modules.model_usage.repositories import ModelUsageRepository
 from app.modules.model_usage.schemas import TokenUsageSummary
+from app.modules.model_registry.resolver import resolve_chat_model
 from app.modules.tools.business.framework import (
     BusinessToolContext,
     business_tool,
@@ -152,8 +153,19 @@ async def get_runtime_info_business(args: dict, ctx: BusinessToolContext) -> dic
             for key in _CAPABILITY_KEYS
             if (version.capabilities or {}).get(key)
         }
+        # 模型名来自平台模型注册表的解析结果（版本行不再承载模型名）；
+        # 解析失败只影响这一行展示，不能让整个工具报错。
+        model_name = settings.model_default_name
+        try:
+            resolved = await resolve_chat_model(
+                session, platform_id=ctx.platform_id, agent_id=ctx.agent_id
+            )
+            if resolved is not None:
+                model_name = resolved.model_name
+        except Exception:
+            logger.warning("解析对话模型失败，模型名回退默认值", exc_info=True)
         model = {
-            "name": version.model_name,
+            "name": model_name,
             "temperature": version.temperature,
             "capabilities": capabilities,
         }

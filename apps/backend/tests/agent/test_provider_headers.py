@@ -19,6 +19,7 @@ from app.modules.agent.provider_headers import (
     session_headers,
 )
 from app.modules.agent.services import build_chat_model, encrypt_secret
+from app.modules.model_registry.resolver import ResolvedModel
 
 OPENCODE_BASE_URL = "https://opencode.ai/zen/go/v1"
 OTHER_BASE_URL = "https://api.deepseek.com/v1"
@@ -106,14 +107,23 @@ class Recorder:
 
         transport = httpx.MockTransport(handler)
         version = FakeVersion(
-            model_base_url=base_url,
             model_options={
                 "http_client": httpx.Client(transport=transport),
                 "http_async_client": httpx.AsyncClient(transport=transport),
                 **option_overrides,
             },
         )
-        return build_chat_model(version, session_id_provider=session_id_provider)
+        # 模型三要素自本次改动起由注册表解析结果提供，版本行不再承载地址与密钥。
+        resolved = ResolvedModel(
+            model_name=version.model_name,
+            base_url=base_url,
+            api_key="sk-test",
+            capabilities=None,
+            options={},
+        )
+        return build_chat_model(
+            version, resolved=resolved, session_id_provider=session_id_provider
+        )
 
 
 # --- 工具函数层 ---------------------------------------------------------

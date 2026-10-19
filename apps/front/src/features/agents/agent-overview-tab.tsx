@@ -178,7 +178,7 @@ export function AgentOverviewTab({
                 <div>
                   当前版本：{' '}
                   {agent.current_version
-                    ? `v${agent.current_version.version} · ${agent.current_version.model_name}`
+                    ? `v${agent.current_version.version}`
                     : '未发布'}
                 </div>
                 <div>
@@ -299,7 +299,7 @@ export function AgentOverviewTab({
                   >
                     <span className='font-medium'>v{version.version}</span>
                     <span className='truncate text-muted-foreground'>
-                      {version.model_name}
+                      {version.system_prompt.slice(0, 40) || '—'}
                     </span>
                     <span className='text-xs whitespace-nowrap text-muted-foreground'>
                       {version.published_at

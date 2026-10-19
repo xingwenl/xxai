@@ -56,6 +56,7 @@ from app.modules.quota.service import (
 )
 from app.modules.skill.repositories import SkillRepository
 from app.modules.knowledge.repositories import KnowledgeRepository
+from app.modules.model_registry.resolver import resolve_chat_model
 from app.modules.mcp.repositories import McpRepository
 from app.modules.host_tool.repositories import HostToolRepository
 from app.modules.host_tool.services import (
@@ -665,6 +666,12 @@ async def produce_embed_request(
                 context.knowledge_bases,
                 message["text"],
             )
+            # 嵌入通道与控制台共用同一处对话模型解析：绑定优先，未绑定回落 `.env`。
+            resolved = await resolve_chat_model(
+                session,
+                platform_id=int(payload["platform_id"]),
+                agent_id=agent_id,
+            )
             dispatcher = RuntimeToolDispatcher(
                 session=tool_session,
                 context=context,
@@ -729,6 +736,7 @@ async def produce_embed_request(
                     # 会话在 stream_embed_chat 内解析后才写入 context，因此延迟求值。
                     model=build_chat_model(
                         context.version,
+                        resolved=resolved,
                         session_id_provider=lambda: getattr(
                             context, "conversation_id", None
                         ),
@@ -751,6 +759,7 @@ async def produce_embed_request(
                     invoke_host_tool_fn=invoke_runtime_tool,
                     on_model_task_started=model_tasks.add,
                     attachments=message.get("attachments"),
+                    resolved_model=resolved,
                 ):
                     await event_queue.put(event)
             finally:

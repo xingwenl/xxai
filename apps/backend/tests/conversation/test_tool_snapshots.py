@@ -379,14 +379,28 @@ def test_is_context_length_exceeded_detects_code_and_text():
     assert not is_context_length_exceeded(Exception("connection reset by peer"))
 
 def test_resolve_context_window_priority_and_model_map():
-    version = SimpleNamespace(context_window_tokens=None, model_name="deepseek-v4-flash")
-    assert resolve_context_window_tokens(version) == 1_000_000
-    explicit = SimpleNamespace(
-        context_window_tokens=128_000, model_name="deepseek-v4-flash"
+    # 模型名由调用方传入（注册表解析结果），版本行只提供显式列值。
+    version = SimpleNamespace(context_window_tokens=None)
+    assert (
+        resolve_context_window_tokens(version, model_name="deepseek-v4-flash")
+        == 1_000_000
     )
-    assert resolve_context_window_tokens(explicit) == 128_000
-    suffix = SimpleNamespace(context_window_tokens=None, model_name="openrouter/deepseek-chat")
-    assert resolve_context_window_tokens(suffix) == 128_000
-    unknown = SimpleNamespace(context_window_tokens=None, model_name="gpt-some-new")
-    assert resolve_context_window_tokens(unknown) is None
-    assert resolve_context_window_tokens(SimpleNamespace(context_window_tokens=None, model_name="")) is None
+    explicit = SimpleNamespace(context_window_tokens=128_000)
+    assert (
+        resolve_context_window_tokens(explicit, model_name="deepseek-v4-flash")
+        == 128_000
+    )
+    assert (
+        resolve_context_window_tokens(
+            SimpleNamespace(context_window_tokens=None),
+            model_name="openrouter/deepseek-chat",
+        )
+        == 128_000
+    )
+    assert (
+        resolve_context_window_tokens(
+            SimpleNamespace(context_window_tokens=None), model_name="gpt-some-new"
+        )
+        is None
+    )
+    assert resolve_context_window_tokens(SimpleNamespace(context_window_tokens=None)) is None

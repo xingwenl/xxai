@@ -28,6 +28,7 @@ from app.modules.agent_runtime.events import (
     to_sse_block,
 )
 from app.modules.knowledge.repositories import KnowledgeRepository
+from app.modules.model_registry.resolver import resolve_chat_model
 from app.modules.conversation.tool_dispatch import build_tool_invoker
 from app.modules.mcp.repositories import McpRepository
 from app.modules.skill.repositories import SkillRepository
@@ -89,7 +90,13 @@ async def _prepare(
         loop_run_id_provider=lambda: getattr(context, "loop_run_id", None),
     )
 
-    return agent, context, citations, invoke
+    # 对话主模型统一从平台模型注册表解析：绑定了 chat 模型就用它，没有绑定才回落
+    # `.env` 默认值（resolved 为 None）。已绑定但停用等情况会直接抛稳定错误。
+    resolved = await resolve_chat_model(
+        session, platform_id=agent.platform_id, agent_id=agent_id
+    )
+
+    return agent, context, citations, invoke, resolved
 
 
 async def _execute(
@@ -98,7 +105,7 @@ async def _execute(
     current_user,
     session: AsyncSession,
 ):
-    agent, context, citations, invoke = await _prepare(
+    agent, context, citations, invoke, resolved = await _prepare(
         agent_id, payload, current_user, session
     )
     conversation, assistant, result = await execute_chat(
@@ -111,6 +118,7 @@ async def _execute(
         # 会话 id 在 execute_chat 内解析会话后才可用，因此延迟到发请求时求值。
         model=build_chat_model(
             context.version,
+            resolved=resolved,
             session_id_provider=lambda: getattr(context, "conversation_id", None),
         ),
         citations=[citation.model_dump() for citation in citations],
@@ -157,7 +165,7 @@ async def chat_endpoint(
         request_id = f"sse-{uuid4().hex}"
         sequence = 0
         try:
-            agent, context, citations, invoke = await _prepare(
+            agent, context, citations, invoke, resolved = await _prepare(
                 agent_id,
                 payload,
                 current_user,
@@ -175,6 +183,7 @@ async def chat_endpoint(
                 # 同上：会话在 stream_chat 内解析，这里只传求值入口。
                 model=build_chat_model(
                     context.version,
+                    resolved=resolved,
                     session_id_provider=lambda: getattr(
                         context, "conversation_id", None
                     ),

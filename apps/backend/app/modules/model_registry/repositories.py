@@ -95,3 +95,6 @@ class AgentModelBindingRepository(BaseRepository[AgentModelBinding]):
         )
         for binding in result.scalars().all():
             await self.session.delete(binding)
+        # 必须立刻 flush：整体替换绑定会在本方法返回后紧接插入新行，而 (agent_id, role)
+        # 上有唯一约束；若不先把 DELETE 发到数据库，新行的 INSERT 会先执行并撞上旧行。
+        await self.session.flush()

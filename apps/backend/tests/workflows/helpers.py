@@ -72,7 +72,6 @@ async def seed(session, *, published: bool = True):
             agent_id=agent.id,
             version=1,
             system_prompt="你是测试助手",
-            model_name="test-model",
             # agent_versions.created_at 覆盖了 TimeModel 的列，没有 server_default，
             # 必须显式给值，否则 sqlite 上直接 NOT NULL 失败。
             created_at=datetime.now(UTC),
@@ -125,7 +124,6 @@ async def add_published_agent(session, *, platform_id: int, slug: str):
         agent_id=agent.id,
         version=1,
         system_prompt="你是另一个平台的助手",
-        model_name="test-model",
         created_at=datetime.now(UTC),
         published_at=datetime.now(UTC),
     )

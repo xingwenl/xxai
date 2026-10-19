@@ -46,13 +46,10 @@ export type AgentVersion = {
   agent_id: number
   version: number
   system_prompt: string
-  model_name: string
-  model_base_url?: string | null
   temperature: number
   model_options: Record<string, unknown>
   created_at: string
   published_at?: string | null
-  has_api_key: boolean
 }
 
 export type AgentDetail = Agent & {
@@ -61,9 +58,6 @@ export type AgentDetail = Agent & {
 
 export type AgentVersionInput = {
   system_prompt: string
-  model_name: string
-  model_base_url?: string
-  api_key?: string
   temperature: number
   model_options: Record<string, unknown>
   capabilities?: Record<string, unknown> | null

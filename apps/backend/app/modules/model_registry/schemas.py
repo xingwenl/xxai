@@ -17,8 +17,9 @@ class ModelType(str, Enum):
 
 
 class BindingRole(str, Enum):
-    """Agent 可绑定的能力角色，主对话模型不在此列。"""
+    """Agent 可绑定的能力角色，含对话主模型与三类辅助能力。"""
 
+    CHAT = "chat"
     IMAGE_GENERATE = "image_generate"
     IMAGE_READ = "image_read"
     EMBEDDING = "embedding"

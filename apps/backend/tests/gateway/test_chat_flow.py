@@ -135,6 +135,9 @@ class FakeUsageStreamingModel:
     保持一致，确保 message_completed 能透出 token 用量并落独立用量表。
     """
 
+    # 用量记录里的模型名快照取自真实客户端，这里显式给出以断言落库内容。
+    model_name = "deepseek-v4-pro"
+
     async def astream(self, _messages):
         yield AIMessageChunk(
             content="你好",
@@ -521,7 +524,6 @@ def test_embed_chat_records_model_usage_in_independent_detail_table():
                 version=SimpleNamespace(
                     id=3,
                     system_prompt="回答",
-                    model_name="deepseek-v4-pro",
                 ),
                 skill_instructions=[],
                 mcp_tools=[],

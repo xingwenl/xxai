@@ -36,6 +36,16 @@ def _version(**overrides):
     return SimpleNamespace(**values)
 
 
+def _resolve(version, **overrides):
+    """按新签名解析：模型三要素由调用方显式传入（版本行只贡献 capabilities）。"""
+    return resolve_attachment_capabilities(
+        version,
+        model_name=overrides.pop("model_name", version.model_name),
+        base_url=overrides.pop("base_url", version.model_base_url),
+        api_key=overrides.pop("api_key", version.api_key_encrypted),
+    )
+
+
 @pytest.fixture(autouse=True)
 def _clear_capability_cache():
     provider._CAPABILITY_CACHE.clear()
@@ -156,7 +166,7 @@ class TestOpenRouterQuery:
         monkeypatch.setattr(provider.httpx, "AsyncClient", FakeAsyncClient)
 
         version = _version(model_name="deepseek/deepseek-v4-flash-vision-exp")
-        capabilities = await resolve_attachment_capabilities(version)
+        capabilities = await _resolve(version)
 
         assert capabilities.image is True
         assert capabilities.native_file is False
@@ -177,8 +187,8 @@ class TestOpenRouterQuery:
         monkeypatch.setattr(provider.httpx, "AsyncClient", FakeAsyncClient)
 
         version = _version(model_name="openai/gpt-4o")
-        first = await resolve_attachment_capabilities(version)
-        second = await resolve_attachment_capabilities(version)
+        first = await _resolve(version)
+        second = await _resolve(version)
 
         assert first.image is True
         assert second.image is True
@@ -203,9 +213,7 @@ class TestOpenRouterQuery:
 
         monkeypatch.setattr(provider.httpx, "AsyncClient", BrokenClient)
 
-        capabilities = await resolve_attachment_capabilities(
-            _version(model_name="google/gemini-2.0-flash")
-        )
+        capabilities = await _resolve(_version(model_name="google/gemini-2.0-flash"))
 
         assert capabilities.image is True
 
@@ -219,7 +227,7 @@ class TestResolveCapabilities:
             model_name="deepseek/deepseek-chat",
             capabilities={"image": False, "native_file": False},
         )
-        capabilities = await resolve_attachment_capabilities(version)
+        capabilities = await _resolve(version)
         assert capabilities.image is False
 
     @async_test
@@ -228,7 +236,7 @@ class TestResolveCapabilities:
     ):
         monkeypatch.setattr(provider.httpx, "AsyncClient", FakeAsyncClient)
         version = _version(model_base_url="https://api.deepseek.com/v1")
-        capabilities = await resolve_attachment_capabilities(version)
+        capabilities = await _resolve(version)
         assert capabilities.image is False
 
 

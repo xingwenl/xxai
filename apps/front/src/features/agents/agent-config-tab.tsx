@@ -6,6 +6,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 import { deleteAgent, getAgent, updateAgent } from '@/api/agent'
+import { listAgentModelBindings } from '@/api/model-registry'
 import { listWorkflows } from '@/api/workflow'
 import {
   AlertDialog,
@@ -72,6 +73,15 @@ export function AgentConfigTab({
     enabled: platformId != null,
   })
   const agent = agentQuery.data
+  // 对话模型挂在「模型绑定」上，不再随版本保存，因此这里单独查绑定用于展示。
+  const chatBindingsQuery = useQuery({
+    queryKey: ['agent-model-bindings', platformId, agentId],
+    queryFn: () => listAgentModelBindings(platformId!, agentId),
+    enabled: platformId != null,
+  })
+  const chatBinding = chatBindingsQuery.data?.items.find(
+    (item) => item.role === 'chat'
+  )
   const activeWorkflows = workflowsQuery.data?.items ?? []
   const form = useForm<AgentForm>({
     resolver: zodResolver(agentSchema),
@@ -265,7 +275,7 @@ export function AgentConfigTab({
         <CardHeader className='px-4 pb-0'>
           <CardTitle className='text-base'>当前模型配置</CardTitle>
           <CardDescription>
-            修改模型与提示词需创建并发布新版本。
+            对话模型与密钥在「模型管理」页维护并按 Agent 绑定；修改提示词需创建并发布新版本。
           </CardDescription>
         </CardHeader>
         <CardContent className='px-4 pt-3 text-sm'>
@@ -277,11 +287,14 @@ export function AgentConfigTab({
                 版本：<span className='font-medium'>v{version.version}</span>
               </div>
               <div>
-                模型：<span className='font-medium'>{version.model_name}</span>
+                对话模型：
+                <span className='font-medium'>
+                  {chatBinding
+                    ? `${chatBinding.model_name}${chatBinding.is_active ? '' : '（已停用）'}`
+                    : '未绑定，使用全局默认模型'}
+                </span>
               </div>
-              <div>模型地址：{version.model_base_url || '默认'}</div>
               <div>Temperature：{version.temperature}</div>
-              <div>API Key：{version.has_api_key ? '已配置' : '未配置'}</div>
               <div>
                 发布时间：
                 {version.published_at

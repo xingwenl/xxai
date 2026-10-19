@@ -221,8 +221,7 @@ class AgentRepository(BaseRepository[Agent]):
                 AgentVersion.agent_id == agent_id
             )
         )
-        values = payload.model_dump(exclude={"api_key"})
-        values["api_key_encrypted"] = payload.api_key
+        values = payload.model_dump()
         version = AgentVersion(
             agent_id=agent_id,
             version=(latest or 0) + 1,

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.modules.agent.models import Agent, AgentVersion
 from app.modules.conversation.models import Conversation, ModelUsageRecord
 from app.modules.embed.models import PlatformEmbedClient, PlatformEndUser
+from app.modules.model_registry.models import AgentModelBinding, PlatformModel
 from app.modules.platform.models import Platform
 from app.modules.tools.business.framework import BusinessToolContext
 from app.modules.tools.business.registry import get_business_tool
@@ -65,7 +66,6 @@ def test_returns_model_version_usage_and_client_identity():
                 agent_id=agent.id,
                 version=3,
                 system_prompt="base",
-                model_name="gpt-5.2",
                 temperature=0.2,
                 model_options={},
                 capabilities={
@@ -78,6 +78,25 @@ def test_returns_model_version_usage_and_client_identity():
             session.add(version)
             await session.flush()
             agent.default_version_id = version.id
+            await session.flush()
+            # 模型名归平台模型注册表：绑定 chat 角色后 runtime_info 展示解析结果。
+            registered_model = PlatformModel(
+                platform_id=platform.id,
+                name="主力对话模型",
+                model_type="chat",
+                model_name="gpt-5.2",
+                is_active=True,
+                options={},
+            )
+            session.add(registered_model)
+            await session.flush()
+            session.add(
+                AgentModelBinding(
+                    agent_id=agent.id,
+                    model_id=registered_model.id,
+                    role="chat",
+                )
+            )
             await session.flush()
             end_user = PlatformEndUser(
                 platform_id=platform.id, external_user_id="external-1"

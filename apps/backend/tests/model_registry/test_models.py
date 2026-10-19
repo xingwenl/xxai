@@ -11,7 +11,7 @@ from app.modules.model_registry.repositories import (
     AgentModelBindingRepository,
     ModelRegistryRepository,
 )
-from app.modules.model_registry.resolver import resolve_agent_model
+from app.modules.model_registry.resolver import resolve_agent_model, resolve_chat_model
 from app.modules.model_registry.schemas import (
     AgentModelBindingsUpdate,
     AgentModelBindingUpdateItem,
@@ -245,6 +245,112 @@ def test_bound_model_is_resolved_and_delete_bound_model_conflicts():
             except ConflictException:
                 return
             raise AssertionError("expected ConflictException")
+        await engine.dispose()
+
+    asyncio.run(run())
+
+
+def test_replace_bindings_swaps_existing_role_binding():
+    """整体替换必须能换掉已有绑定：(agent_id, role) 上的唯一约束要求先 DELETE 再 INSERT。"""
+
+    async def run():
+        engine, session_factory = await _make_session()
+        async with session_factory() as session:
+            platform_id, agent_id = await _seed(session)
+            model_repo = ModelRegistryRepository(session)
+            binding_repo = AgentModelBindingRepository(session)
+            first = await create_platform_model(
+                model_repo,
+                PlatformModelCreate(
+                    name="旧对话模型", model_type="chat", model_name="old-chat-model"
+                ),
+                platform_id=platform_id,
+            )
+            second = await create_platform_model(
+                model_repo,
+                PlatformModelCreate(
+                    name="新对话模型", model_type="chat", model_name="new-chat-model"
+                ),
+                platform_id=platform_id,
+            )
+            await replace_agent_bindings(
+                binding_repo,
+                model_repo,
+                agent_id=agent_id,
+                platform_id=platform_id,
+                payload=AgentModelBindingsUpdate(
+                    bindings=[
+                        AgentModelBindingUpdateItem(
+                            role=BindingRole.CHAT, model_id=first.id
+                        )
+                    ]
+                ),
+            )
+            await replace_agent_bindings(
+                binding_repo,
+                model_repo,
+                agent_id=agent_id,
+                platform_id=platform_id,
+                payload=AgentModelBindingsUpdate(
+                    bindings=[
+                        AgentModelBindingUpdateItem(
+                            role=BindingRole.CHAT, model_id=second.id
+                        )
+                    ]
+                ),
+            )
+
+            bindings = await binding_repo.list_for_agent(agent_id)
+            assert [(item.role, item.model_id) for item in bindings] == [
+                ("chat", second.id)
+            ]
+            resolved = await resolve_chat_model(
+                session, platform_id=platform_id, agent_id=agent_id
+            )
+            assert resolved is not None
+            assert resolved.model_name == "new-chat-model"
+        await engine.dispose()
+
+    asyncio.run(run())
+
+
+def test_replace_bindings_rejects_inactive_model():
+    """停用模型不能被绑定：替换入口直接拒绝，避免先绑再停用之外的后门。"""
+
+    async def run():
+        engine, session_factory = await _make_session()
+        async with session_factory() as session:
+            platform_id, agent_id = await _seed(session)
+            model_repo = ModelRegistryRepository(session)
+            binding_repo = AgentModelBindingRepository(session)
+            model = await create_platform_model(
+                model_repo,
+                PlatformModelCreate(
+                    name="停用对话模型",
+                    model_type="chat",
+                    model_name="inactive-chat-model",
+                    is_active=False,
+                ),
+                platform_id=platform_id,
+            )
+            try:
+                await replace_agent_bindings(
+                    binding_repo,
+                    model_repo,
+                    agent_id=agent_id,
+                    platform_id=platform_id,
+                    payload=AgentModelBindingsUpdate(
+                        bindings=[
+                            AgentModelBindingUpdateItem(
+                                role=BindingRole.CHAT, model_id=model.id
+                            )
+                        ]
+                    ),
+                )
+            except BadRequestException as exc:
+                assert "model_not_active" in str(exc)
+                return
+            raise AssertionError("expected BadRequestException")
         await engine.dispose()
 
     asyncio.run(run())

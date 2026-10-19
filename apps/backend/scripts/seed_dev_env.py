@@ -48,6 +48,13 @@ from app.modules.embed.repositories import EmbedRepository
 from app.modules.mcp.repositories import McpRepository
 from app.modules.mcp.schemas import McpServerCreate
 from app.modules.mcp.services import create_mcp_server
+from app.modules.model_registry.repositories import AgentModelBindingRepository, ModelRegistryRepository
+from app.modules.model_registry.schemas import (
+    BindingRole,
+    ModelType,
+    PlatformModelCreate,
+)
+from app.modules.model_registry.services import create_platform_model
 from app.modules.platform.repositories import PlatformRepository
 from app.modules.platform.schemas import PlatformCreate
 from app.modules.platform.services import create_platform
@@ -185,16 +192,13 @@ async def _ensure_agent(session, platform_id: int):
     if versions:
         version = versions[-1]
     else:
-        settings = get_settings()
         version = await create_agent_version(
             repo,
             agent.id,
             AgentVersionCreate(
                 system_prompt=AGENT_SYSTEM_PROMPT,
-                # 模型名沿用平台默认；base_url 与 api_key 留空表示继承运行栈的
-                # OPENAI_BASE_URL / OPENAI_API_KEY 环境变量，种子不持有密钥。
-                model_name=settings.model_default_name,
-                model_base_url=settings.model_default_base_url,
+                # 模型名/地址/密钥自本次改动起归平台模型注册表所有（见
+                # `_ensure_chat_model`），版本行只保留提示词与采样参数。
             ),
             platform_id=platform_id,
         )
@@ -205,6 +209,45 @@ async def _ensure_agent(session, platform_id: int):
     if agent is None:  # pragma: no cover
         raise RuntimeError("Agent 发布后查询失败")
     return agent
+
+
+async def _ensure_chat_model(session, platform_id: int, agent_id: int):
+    """建/复用平台 chat 模型，并把它绑定为该 Agent 的对话主模型。
+
+    模型名与地址取环境变量默认值（`MODEL_DEFAULT_NAME` /
+    `MODEL_DEFAULT_BASE_URL`），`api_key` 留空表示解密后为空、由运行栈的
+    `OPENAI_API_KEY` 兜底——种子脚本不持有任何密钥。
+    """
+    settings = get_settings()
+    model_repo = ModelRegistryRepository(session)
+    model = await model_repo.get_by_type_and_name(
+        platform_id, ModelType.CHAT.value, settings.model_default_name
+    )
+    if model is None:
+        model = await create_platform_model(
+            model_repo,
+            PlatformModelCreate(
+                name=f"开发对话模型（{settings.model_default_name}）",
+                model_type=ModelType.CHAT,
+                model_name=settings.model_default_name,
+                base_url=settings.model_default_base_url,
+            ),
+            platform_id=platform_id,
+        )
+        await session.commit()
+        await session.refresh(model)
+
+    binding_repo = AgentModelBindingRepository(session)
+    binding = await binding_repo.get_for_agent_role(agent_id, BindingRole.CHAT.value)
+    if binding is None:
+        # 只保证 chat 这条绑定存在，不整体替换：其它能力角色的绑定由管理员自行配置。
+        await binding_repo.create(
+            agent_id=agent_id, model_id=model.id, role=BindingRole.CHAT.value
+        )
+    elif binding.model_id != model.id:
+        binding.model_id = model.id
+        await session.commit()
+    return model
 
 
 async def _seed_builtin_tools(session, platform_id: int, agent_id: int) -> list[str]:
@@ -364,6 +407,7 @@ async def seed() -> None:
         admin = await _ensure_admin(session)
         platform = await _ensure_platform(session, admin)
         agent = await _ensure_agent(session, platform.id)
+        chat_model = await _ensure_chat_model(session, platform.id, agent.id)
         builtin_tools = await _seed_builtin_tools(session, platform.id, agent.id)
         package, skill = await _ensure_skill(session, platform.id, agent.id)
         server = await _ensure_mcp_server(session, platform.id, agent.id)
@@ -377,6 +421,10 @@ async def seed() -> None:
     print(f"  · 平台：{PLATFORM_NAME}（id={platform.id}，code={PLATFORM_CODE}）")
     print(f"  · 管理员：{ADMIN_ACCOUNT} / 见 SEED_ADMIN_PASSWORD 或开发默认密码")
     print(f"  · Agent：{AGENT_NAME}（id={agent.id}，slug={AGENT_SLUG}）")
+    print(
+        f"  · 对话模型：{chat_model.name}（model_name={chat_model.model_name}，"
+        "已绑定 role=chat）"
+    )
     print(f"  · 内置工具：{', '.join(builtin_tools) or '（无）'}")
     print(f"  · 技能包：{package.name}（slug={package.slug}，{files} 个文件）")
     print(f"    绑定技能：{skill.name}（slug={skill.slug}）")
