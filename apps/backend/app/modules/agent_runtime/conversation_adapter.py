@@ -62,6 +62,9 @@ async def stream_runtime_as_conversation(
                 "tool_type": payload.get("tool_type"),
                 "arguments": payload.get("arguments"),
                 "outcome": outcome_data,
+                # 等待态的消息快照（活的 adapter 层对象）随事件交给 conversation
+                # 服务层落检查点；它不参与 SSE/WS 出站序列化。
+                "pending_context": getattr(outcome_data, "pending_context", None),
             }
             continue
         yield event_to_legacy(event)

@@ -262,8 +262,14 @@ def message_completed(
     content: str,
     content_blocks: list,
     loop_run_id=None,
+    loop_status: str | None = None,
+    loop_summary: str | None = None,
 ) -> RunEvent:
-    """最终回答事件，payload 组装最终状态、用量与 loop 摘要。"""
+    """最终回答事件，payload 组装最终状态、用量与 loop 摘要。
+
+    ``loop_status``/``loop_summary`` 由调用方传入运行的真实终态：挂起等待
+    确认时是 ``waiting_confirmation``，其余情况省略即沿用「已完成回答」。
+    """
 
     return RunEvent(
         type=RunEventType.MESSAGE_COMPLETED,
@@ -277,8 +283,8 @@ def message_completed(
                 {
                     "id": str(loop_run_id),
                     "requestId": request_id,
-                    "status": "completed",
-                    "summary": "已完成回答",
+                    "status": loop_status or "completed",
+                    "summary": loop_summary or "已完成回答",
                     "steps": [],
                 }
                 if loop_run_id
@@ -385,12 +391,16 @@ def confirmation_required(
     arguments: Any,
     expires_at: str | None,
     confirmation_id: int | None = None,
+    loop_run_id: int | None = None,
 ) -> RunEvent:
     """需要用户确认的工具调用事件；客户端用 ``callId`` 回传裁决。
 
     ``confirmationId`` 是持久化待确认记录的主键：内置工具的确认由后端落库后再弹卡，
     带上它之后，按 id 解决确认的通路才有稳定的关联锚点（当前网关仍按 ``callId``
     在连接内解决）。对 MCP 工具该字段可选，保持既有调用方不受影响。
+
+    ``loopRunId`` 是挂起的那次运行的主键。REST/SSE 通路上用户靠它调用解决端点
+    续跑（见 ADR 0010）；WS 通路的确认在连接内当场解决，不需要它。
     """
 
     return RunEvent(
@@ -403,6 +413,7 @@ def confirmation_required(
             "summary": {"arguments": redact_sensitive(arguments)},
             "expiresAt": expires_at,
             "confirmationId": confirmation_id,
+            "loopRunId": loop_run_id,
         },
         conversation_id=conversation_id,
         request_id=request_id,
@@ -527,6 +538,8 @@ class LoopEventBuilder:
         content: str,
         content_blocks: list,
         loop_run_id=None,
+        loop_status: str | None = None,
+        loop_summary: str | None = None,
     ) -> RunEvent:
         return message_completed(
             conversation_id=self.conversation.id,
@@ -535,6 +548,8 @@ class LoopEventBuilder:
             content=content,
             content_blocks=content_blocks,
             loop_run_id=loop_run_id,
+            loop_status=loop_status,
+            loop_summary=loop_summary,
         )
 
     def error(self, payload: dict) -> RunEvent:
@@ -648,6 +663,10 @@ def run_events_from_stream_item(
                 side_effect=metadata.get("side_effect"),
                 arguments=arguments,
                 expires_at=metadata.get("expires_at"),
+                # 挂起态的两个关联锚点都由工具结果的 metadata 带出来：确认记录
+                # 主键用于解决确认，运行主键用于续跑（见 ADR 0010）。
+                confirmation_id=metadata.get("confirmation_id"),
+                loop_run_id=item.get("loop_run_id"),
             )
         ]
 
@@ -681,6 +700,9 @@ def run_events_from_stream_item(
                 content=result.content,
                 content_blocks=getattr(assistant, "content_blocks", None) or [],
                 loop_run_id=result.loop_id,
+                # 挂起等待确认时 loop 终态不是 completed，服务层已如实给出。
+                loop_status=item.get("loop_status"),
+                loop_summary=item.get("loop_summary"),
             )
         )
         return events

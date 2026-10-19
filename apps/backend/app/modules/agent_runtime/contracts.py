@@ -77,12 +77,14 @@ class ToolOutcome:
     status: ToolOutcomeStatus | str
     result: Any = None
     error: dict[str, Any] | None = None
-    resume_token: str | None = None
     call_id: str | None = None
     # MCP/宿主工具的旧审计流程需要这些关联字段来恢复用户确认。
     audit_id: int | None = None
     confirmation_id: int | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    # 等待确认那一刻的消息快照（活的 adapter 层对象）。只在进程内传递，
+    # 供上层落运行检查点；刻意不进 model_dump，避免整段上下文进入线协议。
+    pending_context: list[Any] | None = None
 
     def model_dump(self) -> dict[str, Any]:
         """提供 Pydantic 结果对象的兼容序列化接口。"""
@@ -91,7 +93,6 @@ class ToolOutcome:
             "status": str(self.status),
             "result": self.result,
             "error": self.error,
-            "resume_token": self.resume_token,
             "call_id": self.call_id,
             "audit_id": self.audit_id,
             "confirmation_id": self.confirmation_id,
@@ -140,6 +141,9 @@ class AgentResult:
     knowledge_grounded: bool = False
     thinking_text: str = ""
     loop_id: int | None = None
+    # 等待用户确认那一刻的完整消息快照（活的 adapter 层对象，不序列化）。
+    # 只有运行因工具确认而挂起时才有值，供调用方落检查点后做同运行续跑。
+    pending_context: list[Any] | None = None
 
 
 @dataclass(slots=True)

@@ -113,6 +113,16 @@ class ChatResponse(BaseModel):
     loop: dict[str, Any] | None = None
 
 
+class RunResolveRequest(BaseModel):
+    """解决一次挂起的工具确认。
+
+    ``approved=false`` 表示用户明确拒绝：该工具不会执行，但运行仍会带着
+    「已被拒绝」这个工具结果继续，让模型另想办法。
+    """
+
+    approved: bool
+
+
 class RuntimeContext(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

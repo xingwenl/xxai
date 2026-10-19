@@ -3,7 +3,14 @@
 import json
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+    messages_from_dict,
+    messages_to_dict,
+)
 
 from app.modules.agent_runtime.contracts import AgentEvent, AgentEventType, ToolCall, ToolOutcome
 from app.modules.agent_runtime.loop import ModelTurn
@@ -135,6 +142,121 @@ def messages_for_model(messages: list[Any]) -> list[Any]:
         elif isinstance(item, str):
             converted.append(HumanMessage(content=item))
     return converted
+
+
+# 运行检查点里保存的上下文快照的存储格式。它必须与 messages_for_model 认识的
+# 对象种类一一对应，否则续跑时模型看到的上下文会与挂起那一刻不同。
+_CONTEXT_MESSAGE_KINDS = (AIMessage, HumanMessage, SystemMessage, ToolMessage)
+
+
+# 轮次元数据里不能进快照的键：``pending_context`` 就是快照本身，
+# 它只为了把「挂起那刻的上下文」带回上层（见 AgentLoop 的等待态短路），
+# 值是活对象列表，序列化时必须剔除，否则会自嵌套且无法落库。
+_DUMP_SKIPPED_METADATA_KEYS = frozenset({"pending_context"})
+
+
+def _json_safe(value: Any) -> Any:
+    """把任意元数据折成可入库的 JSON 结构。
+
+    工具结果的 metadata 由各工具自行填充，不保证只有标量；这里统一兜一层，
+    让检查点写入不会因为某个工具的私有元数据而整轮请求失败（无法识别的
+    值退化成字符串，续跑只需要它可读，不需要它可还原）。
+    """
+
+    return json.loads(json.dumps(value, ensure_ascii=False, default=str))
+
+
+def dump_context(messages: list[Any]) -> list[dict[str, Any]]:
+    """把等待确认那一刻的消息快照序列化成可入库的 JSON 结构。
+
+    只处理 :func:`messages_for_model` 认识的对象种类；未知类型直接跳过，
+    与模型调用时的丢弃语义保持一致。序列化格式属于 adapter 层，调用方
+    （运行检查点）只负责存与取，不解释内容。
+    """
+
+    dumped: list[dict[str, Any]] = []
+    for item in messages:
+        if isinstance(item, _CONTEXT_MESSAGE_KINDS):
+            dumped.append({"kind": "message", "data": messages_to_dict([item])[0]})
+        elif isinstance(item, ModelTurn):
+            metadata = {
+                key: value
+                for key, value in (item.metadata or {}).items()
+                if key not in _DUMP_SKIPPED_METADATA_KEYS
+            }
+            dumped.append(
+                {
+                    "kind": "model_turn",
+                    "content": item.content,
+                    "tool_calls": [
+                        {
+                            "id": call.id,
+                            "name": call.name,
+                            "arguments": call.arguments,
+                            "tool_type": call.tool_type,
+                        }
+                        for call in item.tool_calls
+                    ],
+                    "metadata": _json_safe(metadata),
+                }
+            )
+        elif isinstance(item, ToolOutcome):
+            dumped.append(
+                {
+                    "kind": "tool_outcome",
+                    "status": str(item.status),
+                    "result": _json_safe(item.result),
+                    "error": _json_safe(item.error),
+                    "call_id": item.call_id,
+                    "audit_id": item.audit_id,
+                    "confirmation_id": item.confirmation_id,
+                    "metadata": _json_safe(item.metadata),
+                }
+            )
+        elif isinstance(item, str):
+            dumped.append({"kind": "text", "data": item})
+    return dumped
+
+
+def load_context(payload: list[dict[str, Any]] | None) -> list[Any]:
+    """把 :func:`dump_context` 的产物还原成可用于续跑的消息列表。"""
+
+    restored: list[Any] = []
+    for entry in payload or []:
+        kind = entry.get("kind")
+        if kind == "message":
+            restored.extend(messages_from_dict([entry["data"]]))
+        elif kind == "model_turn":
+            restored.append(
+                ModelTurn(
+                    content=entry.get("content", ""),
+                    tool_calls=[
+                        ToolCall(
+                            id=str(call.get("id") or ""),
+                            name=str(call.get("name") or ""),
+                            arguments=dict(call.get("arguments") or {}),
+                            tool_type=call.get("tool_type"),
+                        )
+                        for call in entry.get("tool_calls") or []
+                    ],
+                    metadata=dict(entry.get("metadata") or {}),
+                )
+            )
+        elif kind == "tool_outcome":
+            restored.append(
+                ToolOutcome(
+                    status=entry.get("status", "completed"),
+                    result=entry.get("result"),
+                    error=entry.get("error"),
+                    call_id=entry.get("call_id"),
+                    audit_id=entry.get("audit_id"),
+                    confirmation_id=entry.get("confirmation_id"),
+                    metadata=dict(entry.get("metadata") or {}),
+                )
+            )
+        elif kind == "text":
+            restored.append(entry.get("data", ""))
+    return restored
 
 
 class LangChainModelInvoker:

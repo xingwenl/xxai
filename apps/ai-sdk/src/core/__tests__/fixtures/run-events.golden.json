@@ -189,7 +189,8 @@
         }
       },
       "expiresAt": "2026-10-16T00:10:00+00:00",
-      "confirmationId": null
+      "confirmationId": null,
+      "loopRunId": null
     },
     "conversationId": "101",
     "requestId": "req-golden"

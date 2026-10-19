@@ -1,8 +1,18 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Literal
 
-from sqlalchemy import CheckConstraint, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    JSON,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.base_model import BaseModel, TimeModel
@@ -194,4 +204,118 @@ class ModelUsageRecord(BaseModel, TimeModel):
     )
     total_tokens: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0", comment="总 token 数"
+    )
+
+
+class AgentLoopRunCheckpoint(BaseModel, TimeModel):
+    """运行级确认检查点：把「等待确认那一刻」的模型上下文落成显式状态。
+
+    一次运行遇到需要用户拍板的工具调用时会挂起：进程内的消息列表随请求结束而
+    消失，而续跑必须让模型看到挂起前的完整上下文（system prompt 现算不入库、
+    assistant 的 tool_calls 消息与工具结果从不落 ``conversation_messages``），
+    所以上下文只能在这里显式存一份 JSON 快照。
+
+    一个运行最多只有一个待确认检查点（``loop_run_id`` 唯一），续跑入口就是
+    ``loop_run_id``；状态机为 pending → resolved → consumed，超时未处理则由
+    解决请求惰性判定为 expired。
+    """
+
+    __tablename__ = "agent_loop_run_checkpoints"
+    __table_args__ = (
+        CheckConstraint(
+            "(user_id IS NOT NULL AND platform_end_user_id IS NULL) OR "
+            "(user_id IS NULL AND platform_end_user_id IS NOT NULL)",
+            name="exactly_one_principal",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True, comment="运行检查点主键"
+    )
+    loop_run_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("agent_loop_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        comment="所属 AgentLoop 运行 ID；一个运行最多一个待确认检查点，故唯一",
+    )
+    conversation_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="所属会话 ID，用于归属校验",
+    )
+    platform_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("platforms.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="所属平台 ID",
+    )
+    agent_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("agents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="发起本次运行的智能体 ID",
+    )
+    user_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("sys_users.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+        comment="后台用户 ID，与 Embed 最终用户互斥",
+    )
+    platform_end_user_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("platform_end_users.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+        comment="Embed 最终用户 ID，与后台用户互斥",
+    )
+    confirmation_source: Mapped[str] = mapped_column(
+        String(40),
+        nullable=False,
+        comment="确认记录来源表：tool_confirmations 或 mcp_tool_confirmations",
+    )
+    confirmation_id: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        comment="跨两张确认表的确认记录 ID，不建外键，按 confirmation_source 分派",
+    )
+    tool_call_id: Mapped[str] = mapped_column(
+        String(255), nullable=False, comment="等待确认的模型工具调用 ID，续跑时回填结果"
+    )
+    tool_name: Mapped[str] = mapped_column(
+        String(120), nullable=False, comment="等待确认的工具名"
+    )
+    tool_type: Mapped[str | None] = mapped_column(
+        String(40), nullable=True, comment="工具来源类型：builtin_tool / skill_script / mcp_tool"
+    )
+    side_effect: Mapped[str | None] = mapped_column(
+        String(30), nullable=True, comment="工具副作用类型，用于 SSE 事件展示"
+    )
+    status: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default="pending",
+        server_default="pending",
+        comment="检查点状态：pending / resolved / expired / consumed",
+    )
+    context: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON,
+        nullable=False,
+        comment="等待确认那一刻喂给模型的完整上下文，续跑后清空",
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        comment="检查点失效时间，超过后解决请求返回过期错误码",
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="确认被解决（批准或拒绝）的时间"
+    )
+    consumed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="续跑消费检查点并清空上下文的时间"
     )

@@ -375,6 +375,18 @@ class AgentLoop:
                     outcome.call_id = call.id
                 context.append(outcome)
                 tool_events.append(_tool_event_entry(call, outcome))
+                waiting = str(outcome.status) in {
+                    "confirmation_required",
+                    "waiting_user",
+                    "waiting_question",
+                }
+                pending_context = list(context) if waiting else None
+                if pending_context is not None:
+                    # 等待态的消息快照只是一组**活引用**（含本轮 assistant
+                    # tool_calls 与刚产生的 ToolOutcome），不在这里序列化：
+                    # 存储格式属于 adapter，落哪张表属于调用方。ToolOutcome
+                    # 的 model_dump 是显式字段列表，因此它不会被带进线协议事件。
+                    outcome.pending_context = pending_context
                 await emit(
                     AgentEvent(
                         type=AgentEventType.TOOL_COMPLETED,
@@ -390,11 +402,7 @@ class AgentLoop:
                         },
                     )
                 )
-                if str(outcome.status) in {
-                    "confirmation_required",
-                    "waiting_user",
-                    "waiting_question",
-                }:
+                if waiting:
                     # 外部确认/用户回答尚未完成时，不能继续请求模型；否则同一
                     # 个工具调用可能被重复发起。上层可使用 metadata 里的结果
                     # 创建 continuation，在用户输入完成后恢复执行。
@@ -409,6 +417,9 @@ class AgentLoop:
                     # 等待态同样是跨轮执行后的稳定结果：usage 必须携带此前
                     # 所有模型轮次的累计值，供 REST/WS continuation 合并。
                     last_turn.metadata["usage"] = accumulated_usage
+                    # 续跑要用的「等待那一刻的完整上下文」；流式通路另经
+                    # TOOL_COMPLETED 事件把同一份快照交给 conversation 适配层。
+                    last_turn.metadata["pending_context"] = pending_context
                     return last_turn
 
         if last_turn is None:

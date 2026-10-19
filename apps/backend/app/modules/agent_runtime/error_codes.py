@@ -45,6 +45,12 @@ class ErrorCode(StrEnum):
     HOST_TOOL_EXPIRED = "host_tool_expired"
     HOST_TOOL_EXECUTION_TIMEOUT = "host_tool_execution_timeout"
 
+    # 挂起运行的确认与续跑
+    RUN_CONFIRMATION_NOT_FOUND = "run_confirmation_not_found"
+    RUN_CONFIRMATION_ALREADY_RESOLVED = "run_confirmation_already_resolved"
+    RUN_CONFIRMATION_EXPIRED = "run_confirmation_expired"
+    RUN_RESUME_UNAVAILABLE = "run_resume_unavailable"
+
     # 网关与配额
     REQUEST_FAILED = "request_failed"
     QUOTA_EXCEEDED = "quota_exceeded"

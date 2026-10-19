@@ -19,6 +19,7 @@ def agent_result_from_legacy(raw: object) -> AgentResult:
         knowledge_grounded=bool(getattr(raw, "knowledge_grounded", False)),
         thinking_text=str(getattr(raw, "thinking_text", "") or ""),
         loop_id=getattr(raw, "loop_id", None),
+        pending_context=getattr(raw, "pending_context", None),
     )
 
 
@@ -32,7 +33,6 @@ def tool_outcome_from_legacy(raw: object) -> ToolOutcome:
             status=str(raw.get("status", "completed")),
             result=raw.get("result", raw),
             error=raw.get("error"),
-            resume_token=raw.get("resume_token"),
             call_id=raw.get("call_id"),
             audit_id=raw.get("audit_id"),
             confirmation_id=raw.get("confirmation_id"),
@@ -42,7 +42,6 @@ def tool_outcome_from_legacy(raw: object) -> ToolOutcome:
         status=str(getattr(raw, "status", "completed")),
         result=getattr(raw, "result", raw),
         error=getattr(raw, "error", None),
-        resume_token=getattr(raw, "resume_token", None),
         call_id=getattr(raw, "call_id", None),
         audit_id=getattr(raw, "audit_id", None),
         confirmation_id=getattr(raw, "confirmation_id", None),

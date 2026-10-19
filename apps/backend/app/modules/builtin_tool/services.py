@@ -104,6 +104,10 @@ async def invoke_builtin_tool(
         decision = await _decide_confirmation(
             confirmation_decider, definition=definition, call=call
         )
+        if decision.defer:
+            # 裁决器已经把确认记录落库，本次不执行 handler：运行在上层挂起，
+            # 由解决端点拿到用户决定后续跑（见 ADR 0010）。
+            return _deferred_outcome(definition.name, side_effect, decision)
         if not decision.approved:
             return _rejected_outcome(definition.name, side_effect, decision)
 
@@ -203,6 +207,49 @@ def _rejected_outcome(
             "message": decision.message or f"工具 {tool_name} 需要用户确认，本次未执行。",
         },
     )
+
+
+def _deferred_outcome(
+    tool_name: str, side_effect: str, decision: ConfirmationDecision
+) -> BuiltinToolOutcome:
+    """把「已挂起等待确认」包装成工具结果。
+
+    ``status`` 用 ``confirmation_required``：AgentLoop 见到它就不再请求模型，
+    整条运行停在等待态。确认记录的主键与过期时间放在 ``metadata`` 里——它随
+    TOOL_COMPLETED 事件流到 SSE 映射层，最终成为确认卡上的 ``confirmationId``
+    与 ``expiresAt``（``result`` 里的同名字段是给模型看的摘要，两者用途不同）。
+    """
+
+    payload = _confirmation_payload(decision)
+    return BuiltinToolOutcome(
+        status="confirmation_required",
+        confirmation_id=payload.get("confirmation_id"),
+        result={
+            "status": "confirmation_required",
+            "side_effect": side_effect,
+            "message": decision.message
+            or f"工具 {tool_name} 需要用户确认，已暂停等待你的决定。",
+            **{key: value for key, value in payload.items() if value is not None},
+        },
+        metadata={
+            "side_effect": side_effect,
+            "expires_at": payload.get("expires_at"),
+            "confirmation_id": payload.get("confirmation_id"),
+        },
+    )
+
+
+def _confirmation_payload(decision: ConfirmationDecision) -> dict[str, Any]:
+    """取出裁决器挂在 ``message`` 之外的结构化结果。
+
+    交互式裁决器（``conversation/approval.py``）把确认记录主键与过期时间放在
+    ``decision.details`` 里；无人值守裁决器不产生挂起，因此这里允许为空。
+    """
+
+    details = getattr(decision, "details", None)
+    if isinstance(details, dict):
+        return dict(details)
+    return {}
 
 
 def _outcome_from_result(result: Any) -> BuiltinToolOutcome:

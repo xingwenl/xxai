@@ -33,18 +33,30 @@ class AppException(Exception):
 
 
 class NotFoundException(AppException):
-    def __init__(self, message: str = "resource not found") -> None:
-        super().__init__(message, status_code=status.HTTP_404_NOT_FOUND)
+    def __init__(
+        self, message: str = "resource not found", *, error_code: str | None = None
+    ) -> None:
+        super().__init__(
+            message, status_code=status.HTTP_404_NOT_FOUND, error_code=error_code
+        )
 
 
 class ConflictException(AppException):
-    def __init__(self, message: str = "resource conflict") -> None:
-        super().__init__(message, status_code=status.HTTP_409_CONFLICT)
+    def __init__(
+        self, message: str = "resource conflict", *, error_code: str | None = None
+    ) -> None:
+        super().__init__(
+            message, status_code=status.HTTP_409_CONFLICT, error_code=error_code
+        )
 
 
 class BadRequestException(AppException):
-    def __init__(self, message: str = "bad request") -> None:
-        super().__init__(message, status_code=status.HTTP_400_BAD_REQUEST)
+    def __init__(
+        self, message: str = "bad request", *, error_code: str | None = None
+    ) -> None:
+        super().__init__(
+            message, status_code=status.HTTP_400_BAD_REQUEST, error_code=error_code
+        )
 
 
 class UnauthorizedException(AppException):

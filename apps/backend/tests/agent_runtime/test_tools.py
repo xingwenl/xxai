@@ -53,12 +53,11 @@ def test_callback_executor_adapts_existing_callback():
     assert result.result == {"q": "x"}
 
 
-def test_callback_executor_preserves_dict_error_and_resume_fields():
+def test_callback_executor_preserves_dict_error_and_call_id():
     async def callback(*, tool, call):
         return {
             "status": "failed",
             "error": {"code": "upstream_failed"},
-            "resume_token": "resume-1",
             "call_id": call["id"],
         }
 
@@ -72,5 +71,4 @@ def test_callback_executor_preserves_dict_error_and_resume_fields():
 
     assert result.status == "failed"
     assert result.error == {"code": "upstream_failed"}
-    assert result.resume_token == "resume-1"
     assert result.call_id == "call-1"

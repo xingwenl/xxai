@@ -179,6 +179,10 @@ async def _invoke_mcp_tool(
     decision = await confirmation_decider(tool, outcome)
     if decision is None:
         return outcome
+    if getattr(decision, "defer", False):
+        # 裁决器只落了确认记录、不表态：REST 流式通路上没有等待者，直接把
+        # 「待确认」原样交回调用方，由上层挂起运行并落检查点（见 ADR 0010）。
+        return outcome
 
     resolved = await resolve_tool_confirmation(
         mcp_repo,

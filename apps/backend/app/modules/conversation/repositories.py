@@ -1,12 +1,13 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import NamedTuple
 
-from sqlalchemy import and_, case, func, literal_column, or_, select
+from sqlalchemy import and_, case, func, literal_column, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.agent.models import Agent
 from app.modules.conversation.models import (
     AgentLoopRun,
+    AgentLoopRunCheckpoint,
     AgentLoopStep,
     Conversation,
     ConversationMessage,
@@ -677,3 +678,114 @@ class ConversationRepository:
             select(func.count()).select_from(statement.subquery())
         )
         return int(total or 0)
+
+
+class AgentLoopRunCheckpointRepository:
+    """`agent_loop_run_checkpoints` 表的存储层：落检查点、CAS 抢占与收尾。
+
+    只做读写，不含业务裁决（归属校验、过期语义、确认分派都在服务层）。
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def create(
+        self,
+        *,
+        loop_run_id: int,
+        conversation_id: int,
+        platform_id: int,
+        agent_id: int,
+        confirmation_source: str,
+        confirmation_id: int,
+        tool_call_id: str,
+        tool_name: str,
+        context: list[dict],
+        expires_at: datetime,
+        tool_type: str | None = None,
+        side_effect: str | None = None,
+        user_id: int | None = None,
+        platform_end_user_id: int | None = None,
+    ) -> AgentLoopRunCheckpoint:
+        checkpoint = AgentLoopRunCheckpoint(
+            loop_run_id=loop_run_id,
+            conversation_id=conversation_id,
+            platform_id=platform_id,
+            agent_id=agent_id,
+            user_id=user_id,
+            platform_end_user_id=platform_end_user_id,
+            confirmation_source=confirmation_source,
+            confirmation_id=confirmation_id,
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            tool_type=tool_type,
+            side_effect=side_effect,
+            context=context,
+            expires_at=expires_at,
+        )
+        self.session.add(checkpoint)
+        # 等待确认的请求与随后解决确认的请求分属不同请求/事务，检查点必须立刻
+        # 对其它连接可见，因此直接提交并回读，而不是只 flush。
+        await self.session.commit()
+        await self.session.refresh(checkpoint)
+        return checkpoint
+
+    async def get_by_loop_run(self, loop_run_id: int) -> AgentLoopRunCheckpoint | None:
+        return await self.session.scalar(
+            select(AgentLoopRunCheckpoint).where(
+                AgentLoopRunCheckpoint.loop_run_id == loop_run_id
+            )
+        )
+
+    async def claim(self, loop_run_id: int, status: str) -> bool:
+        """CAS 抢占：仅当 status == 'pending' 时置为目标状态，返回是否抢占成功。
+
+        用「状态仍为 pending」作比较条件，是为了让并发的两个解决请求（用户点击
+        与重复提交）只有一个能生效，避免同一个检查点被续跑两次。
+        """
+
+        result = await self.session.execute(
+            update(AgentLoopRunCheckpoint)
+            .where(
+                AgentLoopRunCheckpoint.loop_run_id == loop_run_id,
+                AgentLoopRunCheckpoint.status == "pending",
+            )
+            .values(status=status)
+            .execution_options(synchronize_session=False)
+        )
+        await self.session.commit()
+        return result.rowcount == 1
+
+    async def mark_consumed(self, loop_run_id: int) -> None:
+        """置 status='consumed'、consumed_at=now()，并清空 context。
+
+        这里刻意走 ORM 实例赋值而不是 Core ``update()``：会话工厂是
+        ``expire_on_commit=False``（app/core/database.py:33），Core update 不会同步
+        identity map 里的实例，调用方手里那个对象会停在旧状态（③a 曾因此出过
+        bug）。实例赋值 + commit 让调用方拿到的对象本身就是新状态，不需要再
+        refresh。
+        """
+
+        checkpoint = await self.get_by_loop_run(loop_run_id)
+        if checkpoint is None:
+            return
+        checkpoint.status = "consumed"
+        checkpoint.consumed_at = datetime.now(UTC)
+        # 上下文快照只在「等待确认」期间有用，续跑后必须清掉，避免长期留存模型上下文。
+        checkpoint.context = []
+        await self.session.commit()
+
+    async def mark_expired(self, loop_run_id: int) -> None:
+        """惰性过期收尾：置 status='expired' 并清空 context。
+
+        这条路径只在解决请求到达时发现 ``expires_at`` 已过才调用，因此不需要
+        后台清扫作业（见 spec「过期惰性收尾」）。同 ``mark_consumed``，走 ORM
+        实例赋值以保证调用方看到新状态。
+        """
+
+        checkpoint = await self.get_by_loop_run(loop_run_id)
+        if checkpoint is None:
+            return
+        checkpoint.status = "expired"
+        checkpoint.context = []
+        await self.session.commit()

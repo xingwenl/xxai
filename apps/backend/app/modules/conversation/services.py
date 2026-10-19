@@ -1,9 +1,14 @@
+from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 
 from app.core.logging import get_logger
 from app.core.config import get_settings
 from app.core.database import get_session_factory
-from app.modules.conversation.repositories import ConversationRepository
+from app.modules.conversation.approval import SOURCE_BUILTIN, SOURCE_MCP
+from app.modules.conversation.repositories import (
+    AgentLoopRunCheckpointRepository,
+    ConversationRepository,
+)
 from app.modules.conversation.runtime import (
     attach_tool_snapshots,
     build_agent_error_payload,
@@ -28,7 +33,13 @@ from app.modules.conversation.serializers import (
     conversation_preview,
 )
 from app.modules.agent_runtime.event_adapters import event_to_legacy
-from app.modules.agent_runtime.langchain_adapter import build_langchain_messages
+from app.modules.agent_runtime.langchain_adapter import (
+    build_langchain_messages,
+    dump_context,
+    load_context,
+)
+from app.modules.agent_runtime.contracts import ToolOutcome
+from app.modules.tool_approval.contracts import CONFIRMATION_TTL_SECONDS
 from app.modules.agent_runtime.conversation_adapter import (
     stream_runtime_as_conversation,
 )
@@ -294,17 +305,27 @@ async def _finish_stream_chat(
     tool_steps: dict,
     next_step_sequence: int,
     result,
+    assistant_status: str | None = None,
+    loop_status: str | None = None,
+    loop_summary: str | None = None,
 ):
-    """保存助手消息与剩余工具步骤，输出流式收尾事件。"""
-    assistant = await repo.create_message(
-        conversation.id,
-        role="assistant",
-        content=result.content,
-        content_blocks=_content_blocks(result.content, result.content_blocks),
-        citations=result.citations,
-        knowledge_grounded=result.knowledge_grounded,
-        message_metadata=_tool_snapshot_metadata(result),
-    )
+    """保存助手消息与剩余工具步骤，输出流式收尾事件。
+
+    `assistant_status`/`loop_status`/`loop_summary` 只服务于「挂起等待确认」
+    这类非终态收尾：此时模型没有产出内容，但 loop 必须如实停在等待态，
+    而不是被记成 completed。
+    """
+    assistant_values: dict = {
+        "role": "assistant",
+        "content": result.content,
+        "content_blocks": _content_blocks(result.content, result.content_blocks),
+        "citations": result.citations,
+        "knowledge_grounded": result.knowledge_grounded,
+        "message_metadata": _tool_snapshot_metadata(result),
+    }
+    if assistant_status is not None:
+        assistant_values["status"] = assistant_status
+    assistant = await repo.create_message(conversation.id, **assistant_values)
     result_status = resolve_result_run_status(
         pending_confirmation_id=getattr(result, "pending_confirmation_id", None),
         budget_exceeded=bool(getattr(result, "budget_exceeded", False)),
@@ -332,8 +353,8 @@ async def _finish_stream_chat(
     generation_step.output_summary = f"生成 {len(result.content)} 字符"
     generation_step.thinking_text = result.thinking_text
     loop.assistant_message_id = assistant.id
-    loop.status = loop_status_for(result_status)
-    loop.summary = loop_summary_for(result_status)
+    loop.status = loop_status or loop_status_for(result_status)
+    loop.summary = loop_summary or loop_summary_for(result_status)
     await repo.save_loop(loop)
     result.loop_id = loop.id
     yield {
@@ -374,6 +395,10 @@ async def _finish_stream_chat(
         "conversation": conversation,
         "assistant": assistant,
         "result": result,
+        # 出站终态必须如实：挂起等待确认时是 waiting_confirmation，
+        # 若不显式传出，编码器会回落成「已完成回答」（events.py 的默认值）。
+        "loop_status": loop.status,
+        "loop_summary": loop.summary,
     }
 
 
@@ -928,6 +953,50 @@ async def stream_chat(
             )
         )
 
+    # 只有交互式运行（user_id 非空）才可能产生待确认：检查点必须绑定确认
+    # 主体，而无人值守路径本就拿不到 confirmation_required，因此不写检查点。
+    checkpoint_writer = (
+        _RunCheckpointWriter(
+            repo=repo,
+            platform_id=platform_id,
+            agent_id=context.agent.id,
+            user_id=user_id,
+        )
+        if user_id is not None
+        else None
+    )
+
+    async for event in _consume_agent_events(
+        repo,
+        conversation,
+        loop,
+        generation_step,
+        event_stream=event_stream,
+        citations=citations,
+        tool_steps=tool_steps,
+        next_step_sequence=next_step_sequence,
+        checkpoint_writer=checkpoint_writer,
+    ):
+        yield event
+
+
+async def _consume_agent_events(
+    repo: ConversationRepository,
+    conversation,
+    loop,
+    generation_step,
+    *,
+    event_stream,
+    citations: list,
+    tool_steps: dict,
+    next_step_sequence: int,
+    checkpoint_writer: "_RunCheckpointWriter | None" = None,
+):
+    """消费 AgentRuntime 事件流：落库、出流、等待确认时写检查点。
+
+    初始运行（stream_chat）与确认后的续跑（resume_stream_chat）共用这一段，
+    保证两条路径的消息落库与收尾语义完全一致。
+    """
     async for agent_event in event_stream:
         # REST SSE 与 WebSocket 共用统一内部事件 seam；这里保留旧字段出口，
         # 让后续的消息持久化和 SSE 组装可以渐进迁移而不改变公开响应格式。
@@ -1030,12 +1099,18 @@ async def stream_chat(
                 "tool": item.get("tool"),
                 "tool_type": item.get("tool_type"),
                 "arguments": item.get("arguments"),
+                # 挂起等待确认时，协议层要靠它告诉用户「用哪个运行去续跑」。
+                "loop_run_id": loop.id,
                 "payload": outcome.model_dump(),
             }
             if str(outcome.status) == "confirmation_required":
                 # legacy stream_graph 在确认等待时会把 GraphResult 终态交给
                 # 收尾逻辑；AgentRuntime 等待态不再调用模型，事件流也自然
                 # 结束，这里补一次等效收尾，避免 loop/step 永远停在 running。
+                if checkpoint_writer is not None:
+                    await _write_run_checkpoint(
+                        checkpoint_writer, conversation, loop, item, outcome
+                    )
                 wait_result = GraphResult(
                     content="",
                     citations=citations,
@@ -1062,6 +1137,9 @@ async def stream_chat(
                     tool_steps=tool_steps,
                     next_step_sequence=next_step_sequence,
                     result=wait_result,
+                    # 挂起态没有模型输出，助手消息留占位并标记等待确认，
+                    # 前端据此提示「等待确认」而不是空回答。
+                    assistant_status="waiting_confirmation",
                 ):
                     yield event
                 return
@@ -1113,6 +1191,136 @@ async def stream_chat(
             result=result,
         ):
             yield event
+
+
+@dataclass
+class _RunCheckpointWriter:
+    """写运行检查点所需的最小上下文，避免给消费循环传一长串参数。"""
+
+    repo: ConversationRepository
+    platform_id: int
+    agent_id: int
+    user_id: int
+
+
+async def _write_run_checkpoint(
+    writer: _RunCheckpointWriter,
+    conversation,
+    loop,
+    item: dict,
+    outcome,
+) -> None:
+    """把「挂起那刻的完整上下文」落成检查点，供解决端点续跑。
+
+    缺任何一项必要信息都不写：宁可让用户重发消息，也不要写一条续不起来的
+    半截检查点。
+    """
+    pending_context = item.get("pending_context")
+    confirmation_id = getattr(outcome, "confirmation_id", None)
+    if not pending_context or confirmation_id is None:
+        return
+    # 拿不到会话（异常构造的仓储替身）就不写检查点：退回「只能重发消息」的
+    # 旧行为，而不是让整次回答因为落点缺失而崩掉。
+    session = getattr(writer.repo, "session", None)
+    if session is None:
+        return
+    metadata = getattr(outcome, "metadata", None) or {}
+    # MCP 工具在自家服务层就落了确认记录（带 audit_id），内置工具则由交互式
+    # 裁决器落确认记录；这里据此决定解决时走哪条执行通路。
+    source = SOURCE_MCP if getattr(outcome, "audit_id", None) else SOURCE_BUILTIN
+    await AgentLoopRunCheckpointRepository(session).create(
+        loop_run_id=loop.id,
+        conversation_id=conversation.id,
+        platform_id=writer.platform_id,
+        agent_id=writer.agent_id,
+        confirmation_source=source,
+        confirmation_id=int(confirmation_id),
+        tool_call_id=str(item.get("tool_call_id") or ""),
+        tool_name=str(item.get("tool") or ""),
+        tool_type=item.get("tool_type"),
+        side_effect=metadata.get("side_effect"),
+        context=dump_context(list(pending_context)),
+        expires_at=datetime.now(timezone.utc)
+        + timedelta(seconds=CONFIRMATION_TTL_SECONDS),
+        user_id=writer.user_id,
+    )
+
+
+async def resume_stream_chat(
+    repo: ConversationRepository,
+    context,
+    *,
+    conversation,
+    loop,
+    checkpoint,
+    outcome: ToolOutcome,
+    model,
+    citations: list,
+    invoke_tool_fn=None,
+    on_model_task_started=None,
+    max_iterations: int | None = None,
+):
+    """按运行检查点续跑同一次运行（用户解决工具确认后的下半场）。
+
+    与 `stream_chat` 的差别只在「上游」：不新建会话、不写用户消息、不重新
+    检索，而是加载挂起那刻的上下文快照，把工具执行结果接回原位置再让模型
+    继续。落库与收尾复用同一条消费循环，保证两条路径语义一致。
+    """
+    messages = load_context(checkpoint.context)
+    if messages and isinstance(messages[-1], ToolOutcome):
+        # 挂起时快照末位正是那个待确认的 ToolOutcome，这里替换而不是追加：
+        # 否则同一个 call_id 会出现两条工具结果，模型侧调用配对会错乱。
+        messages[-1] = outcome
+    else:
+        messages.append(outcome)
+
+    existing_steps = await repo.list_loop_steps(loop.id)
+    tool_steps = {
+        str(step.tool_call_id): step for step in existing_steps if step.tool_call_id
+    }
+    next_step_sequence = max((step.sequence for step in existing_steps), default=0) + 1
+    generation_step = await repo.create_loop_step(
+        loop.id,
+        sequence=next_step_sequence,
+        step_type="model_generation",
+        title="继续生成回答",
+        status="running",
+    )
+    next_step_sequence += 1
+    await repo.save_loop(loop)
+
+    runtime = build_langchain_runtime(
+        model,
+        build_runtime_tool_list(context),
+        invoke_tool_fn,
+        streaming=True,
+        context_transform=lambda messages: apply_runtime_context_guardrail(
+            messages,
+            window_tokens=resolve_context_window_tokens(
+                context.version, model_name=getattr(model, "model_name", None)
+            ),
+        ),
+        max_turns=max_iterations or get_settings().agent_max_iterations,
+        # 续跑没有原始用户消息，无法重建「上下文超限」时的降级重试消息，
+        # 因此不注入 on_model_error。
+        on_task_started=on_model_task_started,
+    )
+    event_stream = stream_runtime_as_conversation(
+        runtime.stream(messages, request_id=loop.request_id)
+    )
+
+    async for event in _consume_agent_events(
+        repo,
+        conversation,
+        loop,
+        generation_step,
+        event_stream=event_stream,
+        citations=citations,
+        tool_steps=tool_steps,
+        next_step_sequence=next_step_sequence,
+        checkpoint_writer=None,
+    ):
+        yield event
 
 
 async def execute_unattended_chat(

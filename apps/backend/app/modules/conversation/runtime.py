@@ -1029,6 +1029,8 @@ class GraphResult:
         citations: 本次回复涉及的知识库引用列表
         knowledge_grounded: 回复是否基于知识库知识增强
         pending_confirmation_id: 挂起的确认请求 ID（当工具调用需要用户确认时）
+        pending_context: 等待确认那一刻的消息快照（活的 adapter 层对象），
+            仅用于落运行检查点，不参与对外序列化
         tool_events: 工具调用事件列表，记录每次工具调用的结果
         usage: Token 用量统计（包含 prompt_tokens、completion_tokens、total_tokens）
         loop_id: 循环 ID（多轮对话场景下用于标识对话轮次）
@@ -1039,6 +1041,7 @@ class GraphResult:
     knowledge_grounded: bool
     thinking_text: str | None = None
     pending_confirmation_id: int | None = None
+    pending_context: list[Any] | None = None
     tool_events: list[dict[str, Any]] | None = None
     usage: dict[str, int] | None = None
     loop_id: int | None = None

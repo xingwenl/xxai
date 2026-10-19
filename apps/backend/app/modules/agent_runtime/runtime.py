@@ -304,6 +304,7 @@ class AgentRuntime:
                 and str(pending.status) == "confirmation_required"
                 else None
             ),
+            pending_context=turn.metadata.get("pending_context"),
         )
 
     @staticmethod
