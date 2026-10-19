@@ -1,4 +1,9 @@
-"""内置工具对外委托层：校验契约后直接执行业务工具 handler，保持旧调用契约不变。"""
+"""内置工具对外委托层：校验契约后直接执行业务工具 handler，保持旧调用契约不变。
+
+审批闸口就在这一层：它是**所有**内置工具调用的必经之路（REST 分派、无人值守
+任务、网关 WS 都经此执行）。闸口放在契约校验之后，避免为一次参数非法的调用
+弹确认卡；放在 handler 之前，保证未获批准时 handler 一次都不会被调用。
+"""
 
 from __future__ import annotations
 
@@ -13,7 +18,13 @@ from app.core.config import get_settings
 from app.core.database import get_session_factory
 from app.modules.builtin_tool.registry import get_builtin_tool
 from app.modules.builtin_tool.schemas import BuiltinToolOutcome
+from app.modules.tool_approval.contracts import (
+    REJECTED_BY_POLICY,
+    ConfirmationDecision,
+    no_channel_decision,
+)
 from app.modules.tools.business.framework import BusinessToolContext, BusinessToolError
+from app.modules.tools.side_effects import coerce_side_effect
 
 
 async def _load_shop_context(
@@ -59,8 +70,14 @@ async def invoke_builtin_tool(
     platform_end_user_id: int | None = None,
     session=None,
     loop_run_id: int | None = None,
+    confirmation_decider=None,
 ) -> BuiltinToolOutcome:
-    """旧入口：参数与返回结构不变，直接执行注册表里的业务工具 handler。"""
+    """旧入口：参数与返回结构不变，直接执行注册表里的业务工具 handler。
+
+    新增的 ``confirmation_decider`` 只在工具有副作用时被调用（``side_effect``
+    非 none）。未传时不是「放行」而是「拒绝」：这代表当前通路没有任何可以问
+    用户的入口（REST 流式对话、微信助手、交互式运行的委派子运行）。
+    """
     definition = get_builtin_tool(tool.name)
     if definition is None or not await builtin_repo.is_enabled(
         platform_id, agent_id, tool.name
@@ -79,6 +96,16 @@ async def invoke_builtin_tool(
         return BuiltinToolOutcome(
             status="failed", result={"error": {"code": "conversation_required"}}
         )
+
+    # 审批闸口：只对声明有副作用的工具生效（none/navigation 直接执行）。
+    # 以注册表定义为准，而不是运行时传进来的 tool 对象，避免旁路。
+    side_effect = coerce_side_effect(getattr(definition, "side_effect", "none"))
+    if side_effect != "none":
+        decision = await _decide_confirmation(
+            confirmation_decider, definition=definition, call=call
+        )
+        if not decision.approved:
+            return _rejected_outcome(definition.name, side_effect, decision)
 
     handler = definition.executor
     if handler is None:
@@ -101,6 +128,7 @@ async def invoke_builtin_tool(
         asset_repo=asset_repo,
         shop_token=shop_token,
         shop_user_id=shop_user_id,
+        confirmation_decider=confirmation_decider,
     )
     # 流式 AgentRuntime 会在独立的模型任务中执行工具；复用 Gateway 正在
     # flush/commit 的 AsyncSession 会触发 asyncpg 的并发操作错误。诊断类
@@ -137,6 +165,44 @@ async def invoke_builtin_tool(
                 status="failed", result={"error": {"code": "tool_failed"}}
             )
     return _outcome_from_result(result)
+
+
+async def _decide_confirmation(
+    confirmation_decider,
+    *,
+    definition,
+    call: dict,
+) -> ConfirmationDecision:
+    """执行写工具前征求批准；没有可问的人时按「无确认通道」拒绝。"""
+
+    if confirmation_decider is None:
+        return no_channel_decision(definition.name)
+    decision = await confirmation_decider(definition, call)
+    if decision is None:
+        # 裁决器表示「不由本层处理」：本层没有别的确认入口，仍然拒绝而不是放行。
+        return no_channel_decision(definition.name)
+    return decision
+
+
+def _rejected_outcome(
+    tool_name: str, side_effect: str, decision: ConfirmationDecision
+) -> BuiltinToolOutcome:
+    """把拒绝裁决包装成工具结果。
+
+    结构与 ``unattended.skipped_result`` 对齐（status/auto_approved/reason/message），
+    让模型与落库链路对「被拒绝」只有一种读法。
+    """
+
+    return BuiltinToolOutcome(
+        status="rejected",
+        result={
+            "status": "rejected",
+            "auto_approved": False,
+            "reason": decision.reason or REJECTED_BY_POLICY,
+            "side_effect": side_effect,
+            "message": decision.message or f"工具 {tool_name} 需要用户确认，本次未执行。",
+        },
+    )
 
 
 def _outcome_from_result(result: Any) -> BuiltinToolOutcome:

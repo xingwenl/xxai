@@ -277,14 +277,18 @@ async def _children(factory, parent_loop_run_id: int) -> list:
 # --- 注册与参数校验 ---------------------------------------------------------
 
 
-def test_delegate_tasks_registered_as_none_side_effect_tool():
-    """注册进业务工具与内置工具目录，且 side_effect 恒为 none（无人值守可放行）。"""
+def test_delegate_tasks_declares_write_side_effect():
+    """注册进业务工具与内置工具目录，且声明 write 副作用（派生子运行会写数据）。
+
+    这条断言以前是 ``== "none"``：那时 BusinessTool 根本没有 side_effect 字段，
+    暴露层把一切硬编码成 none，于是无人值守下的委派绕过了策略裁决。
+    """
 
     tool = BUSINESS_TOOL_REGISTRY[DELEGATE_TASKS_TOOL_NAME]
     assert tool.input_schema["properties"]["tasks"]["maxItems"] == MAX_TASKS_IN_SCHEMA
     builtin = get_builtin_tool(DELEGATE_TASKS_TOOL_NAME)
     assert builtin is not None
-    assert builtin.side_effect == "none"
+    assert builtin.side_effect == "write"
 
 
 def test_delegation_without_parent_run_is_refused(tmp_path) -> None:

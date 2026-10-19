@@ -384,8 +384,14 @@ def confirmation_required(
     side_effect: str | None,
     arguments: Any,
     expires_at: str | None,
+    confirmation_id: int | None = None,
 ) -> RunEvent:
-    """需要用户确认的工具调用事件；客户端用 ``callId`` 回传裁决。"""
+    """需要用户确认的工具调用事件；客户端用 ``callId`` 回传裁决。
+
+    ``confirmationId`` 是持久化待确认记录的主键：内置工具的确认由后端落库后再弹卡，
+    带上它之后，按 id 解决确认的通路才有稳定的关联锚点（当前网关仍按 ``callId``
+    在连接内解决）。对 MCP 工具该字段可选，保持既有调用方不受影响。
+    """
 
     return RunEvent(
         type=RunEventType.CONFIRMATION_REQUIRED,
@@ -396,6 +402,7 @@ def confirmation_required(
             "sideEffect": side_effect,
             "summary": {"arguments": redact_sensitive(arguments)},
             "expiresAt": expires_at,
+            "confirmationId": confirmation_id,
         },
         conversation_id=conversation_id,
         request_id=request_id,

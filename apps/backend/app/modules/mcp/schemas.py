@@ -3,7 +3,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-SideEffect = Literal["none", "navigation", "write", "financial", "external"]
+from app.modules.tools.side_effects import SideEffect
 
 
 class McpServerCreate(BaseModel):

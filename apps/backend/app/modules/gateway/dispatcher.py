@@ -35,6 +35,16 @@ from app.modules.agent_runtime.events import (
     host_tool_call,
     question_required,
 )
+from app.modules.tool_approval.contracts import (
+    CONFIRMATION_EXPIRED,
+    CONFIRMATION_TTL_SECONDS,
+    NAVIGATION_SIDE_EFFECT,
+    REMEMBERED_APPROVAL,
+    USER_REJECTED,
+    ConfirmationDecision,
+)
+from app.modules.tool_approval.services import ToolApprovalService
+from app.modules.tools.side_effects import coerce_side_effect
 
 # 单次请求允许模型提问的次数上限，防止模型滥用提问替代正常回复。
 MAX_QUESTIONS_PER_REQUEST = 3
@@ -160,6 +170,9 @@ class RuntimeToolDispatcher:
                 # 运行记录由 stream_embed_chat 创建后回填到 context；
                 # 委派类工具据此把子运行挂到本次运行下。
                 loop_run_id=getattr(self.context, "loop_run_id", None),
+                # 有副作用的工具在执行前回到这里弹确认卡：闸口在
+                # ``invoke_builtin_tool`` 内部，确认链路则复用本连接已有的等待通道。
+                confirmation_decider=self._decide_builtin_confirmation,
             )
         if getattr(tool, "kind", None) == "skill_script":
             return await execute_skill_script(
@@ -205,6 +218,108 @@ class RuntimeToolDispatcher:
         """
 
         return await self.invoke(tool=tool, call=call)
+
+    async def _decide_builtin_confirmation(self, tool, call) -> ConfirmationDecision:
+        """内置工具的执行前裁决：先查会话内记忆，否则弹确认卡等页面回传。
+
+        与 MCP 确认共用 ``pending_mcp_confirmations`` 这条连接级等待通道：连接层
+        只按 ``callId`` 回传布尔结果、不关心工具来源，所以这里不必让连接层再多持有
+        一份状态（字典名沿用历史命名）。落库、过期与「会话内记住同类工具」都由
+        ``tool_approval`` 模块负责，本方法只做事件往返与裁决翻译。
+        """
+
+        tool_name = str(getattr(tool, "name", "") or "")
+        # 以注册表定义为准，避免传入的 tool 对象带着过期的副作用声明。
+        definition = get_builtin_tool(tool_name)
+        side_effect = coerce_side_effect(
+            getattr(definition or tool, "side_effect", "none")
+        )
+        arguments = dict(call.get("args") or {})
+        call_id = str(call.get("id") or f"{self.request_id}_{tool_name}")
+        conversation_id = getattr(self.context, "conversation_id", None)
+        if side_effect == "navigation":
+            # navigation 只影响宿主页面的路由、不落数据，交互式运行按已确认的
+            # 策略直通（只有 write / external / financial 才弹卡）。无人值守侧
+            # 仍由 UnattendedPolicy 裁决，因为内置工具闸口不区分副作用类型。
+            return ConfirmationDecision(approved=True, reason=NAVIGATION_SIDE_EFFECT)
+        approval = ToolApprovalService(self.session)
+        if conversation_id is not None and await approval.remember_check(
+            platform_id=self.platform_id,
+            conversation_id=int(conversation_id),
+            tool_name=tool_name,
+            side_effect=side_effect,
+        ):
+            # 会话内刚刚批准过同类工具，直接复用那次批准，不再重复打扰用户。
+            return ConfirmationDecision(
+                approved=True,
+                reason=REMEMBERED_APPROVAL,
+                message="该工具在本会话中已被批准过，本次直接执行。",
+            )
+        confirmation = await approval.request(
+            platform_id=self.platform_id,
+            agent_id=self.agent_id,
+            conversation_id=(
+                int(conversation_id) if conversation_id is not None else None
+            ),
+            tool_name=tool_name,
+            tool_type="builtin_tool",
+            side_effect=side_effect,
+            arguments=arguments,
+            platform_end_user_id=self.end_user_id,
+        )
+        decision = asyncio.get_running_loop().create_future()
+        self.pending_mcp_confirmations[call_id] = decision
+        expires_at = getattr(confirmation, "expires_at", None)
+        # 事件入队后等待连接层回传裁决；模型 Task 暂停期间连接主循环仍可接收
+        # confirmation_resolve 并设置 Future，避免死锁。
+        await self.event_queue.put(
+            confirmation_required(
+                conversation_id=None,
+                request_id=self.request_id,
+                call_id=call_id,
+                name=tool_name,
+                tool_type="builtin_tool",
+                side_effect=side_effect,
+                arguments=arguments,
+                expires_at=expires_at.isoformat() if expires_at else None,
+                confirmation_id=getattr(confirmation, "id", None),
+            )
+        )
+        try:
+            approved = await asyncio.wait_for(
+                decision,
+                timeout=wait_timeout_seconds(
+                    expires_at, default=float(CONFIRMATION_TTL_SECONDS)
+                ),
+            )
+        except asyncio.TimeoutError:
+            await approval.expire(confirmation_id=confirmation.id)
+            return ConfirmationDecision(
+                approved=False,
+                reason=CONFIRMATION_EXPIRED,
+                message="工具确认已超时，工具未执行",
+            )
+        finally:
+            self.pending_mcp_confirmations.pop(call_id, None)
+        resolved = await approval.resolve(
+            confirmation_id=confirmation.id,
+            approved=bool(approved),
+            actor="end_user",
+        )
+        if getattr(resolved, "status", None) == "approved":
+            return ConfirmationDecision(approved=True)
+        # 走到这里只剩「被拒绝」与「已过期」两种终态，回给模型的原因码要区分开：
+        # 拒绝是明确表态，超时可能只是人不在。
+        expired = getattr(resolved, "status", None) == "expired"
+        return ConfirmationDecision(
+            approved=False,
+            reason=CONFIRMATION_EXPIRED if expired else USER_REJECTED,
+            message=(
+                "工具确认已超时，工具未执行"
+                if expired
+                else "用户拒绝执行该工具，请勿自动重试"
+            ),
+        )
 
     async def _invoke_question_tool(self, tool, call):
         """执行询问工具：发送 question_required 事件并等待用户选择后恢复。"""

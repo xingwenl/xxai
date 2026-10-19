@@ -22,6 +22,9 @@ from app.modules.builtin_tool import models as builtin_tool_models  # noqa: F401
 from app.modules.asset import models as asset_models  # noqa: F401
 from app.modules.wechat_bot import models as wechat_bot_models  # noqa: F401
 from app.modules.tasks import models as tasks_models  # noqa: F401
+# 工具确认表：交互式会话里内置写工具的待确认记录，见
+# docs/adr/0009-tool-approval-wiring.md。
+from app.modules.tool_approval import models as tool_approval_models  # noqa: F401
 from app.modules.workflows import models as workflows_models  # noqa: F401
 from app.shared.base_model import BaseModel
 

@@ -72,6 +72,7 @@ from app.shared.exceptions import AppException
         "required": ["name", "prompt", "trigger_type"],
         "additionalProperties": False,
     },
+    side_effect="write",
 )
 async def create_task_business(args: dict, ctx: BusinessToolContext) -> dict:
     """创建一条由当前 Agent 发起、绑定当前会话执行身份的任务。"""

@@ -4,6 +4,9 @@
 此处只把业务工具包装成旧链路（管理端目录、Agent 绑定、运行时委托）可消费的
 `BuiltinToolDefinition`，避免两处重复维护造成契约漂移。
 `ask_user` 由网关直连处理，没有业务 handler，单独维护。
+
+``side_effect`` 在这里补齐：它是审批闸口的唯一判据，此前因为没有把业务工具的
+副作用传递过来，所有内置工具都表现为 ``none``，闸口形同虚设。
 """
 
 from __future__ import annotations
@@ -12,8 +15,14 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from app.modules.tools.business.framework import BusinessTool, BusinessToolContext
+from app.modules.tools.basic.registry import get_basic_tool
+from app.modules.tools.business.framework import (
+    BusinessTool,
+    BusinessToolContext,
+    effective_side_effect,
+)
 from app.modules.tools.business.registry import list_business_tools
+from app.modules.tools.side_effects import SideEffect
 
 BusinessToolHandler = Callable[[dict, BusinessToolContext], Awaitable[dict]]
 
@@ -25,7 +34,7 @@ class BuiltinToolDefinition:
     input_schema: dict[str, Any]
     executor: BusinessToolHandler | None
     kind: str = "builtin"
-    side_effect: str = "none"
+    side_effect: SideEffect = "none"
 
 
 def _from_business(tool: BusinessTool) -> BuiltinToolDefinition:
@@ -35,6 +44,7 @@ def _from_business(tool: BusinessTool) -> BuiltinToolDefinition:
         description=tool.description,
         input_schema=tool.input_schema,
         executor=tool.handler,
+        side_effect=effective_side_effect(tool, get_basic_tool),
     )
 
 

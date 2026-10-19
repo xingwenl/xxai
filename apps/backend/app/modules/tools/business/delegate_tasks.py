@@ -23,6 +23,7 @@ from sqlalchemy import update
 
 from app.core.config import get_settings
 from app.core.database import get_session_factory
+from app.modules.tool_approval.contracts import INHERITABLE_DECIDER_ATTR
 from app.modules.tools.business.framework import (
     BusinessToolContext,
     BusinessToolError,
@@ -192,6 +193,7 @@ async def _fail_running_children(parent_loop_run_id: int, reason: str) -> None:
         "required": ["tasks"],
         "additionalProperties": False,
     },
+    side_effect="write",
 )
 async def delegate_tasks(
     arguments: dict[str, Any], ctx: BusinessToolContext
@@ -204,6 +206,14 @@ async def delegate_tasks(
     """
 
     settings = get_settings()
+    # 审批策略继承：只有无人值守策略构造的裁决器带「可继承」标记，其余（交互式
+    # 通道的裁决器）一律不下传——它绑在父会话的连接上，下传等于让确认弹窗冒泡到
+    # 父会话。子运行拿到 None 后，内置工具服务会按「无确认通道」拒绝写工具。
+    inherited_decider = (
+        ctx.confirmation_decider
+        if getattr(ctx.confirmation_decider, INHERITABLE_DECIDER_ATTR, False)
+        else None
+    )
     if ctx.loop_run_id is None:
         # 没有父运行就没有「挂在谁下面」可言。工作流的**工具步骤**是典型场景：
         # 它不产生 agent_loop_runs 行，因此不能作为委派父运行。
@@ -259,6 +269,7 @@ async def delegate_tasks(
                             platform_tools_only=True,
                             parent_loop_run_id=ctx.loop_run_id,
                             max_iterations=settings.delegation_max_iterations,
+                            confirmation_decider=inherited_decider,
                         ),
                         timeout=timeout_seconds,
                     )

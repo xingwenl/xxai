@@ -3,7 +3,8 @@ import json
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-SideEffect = Literal["none", "navigation", "write", "financial", "external"]
+from app.modules.tools.side_effects import SideEffect
+
 ConfirmationPolicy = Literal["auto", "always"]
 HostToolStatus = Literal[
     "requested",

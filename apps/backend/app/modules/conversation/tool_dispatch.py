@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from typing import Any
 
 from app.modules.agent_runtime.contracts import ToolCall
@@ -22,6 +21,17 @@ from app.modules.mcp.services import invoke_tool, resolve_tool_confirmation
 from app.modules.skill.services import load_bound_skill_instruction
 from app.modules.skill_runner.client import SkillRunnerClient
 from app.modules.skill_runner.services import execute_skill_script
+from app.modules.tool_approval.contracts import (
+    ConfirmationDecision,
+    ConfirmationDecider,
+)
+
+__all__ = [
+    "ConfirmationDecision",
+    "ConfirmationDecider",
+    "ToolDispatchError",
+    "build_tool_invoker",
+]
 
 
 class ToolDispatchError(Exception):
@@ -31,23 +41,6 @@ class ToolDispatchError(Exception):
         super().__init__(code)
         self.code = code
         self.message = message
-
-
-@dataclass(frozen=True)
-class ConfirmationDecision:
-    """一次「是否需要确认」的裁决结果。
-
-    ``message`` 只在拒绝时使用：它会被放进返回给模型的结果里，让模型
-    知道这一步为什么没执行。只回一个干巴巴的 rejected 的话，模型容易
-    反复重试同一个操作。
-    """
-
-    approved: bool
-    message: str = ""
-
-
-# 审批裁决回调：返回 None 表示「不由本层处理」，保持默认行为。
-ConfirmationDecider = Callable[[Any, Any], Awaitable[ConfirmationDecision | None]]
 
 
 def build_tool_invoker(
@@ -102,6 +95,7 @@ def build_tool_invoker(
                 loop_run_id=(
                     loop_run_id_provider() if loop_run_id_provider is not None else None
                 ),
+                confirmation_decider=confirmation_decider,
             )
 
         if kind == "skill_script":

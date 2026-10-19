@@ -44,7 +44,7 @@ logger = get_logger(__name__)
         "required": ["prompt", "model"],
         "additionalProperties": False,
     },
-    side_effect="create",
+    side_effect="write",
 )
 async def generate_images(inputs: dict) -> dict:
     """输入 {prompt, model, size?, quality?, n?} → {images: [{b64, size_bytes}]}。"""

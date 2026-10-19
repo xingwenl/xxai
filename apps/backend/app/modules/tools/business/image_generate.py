@@ -68,6 +68,9 @@ from app.modules.tools.business.framework import (
         "additionalProperties": False,
     },
     depends_on=("image_gen.generate",),
+    # 依赖的能力原子会生成并落库资产，因此本工具必须显式声明同等副作用；
+    # 声明低于依赖最大值会在启动期直接报错（见 tools/business/framework.py）。
+    side_effect="write",
 )
 async def image_generate_business(args: dict, ctx: BusinessToolContext) -> dict:
     settings = get_settings()

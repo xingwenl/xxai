@@ -14,12 +14,20 @@
 所有「跳过」都返回明确的工具结果，让模型据此调整后续动作，
 而不是让它以为调用成功了。批准次数会累计到 ``auto_approved_count``，
 和执行记录一起构成「哪条任务的哪次运行批准了什么」的追溯链路。
+
+注意：本策略只在**有裁决器**时生效。交互式运行（REST 流式、微信助手）没有
+可问的人，会走「无确认通道」拒绝分支，而不是回落成这里定义的自动批准。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+
+from app.modules.tool_approval.contracts import (
+    INHERITABLE_DECIDER_ATTR,
+    ConfirmationDecision,
+)
 
 # 一律不自动批准的副作用类型：支付/扣款等不可逆操作。
 NEVER_AUTO_APPROVE_SIDE_EFFECTS = frozenset({"financial"})
@@ -90,10 +98,9 @@ def build_confirmation_decider(policy: UnattendedPolicy):
     """构造注入给工具分派层的审批回调。
 
     本层不做等待——无人值守场景没有人可以回答，所以「需要确认」在这里
-    必须被立刻裁决成批准或拒绝。拒绝时带上说明文本，让模型知道原因。
+    必须被立刻裁决成批准或拒绝。拒绝时带上说明文本与原因码，让模型知道原因、
+    让排障能定位到具体规则。
     """
-
-    from app.modules.conversation.tool_dispatch import ConfirmationDecision
 
     async def decide(tool, outcome) -> ConfirmationDecision:
         side_effect = getattr(tool, "side_effect", None)
@@ -101,10 +108,14 @@ def build_confirmation_decider(policy: UnattendedPolicy):
         approved, reason = policy.decide(side_effect)
         policy.record(tool_name, side_effect, approved, reason)
         if approved:
-            return ConfirmationDecision(approved=True)
+            return ConfirmationDecision(approved=True, reason=reason)
         return ConfirmationDecision(
             approved=False,
+            reason=reason,
             message=policy.skipped_result(tool_name, reason)["message"],
         )
 
+    # 标记本裁决器可被子运行继承：委派工具据此把无人值守策略下传（见
+    # tool_approval/contracts.py 的 INHERITABLE_DECIDER_ATTR 注释）。
+    setattr(decide, INHERITABLE_DECIDER_ATTR, True)
     return decide

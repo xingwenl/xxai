@@ -21,12 +21,10 @@ from app.modules.tools.business.framework import (
     validate_business_tool_dependencies,
 )
 
-# 启动即校验依赖完整性，缺失直接报错（快速失败）。
-_missing = validate_business_tool_dependencies(get_basic_tool)
-if _missing:
-    raise RuntimeError(
-        f"business tools depend on missing basic tools: {', '.join(_missing)}"
-    )
+# 启动即校验依赖完整性与副作用声明一致性，有问题直接报错（快速失败）。
+_problems = validate_business_tool_dependencies(get_basic_tool)
+if _problems:
+    raise RuntimeError(f"business tool declarations invalid: {'; '.join(_problems)}")
 
 
 def list_business_tools():
