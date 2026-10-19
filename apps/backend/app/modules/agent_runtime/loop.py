@@ -136,6 +136,22 @@ class AgentLoop:
                 if hasattr(outcome, "__await__"):
                     await outcome
 
+        async def emit_context_events(
+            messages: list[Any], usage: dict[str, Any] | None = None
+        ) -> None:
+            """把上下文控制器积累的事件（压缩结果 / 占用上报）发出去。
+
+            上下文控制器只观测、不持有事件流：它返回 ``(类型, payload)``，由
+            loop 在这里调用同一个 ``emit``，保证新事件与其它事件走完全相同的
+            持久化与协议编码路径。
+            """
+
+            sink = self.hooks.context_metrics
+            if sink is None:
+                return
+            for event_type, payload in sink.drain_events(messages, usage) or []:
+                await emit(AgentEvent(type=event_type, payload=payload))
+
         async def raise_if_cancelled() -> None:
             """先发布权威取消事件，再中断本轮执行。
 
@@ -165,6 +181,9 @@ class AgentLoop:
             context = await self._transform_context(context)
             pending = await resolve_messages(self.hooks.get_steering_messages)
             context.extend(pending)
+            # 变换阶段可能刚完成一次压缩：先把它作为事件发出去，客户端才能在
+            # 本轮回答到达前更新占用与“已压缩”状态。
+            await emit_context_events(context)
             # 供应商真实错误（如上下文超限）允许一次性降级重试：由调用方通过
             # on_model_error 提供“更小上下文”，本次失败不算新增一轮，也不发布
             # 失败/错误事件；取消按既有语义原样传播，绝不伪装成可恢复错误。
@@ -198,6 +217,9 @@ class AgentLoop:
             accumulated_usage = merge_usage(
                 accumulated_usage, turn.metadata.get("usage")
             )
+            # 模型已返回：用这一轮 provider 真值（prompt_tokens）上报当前占用，
+            # 它覆盖的正是刚发出去的完整输入（含系统提示与工具定义）。
+            await emit_context_events(context, turn.metadata.get("usage"))
             await emit(
                 AgentEvent(
                     type=AgentEventType.COMPLETED

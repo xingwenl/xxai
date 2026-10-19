@@ -124,3 +124,31 @@ class EmbedConversationPage(BaseModel):
     total: int = 0
     page: int = 1
     page_size: int = 20
+
+
+class ConversationContextCompactRequest(BaseModel):
+    """手动压缩上下文的可选参数。
+
+    ``instructions`` 是本次摘要的额外关注点（例如「重点保留接口约定」），会作为
+    一段附加要求拼进摘要提示词；不传则只按默认小节摘要。
+    """
+
+    instructions: str | None = Field(default=None, max_length=2000)
+
+
+class ConversationContextCompactResult(BaseModel):
+    """手动压缩的结果投影（snake_case，与 embed 其余 REST 数据一致）。
+
+    ``compacted=False`` 不是错误：没有新的可压缩内容时幂等返回
+    ``reason="nothing_to_compact"``。``window_tokens`` 为 null 表示该模型窗口
+    未知，此时 ``percent`` 也为 null，调用方只能显示绝对 token 数。
+    """
+
+    compacted: bool
+    reason: str
+    trigger: str
+    tokens_before: int
+    tokens_after: int
+    window_tokens: int | None = None
+    used_tokens: int = 0
+    percent: float | None = None

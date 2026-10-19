@@ -15,7 +15,6 @@ from app.modules.conversation.runtime import (
     build_tool_snapshots,
     build_system_prompt,
     build_step_payload,
-    apply_runtime_context_guardrail,
     make_context_degrade_recoverer,
     resolve_context_window_tokens,
     custom_content_blocks,
@@ -24,6 +23,11 @@ from app.modules.conversation.runtime import (
     tool_step_values,
     GraphResult,
     load_runtime_context,
+)
+from app.modules.conversation.compaction import (
+    build_context_controller,
+    build_model_history,
+    load_model_history,
 )
 from app.modules.knowledge.runtime import build_embedding_model
 from app.modules.knowledge.services import build_citations, validate_embedding_dimension
@@ -487,6 +491,7 @@ async def _run_execute_chat_model_round(
     runtime_tools: list,
     invoke_tool_fn,
     context,
+    repo: ConversationRepository,
     history,
     message: str,
     citations: list[dict],
@@ -496,8 +501,12 @@ async def _run_execute_chat_model_round(
     """执行 REST 非流式对话的模型轮次（统一 AgentRuntime）。
 
     AgentLoop 是唯一主循环实现：这里只负责按上下文组装 LangChain 消息、
-    构建 runtime（含上下文护栏与 context-length 降级恢复），并把统一结果
-    收敛为 REST 的 GraphResult，供 execute_chat 统一失败收尾。
+    构建 runtime（含上下文压缩 + 硬截断护栏 + context-length 降级恢复），并把
+    统一结果收敛为 REST 的 GraphResult，供 execute_chat 统一失败收尾。
+
+    ``history`` 是**本轮用户消息落库之前**读到的 ORM 历史行；这里把它转成
+    模型消息视图（`ModelHistory`），既修掉「ORM 行直接传给 LangChain 被静默
+    丢弃」的历史缺陷，也让压缩控制器能按行 id 定位保留边界。
 
     ``max_iterations`` 缺省沿用全局 ``agent_max_iterations``；委派产生的子运行
     传自己的（更小的）上限——父运行的一轮里一次委派就会把子运行的整轮预算花掉，
@@ -511,25 +520,34 @@ async def _run_execute_chat_model_round(
         # 模型名来自平台模型注册表解析出的实际调用模型（版本行已无该字段）。
         chat_model_name=getattr(model, "model_name", None),
     )
+    # 模型名取自实际调用模型：注册表解析后版本行不再有模型名，
+    # 不传就会让内置窗口映射失效（压缩与护栏都会静默关闭）。
+    window_tokens = resolve_context_window_tokens(
+        context.version, model_name=getattr(model, "model_name", None)
+    )
+    model_history = await load_model_history(
+        repo, context.conversation_id, rows=history
+    )
+    compaction_controller = build_context_controller(
+        repo=repo,
+        conversation_id=context.conversation_id,
+        model=model,
+        history=model_history,
+        window_tokens=window_tokens,
+    )
     runtime = build_langchain_runtime(
         model,
         runtime_tools,
         invoke_tool_fn,
         streaming=False,
-        context_transform=lambda messages: apply_runtime_context_guardrail(
-            messages,
-            # 模型名取自实际调用模型：注册表解析后版本行不再有模型名，
-            # 不传就会让内置窗口映射失效（护栏静默关闭）。
-            window_tokens=resolve_context_window_tokens(
-                context.version, model_name=getattr(model, "model_name", None)
-            ),
-        ),
+        context_transform=compaction_controller.transform,
+        context_metrics=compaction_controller,
         max_turns=max_iterations or get_settings().agent_max_iterations,
         on_model_error=make_context_degrade_recoverer(system_prompt, message),
     )
     messages = build_langchain_messages(
         system_prompt=system_prompt,
-        history=history,
+        history=model_history.messages,
         user_message=message,
     )
     runtime_result = await runtime.run(messages, request_id=request_id)
@@ -558,6 +576,7 @@ async def _run_chat_model_round_or_orchestration(
     model,
     runtime_tools,
     invoke_tool_fn,
+    repo: ConversationRepository,
     history,
     message: str,
     citations: list[dict],
@@ -609,6 +628,7 @@ async def _run_chat_model_round_or_orchestration(
         runtime_tools=runtime_tools,
         invoke_tool_fn=invoke_tool_fn,
         context=context,
+        repo=repo,
         history=history,
         message=message,
         citations=citations,
@@ -729,6 +749,7 @@ async def execute_chat(
             model=model,
             runtime_tools=runtime_tools,
             invoke_tool_fn=invoke_tool_fn,
+            repo=repo,
             history=history,
             message=message,
             citations=citations,
@@ -926,18 +947,26 @@ async def stream_chat(
     if orchestration_stream is not None:
         event_stream = orchestration_stream
     else:
+        # 窗口解析、历史转换与压缩控制器三者口径必须与 REST 非流式一致，
+        # 否则「同一会话换个入口」占用显示与压缩时机就会不同。
+        window_tokens = resolve_context_window_tokens(
+            context.version, model_name=getattr(model, "model_name", None)
+        )
+        model_history = await load_model_history(repo, conversation.id, rows=history)
+        compaction_controller = build_context_controller(
+            repo=repo,
+            conversation_id=conversation.id,
+            model=model,
+            history=model_history,
+            window_tokens=window_tokens,
+        )
         runtime = build_langchain_runtime(
             model,
             runtime_tools,
             invoke_tool_fn,
             streaming=True,
-            context_transform=lambda messages: apply_runtime_context_guardrail(
-                messages,
-                # 同上：模型名必须来自实际调用模型，否则窗口映射失效。
-                window_tokens=resolve_context_window_tokens(
-                    context.version, model_name=getattr(model, "model_name", None)
-                ),
-            ),
+            context_transform=compaction_controller.transform,
+            context_metrics=compaction_controller,
             max_turns=max_iterations or get_settings().agent_max_iterations,
             on_model_error=make_context_degrade_recoverer(system_prompt, message),
             on_task_started=on_model_task_started,
@@ -946,7 +975,7 @@ async def stream_chat(
             runtime.stream(
                 build_langchain_messages(
                     system_prompt=system_prompt,
-                    history=history,
+                    history=model_history.messages,
                     user_message=message,
                 ),
                 request_id=loop.request_id,
@@ -1289,17 +1318,27 @@ async def resume_stream_chat(
     next_step_sequence += 1
     await repo.save_loop(loop)
 
+    # 续跑的历史来自检查点快照而不是数据库行，行 id 绑定无从建立（压缩要按行
+    # 定位保留边界）。这里只启用「护栏 + 占用上报」，自动压缩留到下一次正常
+    # 轮次：把快照里只此一份的工具结果摘出去，会破坏调用配对。
+    window_tokens = resolve_context_window_tokens(
+        context.version, model_name=getattr(model, "model_name", None)
+    )
+    compaction_controller = build_context_controller(
+        repo=repo,
+        conversation_id=conversation.id,
+        model=model,
+        history=build_model_history([]),
+        window_tokens=window_tokens,
+        enabled=False,
+    )
     runtime = build_langchain_runtime(
         model,
         build_runtime_tool_list(context),
         invoke_tool_fn,
         streaming=True,
-        context_transform=lambda messages: apply_runtime_context_guardrail(
-            messages,
-            window_tokens=resolve_context_window_tokens(
-                context.version, model_name=getattr(model, "model_name", None)
-            ),
-        ),
+        context_transform=compaction_controller.transform,
+        context_metrics=compaction_controller,
         max_turns=max_iterations or get_settings().agent_max_iterations,
         # 续跑没有原始用户消息，无法重建「上下文超限」时的降级重试消息，
         # 因此不注入 on_model_error。

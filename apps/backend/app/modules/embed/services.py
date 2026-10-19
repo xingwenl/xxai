@@ -309,3 +309,68 @@ async def soft_delete_embed_conversation(repo, *, conversation_id: int, claims: 
     if not deleted:
         raise NotFoundException("conversation not found")
     return None
+
+
+async def compact_embed_conversation(
+    repo,
+    *,
+    session,
+    conversation_id: int,
+    claims: dict,
+    instructions: str | None = None,
+) -> dict:
+    """手动压缩本主体某个会话的模型上下文，返回压缩结果投影。
+
+    这是 ``POST /embed/conversations/{id}/context/compact`` 的业务实现。压缩
+    本身（切点、摘要、落库）全在 conversation 模块的 ``compact_conversation``
+    里，这里只做三件入口该做的事：按 token claim 校验会话归属、解析该 Agent
+    当前生效的对话模型、把结果翻译成 REST 投影。
+
+    幂等：没有新的可压缩内容时返回 ``compacted=False`` 与 ``nothing_to_compact``，
+    不写库、不报错——客户端重复点击「压缩」按钮不应该看到错误。
+    """
+
+    # 延迟导入：conversation 模块在模块层依赖 agent/model_registry，顶层静态
+    # 导入会把 embed 拖进更长的初始化链，也无谓地扩大了模块环的范围。
+    from app.modules.agent.services import build_chat_model
+    from app.modules.conversation.compaction import compact_conversation
+    from app.modules.conversation.runtime import resolve_context_window_tokens
+    from app.modules.model_registry.resolver import resolve_chat_model
+
+    platform_id = int(claims["platform_id"])
+    end_user_id = int(claims["sub"])
+    conversation = await repo.get_for_principal(
+        conversation_id, platform_id, end_user_id=end_user_id
+    )
+    if conversation is None:
+        raise NotFoundException("conversation not found")
+
+    agent = await AgentRepository(session).get_published_agent(
+        conversation.agent_id, platform_id
+    )
+    version = agent.default_version if agent is not None else None
+    if version is None:
+        # 会话所属 Agent 已下架或没有版本：宁可报「不可压缩」，也不要凭空
+        # 造一个没有版本参数的模型客户端去发摘要请求。
+        raise NotFoundException("agent version not found")
+
+    resolved = await resolve_chat_model(
+        session, platform_id=platform_id, agent_id=conversation.agent_id
+    )
+    model = build_chat_model(
+        version,
+        resolved=resolved,
+        session_id_provider=lambda: conversation_id,
+    )
+    window_tokens = resolve_context_window_tokens(
+        version, model_name=getattr(model, "model_name", None)
+    )
+    outcome = await compact_conversation(
+        repo=repo,
+        conversation_id=conversation_id,
+        model=model,
+        trigger="manual",
+        instructions=instructions,
+        window_tokens=window_tokens,
+    )
+    return outcome.as_rest()

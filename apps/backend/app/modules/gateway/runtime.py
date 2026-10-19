@@ -13,10 +13,8 @@ from app.modules.conversation.services import (
 )
 from app.modules.conversation.runtime import (
     attach_tool_snapshots,
-    apply_runtime_context_guardrail,
     build_tool_snapshots,
     build_system_prompt,
-    build_history_messages,
     make_multimodal_degrade_recoverer,
     tool_step_values,
     image_content_blocks,
@@ -25,8 +23,13 @@ from app.modules.conversation.runtime import (
     rewrite_image_markdown,
     GraphResult,
 )
+from app.modules.conversation.compaction import (
+    build_context_controller,
+    load_model_history,
+)
 from app.modules.agent_runtime.events import (
     LoopEventBuilder,
+    RunEvent,
     message_started,
 )
 from app.modules.conversation.schemas import sanitize_content_blocks
@@ -745,17 +748,31 @@ async def stream_embed_chat(
         caller_system_prompt=system_prompt,
         chat_model_name=getattr(model, "model_name", None),
     )
+    # 上下文计量与压缩必须与 REST/SSE 同口径：历史走统一的模型消息视图
+    # （含已生效的压缩摘要），窗口解析也用同一个函数。
+    window_tokens = resolve_context_window_tokens(
+        context.version, model_name=getattr(model, "model_name", None)
+    )
+    model_history = await load_model_history(
+        repo,
+        conversation.id,
+        attachment_parts=history_attachment_parts,
+        rows=history,
+    )
+    compaction_controller = build_context_controller(
+        repo=repo,
+        conversation_id=conversation.id,
+        model=model,
+        history=model_history,
+        window_tokens=window_tokens,
+    )
     runtime = build_langchain_runtime(
         model,
         tools,
         invoke_host_tool_fn,
         streaming=True,
-        context_transform=lambda messages: apply_runtime_context_guardrail(
-            messages,
-            window_tokens=resolve_context_window_tokens(
-                context.version, model_name=getattr(model, "model_name", None)
-            ),
-        ),
+        context_transform=compaction_controller.transform,
+        context_metrics=compaction_controller,
         max_turns=get_settings().agent_max_iterations,
         on_model_error=make_multimodal_degrade_recoverer(ws_system_prompt, message),
         on_task_started=on_model_task_started,
@@ -775,10 +792,7 @@ async def stream_embed_chat(
         runtime.stream(
             build_langchain_messages(
                 system_prompt=ws_system_prompt,
-                history=build_history_messages(
-                    history,
-                    attachment_parts=history_attachment_parts,
-                ),
+                history=model_history.messages,
                 user_message=message,
                 image_parts=image_parts,
                 document_text_parts=document_text_parts,
@@ -795,6 +809,16 @@ async def stream_embed_chat(
             if isinstance(agent_event, dict)
             else event_to_legacy(agent_event)
         )
+        # 上下文占用与压缩结果直接透传为线协议事件：它们不参与落库收尾，
+        # 但必须在事件流里出现，WS 客户端才能实时更新占用环。
+        if item["type"] in ("context_usage", "context_compacted"):
+            yield RunEvent(
+                type=item["type"],
+                payload=dict(item.get("payload") or {}),
+                conversation_id=conversation.id,
+                request_id=request_id,
+            )
+            continue
         # message_delta 立即向前端流式发送；completed 事件只保留最终 GraphResult，
         # 避免同一段回答被重复写入消息表。
         if item["type"] == "message_delta":

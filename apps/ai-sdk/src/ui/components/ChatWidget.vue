@@ -67,13 +67,40 @@
               <span>{{ statusText }}</span>
             </div>
           </div>
+          <!-- 上下文占用环：与连接状态同排，让用户一眼看到当前会话离窗口上限多远。
+               窗口大小未知时（contextRing 为 null）降级为只显示绝对 token 数。 -->
+          <ContextRing
+            v-if="contextRing"
+            class="xxai-header-context"
+            :state="contextRing"
+            :title="contextTitle"
+          />
+          <span
+            v-else-if="contextUsage"
+            class="xxai-header-context-text"
+            :title="contextTitle"
+          >{{ contextTokensText }}</span>
         </div>
         <!-- <QuotaRing
           class="xxai-header-quota"
           :current="messageQuota?.current"
           :limit="messageQuota?.limit"
-          :window-seconds="agent.quota?.windowSeconds"
+          :window-seconds="quota?.windowSeconds"
         /> -->
+        <!-- 手动压缩：后端会在压缩完成后推送 context_compacted，环随之刷新。 -->
+        <button
+          class="xxai-header-icon-btn xxai-header-compact-btn"
+          :class="{ 'has-feedback': !!compactFeedback }"
+          type="button"
+          :disabled="compacting"
+          :aria-label="compactButtonTitle"
+          :title="compactButtonTitle"
+          @click="handleCompactContext"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 4h16M4 20h16M12 7v7M9 11l3 3 3-3" />
+          </svg>
+        </button>
         <button
           class="xxai-header-icon-btn xxai-header-clear-btn"
           type="button"
@@ -136,19 +163,25 @@ import ChatInput from './ChatInput.vue'
 import ToolConfirmation from './ToolConfirmation.vue'
 import QuestionCard from './QuestionCard.vue'
 import QuotaRing from './QuotaRing.vue'
+import ContextRing from './ContextRing.vue'
 import ConversationSidebar from './ConversationSidebar.vue'
 import type {
   AgentClient,
+  AgentInfo,
   AgentQuestion,
   AssistantTimelineEntry,
   ConnectionState,
+  ContextUsage,
   ConversationSummary,
+  EmbedClientInfo,
+  QuotaUsage,
   UIOptions,
   Message,
   UIColors,
   UIWindowBounds,
   ToolConfirmation as ToolConfirmationData
 } from '../../core'
+import { contextRingState, formatTokens } from '../context-ring'
 import {
   clampWindowRect,
   defaultWindowRect,
@@ -301,10 +334,92 @@ const statusText = computed(() => {
   }
   return stateMap[connectionState.value]
 })
-const headerName = computed(() => resolveHeaderName(agent.clientInfo?.name, props.title))
-const messageQuota = computed(() => agent.quota?.resources?.message)
-const agentName = computed(() => agent.agentInfo?.name || props.title)
-const agentDescription = computed(() => agent.agentInfo?.description || undefined)
+// agent 的 client/agent/quota 都是非响应式 getter：session_ready 晚到时模板
+// 不会刷新，因此订阅 client_info 并同步一份 ref 给模板消费。
+const clientInfo = ref<EmbedClientInfo | undefined>(agent.clientInfo)
+const agentInfo = ref<AgentInfo | undefined>(agent.agentInfo)
+const quota = ref<QuotaUsage | undefined>(agent.quota)
+const headerName = computed(() => resolveHeaderName(clientInfo.value?.name, props.title))
+const messageQuota = computed(() => quota.value?.resources?.message)
+const agentName = computed(() => agentInfo.value?.name || props.title)
+const agentDescription = computed(() => agentInfo.value?.description || undefined)
+
+/** 上下文占用快照：同样在事件里同步，确保 header 的环随推送刷新。 */
+const contextUsage = ref<ContextUsage | null>(agent.contextUsage)
+const contextRing = computed(() =>
+  contextUsage.value
+    ? contextRingState(contextUsage.value.usedTokens, contextUsage.value.windowTokens)
+    : null
+)
+const contextTokensText = computed(() =>
+  contextUsage.value ? formatTokens(contextUsage.value.usedTokens) : ''
+)
+const contextTitle = computed(() => {
+  if (!contextUsage.value) return ''
+  if (!contextRing.value) {
+    return `上下文占用 ${contextTokensText.value}（模型窗口大小未知，无法估算百分比）`
+  }
+  const compactedAt = contextUsage.value.lastCompactedAt
+  return compactedAt
+    ? `上下文占用 ${contextRing.value.text}；上次压缩：${compactedAt}`
+    : `上下文占用 ${contextRing.value.text}`
+})
+
+/** 手动压缩是否进行中（进行中禁用按钮，避免重复请求）。 */
+const compacting = ref(false)
+/** 压缩失败或空操作的可见反馈；下一次请求开始时清空。 */
+const compactFeedback = ref('')
+const compactButtonTitle = computed(() => {
+  if (compacting.value) return '正在压缩上下文…'
+  if (compactFeedback.value) return `压缩上下文：${compactFeedback.value}`
+  return '压缩上下文'
+})
+
+function handleClientInfo(payload: {
+  client?: EmbedClientInfo
+  agent?: AgentInfo
+  quota?: QuotaUsage
+}) {
+  clientInfo.value = payload.client
+  agentInfo.value = payload.agent
+  quota.value = payload.quota
+}
+
+function handleContextUsage(usage: ContextUsage) {
+  contextUsage.value = usage
+}
+
+function handleContextCompacted() {
+  // client 已按压缩结果更新过状态，这里直接取最新快照，不重复解析 payload。
+  contextUsage.value = agent.contextUsage
+}
+
+/**
+ * 手动触发一次服务端压缩。
+ *
+ * 失败与「无可压缩内容」都不能变成未捕获异常（按钮点击会冒泡到宿主页面），
+ * 统一落成按钮 title 里的反馈文案，同时给按钮加高亮类，鼠标不悬停也看得见。
+ */
+async function handleCompactContext() {
+  if (compacting.value) return
+  compacting.value = true
+  compactFeedback.value = ''
+  try {
+    const result = await agent.compactContext()
+    if (!result) {
+      compactFeedback.value = '服务端未返回压缩结果'
+    } else if (!result.compacted) {
+      compactFeedback.value =
+        result.reason === 'nothing_to_compact' ? '没有可压缩的内容' : result.reason || '未发生压缩'
+    } else if (!result.ok) {
+      compactFeedback.value = result.reason || '压缩失败'
+    }
+  } catch (error) {
+    compactFeedback.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    compacting.value = false
+  }
+}
 
 /**
  * 面板挂载后测量宽度并建立观察器。
@@ -665,6 +780,10 @@ onMounted(() => {
   agent.on('question_required', handleQuestionRequired)
   agent.on('question_resolved', handleQuestionResolved)
   agent.on('conversations_changed', handleConversationsChanged)
+  // client_info 之前没订阅：会话/配额晚于挂载下发时 header 一直是初始值。
+  agent.on('client_info', handleClientInfo)
+  agent.on('context_usage', handleContextUsage)
+  agent.on('context_compacted', handleContextCompacted)
   agent.on('ui_open', open)
   agent.on('ui_close', close)
   agent.on('ui_toggle', () => {
@@ -696,6 +815,9 @@ onUnmounted(() => {
   agent.off('question_required', handleQuestionRequired)
   agent.off('question_resolved', handleQuestionResolved)
   agent.off('conversations_changed', handleConversationsChanged)
+  agent.off('client_info', handleClientInfo)
+  agent.off('context_usage', handleContextUsage)
+  agent.off('context_compacted', handleContextCompacted)
   pendingConfirmation.value = null
   pendingQuestion.value = null
   agent.disconnect()

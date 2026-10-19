@@ -48,6 +48,9 @@ class RunEventType(StrEnum):
     AGENT_STEP_DELTA = "agent_step_delta"
     AGENT_STEP_COMPLETED = "agent_step_completed"
     AGENT_LOOP_COMPLETED = "agent_loop_completed"
+    # 上下文计量（协议仍为 1：只做加法，旧客户端把未知事件归一到 unknown 丢弃）
+    CONTEXT_USAGE = "context_usage"
+    CONTEXT_COMPACTED = "context_compacted"
     UNKNOWN = "unknown"
 
 
@@ -572,6 +575,12 @@ _STEP_EVENT_TYPES = {
     RunEventType.AGENT_STEP_COMPLETED,
 }
 
+# 上下文计量事件：payload 由 AgentLoop 侧的上下文控制器组装，出口只补齐信封。
+_CONTEXT_EVENT_TYPES = {
+    RunEventType.CONTEXT_USAGE,
+    RunEventType.CONTEXT_COMPACTED,
+}
+
 
 def _tool_event_context(item: dict[str, Any]) -> tuple[str, str | None, Any]:
     """从服务层工具事件里取出（工具名、工具类型、入参）。
@@ -614,9 +623,10 @@ def run_events_from_stream_item(
             )
         ]
 
-    if event_type in _STEP_EVENT_TYPES:
+    if event_type in _STEP_EVENT_TYPES or event_type in _CONTEXT_EVENT_TYPES:
         # agent_step_* / agent_loop_* 的 payload 已由 build_step_payload 组装，
-        # 这里只补齐信封字段；没有调用方时 requestId 留空。
+        # 上下文计量事件的 payload 由上下文控制器组装；这里都只补齐信封字段，
+        # 没有调用方时 requestId 留空。
         return [
             RunEvent(
                 type=event_type,

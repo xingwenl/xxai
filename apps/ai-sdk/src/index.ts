@@ -11,6 +11,9 @@ import type {
   AgentError,
   AgentCallbacks,
   AgentQuestion,
+  ContextCompacted,
+  ContextCompactResult,
+  ContextUsage,
   Message,
   QuestionAnswer,
   QuestionOption,
@@ -48,6 +51,9 @@ export type {
   AgentError,
   AgentCallbacks,
   AgentQuestion,
+  ContextCompacted,
+  ContextCompactResult,
+  ContextUsage,
   Message,
   QuestionAnswer,
   QuestionOption,
@@ -64,6 +70,10 @@ export type {
 export type { PageElement, PageSnapshot, PageToolsOptions } from './core'
 
 export { ChatWidget, MarkdownContent } from './ui'
+
+// 占用环的纯计算函数：接入方自定义 header 时可以直接复用同一套分档与文案。
+export { contextRingState, formatTokens } from './ui/context-ring'
+export type { ContextRingState } from './ui/context-ring'
 
 export { configureMarkdownDiagrams, registerCustomComponent, registerMarkdownFenceRenderer }
 

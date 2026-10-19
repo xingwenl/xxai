@@ -20,6 +20,10 @@ class AgentEventType(StrEnum):
     QUESTION_REQUIRED = "question_required"
     COMPLETED = "completed"
     ERROR = "error"
+    # 上下文计量：占用上报与压缩结果。它们是「运行过程事实」而不是消息内容，
+    # 但仍然必须与消息事件走同一条事件流，客户端才能实时更新状态。
+    CONTEXT_USAGE = "context_usage"
+    CONTEXT_COMPACTED = "context_compacted"
 
 
 class ToolOutcomeStatus(StrEnum):

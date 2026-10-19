@@ -152,6 +152,12 @@ class Settings:
     context_input_ratio: float
     context_estimate_chars_per_token: float
     context_exceeded_retry_enabled: bool
+    # 上下文压缩：阈值用绝对余量（Pi 的默认值），而不是比例，避免把
+    # 「回答要留多少空间」和「历史能占多少」绑死在同一个比例上。
+    context_compaction_enabled: bool
+    context_compaction_reserve_tokens: int
+    context_compaction_keep_recent_tokens: int
+    context_compaction_summary_max_tokens: int
     celery_broker_url: str
     celery_result_backend: str
     metrics_enabled: bool
@@ -364,6 +370,20 @@ def get_settings() -> Settings:
         ),
         context_exceeded_retry_enabled=_get_bool(
             "CONTEXT_EXCEEDED_RETRY_ENABLED", default=True
+        ),
+        context_compaction_enabled=_get_bool(
+            "CONTEXT_COMPACTION_ENABLED", default=True
+        ),
+        # 守卫下限：reserve 小于 1k 时阈值会贴着窗口，压缩几乎每轮触发；
+        # keep 为 0 会让压缩后一条历史都不保留，等于把对话记忆清零。
+        context_compaction_reserve_tokens=max(
+            1024, int(os.getenv("CONTEXT_COMPACTION_RESERVE_TOKENS", "16384"))
+        ),
+        context_compaction_keep_recent_tokens=max(
+            0, int(os.getenv("CONTEXT_COMPACTION_KEEP_RECENT_TOKENS", "20000"))
+        ),
+        context_compaction_summary_max_tokens=max(
+            0, int(os.getenv("CONTEXT_COMPACTION_SUMMARY_MAX_TOKENS", "0"))
         ),
         celery_broker_url=os.getenv("CELERY_BROKER_URL", "redis://127.0.0.1:6379/0"),
         celery_result_backend=os.getenv(

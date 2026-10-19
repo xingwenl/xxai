@@ -73,11 +73,16 @@ def build_langchain_runtime(
     *,
     streaming: bool,
     context_transform: Callable[[list[Any]], Any] | None = None,
+    context_metrics: Any | None = None,
     max_turns: int | None = None,
     on_model_error=None,
     on_task_started=None,
 ):
-    """统一创建 LangChain runtime，避免入口层重复配置 streaming 语义。"""
+    """统一创建 LangChain runtime，避免入口层重复配置 streaming 语义。
+
+    ``context_metrics`` 是上下文计量出口（见 ``AgentRuntimeHooks``）：loop 在
+    变换后与每次模型调用后向它取事件，因此压缩结果与占用上报能进入事件流。
+    """
 
     from app.modules.agent_runtime.runtime import AgentRuntime
 
@@ -90,6 +95,7 @@ def build_langchain_runtime(
             transform_context=context_transform,
             max_turns=max_turns,
             on_model_error=on_model_error,
+            context_metrics=context_metrics,
         ),
         on_task_started=on_task_started,
         streaming=streaming,

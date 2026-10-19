@@ -21,6 +21,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
+import math
 import re
 from typing import Any
 
@@ -58,6 +59,10 @@ _SNAPSHOT_INJECT_TAIL = (
 )
 _SNAPSHOT_LIMIT_NOTE = "此前工具查询快照因上下文限制未保留，需要时可重新查询最新数据。"
 
+# 压缩摘要注入抬头：模型据此区分「被压缩的历史」与逐条回放的历史正文，
+# 上下文护栏也把摘要消息视为不可删除（见 _guardrail_protected_starts）。
+COMPACTION_SUMMARY_TITLE = "以下内容是此前对话的压缩摘要（原始消息仍完整保留在会话记录中）："
+
 # 内置「模型名 → 已知上下文窗口」小映射：仅收录已核对的已知别名，
 # 其余模型须在智能体版本上显式填写 context_window_tokens。
 # DeepSeek 窗口事实 2026-09-03 按官方 news260424/news250821 核对。
@@ -80,49 +85,92 @@ _CONTEXT_DEGRADE_NOTE = (
 )
 
 
-def build_history_messages(
+def convert_history_row(
+    item: Any,
+    attachment_parts: dict[str, list[dict]] | None = None,
+    *,
+    now: datetime | None = None,
+) -> Any | None:
+    """把一条持久化消息转成模型消息。
+
+    不支持的角色、空正文、超出历史回放窗口的消息返回 None，由调用方跳过；
+    带附件的用户消息恢复为多模态内容，保证后续轮次仍能读取历史附件。
+    """
+
+    settings = get_settings()
+    now = now or datetime.now(timezone.utc)
+    content = getattr(item, "content", "")
+    if not isinstance(content, str) or not content.strip():
+        return None
+    role = getattr(item, "role", None)
+    if role in ("user", "assistant", "tool") and not _message_within_window(
+        item, now, settings.conversation_history_window_seconds
+    ):
+        # 快照保留期大于历史窗口时，超窗消息仅贡献快照、不再回放正文。
+        return None
+    if role == "user":
+        parts = _history_attachment_parts(item, attachment_parts)
+        message_content = (
+            [{"type": "text", "text": content}, *parts] if parts else content
+        )
+        return HumanMessage(content=message_content)
+    if role == "assistant":
+        return AIMessage(content=content)
+    if role == "tool":
+        return ToolMessage(
+            content=content,
+            tool_call_id=getattr(item, "tool_call_id", None) or "history-tool",
+        )
+    return None
+
+
+def build_history_view(
     history: list[Any] | None = None,
     attachment_parts: dict[str, list[dict]] | None = None,
-) -> list[Any]:
-    """将持久化消息转换为模型消息，忽略不支持的角色和空内容。
+    compaction: Any | None = None,
+) -> tuple[list[Any], list[tuple[int, Any]]]:
+    """构建历史消息视图，并返回「行 id → 消息对象」绑定表。
 
-    ``attachment_parts`` 按 asset_id 提供历史附件内容块，带附件的
-    用户消息恢复为多模态内容，保证后续轮次仍能读取历史附件。
+    ``compaction`` 是当前生效的压缩记录：摘要作为 SystemMessage 注入历史首位
+    代替被压缩的旧行，``first_kept_message_id`` 之前的行不再逐条回放。绑定表
+    供请求内控制器按边界筛选保留行使用。
     """
-    settings = get_settings()
+
     now = datetime.now(timezone.utc)
-    history_window = settings.conversation_history_window_seconds
-    converted = []
+    boundary_id = getattr(compaction, "first_kept_message_id", None)
+    converted: list[Any] = []
+    bindings: list[tuple[int, Any]] = []
     for item in history or []:
-        content = getattr(item, "content", "")
-        if not isinstance(content, str) or not content.strip():
+        row_id = getattr(item, "id", None)
+        if boundary_id is not None and isinstance(row_id, int) and row_id < boundary_id:
+            # 已被压缩摘要覆盖的历史行不再逐条回放。
             continue
-        role = getattr(item, "role", None)
-        if role in ("user", "assistant", "tool") and not _message_within_window(
-            item, now, history_window
-        ):
-            # 快照保留期大于历史窗口时，超窗消息仅贡献快照、不再回放正文。
+        message = convert_history_row(item, attachment_parts, now=now)
+        if message is None:
             continue
-        if role == "user":
-            parts = _history_attachment_parts(item, attachment_parts)
-            message_content = (
-                [{"type": "text", "text": content}, *parts] if parts else content
-            )
-            converted.append(HumanMessage(content=message_content))
-        elif role == "assistant":
-            converted.append(AIMessage(content=content))
-        elif role == "tool":
-            converted.append(
-                ToolMessage(
-                    content=content,
-                    tool_call_id=getattr(item, "tool_call_id", None) or "history-tool",
-                )
-            )
+        converted.append(message)
+        bindings.append((row_id if isinstance(row_id, int) else 0, message))
+    # 摘要消息紧跟在系统提示之后（历史区首位），位于快照之前。
+    summary_message = build_compaction_summary_message(compaction)
+    if summary_message is not None:
+        converted.insert(0, summary_message)
     # 历史末尾注入工具快照 SystemMessage（当前用户消息之前），无快照时零注入。
     snapshot_message = build_snapshot_injection_message(history, now=now)
     if snapshot_message is not None:
         converted.append(snapshot_message)
-    return converted
+    return converted, bindings
+
+
+def build_history_messages(
+    history: list[Any] | None = None,
+    attachment_parts: dict[str, list[dict]] | None = None,
+    compaction: Any | None = None,
+) -> list[Any]:
+    """将持久化消息转换为模型消息（只取视图，不含行绑定）。"""
+
+    return build_history_view(
+        history, attachment_parts=attachment_parts, compaction=compaction
+    )[0]
 
 
 def _history_attachment_parts(
@@ -567,6 +615,167 @@ def _tool_result_call_id(message: Any) -> str | None:
     return getattr(message, "tool_call_id", None)
 
 
+def _resolve_chars_per_token(chars_per_token: float | None) -> float:
+    """取本地估算使用的 chars/token 比例，非法值退化为保守默认。"""
+
+    settings = get_settings()
+    cpt = (
+        chars_per_token
+        if chars_per_token is not None
+        else settings.context_estimate_chars_per_token
+    )
+    if not cpt or cpt <= 0:
+        return 1.0
+    return float(cpt)
+
+
+def _message_payload_chars(message: Any) -> int:
+    """估算单条消息计入上下文的字符数（含工具调用参数）。
+
+    护栏使用的 ``_messages_chars`` 只统计正文；工具调用参数同样会进入模型
+    输入，占用估算漏计它会让判断长期偏低，因此这里额外累加声明参数长度。
+    """
+
+    total = _messages_chars([message])
+    calls = getattr(message, "tool_calls", None) or []
+    for call in calls:
+        args = call.get("args") if isinstance(call, dict) else getattr(call, "args", None)
+        if args is None:
+            continue
+        try:
+            total += len(json.dumps(args, ensure_ascii=False, default=str))
+        except (TypeError, ValueError):
+            total += len(str(args))
+    return total
+
+
+def _message_row_chars(row: Any) -> int:
+    """估算一条持久化消息行的字符数（正文 + 内容块 + 元数据）。"""
+
+    total = 0
+    content = getattr(row, "content", None)
+    if isinstance(content, str):
+        total += len(content)
+    for value in (
+        getattr(row, "content_blocks", None),
+        getattr(row, "message_metadata", None),
+    ):
+        if value is None:
+            continue
+        try:
+            total += len(json.dumps(value, ensure_ascii=False, default=str))
+        except (TypeError, ValueError):
+            total += len(str(value))
+    return total
+
+
+def estimate_context_tokens(
+    messages: list[Any],
+    *,
+    baseline_usage: int | None = None,
+    chars_per_token: float | None = None,
+) -> int:
+    """估算一次模型调用的输入 token 数。
+
+    口径与成熟 Agent 实现一致：优先用上一轮 provider 真实 usage 作为基线
+    （它已经覆盖当时的系统提示、工具定义与历史），只对基线之后新增的内容做
+    本地字符估算；拿不到真值时才退化为整份输入的估算。本地估算按 chars/token
+    比例折算，宁可高估也不低估。
+    """
+
+    cpt = _resolve_chars_per_token(chars_per_token)
+    chars = sum(_message_payload_chars(message) for message in messages)
+    baseline = (
+        int(baseline_usage)
+        if isinstance(baseline_usage, int) and baseline_usage > 0
+        else 0
+    )
+    return baseline + math.ceil(chars / cpt)
+
+
+def estimate_row_tokens(row: Any, *, chars_per_token: float | None = None) -> int:
+    """估算一条持久化消息行的 token 数，至少计 1。"""
+
+    cpt = _resolve_chars_per_token(chars_per_token)
+    return max(1, math.ceil(_message_row_chars(row) / cpt))
+
+
+def resolve_compaction_threshold(
+    window_tokens: int | None,
+    *,
+    reserve_tokens: int | None = None,
+    input_ratio: float | None = None,
+) -> int:
+    """计算自动压缩的触发阈值（token）。
+
+    取「窗口 - 预留」与「现有护栏预算」两者较小值：护栏会自行按 ``input_ratio``
+    硬删历史，若压缩阈值更高，护栏会先把历史删光，压缩永远没有机会运行。
+    """
+
+    settings = get_settings()
+    reserve = (
+        reserve_tokens
+        if reserve_tokens is not None
+        else settings.context_compaction_reserve_tokens
+    )
+    ratio = input_ratio if input_ratio is not None else settings.context_input_ratio
+    window = int(window_tokens or 0)
+    if window <= 0:
+        return 0
+    return max(1, min(window - max(0, int(reserve)), int(window * ratio)))
+
+
+def _is_valid_cut(history: list[Any], cut: int) -> bool:
+    """判断切点是否落在合法边界：保留区不能以孤立工具结果开头。"""
+
+    return getattr(history[cut], "role", None) != "tool"
+
+
+def plan_compaction_cut(
+    history: list[Any] | None,
+    *,
+    keep_recent_tokens: int,
+    chars_per_token: float | None = None,
+) -> int | None:
+    """在历史行上选择压缩切点：返回首个保留行的下标，None 表示不值得压缩。
+
+    从最新一行往前累加估算 token，凑够 ``keep_recent_tokens`` 即停；切点不能
+    落在 tool 行（否则保留区以孤立工具结果开头，供应商可能直接拒绝该消息
+    序列），必要时向前回退到合法边界。全部历史加起来都凑不够保留量时返回
+    None，「没有可压缩内容」与「压缩无收益」用同一结论表达。
+    """
+
+    rows = list(history or [])
+    if not rows:
+        return None
+    cpt = _resolve_chars_per_token(chars_per_token)
+    accumulated = 0
+    cut: int | None = None
+    for index in range(len(rows) - 1, -1, -1):
+        accumulated += max(1, math.ceil(_message_row_chars(rows[index]) / cpt))
+        if accumulated >= keep_recent_tokens:
+            cut = index
+            break
+    if cut is None:
+        return None
+    while cut > 0 and not _is_valid_cut(rows, cut):
+        cut -= 1
+    if cut <= 0:
+        return None
+    return cut
+
+
+def build_compaction_summary_message(compaction: Any | None) -> SystemMessage | None:
+    """把一条压缩记录转成注入模型上下文的摘要消息；无摘要返回 None。"""
+
+    summary = getattr(compaction, "summary", None)
+    if not isinstance(summary, str) or not summary.strip():
+        return None
+    return SystemMessage(
+        content=f"{COMPACTION_SUMMARY_TITLE}\n\n{summary.strip()}"
+    )
+
+
 def _split_guardrail_units(
     messages: list[Any],
 ) -> list[tuple[int, int]]:
@@ -604,6 +813,35 @@ def _split_guardrail_units(
     return units
 
 
+def _guardrail_protected_starts(
+    messages: list[Any],
+    units: list[tuple[int, int]],
+) -> tuple[set[int], set[int]]:
+    """返回护栏不可删除的单元起点，以及快照消息下标。
+
+    所有 SystemMessage（系统提示、工具快照、压缩摘要）所属单元都不可删：
+    摘要消息本身就是被压缩历史的全部内容，删掉它等于让模型彻底失忆。
+    摘要消息注入后，护栏与压缩都会保留它，直到下一次压缩替换。
+    """
+
+    protected: set[int] = {0}
+    snapshot_indices: set[int] = set()
+    for start, end in units:
+        for index in range(start, end + 1):
+            message = messages[index]
+            if isinstance(message, SystemMessage):
+                protected.add(start)
+                if str(message.content).startswith(_SNAPSHOT_SECTION_TITLE):
+                    snapshot_indices.add(index)
+    last_unit_start = None
+    for start, end in units:
+        if end == len(messages) - 1:
+            last_unit_start = start
+    if last_unit_start is not None:
+        protected.add(last_unit_start)
+    return protected, snapshot_indices
+
+
 def apply_runtime_context_guardrail(
     messages: list[Any],
     *,
@@ -615,8 +853,8 @@ def apply_runtime_context_guardrail(
 
     AgentLoop 的上下文包含 LangChain 消息以及内部的 ModelTurn/ToolOutcome。
     legacy 护栏按单条消息裁剪会把工具结果与其 assistant 调用拆散，产生供应商
-    拒绝的非法消息序列；因此这里以「整轮」为最小删除单元：系统提示、快照消息
-    和最近一轮（含其工具配对）保留，超预算时整轮丢弃最旧历史。
+    拒绝的非法消息序列；因此这里以「整轮」为最小删除单元：系统提示、快照消息、
+    压缩摘要和最近一轮（含其工具配对）保留，超预算时整轮丢弃最旧历史。
     """
 
     if not window_tokens or window_tokens <= 0:
@@ -636,29 +874,13 @@ def apply_runtime_context_guardrail(
         return kept
 
     units = _split_guardrail_units(kept)
-    protected_starts = {0}
-    snapshot_indices: set[int] = set()
-    for start, end in units:
-        for index in range(start, end + 1):
-            message = kept[index]
-            if isinstance(message, SystemMessage) and str(message.content).startswith(
-                _SNAPSHOT_SECTION_TITLE
-            ):
-                snapshot_indices.add(index)
-    last_unit_start = None
-    for start, end in units:
-        if end == total - 1:
-            last_unit_start = start
-    if last_unit_start is not None:
-        protected_starts.add(last_unit_start)
+    protected_starts, snapshot_indices = _guardrail_protected_starts(kept, units)
 
     dropped_units = 0
     while _messages_chars(kept) > budget_chars:
         removed = False
         for start, end in units:
             if start in protected_starts:
-                continue
-            if any(index in snapshot_indices for index in range(start, end + 1)):
                 continue
             del kept[start : end + 1]
             dropped_units += 1
@@ -667,22 +889,7 @@ def apply_runtime_context_guardrail(
         if not removed:
             break
         units = _split_guardrail_units(kept)
-        total = len(kept)
-        protected_starts = {0}
-        snapshot_indices = set()
-        for start, end in units:
-            for index in range(start, end + 1):
-                message = kept[index]
-                if isinstance(message, SystemMessage) and str(
-                    message.content
-                ).startswith(_SNAPSHOT_SECTION_TITLE):
-                    snapshot_indices.add(index)
-        last_unit_start = None
-        for start, end in units:
-            if end == total - 1:
-                last_unit_start = start
-        if last_unit_start is not None:
-            protected_starts.add(last_unit_start)
+        protected_starts, snapshot_indices = _guardrail_protected_starts(kept, units)
 
     kept_chars = _messages_chars(kept)
     if kept_chars > budget_chars and snapshot_indices:

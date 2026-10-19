@@ -78,6 +78,70 @@ class ConversationMessage(BaseModel, TimeModel):
     )
 
 
+class ConversationContextCompaction(BaseModel, TimeModel):
+    """一次上下文压缩的结果：较早历史被摘要成固定小节，并记下保留边界。
+
+    原始消息永远保留在 ``conversation_messages``，本表只描述「模型此后可见的
+    视图」：摘要正文 + 从哪条消息开始完整保留。压缩行只增不改——最近一行即当前
+    生效的摘要，再次压缩时新摘要并入旧摘要后写成新行，旧行留作审计。
+    """
+
+    __tablename__ = "conversation_context_compactions"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+        comment="上下文压缩记录主键",
+    )
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="所属会话 ID",
+    )
+    summary: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        comment="压缩摘要正文，此后作为 SystemMessage 注入模型上下文",
+    )
+    first_kept_message_id: Mapped[int] = mapped_column(
+        ForeignKey("conversation_messages.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="保留边界：该消息及其之后的消息完整保留，之前的历史由摘要代替",
+    )
+    tokens_before: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+        comment="压缩前的上下文占用估算（token）",
+    )
+    tokens_after: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+        comment="压缩后重建上下文的占用估算（token）",
+    )
+    trigger: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="auto",
+        server_default="auto",
+        comment="触发方式：auto（超过阈值自动压缩）或 manual（用户手动压缩）",
+    )
+    instructions: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="手动压缩时用户附加的聚焦点，自动压缩为空"
+    )
+    model_name: Mapped[str | None] = mapped_column(
+        String(120), nullable=True, comment="执行摘要的模型名，用于审计压缩来源"
+    )
+    usage: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON, nullable=True, comment="摘要请求自身的 token 用量，用于审计压缩成本"
+    )
+
+
 class AgentLoopRun(BaseModel, TimeModel):
     __tablename__ = "agent_loop_runs"
 

@@ -241,6 +241,7 @@ agent.destroy()
 | `cancelMessage()` | 停止当前生成 |
 | `getMessages()` / `addMessage()` / `clearMessages()` | 管理内存消息 |
 | `clearLocalHistory()` | 清除本地消息和会话 ID，下一次发送开启新会话 |
+| `compactContext(instructions?)` | 手动触发服务端上下文压缩；没有当前会话时抛错 |
 | `setSystemPrompt()` / `getSystemPrompt()` | 管理参与模型回答的调用方提示词 |
 | `destroy()` | 释放 WebSocket、定时器、DOM 和事件监听 |
 
@@ -262,7 +263,75 @@ agent.on('message_updating', (message) => renderStreamingMessage(message))
 agent.on('connection_state', (state) => updateConnectionIndicator(state))
 agent.on('citation', (citation) => renderCitation(citation))
 agent.on('error', (error) => showError(error.message))
+agent.on('context_usage', (usage) => updateContextRing(usage))
+agent.on('context_compacted', (result) => noticeCompaction(result))
 ```
+
+### 上下文占用与压缩
+
+每轮模型调用结束后，后端推送一次 `context_usage`，携带当前会话的上下文占用：
+
+```typescript
+agent.on('context_usage', (usage) => {
+  // usage: { usedTokens, windowTokens, percent, source, lastCompactedAt }
+  renderContextRing(usage.usedTokens, usage.windowTokens)
+})
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `usedTokens` | 当前上下文已占用的 token 数 |
+| `windowTokens` | 模型窗口大小；后端拿不到时为 `null` |
+| `percent` | 0–100 的占用百分比；窗口未知时为 `null` |
+| `source` | `provider` 表示模型回传的真实用量，`estimated` 表示后端估算 |
+| `lastCompactedAt` | 上次压缩完成时间（ISO 8601）；从未压缩过或窗口未知时为 `null` |
+
+除了订阅事件，也可以直接读 `agent.contextUsage` 拿到同一份快照（尚未收到推送时为 `null`，切换会话或新建会话后会清空）。两种消费方式等价，任选其一即可；同时订阅时二者拿到的是同一个对象。`callbacks.onContextUsage` / `onContextCompacted` 与对应的 `on(...)` 事件也是这个关系。
+
+**窗口未知时的降级**：`windowTokens === null` 时没有百分比可算，请只显示绝对 token 数，不要画占用环。SDK 自带的 widget 就是这么处理的，并导出了同一套纯函数供自定义 UI 复用：
+
+```typescript
+import { contextRingState, formatTokens } from 'xxai-agent'
+
+const ring = contextRingState(agent.contextUsage?.usedTokens, agent.contextUsage?.windowTokens)
+// ring === null：窗口未知，退化为 formatTokens(agent.contextUsage?.usedTokens ?? 0) 文本
+// ring 非空：{ ratio, color, text }
+//   ratio 是 0–100 的百分比（超出窗口时截断到 100）
+//   color 按占用分档：<70% 主题色、70–90% #F59E0B、>=90% #EF4444
+//   text 形如 "12.3K/1.0M (1%)"
+```
+
+需要用户手动触发压缩时调用 `compactContext()`，它请求 `POST /embed/conversations/{conversationId}/context/compact`（使用 `getToken` 返回的 embed token）：
+
+```typescript
+const result = await agent.compactContext('优先保留接口变更')
+if (!result?.compacted) {
+  // reason === 'nothing_to_compact'：没有可压缩的内容，属于幂等成功
+} else if (!result.ok) {
+  // reason === 'summary_failed' / 'summary_truncated'：压缩未生效
+}
+```
+
+返回值是 `ContextCompactResult`（在 `ContextCompacted` 之上加一个 `compacted` 标志）：
+
+| 字段 | 说明 |
+| --- | --- |
+| `compacted` | 本次是否真的发生了压缩；`false` 时 `reason` 通常是 `nothing_to_compact` |
+| `trigger` | 本方法发起的压缩固定为 `manual`；后端自动压缩推送的事件为 `auto` |
+| `ok` / `reason` | 压缩是否成功；失败时 `reason` 形如 `summary_failed`、`summary_truncated` |
+| `tokensBefore` / `tokensAfter` | 压缩前后的上下文 token 数；失败时两者相等 |
+| `windowTokens` / `percent` | 压缩后的窗口大小与占用百分比；窗口未知时为 `null` |
+| `summaryChars` | 摘要字符数；REST 接口未返回该字段，本方法固定为 `0` |
+
+调用成功后 SDK 会同步更新 `contextUsage`，并派发 `context_usage` 与 `context_compacted` 两条本地事件（不会额外触发 `callbacks.onContextUsage` / `onContextCompacted`，它们只对应服务端推送）。
+
+失败语义：
+
+- 没有当前会话（尚未发送过消息或处于新建态）时抛 `Error`，提示无法压缩；
+- HTTP 非 2xx 时抛 `AgentError`，`message` 取自服务端返回（404 表示会话不存在或不属于当前主体，401 表示鉴权失败），可直接展示；
+- 「没有可压缩的内容」不是失败：HTTP 200 + `compacted: false`，请按上面的分支提示用户。
+
+后端自动压缩完成后同样会推送 `context_compacted`（`trigger` 为 `auto`），`agent.contextUsage` 也会随之更新为压缩后的占用。
 
 ### 错误处理
 

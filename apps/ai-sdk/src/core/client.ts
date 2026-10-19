@@ -4,6 +4,9 @@ import type {
   AgentClientOptions,
   AgentInfo,
   ConnectionState,
+  ContextCompacted,
+  ContextCompactResult,
+  ContextUsage,
   ConversationPage,
   EmbedClientInfo,
   AgentLoopRun,
@@ -40,6 +43,46 @@ function parseOptionalObject(value: unknown): Record<string, unknown> | undefine
     : undefined
 }
 
+/** 只接受有限数值，其余（null/字符串/NaN/Infinity）一律当作缺失。 */
+function finiteNumberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function finiteNumberOrZero(value: unknown): number {
+  return finiteNumberOrNull(value) ?? 0
+}
+
+/**
+ * 把 `context_usage` 事件的 payload 归一成 `ContextUsage`。
+ *
+ * 网关允许 `windowTokens`/`percent`/`lastCompactedAt` 为 null，这里再做一次
+ * 防御：字段缺失或类型不符时退回「窗口未知、无百分比」，调用方据此降级为
+ * 只显示绝对 token 数，而不是渲染一个错误的占用环。
+ */
+function parseContextUsage(payload: Record<string, unknown>): ContextUsage {
+  return {
+    usedTokens: finiteNumberOrZero(payload.usedTokens),
+    windowTokens: finiteNumberOrNull(payload.windowTokens),
+    percent: finiteNumberOrNull(payload.percent),
+    source: payload.source === 'estimated' ? 'estimated' : 'provider',
+    lastCompactedAt: typeof payload.lastCompactedAt === 'string' ? payload.lastCompactedAt : null
+  }
+}
+
+/** 把 `context_compacted` 事件的 payload 归一成 `ContextCompacted`。 */
+function parseContextCompacted(payload: Record<string, unknown>): ContextCompacted {
+  return {
+    trigger: payload.trigger === 'manual' ? 'manual' : 'auto',
+    ok: payload.ok !== false,
+    reason: typeof payload.reason === 'string' ? payload.reason : null,
+    tokensBefore: finiteNumberOrZero(payload.tokensBefore),
+    tokensAfter: finiteNumberOrZero(payload.tokensAfter),
+    windowTokens: finiteNumberOrNull(payload.windowTokens),
+    percent: finiteNumberOrNull(payload.percent),
+    summaryChars: finiteNumberOrZero(payload.summaryChars)
+  }
+}
+
 export class AgentClient {
   private options: AgentClientOptions
   private transport: Transport
@@ -64,6 +107,13 @@ export class AgentClient {
   private _clientInfo: EmbedClientInfo | undefined
   private _agentInfo: AgentInfo | undefined
   private _quota: QuotaUsage | undefined
+  /**
+   * 当前会话的上下文占用快照。
+   *
+   * 与 `_quota`（时间窗口配额）不同：它属于单个会话，切会话时必须清空，
+   * 否则新会话会显示上一个会话的占用。
+   */
+  private _contextUsage: ContextUsage | null = null
   private _token: string = '';
   readonly storageKey: string
 
@@ -457,6 +507,30 @@ export class AgentClient {
           this.pendingLoop = null
         }
         break
+      // 上下文占用：整体替换状态；窗口未知（null）时也照常下发，
+      // 由调用方降级为只显示绝对 token 数。
+      case 'context_usage': {
+        const usage = parseContextUsage(msg.payload)
+        this._contextUsage = usage
+        this._callbacks.onContextUsage?.(usage)
+        this.eventEmitter.emit('context_usage', usage)
+        break
+      }
+      // 上下文压缩完成：压缩后模型只看到摘要，因此占用以 tokensAfter 为准。
+      case 'context_compacted': {
+        const result = parseContextCompacted(msg.payload)
+        this._contextUsage = {
+          usedTokens: result.tokensAfter,
+          windowTokens: result.windowTokens ?? this._contextUsage?.windowTokens ?? null,
+          percent: result.percent ?? this._contextUsage?.percent ?? null,
+          source: this._contextUsage?.source ?? 'provider',
+          lastCompactedAt: new Date().toISOString()
+        }
+        this._callbacks.onContextCompacted?.(result)
+        this.eventEmitter.emit('context_usage', this._contextUsage)
+        this.eventEmitter.emit('context_compacted', result)
+        break
+      }
       case 'error':
         this.handleRequestError(
           msg.payload as Record<string, unknown>,
@@ -925,6 +999,67 @@ export class AgentClient {
     this.eventEmitter.emit('conversations_changed', { reason: 'deleted', conversationId: id })
   }
 
+  /**
+   * 请求服务端压缩当前会话的上下文。
+   *
+   * `instructions` 是可选附加聚焦点，会随请求发给后端用于生成摘要。返回压缩
+   * 终态；后端对「没有可压缩内容」是幂等成功，此时 `compacted === false`、
+   * `reason === 'nothing_to_compact'`，不算失败。当前没有会话（尚未创建或
+   * 已切到新建态）时抛错，因为压缩必须绑定具体会话。
+   */
+  async compactContext(instructions?: string): Promise<ContextCompactResult | null> {
+    const conversationId = this.conversationId
+    if (!conversationId) {
+      throw new Error('当前没有可压缩的会话：请先发送消息创建会话，或打开一个历史会话')
+    }
+    const baseUrl = this._httpBaseUrl
+    const token = await this._getToken()
+    const trimmed = typeof instructions === 'string' ? instructions.trim() : ''
+    const response = await fetch(
+      `${baseUrl}/embed/conversations/${encodeURIComponent(conversationId)}/context/compact`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(trimmed ? { instructions: trimmed } : {})
+      }
+    )
+    if (!response.ok) {
+      throw await agentErrorFromResponse(response, '上下文压缩失败')
+    }
+    const body = await response.json() as {
+      data?: Record<string, unknown>
+    }
+    const data = body.data ?? {}
+    const result: ContextCompactResult = {
+      compacted: data.compacted === true,
+      trigger: 'manual',
+      ok: data.compacted === true,
+      reason: typeof data.reason === 'string' ? data.reason : null,
+      tokensBefore: finiteNumberOrZero(data.tokens_before),
+      tokensAfter: finiteNumberOrZero(data.tokens_after),
+      windowTokens: finiteNumberOrNull(data.window_tokens),
+      percent: finiteNumberOrNull(data.percent),
+      // REST 接口不返回摘要长度，按 0 处理，避免为它编造一个数字。
+      summaryChars: 0
+    }
+    // 与服务端推送保持同一套状态更新语义：占用以压缩后的 token 数为准。
+    this._contextUsage = {
+      usedTokens: finiteNumberOrZero(data.used_tokens ?? data.tokens_after),
+      windowTokens: result.windowTokens ?? this._contextUsage?.windowTokens ?? null,
+      percent: result.percent ?? this._contextUsage?.percent ?? null,
+      source: this._contextUsage?.source ?? 'provider',
+      lastCompactedAt: new Date().toISOString()
+    }
+    // 回调（onContextCompacted）只对应服务端推送，这里只发事件，避免同一
+    // 次手动压缩被通知两遍。
+    this.eventEmitter.emit('context_usage', this._contextUsage)
+    this.eventEmitter.emit('context_compacted', result)
+    return result
+  }
+
   /** 读取会话历史快照并转换成 SDK 的 Message 结构。 */
   private async fetchHistory(conversationId: string): Promise<Message[]> {
     const baseUrl = this._httpBaseUrl
@@ -957,6 +1092,8 @@ export class AgentClient {
     this.activeRequestId = undefined
     this.pendingConfirmations.clear()
     this.pendingQuestions.clear()
+    // 占用是会话级状态：切走后必须清空，等新会话的首个 context_usage 到达。
+    this._contextUsage = null
   }
 
   getMessages(): Message[] {
@@ -982,6 +1119,7 @@ export class AgentClient {
     this.pendingLoop = null
     this.pendingCitations = []
     this.conversationId = undefined
+    this._contextUsage = null
     if (this.transport instanceof WebSocketTransport) this.transport.setConversationId(undefined)
     try {
       globalThis.localStorage?.removeItem(this.storageKey)
@@ -1203,6 +1341,15 @@ export class AgentClient {
   /** 当前时间窗口的配额快照；配额关闭或旧网关未下发时为 undefined。 */
   get quota(): QuotaUsage | undefined {
     return this._quota
+  }
+
+  /**
+   * 当前会话的上下文占用快照；网关尚未推送或已切到新会话时为 null。
+   *
+   * 前端可直接读它渲染占用环，或订阅 `'context_usage'` 事件以获得变化通知。
+   */
+  get contextUsage(): ContextUsage | null {
+    return this._contextUsage
   }
 
   get callbacks(): AgentCallbacks {

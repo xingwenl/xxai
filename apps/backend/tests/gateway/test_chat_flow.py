@@ -77,6 +77,16 @@ class FakeConversationRepository:
     async def record_model_usage(self, **values):
         self.usage_records.append(values)
 
+    async def lock_conversation(self, conversation_id):
+        """上下文压缩入口会对会话行加写锁；测试替身无需真的加锁。"""
+        return None
+
+    async def get_latest_context_compaction(self, conversation_id):
+        return None
+
+    async def create_context_compaction(self, conversation_id, **values):
+        raise AssertionError("这些用例的历史为空或未超阈值，不应产生压缩记录")
+
     async def create_loop(self, _conversation_id, **values):
         self.loop = FakeLoop()
         for key, value in values.items():

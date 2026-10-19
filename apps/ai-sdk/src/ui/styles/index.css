@@ -600,6 +600,60 @@
   user-select: none;
 }
 
+/*
+ * 上下文占用环：环只有 20px，文字排在环右侧而不是环心。
+ * `"12.3K/1.0M (1%)"` 这类文案约 65px，塞进 32px 的圆环里必然溢出。
+ */
+.xxai-header-context {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+/* 环与文本并排：20px 的环里放不下 "12.3K/1.0M (1%)" 这类文案。 */
+.xxai-context-ring {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.xxai-context-ring-svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  display: block;
+}
+
+.xxai-context-ring-text {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--agent-muted-foreground);
+  white-space: nowrap;
+  user-select: none;
+}
+
+/* 窗口大小未知时的降级文案：只有绝对 token 数，没有分数与百分比。 */
+.xxai-header-context-text {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--agent-muted-foreground);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.xxai-header-compact-btn.has-feedback {
+  border-color: rgba(245, 158, 11, 0.45);
+  background: rgba(254, 243, 199, 0.75);
+  color: #b45309;
+}
+
+.xxai-header-compact-btn:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .xxai-header-center {
   min-width: 0;
   flex: 1;

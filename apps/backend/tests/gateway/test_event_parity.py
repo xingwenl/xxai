@@ -88,6 +88,21 @@ def _stream_items() -> list[dict]:
             "payload": {"loopRunId": "1", "status": "running", "summary": "正在处理请求"},
         },
         {
+            # 压缩发生在模型调用之前，客户端会在回答增量之前先收到这条事件。
+            "type": "context_compacted",
+            "conversation": conversation,
+            "payload": {
+                "ok": True,
+                "reason": "compacted",
+                "trigger": "auto",
+                "tokensBefore": 900,
+                "tokensAfter": 120,
+                "windowTokens": 1000,
+                "percent": 12.0,
+                "summaryChars": 42,
+            },
+        },
+        {
             "type": "agent_step_completed",
             "conversation": conversation,
             "payload": build_step_payload(
@@ -173,6 +188,18 @@ def _stream_items() -> list[dict]:
             },
         },
         {
+            # 每轮模型调用后按 provider 真值上报占用（prompt_tokens）。
+            "type": "context_usage",
+            "conversation": conversation,
+            "payload": {
+                "usedTokens": 120,
+                "windowTokens": 1000,
+                "percent": 12.0,
+                "source": "provider",
+                "lastCompactedAt": "2026-10-16T00:00:00+00:00",
+            },
+        },
+        {
             "type": "agent_loop_completed",
             "conversation": conversation,
             "payload": {"loopRunId": "1", "status": "completed", "summary": "已完成回答"},
@@ -184,7 +211,6 @@ def _stream_items() -> list[dict]:
             "result": result,
         },
     ]
-
 
 def golden_events() -> list:
     """共享事件剧本：流式 item 派生的事件 + 传输层专属事件。"""

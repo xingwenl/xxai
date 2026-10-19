@@ -610,4 +610,287 @@ describe('AgentClient protocol events', () => {
     expect(errors).toHaveLength(1)
     expect(errors[0].code).toBe('unsupported_sdk_version')
   })
+
+  it('context_usage 事件更新 getter，回调与 on 监听拿到同一个对象', () => {
+    const callbackUsages: any[] = []
+    const eventUsages: any[] = []
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws',
+      platformId: 'p',
+      agentId: 'a',
+      getToken: async () => 'token',
+      callbacks: { onContextUsage: (usage) => callbackUsages.push(usage) }
+    })
+    client.on('context_usage', (usage: any) => eventUsages.push(usage))
+    const transport = (client as any).transport
+
+    expect(client.contextUsage).toBeNull()
+    transport.emit('message', {
+      id: '1', type: 'context_usage', protocolVersion: 1, sequence: 1,
+      timestamp: new Date().toISOString(), payload: {
+        usedTokens: 12345,
+        windowTokens: 1000000,
+        percent: 1.23,
+        source: 'provider',
+        lastCompactedAt: '2026-10-19T08:00:00+00:00'
+      }
+    })
+
+    expect(client.contextUsage).toEqual({
+      usedTokens: 12345,
+      windowTokens: 1000000,
+      percent: 1.23,
+      source: 'provider',
+      lastCompactedAt: '2026-10-19T08:00:00+00:00'
+    })
+    expect(callbackUsages).toHaveLength(1)
+    expect(eventUsages).toHaveLength(1)
+    expect(eventUsages[0]).toBe(callbackUsages[0])
+  })
+
+  it('context_usage 窗口未知时保留 null，不当成 0 或缺少窗口', () => {
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token'
+    })
+    const transport = (client as any).transport
+
+    transport.emit('message', {
+      id: '1', type: 'context_usage', protocolVersion: 1, sequence: 1,
+      timestamp: new Date().toISOString(),
+      payload: { usedTokens: 8300, windowTokens: null, percent: null, source: 'estimated' }
+    })
+
+    expect(client.contextUsage).toMatchObject({
+      usedTokens: 8300,
+      windowTokens: null,
+      percent: null,
+      source: 'estimated',
+      lastCompactedAt: null
+    })
+  })
+
+  it('context_compacted 事件把占用替换为压缩后的用量并向下游转发结果', () => {
+    const compactedEvents: any[] = []
+    const callbackResults: any[] = []
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws',
+      platformId: 'p',
+      agentId: 'a',
+      getToken: async () => 'token',
+      callbacks: { onContextCompacted: (result) => callbackResults.push(result) }
+    })
+    client.on('context_compacted', (result: any) => compactedEvents.push(result))
+    const transport = (client as any).transport
+
+    transport.emit('message', {
+      id: '1', type: 'context_usage', protocolVersion: 1, sequence: 1,
+      timestamp: new Date().toISOString(),
+      payload: { usedTokens: 21000, windowTokens: 1000000, percent: 2.1, source: 'provider' }
+    })
+    transport.emit('message', {
+      id: '2', type: 'context_compacted', protocolVersion: 1, sequence: 2,
+      timestamp: new Date().toISOString(), payload: {
+        trigger: 'auto', ok: true, reason: null,
+        tokensBefore: 21000, tokensAfter: 8300,
+        windowTokens: 1000000, percent: 0.83, summaryChars: 1200
+      }
+    })
+
+    expect(client.contextUsage?.usedTokens).toBe(8300)
+    expect(client.contextUsage?.percent).toBe(0.83)
+    expect(client.contextUsage?.windowTokens).toBe(1000000)
+    // 压缩完成时间由本地记录，只要是一个合法的 ISO 时间串即可。
+    expect(Number.isNaN(Date.parse(client.contextUsage?.lastCompactedAt || ''))).toBe(false)
+    expect(compactedEvents).toHaveLength(1)
+    expect(compactedEvents[0]).toMatchObject({
+      trigger: 'auto', ok: true, reason: null,
+      tokensBefore: 21000, tokensAfter: 8300, summaryChars: 1200
+    })
+    expect(callbackResults[0]).toBe(compactedEvents[0])
+  })
+
+  it('context_compacted 失败时保留 reason，且占用不回退', () => {
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token'
+    })
+    const transport = (client as any).transport
+
+    transport.emit('message', {
+      id: '1', type: 'context_usage', protocolVersion: 1, sequence: 1,
+      timestamp: new Date().toISOString(),
+      payload: { usedTokens: 21000, windowTokens: 1000000, percent: 2.1, source: 'provider' }
+    })
+    transport.emit('message', {
+      id: '2', type: 'context_compacted', protocolVersion: 1, sequence: 2,
+      timestamp: new Date().toISOString(), payload: {
+        trigger: 'auto', ok: false, reason: 'summary_failed',
+        tokensBefore: 21000, tokensAfter: 21000,
+        windowTokens: 1000000, percent: 2.1, summaryChars: 0
+      }
+    })
+
+    expect(client.contextUsage?.usedTokens).toBe(21000)
+    expect(client.contextUsage?.windowTokens).toBe(1000000)
+  })
+
+  it('切会话时清空上下文占用，避免新会话显示旧数据', () => {
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token'
+    })
+    const transport = (client as any).transport
+
+    transport.emit('message', {
+      id: '1', type: 'context_usage', protocolVersion: 1, sequence: 1,
+      timestamp: new Date().toISOString(),
+      payload: { usedTokens: 12345, windowTokens: 1000000, percent: 1.23, source: 'provider' }
+    })
+    expect(client.contextUsage?.usedTokens).toBe(12345)
+
+    client.startNewConversation()
+    expect(client.contextUsage).toBeNull()
+  })
+
+  it('compactContext 用 embed token 调压缩接口并把 snake_case 映射为 camelCase', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        message: 'ok',
+        code: 0,
+        data: {
+          compacted: true,
+          reason: null,
+          tokens_before: 21000,
+          tokens_after: 8300,
+          window_tokens: 1000000,
+          used_tokens: 8300,
+          percent: 0.83
+        }
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const callbackUsages: any[] = []
+    const eventUsages: any[] = []
+    const compactedEvents: any[] = []
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws',
+      baseUrl: 'https://api.test/v1',
+      platformId: 'p',
+      agentId: 'a',
+      getToken: async () => 'embed-token',
+      callbacks: { onContextUsage: (usage) => callbackUsages.push(usage) }
+    })
+    client.on('context_usage', (usage: any) => eventUsages.push(usage))
+    client.on('context_compacted', (result: any) => compactedEvents.push(result))
+    ;(client as any).conversationId = '88'
+
+    const result = await client.compactContext('聚焦 API 变更')
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.test/v1/embed/conversations/88/context/compact',
+      expect.objectContaining({
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer embed-token',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ instructions: '聚焦 API 变更' })
+      })
+    )
+    expect(result).toEqual({
+      compacted: true,
+      trigger: 'manual',
+      ok: true,
+      reason: null,
+      tokensBefore: 21000,
+      tokensAfter: 8300,
+      windowTokens: 1000000,
+      percent: 0.83,
+      summaryChars: 0
+    })
+    expect(client.contextUsage).toMatchObject({
+      usedTokens: 8300,
+      windowTokens: 1000000,
+      percent: 0.83,
+      source: 'provider'
+    })
+    // 状态与事件要通知到消费方，但回调只对应服务端推送，避免重复通知。
+    expect(eventUsages).toHaveLength(1)
+    expect(compactedEvents).toHaveLength(1)
+    expect(callbackUsages).toHaveLength(0)
+    vi.unstubAllGlobals()
+  })
+
+  it('compactContext 无可压缩内容时照常返回并带出 reason', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        message: 'ok',
+        code: 0,
+        data: {
+          compacted: false,
+          reason: 'nothing_to_compact',
+          tokens_before: 300,
+          tokens_after: 300,
+          window_tokens: 1000000,
+          used_tokens: 300,
+          percent: 0.03
+        }
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws',
+      baseUrl: 'https://api.test/v1',
+      platformId: 'p',
+      agentId: 'a',
+      getToken: async () => 'token'
+    })
+    ;(client as any).conversationId = '88'
+
+    const result = await client.compactContext()
+
+    // 不带 instructions 时 body 是空对象，不发送 undefined 字段。
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.test/v1/embed/conversations/88/context/compact',
+      expect.objectContaining({ method: 'POST', body: '{}' })
+    )
+    expect(result?.compacted).toBe(false)
+    expect(result?.ok).toBe(false)
+    expect(result?.reason).toBe('nothing_to_compact')
+    expect(client.contextUsage?.usedTokens).toBe(300)
+    vi.unstubAllGlobals()
+  })
+
+  it('compactContext 失败时抛出带服务端信息的 AgentError', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({
+        success: false,
+        message: '会话不存在',
+        code: 40400,
+        data: null
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token'
+    })
+    ;(client as any).conversationId = '88'
+
+    await expect(client.compactContext()).rejects.toThrow('会话不存在')
+    vi.unstubAllGlobals()
+  })
+
+  it('compactContext 在没有当前会话时抛错', async () => {
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws', platformId: 'p', agentId: 'a', getToken: async () => 'token'
+    })
+
+    await expect(client.compactContext()).rejects.toThrow(/没有可压缩的会话/)
+  })
 })

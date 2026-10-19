@@ -11,6 +11,8 @@ from app.modules.embed.repositories import EmbedRepository
 from app.modules.embed.schemas import (
     EmbedTokenRequest,
     EmbedTokenResponse,
+    ConversationContextCompactRequest,
+    ConversationContextCompactResult,
     ConversationMessageRead,
     EmbedConversationPage,
     PlatformEmbedClientCreate,
@@ -21,6 +23,7 @@ from app.modules.embed.schemas import (
 )
 from app.modules.embed.services import (
     bind_embed_client_agent,
+    compact_embed_conversation,
     create_embed_client,
     build_token_quota_service,
     issue_embed_token,
@@ -290,3 +293,28 @@ async def get_message_snapshot_endpoint(
         ConversationRepository(session), conversation_id=conversation_id, claims=claims
     )
     return success_response(data=messages)
+
+
+@router.post(
+    "/embed/conversations/{conversation_id}/context/compact",
+    response_model=ApiResponse[ConversationContextCompactResult],
+)
+async def compact_context_endpoint(
+    conversation_id: int,
+    payload: ConversationContextCompactRequest | None = None,
+    claims=Depends(get_current_embed_claims),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """手动压缩本主体会话的模型上下文（摘要较早历史，原始消息不动）。
+
+    非本主体或已删除的会话返回 404，与相邻接口一致的「不泄露存在性」语义；
+    没有新的可压缩内容时返回 200 + ``compacted=false``，不视为错误。
+    """
+    result = await compact_embed_conversation(
+        ConversationRepository(session),
+        session=session,
+        conversation_id=conversation_id,
+        claims=claims,
+        instructions=payload.instructions if payload is not None else None,
+    )
+    return success_response(data=result, message="context compacted")

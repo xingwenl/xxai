@@ -271,6 +271,20 @@ export interface AgentCallbacks {
   onError?: (error: AgentError) => void
   onConfirmationRequired?: (confirmation: ToolConfirmation) => void
   onQuestionRequired?: (question: AgentQuestion) => void
+  /**
+   * 上下文占用变化（每轮模型调用后由网关推送一次）。
+   *
+   * 与 `agent.on('context_usage', handler)` 收到同一份数据，两种消费方式
+   * 任选其一即可，同时订阅会各收到一次。
+   */
+  onContextUsage?: (usage: ContextUsage) => void
+  /**
+   * 上下文压缩完成（自动或手动）。
+   *
+   * 与 `agent.on('context_compacted', handler)` 等价；只表示收到了服务端
+   * 推送的压缩结果，`ok === false` 时 `reason` 说明失败原因。
+   */
+  onContextCompacted?: (result: ContextCompacted) => void
 }
 
 export type HostToolStatus =
@@ -350,6 +364,50 @@ export interface QuotaUsage {
     model_tokens?: QuotaResourceUsage
     token_issue?: QuotaResourceUsage
   }
+}
+
+/**
+ * 当前会话的上下文占用快照。
+ *
+ * 由网关在每轮模型调用后通过 `context_usage` 事件下发；`windowTokens`
+ * 为 null 表示后端拿不到模型窗口大小（例如 `source` 为 `estimated`），
+ * 此时调用方只能展示绝对 token 数，无法给出百分比与占用环。
+ */
+export interface ContextUsage {
+  usedTokens: number
+  windowTokens: number | null
+  /** 0–100 的百分比数值；窗口未知时为 null。 */
+  percent: number | null
+  source: 'provider' | 'estimated'
+  lastCompactedAt: string | null
+}
+
+/**
+ * 一次上下文压缩的终态结果（自动或手动）。
+ *
+ * `ok === false` 时 `reason` 形如 `summary_failed` / `summary_truncated`，
+ * 且 `tokensAfter` 等于 `tokensBefore`（压缩未生效）。
+ */
+export interface ContextCompacted {
+  trigger: 'auto' | 'manual'
+  ok: boolean
+  reason: string | null
+  tokensBefore: number
+  tokensAfter: number
+  windowTokens: number | null
+  percent: number | null
+  summaryChars: number
+}
+
+/**
+ * `compactContext()` 的返回值：压缩结果 + 本次是否真的发生了压缩。
+ *
+ * REST 接口对「没有可压缩内容」是幂等成功（HTTP 200 + `compacted: false` +
+ * `reason: 'nothing_to_compact'`），因此单独带出 `compacted`，避免调用方把
+ * 一次空操作误判成失败。
+ */
+export interface ContextCompactResult extends ContextCompacted {
+  compacted: boolean
 }
 
 export interface TokenProviderContext {

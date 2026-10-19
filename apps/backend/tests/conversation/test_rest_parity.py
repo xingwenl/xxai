@@ -106,6 +106,16 @@ class FakeConversationRepository:
     async def list_recent_context_messages(self, conversation_id, *, since):
         return []
 
+    async def lock_conversation(self, conversation_id):
+        """上下文压缩入口会对会话行加写锁；测试替身无需真的加锁。"""
+        return None
+
+    async def get_latest_context_compaction(self, conversation_id):
+        return None
+
+    async def create_context_compaction(self, conversation_id, **values):
+        raise AssertionError("parity 测试的历史为空，不应产生压缩记录")
+
     async def create_message(self, conversation_id, **values):
         message = FakeMessage(self.next_message_id, values["content"])
         self.next_message_id += 1

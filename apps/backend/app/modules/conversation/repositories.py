@@ -10,6 +10,7 @@ from app.modules.conversation.models import (
     AgentLoopRunCheckpoint,
     AgentLoopStep,
     Conversation,
+    ConversationContextCompaction,
     ConversationMessage,
     ModelUsageRecord,
 )
@@ -248,6 +249,41 @@ class ConversationRepository:
             .order_by(ConversationMessage.created_at, ConversationMessage.id)
         )
         return list(result.scalars().all())
+
+    async def lock_conversation(self, conversation_id: int):
+        """按会话行加锁，串行化同一会话的并发压缩。
+
+        压缩要「读历史 → 摘要 → 写新行」，两个并发请求若不互斥，会各自基于
+        同一份历史写出两行摘要，随后模型上下文里就会出现两份互相矛盾的历史。
+        锁在事务提交时释放，调用方无需显式解锁。
+        """
+
+        return await self.session.scalar(
+            select(Conversation)
+            .where(Conversation.id == conversation_id)
+            .with_for_update()
+        )
+
+    async def get_latest_context_compaction(self, conversation_id: int):
+        """取当前生效的压缩行；无压缩记录时返回 None。"""
+
+        return await self.session.scalar(
+            select(ConversationContextCompaction)
+            .where(ConversationContextCompaction.conversation_id == conversation_id)
+            .order_by(ConversationContextCompaction.id.desc())
+            .limit(1)
+        )
+
+    async def create_context_compaction(self, conversation_id: int, **values):
+        """写入一条新的压缩记录；只增不改，历史行留作审计。"""
+
+        compaction = ConversationContextCompaction(
+            conversation_id=conversation_id, **values
+        )
+        self.session.add(compaction)
+        await self.session.commit()
+        await self.session.refresh(compaction)
+        return compaction
 
     async def list_messages_for_principal(
         self, conversation_id: int, platform_id: int, *, end_user_id: int

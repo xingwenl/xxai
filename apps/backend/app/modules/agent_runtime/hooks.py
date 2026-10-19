@@ -6,7 +6,7 @@
 
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 from app.modules.agent_runtime.contracts import AgentEvent
 
@@ -21,6 +21,20 @@ ModelErrorRecoverer = Callable[
 ]
 
 
+class ContextMetricsSink(Protocol):
+    """上下文计量出口：把「当前占用了多少」与压缩结果交回给 loop 发事件。
+
+    loop 是唯一能往事件流里插事件的地方（注入的 on_event 只能观测），因此
+    实现方只负责给出 ``(事件类型, payload)``，由 loop 决定何时发出。
+    """
+
+    def drain_events(
+        self, messages: list[Any], usage: dict[str, Any] | None = None
+    ) -> list[tuple[str, dict[str, Any]]]:
+        """取出待发事件；``usage`` 为该轮真实用量，为空表示模型调用前。"""
+        ...
+
+
 @dataclass(slots=True)
 class AgentRuntimeHooks:
     """一次 Agent 请求可选的生命周期钩子。"""
@@ -32,6 +46,7 @@ class AgentRuntimeHooks:
     on_event: Callable[[AgentEvent], Awaitable[None] | None] | None = None
     max_turns: int | None = None
     on_model_error: ModelErrorRecoverer | None = None
+    context_metrics: ContextMetricsSink | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

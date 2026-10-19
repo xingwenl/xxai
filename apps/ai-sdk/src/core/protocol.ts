@@ -23,6 +23,9 @@ export type ProtocolEventType =
   | 'agent_step_delta'
   | 'agent_step_completed'
   | 'agent_loop_completed'
+  // 上下文占用与压缩：纯加法，协议版本仍为 1。
+  | 'context_usage'
+  | 'context_compacted'
   | 'unknown'
 
 export interface ErrorPayload {
@@ -113,7 +116,11 @@ export function parseProtocolEvent(input: unknown): ProtocolEvent {
     'agent_step_started',
     'agent_step_delta',
     'agent_step_completed',
-    'agent_loop_completed'
+    'agent_loop_completed',
+    // 必须与上方 `ProtocolEventType` 联合类型逐一对应：漏一处会让
+    // `parseProtocolEvent` 把该事件归一到 `unknown` 并丢弃。
+    'context_usage',
+    'context_compacted'
   ]
   const knownType = eventTypes.includes(input.type as ProtocolEventType)
 
