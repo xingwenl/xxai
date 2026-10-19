@@ -22,7 +22,7 @@ SDK 的 `getToken` 返回的是 AI Base 签发的短期 Embed Access Token，不
 | 场景 | 方式 | 是否适合生产 |
 | --- | --- | --- |
 | 已有业务后端和登录态 | 接入项目后端代理 `POST /api/v1/embed/tokens` | 推荐 |
-| 本地 Demo | AI Base `/api/agent-token?external_user_id=...` | 仅开发联调 |
+| 本地 Demo | `npm run demo` 启动的 dev server 同源代理 `/demo-api/agent-token` | 仅开发联调 |
 | 纯浏览器、没有后端 | 当前版本没有安全的生产方案 | 不推荐 |
 
 ### 2.1 生产方式：接入项目提供 Token 代理
@@ -110,13 +110,29 @@ async def create_agent_session(current_user=Depends(get_current_user)):
 
 ### 2.2 本地 Demo 方式
 
-本地联调可以调用：
+本地 Demo 页面（`demo/*.html`、根目录 `index.html`）只请求**同源** `POST /demo-api/agent-token`，由 vite dev server 代理到 AI Base：
 
-```text
-GET /api/agent-token?external_user_id=demo-user
+```bash
+cd apps/ai-sdk
+EMBED_CLIENT_ID=<client_id> \
+EMBED_CLIENT_SECRET=<client_secret> \
+EMBED_AGENT_ID=1 \
+EMBED_ORIGIN=http://localhost:5174 \
+npm run demo
 ```
 
-该接口从 AI Base 服务端环境变量读取 `EMBED_CLIENT_ID`、`EMBED_CLIENT_SECRET`、`EMBED_AGENT_ID` 和 `EMBED_ORIGIN`。由于浏览器可以任意修改 `external_user_id`，它只能用于本地 Demo，不能直接用于生产身份认证。
+代理读取的环境变量：
+
+| 变量 | 含义 |
+| --- | --- |
+| `EMBED_CLIENT_ID` / `EMBED_CLIENT_SECRET` | 必填，服务端保存的 Embed Client 凭据 |
+| `EMBED_AGENT_ID` | 缺省 Agent；页面也可以显式传 `agent_id` |
+| `EMBED_ORIGIN` | 缺省 Origin；页面不传时用请求头 `Origin` |
+| `AGENT_API_BASE` | AI Base 地址，默认 `http://127.0.0.1:8000` |
+
+`client_secret` 只存在于启动 demo 的那个 shell 环境与 dev server 进程内，不写入 HTML、不进入浏览器。
+
+AI Base 另有一个后台登录态接口 `GET /api/agent-token`（默认 `http://127.0.0.1:8000/api/agent-token`）。它**要求后台登录态**；非生产环境下可以用查询参 `external_user_id` 覆盖 token 主体以便模拟不同终端用户，**生产环境忽略该覆盖**并强制使用当前登录用户 id。
 
 ### 2.3 不提供后端代理时
 
@@ -724,7 +740,7 @@ npm run type-check
 
 > ⚠️ `dist/` 不被 git 跟踪。仓库内以 `file:` 方式引用本 SDK 的宿主（`apps/front`、`apps/shop`）在 pnpm 下是**复制** `dist` 而非软链，且不会触发本包的 `prepare` 脚本。因此改动 `apps/ai-sdk/src` 之后，需要重新 `npm run build`，再到宿主目录重跑 `pnpm install` 才能生效；干净克隆时同样要先构建本包。
 
-本地 Demo 使用 `/api/agent-token?external_user_id=demo-user` 时，确认 AI Base 后端已配置 `EMBED_CLIENT_ID`、`EMBED_CLIENT_SECRET`、`EMBED_AGENT_ID` 和 `EMBED_ORIGIN`。
+本地 Demo 页面通过 dev server 的同源代理 `/demo-api/agent-token` 换 token，需要先设置 `EMBED_CLIENT_ID`、`EMBED_CLIENT_SECRET`、`EMBED_AGENT_ID` 和 `EMBED_ORIGIN`（见 [2.2 本地 Demo 方式](#22-本地-demo-方式)）；AI Base 后端也要配置同样的 Embed 变量。
 
 ## 12. 发布到 npm
 
@@ -748,7 +764,7 @@ SDK 通过 GitHub Actions 自动发布到 npm 官方仓库，工作流见 `.gith
 
 ### token 从哪里获取？
 
-生产环境由接入项目服务端调用 AI Base 的 `POST /api/v1/embed/tokens`，浏览器只从接入项目的 `/api/agent-session` 获取短期 token。本地 Demo 可使用 `/api/agent-token`。
+生产环境由接入项目服务端调用 AI Base 的 `POST /api/v1/embed/tokens`，浏览器只从接入项目的 `/api/agent-session` 获取短期 token。本地 Demo 用 `npm run demo` 启动的 dev server 同源代理 `/demo-api/agent-token`（凭据留在 dev server 进程内）；AI Base 的 `GET /api/agent-token` 需要后台登录态。
 
 ### 可以把 `client_secret` 放到前端吗？
 

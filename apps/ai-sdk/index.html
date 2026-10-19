@@ -142,11 +142,19 @@ echarts 代码块内必须是**纯 JSON 对象**（可含 series/xAxis/yAxis/tit
 不要输出 <script>、不要用 html 画图，不要输出图片链接。`,
         getToken: async () => {
           console.log('getToken called');
-          const params = new URLSearchParams({
-            external_user_id: '2',
-            origin: window.location.origin,
+          // 同源 dev 代理换 token；页面不直接接触 Embed Client 凭据（见 README「本地 Demo」）。
+          const response = await fetch('/demo-api/agent-token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              agent_id: '1',
+              external_user_id: '2',
+              origin: window.location.origin,
+            }),
           });
-          const response = await fetch('/api/agent-token?' + params.toString());
+          if (!response.ok) {
+            throw new Error(`获取 token 失败（${response.status}）：${await response.text()}`);
+          }
           const result = await response.json();
           return result.data.access_token;
         },

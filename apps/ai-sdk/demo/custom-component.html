@@ -86,17 +86,20 @@
         agentId: '1',
         platformId: '1',
         getToken: async () => {
-          const response = await fetch('http://localhost:8000/api/v1/embed/tokens', {
+          // 走 dev server 的同源代理换 token：页面里不出现任何 Embed Client 凭据。
+          // 代理需要 EMBED_CLIENT_ID / EMBED_CLIENT_SECRET 等环境变量，见 README「本地 Demo」。
+          const response = await fetch('/demo-api/agent-token', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              client_id: 'client_id',
-              client_secret: 'client_secret',
               agent_id: '1',
               external_user_id: '101',
               origin: window.location.origin,
             }),
           })
+          if (!response.ok) {
+            throw new Error(`获取 token 失败（${response.status}）：${await response.text()}`)
+          }
           const result = await response.json()
           return result.data.access_token
         },

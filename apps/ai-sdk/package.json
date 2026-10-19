@@ -45,7 +45,7 @@
     "verify-package": "node scripts/verify-package.mjs",
     "prepublishOnly": "npm run build && npm run verify-package",
     "preview": "vite preview",
-    "demo": "cd demo && npx serve -l 5174",
+    "demo": "vite --port 5174 --open /demo/index.html",
     "prepare": "npm run build"
   },
   "devDependencies": {
