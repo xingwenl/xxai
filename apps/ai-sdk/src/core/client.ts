@@ -19,6 +19,7 @@ import type {
   ToolConfirmation,
   WebSocketMessage
 } from './types'
+import { agentError, agentErrorFromResponse, type AgentError } from './errors'
 import { EventEmitter } from './event-emitter'
 import { MessageStore } from './message-store'
 import { ToolRegistry } from './tool-registry'
@@ -42,6 +43,8 @@ function parseOptionalObject(value: unknown): Record<string, unknown> | undefine
 export class AgentClient {
   private options: AgentClientOptions
   private transport: Transport
+  /** 已由 compatibility_error 处理过的传输层错误，用于抑制紧随其后的重复 error。 */
+  private _handledTransportError?: AgentError
   private eventEmitter: EventEmitter
   private messageStore: MessageStore
   private toolRegistry: ToolRegistry
@@ -142,12 +145,26 @@ export class AgentClient {
     const response = await fetch(resourceUrl, {
       headers: { Authorization: `Bearer ${token}` }
     })
-    if (!response.ok) throw new Error(`asset request failed: ${response.status}`)
+    if (!response.ok) {
+      throw await agentErrorFromResponse(response, 'asset request failed')
+    }
     return URL.createObjectURL(await response.blob())
   }
 
   private setupTransportListeners(): void {
     if (this.transport instanceof WebSocketTransport) {
+      // 兼容性失败在传输层是「先 compatibility_error、再 error」成对发出的。
+      // 这里消费前者拿到结构化错误码，并把紧随其后的 error 标记为已处理，
+      // 避免同一次失败让调用方收到两条错误。
+      this.transport.on('compatibility_error', (error: AgentError) => {
+        this._handledTransportError = error
+        this.handleRequestError({
+          code: error.code ?? 'agent_connection_failed',
+          message: error.message,
+          retryable: error.retryable === true,
+          details: error.details
+        })
+      })
       this.transport.on('state', (state: ConnectionState) => {
         this.handleConnectionStateChange(state)
       })
@@ -167,6 +184,10 @@ export class AgentClient {
 
     this.transport.on('error', (error: Error) => {
       console.error('Connection error:', error)
+      if (error === this._handledTransportError) {
+        this._handledTransportError = undefined
+        return
+      }
       this.handleRequestError({
         code: 'agent_connection_failed',
         message: 'Agent 连接失败，本轮对话已结束',
@@ -508,7 +529,8 @@ export class AgentClient {
     errorPayload: Record<string, unknown>,
     requestId?: string
   ): void {
-    const errorText = String(errorPayload.message || errorPayload.code || '请求失败')
+    const normalized = agentError(errorPayload)
+    const errorText = normalized.message
     const activeRequestId = requestId || this.currentRequestId || this.activeRequestId
     const failedLoop = this.pendingLoop
       ? {
@@ -555,8 +577,8 @@ export class AgentClient {
     this.pendingCitations = []
     this.currentRequestId = undefined
     this.activeRequestId = undefined
-    this._callbacks.onError?.(new Error(errorText))
-    this.eventEmitter.emit('error', errorPayload)
+    this._callbacks.onError?.(normalized)
+    this.eventEmitter.emit('error', normalized)
   }
 
   private mergeLoopStep(msg: WebSocketMessage): AgentLoopStep {
@@ -718,8 +740,7 @@ export class AgentClient {
     )
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}))
-      throw new Error(error.message || `上传失败: ${response.status}`)
+      throw await agentErrorFromResponse(response, '上传失败')
     }
 
     const result = await response.json()
@@ -754,7 +775,7 @@ export class AgentClient {
     )
 
     if (!response.ok) {
-      throw new Error(`查询失败: ${response.status}`)
+      throw await agentErrorFromResponse(response, '查询失败')
     }
 
     const result = await response.json()
@@ -777,7 +798,7 @@ export class AgentClient {
     )
 
     if (!response.ok) {
-      throw new Error(`删除失败: ${response.status}`)
+      throw await agentErrorFromResponse(response, '删除失败')
     }
   }
 
@@ -814,7 +835,7 @@ export class AgentClient {
       headers: { Authorization: `Bearer ${token}` }
     })
     if (!response.ok) {
-      throw new Error(`会话列表加载失败: ${response.status}`)
+      throw await agentErrorFromResponse(response, '会话列表加载失败')
     }
     const body = await response.json() as {
       data?: {
@@ -895,7 +916,7 @@ export class AgentClient {
       { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }
     )
     if (!response.ok) {
-      throw new Error(`会话删除失败: ${response.status}`)
+      throw await agentErrorFromResponse(response, '会话删除失败')
     }
     // 删掉的正是当前会话时，回到新建态，避免停在一个已删除的会话上。
     if (this.conversationId === id) {
@@ -913,7 +934,7 @@ export class AgentClient {
       { headers: { Authorization: `Bearer ${token}` } }
     )
     if (!response.ok) {
-      throw new Error(`历史消息加载失败: ${response.status}`)
+      throw await agentErrorFromResponse(response, '历史消息加载失败')
     }
     const body = await response.json() as {
       data?: HistoryMessageLike[]

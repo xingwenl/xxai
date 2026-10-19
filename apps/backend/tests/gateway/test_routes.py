@@ -54,7 +54,16 @@ def test_websocket_auth_failure_sends_embed_token_error_then_closes():
             headers={"origin": "https://app.acme.test"},
             subprotocols=["ai-agent.v1"],
         ) as websocket:
-            websocket.send_json({"type": "auth", "payload": {"token": token}})
+            websocket.send_json(
+                {
+                    "type": "auth",
+                    "payload": {
+                        "token": token,
+                        "protocolVersion": 1,
+                        "sdkVersion": "0.2.0",
+                    },
+                }
+            )
             event = json.loads(websocket.receive_text())
             assert event["type"] == "error"
             assert event["payload"]["code"] == "embed_token"
@@ -63,3 +72,29 @@ def test_websocket_auth_failure_sends_embed_token_error_then_closes():
             websocket.receive_text()
 
     assert error.value.code == 4401
+
+
+def test_websocket_auth_without_version_fields_is_rejected_before_token_check():
+    """auth 帧缺失 protocolVersion/sdkVersion 必须被拒，不能默认放行。
+
+    早期实现用 ``auth_payload.get("protocolVersion", 1)`` 取参，缺字段会被当成
+    「声明了兼容版本」，版本协商门禁形同虚设；这里锁定修复后的行为。
+    """
+
+    client = TestClient(create_app())
+
+    with pytest.raises(WebSocketDisconnect) as error:
+        with client.websocket_connect(
+            "/api/v1/ws/agents/11",
+            headers={"origin": "https://app.acme.test"},
+            subprotocols=["ai-agent.v1"],
+        ) as websocket:
+            websocket.send_json({"type": "auth", "payload": {"token": "irrelevant"}})
+            event = json.loads(websocket.receive_text())
+            assert event["type"] == "error"
+            assert event["payload"]["code"] == "unsupported_protocol_version"
+            assert event["payload"]["retryable"] is False
+            assert event["payload"]["details"]["minimumSdkVersion"]
+            websocket.receive_text()
+
+    assert error.value.code == 4406

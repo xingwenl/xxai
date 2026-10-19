@@ -39,7 +39,8 @@ describe('WebSocketTransport', () => {
       type: 'auth',
       payload: { token: 'secret-token', platformId: 'platform-1', agentId: '7' }
     })
-    expect(JSON.parse(sockets[0].sent[0]).payload.capabilities).toContain('questions')
+    // capabilities 已双向删除：客户端不再声明任何协议能力。
+    expect(JSON.parse(sockets[0].sent[0]).payload).not.toHaveProperty('capabilities')
     sockets[0].receive(event(1, 'session_ready', { sessionId: 'session-1', recovered: true }))
     await connecting
     expect(transport.state).toBe('connected')

@@ -556,4 +556,58 @@ describe('AgentClient protocol events', () => {
     expect(client.agentInfo).toBeUndefined()
     expect(client.quota).toBeUndefined()
   })
+  it('onError 与 on(\'error\') 收到同一个带错误码的 AgentError', async () => {
+    const errors: any[] = []
+    const events: any[] = []
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws',
+      platformId: 'p',
+      agentId: 'a',
+      getToken: async () => 'token',
+      callbacks: { onError: (error) => errors.push(error) }
+    })
+    client.on('error', (payload: any) => events.push(payload))
+    const transport = (client as any).transport
+
+    await client.sendMessage('触发失败')
+    transport.emit('message', {
+      id: '1', type: 'error', protocolVersion: 1, sequence: 1,
+      timestamp: new Date().toISOString(), requestId: 'r', payload: {
+        code: 'chat_model_unavailable',
+        message: '对话模型不可用',
+        retryable: false,
+        details: { minimumSdkVersion: '0.1.0' }
+      }
+    })
+
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toBeInstanceOf(Error)
+    expect(errors[0].code).toBe('chat_model_unavailable')
+    expect(errors[0].retryable).toBe(false)
+    expect(errors[0].details).toEqual({ minimumSdkVersion: '0.1.0' })
+    // 同一个对象：调用方从两条路径拿到的错误形状一致。
+    expect(events[0]).toBe(errors[0])
+  })
+
+  it('兼容性失败只上报一次（compatibility_error 与 error 成对发出时不重复）', async () => {
+    const errors: any[] = []
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws',
+      platformId: 'p',
+      agentId: 'a',
+      getToken: async () => 'token',
+      callbacks: { onError: (error) => errors.push(error) }
+    })
+    const transport = (client as any).transport
+    const failure: any = new Error('当前 SDK 版本过低，请升级到 0.2.0 或更高版本')
+    failure.name = 'AgentError'
+    failure.code = 'unsupported_sdk_version'
+    failure.retryable = false
+
+    transport.emit('compatibility_error', failure)
+    transport.emit('error', failure)
+
+    expect(errors).toHaveLength(1)
+    expect(errors[0].code).toBe('unsupported_sdk_version')
+  })
 })

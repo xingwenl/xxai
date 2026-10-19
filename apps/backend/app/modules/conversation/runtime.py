@@ -28,6 +28,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.modules.agent_runtime.error_codes import ErrorCode
 from app.modules.skill.services import build_runtime_skill_metadata
 from app.modules.skill_runner.tools import (
     build_skill_instruction_tool,
@@ -427,14 +428,14 @@ def resolve_context_window_tokens(
 def is_context_length_exceeded(error: BaseException) -> bool:
     """识别 OpenAI/DeepSeek 兼容的「输入超出模型上下文上限」错误。"""
     code = getattr(error, "code", None)
-    if isinstance(code, str) and "context_length_exceeded" in code.lower():
+    if isinstance(code, str) and ErrorCode.CONTEXT_LENGTH_EXCEEDED in code.lower():
         return True
     raw = str(error).lower()
     return any(
         marker in raw
         for marker in (
             "maximum context length",
-            "context_length_exceeded",
+            ErrorCode.CONTEXT_LENGTH_EXCEEDED,
             "maximum context",
             "prompt is too long",
         )
@@ -950,7 +951,7 @@ def build_agent_error_payload(error: BaseException) -> dict[str, Any]:
     """将模型/Agent 异常转换为可安全展示且可重试判断的错误事件。"""
     if is_context_length_exceeded(error):
         return {
-            "code": "context_length_exceeded",
+            "code": ErrorCode.CONTEXT_LENGTH_EXCEEDED,
             "message": (
                 "对话或本次查询结果超过模型上下文上限，"
                 "请缩小查询范围或开启新对话"
@@ -992,16 +993,16 @@ def build_agent_error_payload(error: BaseException) -> dict[str, Any]:
     )
     retryable = is_connection_error or bool(status_code and status_code >= 500)
     if status_code == 502:
-        code = "agent_upstream_unavailable"
+        code = ErrorCode.AGENT_UPSTREAM_UNAVAILABLE
         message = "Agent 连接失败（HTTP 502），本轮对话已结束"
     elif status_code and status_code >= 500:
-        code = "agent_upstream_unavailable"
+        code = ErrorCode.AGENT_UPSTREAM_UNAVAILABLE
         message = f"Agent 连接失败（HTTP {status_code}），本轮对话已结束"
     elif is_connection_error:
-        code = "agent_upstream_unavailable"
+        code = ErrorCode.AGENT_UPSTREAM_UNAVAILABLE
         message = "Agent 连接失败，本轮对话已结束"
     else:
-        code = "agent_request_failed"
+        code = ErrorCode.AGENT_REQUEST_FAILED
         message = "Agent 请求失败，本轮对话已结束"
     return {
         "code": code,

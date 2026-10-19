@@ -1,3 +1,5 @@
+import type { AgentError } from './errors'
+
 export type ConnectionState =
   | 'disconnected'
   | 'connecting'
@@ -266,7 +268,7 @@ export interface AgentCallbacks {
   onConnectionState?: (state: ConnectionState) => void
   onToolCall?: (name: string, input: unknown) => void
   onToolResult?: (name: string, result: unknown) => void
-  onError?: (error: Error) => void
+  onError?: (error: AgentError) => void
   onConfirmationRequired?: (confirmation: ToolConfirmation) => void
   onQuestionRequired?: (question: AgentQuestion) => void
 }

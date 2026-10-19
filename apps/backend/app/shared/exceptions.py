@@ -9,17 +9,27 @@ from app.shared.responses import error_response
 
 
 class AppException(Exception):
+    """业务异常基类。
+
+    ``error_code`` 是给程序判断的稳定字符串码（取值见
+    ``app.modules.agent_runtime.error_codes.ErrorCode``）；``code`` 字段仍是
+    HTTP 状态码，语义不变。未指定 ``error_code`` 时 REST 响应里该字段为
+    ``null``，调用方据此回落到状态码判断。
+    """
+
     def __init__(
         self,
         message: str,
         *,
         status_code: int = status.HTTP_400_BAD_REQUEST,
         headers: dict[str, Any] | None = None,
+        error_code: str | None = None,
     ) -> None:
         super().__init__(message)
         self.message = message
         self.status_code = status_code
         self.headers = headers
+        self.error_code = error_code
 
 
 class NotFoundException(AppException):
@@ -58,7 +68,9 @@ def register_exception_handlers(app: FastAPI) -> None:
     ) -> JSONResponse:
         return JSONResponse(
             status_code=exc.status_code,
-            content=error_response(message=exc.message, code=exc.status_code).model_dump(),
+            content=error_response(
+                message=exc.message, code=exc.status_code, error_code=exc.error_code
+            ).model_dump(),
             headers=exc.headers,
         )
 

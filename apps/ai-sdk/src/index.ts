@@ -8,6 +8,7 @@ import {
 import { createApp, h } from 'vue'
 import type {
   AgentClientOptions,
+  AgentError,
   AgentCallbacks,
   AgentQuestion,
   Message,
@@ -44,6 +45,7 @@ export function createAgentClient(options: AgentClientOptions) {
 
 export type {
   AgentClientOptions,
+  AgentError,
   AgentCallbacks,
   AgentQuestion,
   Message,
@@ -77,6 +79,10 @@ export type {
 export { createApp, h }
 
 export { AgentClient } from './core'
+
+// 接入方需要知道「自己这份 SDK 说的是哪个协议版本、自己是什么版本」，
+// 才能在兼容性报错与日志里对上号，因此从包根导出。
+export { PROTOCOL_VERSION, SDK_VERSION } from './core/protocol'
 
 export { ConversationList, ConversationHistory } from './history'
 

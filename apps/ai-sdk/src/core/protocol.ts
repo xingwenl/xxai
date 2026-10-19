@@ -44,7 +44,7 @@ export type ProtocolPayload =
   | {
       callId: string
       name: string
-      toolType?: 'mcp_tool' | 'host_tool'
+      toolType?: 'mcp_tool' | 'host_tool' | 'builtin_tool' | 'skill_tool'
       sideEffect?: 'none' | 'navigation' | 'write' | 'financial' | 'external'
       summary?: Record<string, unknown>
       expiresAt?: string

@@ -1,4 +1,5 @@
 import { EventEmitter } from './event-emitter';
+import { agentError, type AgentError } from './errors';
 import { parseProtocolEvent, SDK_VERSION } from './protocol';
 import type {
   ConnectionState,
@@ -43,11 +44,12 @@ export class WebSocketTransport extends EventEmitter implements Transport {
   private _connectResolve: (() => void) | null = null;
   private _connectReject: ((error: Error) => void) | null = null;
   private _explicitDisconnect = false;
+  /** 协议/SDK 版本不兼容的失败对象：服务端 close 4406 到达时据此判定「已上报过」。 */
+  private _compatibilityFailure?: AgentError;
   private _lastSequence = 0;
   private _sessionReady = false;
   private _conversationId: string | undefined;
   private _registeredTools = new Map<string, OutgoingMessage>();
-  private _serverCapabilities: string[] = [];
 
   constructor(options: {
     endpoint: string;
@@ -87,10 +89,6 @@ export class WebSocketTransport extends EventEmitter implements Transport {
   get lastSequence(): number {
     return this._lastSequence;
   }
-  get serverCapabilities(): string[] {
-    return [...this._serverCapabilities];
-  }
-
   setConversationId(conversationId?: string): void {
     const next = conversationId || undefined;
     // 游标属于单个会话的事件流：切换会话（含切回「新会话」）时必须归零，
@@ -182,8 +180,6 @@ export class WebSocketTransport extends EventEmitter implements Transport {
             sdkVersion: SDK_VERSION,
             conversationId: this._conversationId,
             lastSequence: this._lastSequence || undefined,
-            // 声明客户端支持结构化询问的协议能力；启用与否由后台绑定决定。
-            capabilities: ['questions'],
           },
         }),
       );
@@ -210,13 +206,6 @@ export class WebSocketTransport extends EventEmitter implements Transport {
       if (event.type === 'session_ready') {
         const sessionId = (event.payload as Record<string, unknown>).sessionId;
         if (typeof sessionId === 'string') this._conversationId = sessionId;
-        const capabilities = (event.payload as Record<string, unknown>)
-          .capabilities;
-        if (Array.isArray(capabilities)) {
-          this._serverCapabilities = capabilities.filter(
-            (item): item is string => typeof item === 'string',
-          );
-        }
         // session_ready 是连接握手事件，不属于 replay 游标流。重连时它的
         // sequence 可能位于 replay 事件之前，不能推进或参与去重。
         this._sessionReady = true;
@@ -245,21 +234,55 @@ export class WebSocketTransport extends EventEmitter implements Transport {
           code === 'unsupported_protocol_version' ||
           code === 'unsupported_sdk_version'
         ) {
-          const compatibilityError = {
-            code: String(code),
-            retryable: payload.retryable === true,
-          };
-          this.emit('compatibility_error', compatibilityError);
-          this.failConnect(new Error(String(code)));
+          this.failConnect(this.emitCompatibilityError(String(code), payload));
         }
       }
       this.emit('message', event as WebSocketMessage);
     } catch (error) {
+      // parseProtocolEvent 对不兼容的主版本是直接抛错（没有 payload），
+      // 这里补成与 error 事件路径同形的结构化失败，避免同一个原因出现两种面。
+      if (
+        error instanceof Error &&
+        error.message === 'Unsupported protocol version'
+      ) {
+        this.failConnect(
+          this.emitCompatibilityError('unsupported_protocol_version', {}),
+        );
+        return;
+      }
       this.emit(
         'error',
         error instanceof Error ? error : new Error('Invalid WebSocket message'),
       );
     }
+  }
+
+  /**
+   * 抛出结构化兼容性失败。
+   *
+   * 同一份 AgentError 既交给 `compatibility_error` 订阅者，也作为 `connect()`
+   * 的 reject 原因，调用方无论从哪条路径拿到的形状都一致。
+   */
+  private emitCompatibilityError(
+    code: string,
+    payload: Record<string, unknown>,
+  ): AgentError {
+    const error = agentError({
+      code,
+      message:
+        typeof payload.message === 'string' && payload.message
+          ? payload.message
+          : code,
+      retryable: payload.retryable === true,
+      details:
+        typeof payload.details === 'object' && payload.details !== null
+          ? (payload.details as Record<string, unknown>)
+          : undefined,
+    });
+    this.emit('compatibility_error', error);
+    // 记下这份失败：服务端随后会以 4406 关闭连接，handleClose 据此避免重复上报与退避重连。
+    this._compatibilityFailure = error;
+    return error;
   }
 
   registerHostTools(tools: OutgoingMessage): void {
@@ -317,6 +340,18 @@ export class WebSocketTransport extends EventEmitter implements Transport {
     this.emit('close');
     if (this._explicitDisconnect) {
       this.setState('disconnected');
+      return;
+    }
+    // 4406 是协议/SDK 版本不兼容的专用 close code：重试只会再被拒一次，
+    // 因此直接以不兼容收尾，不进入退避重连。
+    if (event.code === 4406) {
+      const pending = this._compatibilityFailure;
+      this._compatibilityFailure = undefined;
+      if (pending) {
+        this.setState('error');
+        return;
+      }
+      this.failConnect(this.emitCompatibilityError('protocol_negotiation_failed', {}));
       return;
     }
     if (this._reconnectAttempts >= this._maxRetries) {

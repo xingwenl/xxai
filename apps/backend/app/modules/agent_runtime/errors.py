@@ -3,6 +3,7 @@
 import asyncio
 import re
 from dataclasses import dataclass
+from app.modules.agent_runtime.error_codes import ErrorCode
 from typing import Any
 
 
@@ -30,7 +31,7 @@ def cancellation_error() -> AgentRuntimeError:
     """统一取消错误，取消不应被误报成供应商故障。"""
 
     return AgentRuntimeError(
-        code="agent_request_cancelled",
+        code=ErrorCode.AGENT_REQUEST_CANCELLED,
         message="Agent 请求已取消",
         retryable=True,
     )
@@ -50,7 +51,7 @@ def error_from_exception(error: BaseException) -> AgentRuntimeError:
     lowered = raw.lower()
     if _is_context_length_exceeded(lowered):
         return AgentRuntimeError(
-            code="context_length_exceeded",
+            code=ErrorCode.CONTEXT_LENGTH_EXCEEDED,
             message=(
                 "对话或本次查询结果超过模型上下文上限，"
                 "请缩小查询范围或开启新对话"
@@ -73,7 +74,7 @@ def error_from_exception(error: BaseException) -> AgentRuntimeError:
     )
     if status_code is not None and status_code >= 500:
         return AgentRuntimeError(
-            code="agent_upstream_unavailable",
+            code=ErrorCode.AGENT_UPSTREAM_UNAVAILABLE,
             message=f"Agent 连接失败（HTTP {status_code}），本轮对话已结束",
             retryable=True,
             details={
@@ -83,7 +84,7 @@ def error_from_exception(error: BaseException) -> AgentRuntimeError:
         )
     if is_connection_error:
         return AgentRuntimeError(
-            code="agent_upstream_unavailable",
+            code=ErrorCode.AGENT_UPSTREAM_UNAVAILABLE,
             message="Agent 连接失败，本轮对话已结束",
             retryable=True,
             details={
@@ -92,7 +93,7 @@ def error_from_exception(error: BaseException) -> AgentRuntimeError:
             },
         )
     return AgentRuntimeError(
-        code="agent_request_failed",
+        code=ErrorCode.AGENT_REQUEST_FAILED,
         message="Agent 请求失败，本轮对话已结束",
         retryable=False,
         details={

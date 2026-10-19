@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from jsonschema import ValidationError, validate
 
 from app.core.logging import get_logger
+from app.modules.agent_runtime.error_codes import ErrorCode
 from app.modules.asset.repositories import AssetRepository
 from app.modules.builtin_tool.repositories import BuiltinToolRepository
 from app.modules.builtin_tool.registry import get_builtin_tool
@@ -79,7 +80,7 @@ def host_tool_outcome_log_fields(result: object) -> tuple[int, str, str]:
         size = -1
     if not isinstance(result, dict):
         return size, "", ""
-    code = str(result.get("code") or ("host_tool_failed" if "error" in result else ""))
+    code = str(result.get("code") or (ErrorCode.HOST_TOOL_FAILED if "error" in result else ""))
     message = str(result.get("message") or result.get("error") or "")
     return size, code, message[:LOG_SUMMARY_LIMIT]
 
@@ -341,13 +342,13 @@ class RuntimeToolDispatcher:
         definition = get_builtin_tool(tool.name)
         if definition is None:
             return SimpleNamespace(
-                status="failed", result={"error": {"code": "tool_not_available"}}
+                status="failed", result={"error": {"code": ErrorCode.TOOL_NOT_AVAILABLE}}
             )
         try:
             validate(instance=arguments, schema=definition.input_schema)
         except ValidationError:
             return SimpleNamespace(
-                status="failed", result={"error": {"code": "invalid_arguments"}}
+                status="failed", result={"error": {"code": ErrorCode.INVALID_ARGUMENTS}}
             )
 
         self.question_sequence += 1
@@ -697,8 +698,8 @@ class RuntimeToolDispatcher:
                 getattr(fresh, "error", None),
             )
             return {
-                "error": "host_tool_failed",
-                "code": "host_tool_execution_failed",
+                "error": ErrorCode.HOST_TOOL_FAILED,
+                "code": ErrorCode.HOST_TOOL_EXECUTION_FAILED,
                 "message": str(getattr(fresh, "error", None) or "宿主工具已结束"),
             }
         if status == "awaiting_confirmation":
@@ -710,14 +711,14 @@ class RuntimeToolDispatcher:
                 status,
             )
             return {
-                "error": "host_tool_expired",
-                "code": "host_tool_expired",
+                "error": ErrorCode.HOST_TOOL_EXPIRED,
+                "code": ErrorCode.HOST_TOOL_EXPIRED,
                 "message": "宿主工具确认已超时，工具未执行",
             }
         # running 是当前唯一剩余状态；状态机允许 running -> failed，超时按
         # 失败结果化回填模型，避免请求永久挂起在页面执行阶段。
         await self.host_tool_repo.transition_call(
-            fresh, "failed", error="host_tool_execution_timeout"
+            fresh, "failed", error=ErrorCode.HOST_TOOL_EXECUTION_TIMEOUT
         )
         logger.warning(
             "Host tool execution timed out waiting for page result request_id=%s call_id=%s audit_status=%s",
@@ -726,7 +727,7 @@ class RuntimeToolDispatcher:
             status,
         )
         return {
-            "error": "host_tool_failed",
-            "code": "host_tool_execution_timeout",
+            "error": ErrorCode.HOST_TOOL_FAILED,
+            "code": ErrorCode.HOST_TOOL_EXECUTION_TIMEOUT,
             "message": "宿主工具执行超时，未收到页面结果",
         }

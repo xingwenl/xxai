@@ -1,344 +1,346 @@
 [
-{
-  "id": "evt_1",
-  "type": "agent_loop_started",
-  "protocolVersion": 1,
-  "sequence": 1,
-  "timestamp": "2026-10-16T00:00:00+00:00",
-  "payload": {
-    "loopRunId": "1",
-    "status": "running",
-    "summary": "正在处理请求"
-  },
-  "conversationId": "101",
-  "requestId": "req-golden"
-},
-{
-  "id": "evt_2",
-  "type": "agent_step_completed",
-  "protocolVersion": 1,
-  "sequence": 2,
-  "timestamp": "2026-10-16T00:00:00+00:00",
-  "payload": {
-    "loopRunId": "1",
-    "stepId": "1",
+  {
+    "id": "evt_1",
+    "type": "agent_loop_started",
+    "protocolVersion": 1,
     "sequence": 1,
-    "stepType": "knowledge_retrieval",
-    "title": "检索知识库",
-    "status": "succeeded",
-    "outputSummary": "命中 1 条",
-    "thinkingText": "先打个招呼",
-    "citationRefs": [
-      {
-        "title": "FAQ",
-        "text": "说明"
-      }
-    ]
+    "timestamp": "2026-10-16T00:00:00+00:00",
+    "payload": {
+      "loopRunId": "1",
+      "status": "running",
+      "summary": "正在处理请求"
+    },
+    "conversationId": "101",
+    "requestId": "req-golden"
   },
-  "conversationId": "101",
-  "requestId": "req-golden"
-},
-{
-  "id": "evt_3",
-  "type": "agent_step_started",
-  "protocolVersion": 1,
-  "sequence": 3,
-  "timestamp": "2026-10-16T00:00:00+00:00",
-  "payload": {
-    "loopRunId": "1",
-    "stepId": "11",
+  {
+    "id": "evt_2",
+    "type": "agent_step_completed",
+    "protocolVersion": 1,
     "sequence": 2,
-    "stepType": "model_generation",
-    "title": "生成回答",
-    "status": "succeeded",
-    "thinkingText": "先打个招呼"
+    "timestamp": "2026-10-16T00:00:00+00:00",
+    "payload": {
+      "loopRunId": "1",
+      "stepId": "1",
+      "sequence": 1,
+      "stepType": "knowledge_retrieval",
+      "title": "检索知识库",
+      "status": "succeeded",
+      "outputSummary": "命中 1 条",
+      "thinkingText": "先打个招呼",
+      "citationRefs": [
+        {
+          "title": "FAQ",
+          "text": "说明"
+        }
+      ]
+    },
+    "conversationId": "101",
+    "requestId": "req-golden"
   },
-  "conversationId": "101",
-  "requestId": "req-golden"
-},
-{
-  "id": "evt_4",
-  "type": "message_delta",
-  "protocolVersion": 1,
-  "sequence": 4,
-  "timestamp": "2026-10-16T00:00:00+00:00",
-  "payload": {
-    "content": "你好"
-  },
-  "conversationId": "101",
-  "requestId": "req-golden"
-},
-{
-  "id": "evt_5",
-  "type": "message_delta",
-  "protocolVersion": 1,
-  "sequence": 5,
-  "timestamp": "2026-10-16T00:00:00+00:00",
-  "payload": {
-    "content": "，世界"
-  },
-  "conversationId": "101",
-  "requestId": "req-golden"
-},
-{
-  "id": "evt_6",
-  "type": "agent_step_delta",
-  "protocolVersion": 1,
-  "sequence": 6,
-  "timestamp": "2026-10-16T00:00:00+00:00",
-  "payload": {
-    "loopRunId": "1",
-    "stepId": "11",
-    "sequence": 2,
-    "stepType": "model_generation",
-    "field": "thinking",
-    "content": "先打个招呼"
-  },
-  "conversationId": "101",
-  "requestId": "req-golden"
-},
-{
-  "id": "evt_7",
-  "type": "agent_step_started",
-  "protocolVersion": 1,
-  "sequence": 7,
-  "timestamp": "2026-10-16T00:00:00+00:00",
-  "payload": {
-    "loopRunId": "1",
-    "stepId": "12",
+  {
+    "id": "evt_3",
+    "type": "agent_step_started",
+    "protocolVersion": 1,
     "sequence": 3,
-    "stepType": "builtin",
-    "title": "调用工具：http_get",
-    "status": "succeeded",
-    "thinkingText": "先打个招呼",
-    "toolName": "http_get",
-    "skillName": null,
-    "skillVersion": null
-  },
-  "conversationId": "101",
-  "requestId": "req-golden"
-},
-{
-  "id": "evt_8",
-  "type": "tool_call",
-  "protocolVersion": 1,
-  "sequence": 8,
-  "timestamp": "2026-10-16T00:00:00+00:00",
-  "payload": {
-    "name": "http_get",
-    "input": "GET https://example.com",
-    "callId": "call_1"
-  },
-  "conversationId": "101",
-  "requestId": "req-golden"
-},
-{
-  "id": "evt_9",
-  "type": "tool_result",
-  "protocolVersion": 1,
-  "sequence": 9,
-  "timestamp": "2026-10-16T00:00:00+00:00",
-  "payload": {
-    "name": "http_get",
-    "result": {
-      "status": 200
+    "timestamp": "2026-10-16T00:00:00+00:00",
+    "payload": {
+      "loopRunId": "1",
+      "stepId": "11",
+      "sequence": 2,
+      "stepType": "model_generation",
+      "title": "生成回答",
+      "status": "succeeded",
+      "thinkingText": "先打个招呼"
     },
-    "status": "completed",
-    "error": null
+    "conversationId": "101",
+    "requestId": "req-golden"
   },
-  "conversationId": "101",
-  "requestId": "req-golden"
-},
-{
-  "id": "evt_10",
-  "type": "agent_step_completed",
-  "protocolVersion": 1,
-  "sequence": 10,
-  "timestamp": "2026-10-16T00:00:00+00:00",
-  "payload": {
-    "loopRunId": "1",
-    "stepId": "12",
-    "sequence": 3,
-    "stepType": "builtin",
-    "title": "调用工具：http_get",
-    "status": "succeeded",
-    "outputSummary": "你好，世界",
-    "thinkingText": "先打个招呼",
-    "toolName": "http_get",
-    "skillName": null,
-    "skillVersion": null
-  },
-  "conversationId": "101",
-  "requestId": "req-golden"
-},
-{
-  "id": "evt_11",
-  "type": "confirmation_required",
-  "protocolVersion": 1,
-  "sequence": 11,
-  "timestamp": "2026-10-16T00:00:00+00:00",
-  "payload": {
-    "callId": "call_2",
-    "name": "mcp_pay",
-    "toolType": "mcp_tool",
-    "sideEffect": "financial",
-    "summary": {
-      "arguments": {
-        "amount": 100,
-        "api_key": "[REDACTED]"
-      }
+  {
+    "id": "evt_4",
+    "type": "message_delta",
+    "protocolVersion": 1,
+    "sequence": 4,
+    "timestamp": "2026-10-16T00:00:00+00:00",
+    "payload": {
+      "content": "你好"
     },
-    "expiresAt": "2026-10-16T00:10:00+00:00",
-    "confirmationId": null
+    "conversationId": "101",
+    "requestId": "req-golden"
   },
-  "conversationId": "101",
-  "requestId": "req-golden"
-},
-{
-  "id": "evt_12",
-  "type": "error",
-  "protocolVersion": 1,
-  "sequence": 12,
-  "timestamp": "2026-10-16T00:00:00+00:00",
-  "payload": {
-    "code": "agent_upstream_unavailable",
-    "message": "Agent 连接失败（HTTP 502），本轮对话已结束",
-    "retryable": true
-  },
-  "conversationId": "101",
-  "requestId": "req-golden"
-},
-{
-  "id": "evt_13",
-  "type": "agent_loop_completed",
-  "protocolVersion": 1,
-  "sequence": 13,
-  "timestamp": "2026-10-16T00:00:00+00:00",
-  "payload": {
-    "loopRunId": "1",
-    "status": "completed",
-    "summary": "已完成回答"
-  },
-  "conversationId": "101",
-  "requestId": "req-golden"
-},
-{
-  "id": "evt_14",
-  "type": "citation",
-  "protocolVersion": 1,
-  "sequence": 14,
-  "timestamp": "2026-10-16T00:00:00+00:00",
-  "payload": {
-    "title": "FAQ",
-    "text": "说明"
-  },
-  "conversationId": "101",
-  "requestId": "req-golden"
-},
-{
-  "id": "evt_15",
-  "type": "message_completed",
-  "protocolVersion": 1,
-  "sequence": 15,
-  "timestamp": "2026-10-16T00:00:00+00:00",
-  "payload": {
-    "content": "你好，世界",
-    "contentBlocks": [
-      {
-        "type": "text",
-        "text": "你好，世界"
-      }
-    ],
-    "citations": [
-      {
-        "title": "FAQ",
-        "text": "说明"
-      }
-    ],
-    "knowledgeGrounded": true,
-    "usage": {
-      "prompt_tokens": 10,
-      "completion_tokens": 5,
-      "total_tokens": 15
+  {
+    "id": "evt_5",
+    "type": "message_delta",
+    "protocolVersion": 1,
+    "sequence": 5,
+    "timestamp": "2026-10-16T00:00:00+00:00",
+    "payload": {
+      "content": "，世界"
     },
-    "loop": {
-      "id": "1",
-      "requestId": "req-golden",
+    "conversationId": "101",
+    "requestId": "req-golden"
+  },
+  {
+    "id": "evt_6",
+    "type": "agent_step_delta",
+    "protocolVersion": 1,
+    "sequence": 6,
+    "timestamp": "2026-10-16T00:00:00+00:00",
+    "payload": {
+      "loopRunId": "1",
+      "stepId": "11",
+      "sequence": 2,
+      "stepType": "model_generation",
+      "field": "thinking",
+      "content": "先打个招呼"
+    },
+    "conversationId": "101",
+    "requestId": "req-golden"
+  },
+  {
+    "id": "evt_7",
+    "type": "agent_step_started",
+    "protocolVersion": 1,
+    "sequence": 7,
+    "timestamp": "2026-10-16T00:00:00+00:00",
+    "payload": {
+      "loopRunId": "1",
+      "stepId": "12",
+      "sequence": 3,
+      "stepType": "builtin",
+      "title": "调用工具：http_get",
+      "status": "succeeded",
+      "thinkingText": "先打个招呼",
+      "toolName": "http_get",
+      "skillName": null,
+      "skillVersion": null
+    },
+    "conversationId": "101",
+    "requestId": "req-golden"
+  },
+  {
+    "id": "evt_8",
+    "type": "tool_call",
+    "protocolVersion": 1,
+    "sequence": 8,
+    "timestamp": "2026-10-16T00:00:00+00:00",
+    "payload": {
+      "name": "http_get",
+      "input": "GET https://example.com",
+      "callId": "call_1"
+    },
+    "conversationId": "101",
+    "requestId": "req-golden"
+  },
+  {
+    "id": "evt_9",
+    "type": "tool_result",
+    "protocolVersion": 1,
+    "sequence": 9,
+    "timestamp": "2026-10-16T00:00:00+00:00",
+    "payload": {
+      "name": "http_get",
+      "result": {
+        "status": 200
+      },
       "status": "completed",
-      "summary": "已完成回答",
-      "steps": []
+      "error": null
+    },
+    "conversationId": "101",
+    "requestId": "req-golden"
+  },
+  {
+    "id": "evt_10",
+    "type": "agent_step_completed",
+    "protocolVersion": 1,
+    "sequence": 10,
+    "timestamp": "2026-10-16T00:00:00+00:00",
+    "payload": {
+      "loopRunId": "1",
+      "stepId": "12",
+      "sequence": 3,
+      "stepType": "builtin",
+      "title": "调用工具：http_get",
+      "status": "succeeded",
+      "outputSummary": "你好，世界",
+      "thinkingText": "先打个招呼",
+      "toolName": "http_get",
+      "skillName": null,
+      "skillVersion": null
+    },
+    "conversationId": "101",
+    "requestId": "req-golden"
+  },
+  {
+    "id": "evt_11",
+    "type": "confirmation_required",
+    "protocolVersion": 1,
+    "sequence": 11,
+    "timestamp": "2026-10-16T00:00:00+00:00",
+    "payload": {
+      "callId": "call_2",
+      "name": "mcp_pay",
+      "toolType": "mcp_tool",
+      "sideEffect": "financial",
+      "summary": {
+        "arguments": {
+          "amount": 100,
+          "api_key": "[REDACTED]"
+        }
+      },
+      "expiresAt": "2026-10-16T00:10:00+00:00",
+      "confirmationId": null
+    },
+    "conversationId": "101",
+    "requestId": "req-golden"
+  },
+  {
+    "id": "evt_12",
+    "type": "error",
+    "protocolVersion": 1,
+    "sequence": 12,
+    "timestamp": "2026-10-16T00:00:00+00:00",
+    "payload": {
+      "code": "agent_upstream_unavailable",
+      "message": "Agent 连接失败（HTTP 502），本轮对话已结束",
+      "retryable": true
+    },
+    "conversationId": "101",
+    "requestId": "req-golden"
+  },
+  {
+    "id": "evt_13",
+    "type": "agent_loop_completed",
+    "protocolVersion": 1,
+    "sequence": 13,
+    "timestamp": "2026-10-16T00:00:00+00:00",
+    "payload": {
+      "loopRunId": "1",
+      "status": "completed",
+      "summary": "已完成回答"
+    },
+    "conversationId": "101",
+    "requestId": "req-golden"
+  },
+  {
+    "id": "evt_14",
+    "type": "citation",
+    "protocolVersion": 1,
+    "sequence": 14,
+    "timestamp": "2026-10-16T00:00:00+00:00",
+    "payload": {
+      "title": "FAQ",
+      "text": "说明"
+    },
+    "conversationId": "101",
+    "requestId": "req-golden"
+  },
+  {
+    "id": "evt_15",
+    "type": "message_completed",
+    "protocolVersion": 1,
+    "sequence": 15,
+    "timestamp": "2026-10-16T00:00:00+00:00",
+    "payload": {
+      "content": "你好，世界",
+      "contentBlocks": [
+        {
+          "type": "text",
+          "text": "你好，世界"
+        }
+      ],
+      "citations": [
+        {
+          "title": "FAQ",
+          "text": "说明"
+        }
+      ],
+      "knowledgeGrounded": true,
+      "usage": {
+        "prompt_tokens": 10,
+        "completion_tokens": 5,
+        "total_tokens": 15
+      },
+      "loop": {
+        "id": "1",
+        "requestId": "req-golden",
+        "status": "completed",
+        "summary": "已完成回答",
+        "steps": []
+      }
+    },
+    "conversationId": "101",
+    "requestId": "req-golden"
+  },
+  {
+    "id": "evt_16",
+    "type": "message_started",
+    "protocolVersion": 1,
+    "sequence": 16,
+    "timestamp": "2026-10-16T00:00:00+00:00",
+    "payload": {},
+    "conversationId": "101",
+    "requestId": "req-golden"
+  },
+  {
+    "id": "evt_17",
+    "type": "session_ready",
+    "protocolVersion": 1,
+    "sequence": 17,
+    "timestamp": "2026-10-16T00:00:00+00:00",
+    "payload": {
+      "protocolVersion": 1,
+      "serverVersion": "0.1.0",
+      "minimumSdkVersion": "0.1.0"
     }
   },
-  "conversationId": "101",
-  "requestId": "req-golden"
-},
-{
-  "id": "evt_16",
-  "type": "message_started",
-  "protocolVersion": 1,
-  "sequence": 16,
-  "timestamp": "2026-10-16T00:00:00+00:00",
-  "payload": {},
-  "conversationId": "101",
-  "requestId": "req-golden"
-},
-{
-  "id": "evt_17",
-  "type": "session_ready",
-  "protocolVersion": 1,
-  "sequence": 17,
-  "timestamp": "2026-10-16T00:00:00+00:00",
-  "payload": {
-    "protocolVersion": 1
-  }
-},
-{
-  "id": "evt_18",
-  "type": "pong",
-  "protocolVersion": 1,
-  "sequence": 18,
-  "timestamp": "2026-10-16T00:00:00+00:00",
-  "payload": {},
-  "requestId": "req-golden"
-},
-{
-  "id": "evt_19",
-  "type": "host_tool_call",
-  "protocolVersion": 1,
-  "sequence": 19,
-  "timestamp": "2026-10-16T00:00:00+00:00",
-  "payload": {
-    "callId": "call_3",
-    "name": "navigate_to_page",
-    "arguments": {
-      "page": "bots",
-      "token": "[REDACTED]"
+  {
+    "id": "evt_18",
+    "type": "pong",
+    "protocolVersion": 1,
+    "sequence": 18,
+    "timestamp": "2026-10-16T00:00:00+00:00",
+    "payload": {},
+    "requestId": "req-golden"
+  },
+  {
+    "id": "evt_19",
+    "type": "host_tool_call",
+    "protocolVersion": 1,
+    "sequence": 19,
+    "timestamp": "2026-10-16T00:00:00+00:00",
+    "payload": {
+      "callId": "call_3",
+      "name": "navigate_to_page",
+      "arguments": {
+        "page": "bots",
+        "token": "[REDACTED]"
+      },
+      "sideEffect": "navigation",
+      "requiresConfirmation": true
     },
-    "sideEffect": "navigation",
-    "requiresConfirmation": true
+    "requestId": "req-golden"
   },
-  "requestId": "req-golden"
-},
-{
-  "id": "evt_20",
-  "type": "question_required",
-  "protocolVersion": 1,
-  "sequence": 20,
-  "timestamp": "2026-10-16T00:00:00+00:00",
-  "payload": {
-    "questionId": "q_1",
-    "question": "选择处理方式",
-    "description": "发现重复订单",
-    "options": [
-      {
-        "id": "skip",
-        "label": "跳过"
-      }
-    ],
-    "allowFreeText": true,
-    "requireSelection": true,
-    "expiresAt": "2026-10-16T00:10:00+00:00"
-  },
-  "requestId": "req-golden"
-}
+  {
+    "id": "evt_20",
+    "type": "question_required",
+    "protocolVersion": 1,
+    "sequence": 20,
+    "timestamp": "2026-10-16T00:00:00+00:00",
+    "payload": {
+      "questionId": "q_1",
+      "question": "选择处理方式",
+      "description": "发现重复订单",
+      "options": [
+        {
+          "id": "skip",
+          "label": "跳过"
+        }
+      ],
+      "allowFreeText": true,
+      "requireSelection": true,
+      "expiresAt": "2026-10-16T00:10:00+00:00"
+    },
+    "requestId": "req-golden"
+  }
 ]

@@ -1,134 +1,17 @@
-"""网关向外发送的 ai-agent.v1 协议模型。"""
+"""网关**入站**消息 schema（``message_send`` 的 payload 与附件引用）。
 
-from datetime import datetime
+出站协议事件不在这里定义：全部由
+``app.modules.agent_runtime.events`` 的构造器生成信封字典，再经 ``to_wire``
+统一转成 camelCase 线协议。此前这里另存了一套出站 Pydantic 模型
+（``ProtocolEnvelope``/``ProtocolPayload``/``ErrorPayload`` 等），但它们只有测试
+引用、运行时从不参与编解码——两套形状必然漂移（例如 ``confirmation_required``
+的 ``sideEffect``/``expiresAt`` 只在其中一套里），因此本轮删除，只保留真正
+参与入站校验的模型。
+"""
+
 import re
-from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-
-class _WireModel(BaseModel):
-    """统一把 Python snake_case 字段映射为协议 camelCase 字段。"""
-
-    model_config = ConfigDict(
-        alias_generator=lambda field_name: "".join(
-            part.capitalize() if index else part
-            for index, part in enumerate(field_name.split("_"))
-        ),
-        extra="ignore",
-        populate_by_name=True,
-    )
-
-
-class EmptyPayload(_WireModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-
-class MessageDeltaPayload(_WireModel):
-    content: str
-
-
-class CitationPayload(_WireModel):
-    title: str
-    text: str
-    source_url: str | None = None
-
-
-class ToolStatePayload(_WireModel):
-    name: str
-    status: str
-
-
-class HostToolCallPayload(_WireModel):
-    """服务端请求页面执行��主工具时携带的参数。"""
-
-    call_id: str
-    name: str
-    arguments: dict
-    side_effect: str
-    requires_confirmation: bool
-
-
-class ConfirmationRequiredPayload(_WireModel):
-    call_id: str
-    name: str
-    summary: dict | None = None
-
-
-class QuestionOption(_WireModel):
-    id: str
-    label: str
-
-
-class QuestionRequiredPayload(_WireModel):
-    question_id: str
-    question: str
-    description: str | None = None
-    options: list[QuestionOption]
-    allow_free_text: bool = True
-    require_selection: bool = True
-    expires_at: str | None = None
-
-
-class ErrorPayload(_WireModel):
-    """客户端可消费的稳定错误结构，避免暴露内部异常堆栈。"""
-
-    code: str
-    message: str
-    retryable: bool
-    details: dict[str, str] | None = None
-
-
-ProtocolPayload = Annotated[
-    EmptyPayload
-    | MessageDeltaPayload
-    | CitationPayload
-    | ToolStatePayload
-    | HostToolCallPayload
-    | ConfirmationRequiredPayload
-    | QuestionRequiredPayload
-    | ErrorPayload,
-    Field(discriminator=None),
-]
-
-
-ProtocolEventType = Literal[
-    "session_ready",
-    "message_started",
-    "message_delta",
-    "citation",
-    "message_completed",
-    "tool_call",
-    "tool_result",
-    "host_tool_call",
-    "confirmation_required",
-    "question_required",
-    "error",
-    "pong",
-    "agent_loop_started",
-    "agent_step_started",
-    "agent_step_delta",
-    "agent_step_completed",
-    "agent_loop_completed",
-]
-
-
-class ProtocolEnvelope(_WireModel):
-    """所有出站事件的统一外壳。
-
-    ``sequence`` 用于客户端去重和断线重放；``conversation_id``、
-    ``request_id`` 和 payload 中的 ``callId`` 分别标识会话、请求和工具调用。
-    """
-
-    id: str = Field(min_length=1)
-    type: ProtocolEventType
-    protocol_version: Literal[1]
-    conversation_id: str | None = None
-    request_id: str | None = None
-    sequence: int = Field(ge=1)
-    timestamp: datetime
-    payload: ProtocolPayload
-
+from pydantic import BaseModel, Field, field_validator
 
 # ---------------------------------------------------------------------------
 # 附件引用 schema（message_send 入站消息中的 attachments 字段）

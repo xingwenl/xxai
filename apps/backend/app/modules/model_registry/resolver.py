@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.agent.services import decrypt_secret
+from app.modules.agent_runtime.error_codes import ErrorCode
 from app.modules.model_registry.models import AgentModelBinding, PlatformModel
 from app.shared.exceptions import AppException, BadRequestException
 
@@ -25,13 +26,16 @@ class ChatModelUnavailable(AppException):
 
     与辅助角色不同，这种情况**不**回落到 `.env` 默认值：`is_active` 的注释语义是
     「停用后不再参与能力路由」，静默回落会让管理员以为停用生效了，实际却仍在用
-    一个他以为已经关掉的模型。`error_code` 是暴露给客户端的稳定错误码。
+    一个他以为已经关掉的模型。错误码走基类的 `error_code` 通道出站，因此流式/事件
+    通道与非流式 REST 拿到的是同一个稳定码。
     """
 
-    error_code = "chat_model_unavailable"
-
     def __init__(self, message: str) -> None:
-        super().__init__(message, status_code=status.HTTP_409_CONFLICT)
+        super().__init__(
+            message,
+            status_code=status.HTTP_409_CONFLICT,
+            error_code=ErrorCode.CHAT_MODEL_UNAVAILABLE,
+        )
 
 
 @dataclass(frozen=True)

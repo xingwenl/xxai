@@ -9,14 +9,13 @@ import pytest
 
 from app.modules.gateway.connection import validate_incoming_message
 from app.modules.gateway.dispatcher import RuntimeToolDispatcher
-from app.modules.agent_runtime.events import question_required
+from app.modules.agent_runtime.events import question_required, to_wire
 from app.modules.gateway.router import (
     _cancel_pending_request_futures,
     _handle_confirmation_resolve,
     _handle_host_tool_result,
     _handle_question_answer,
 )
-from app.modules.gateway.schemas import ProtocolEnvelope
 
 
 def _build_dispatcher(
@@ -266,21 +265,32 @@ def test_question_answer_requires_payload():
     assert parsed["payload"]["selectedOptionId"] == "a"
 
 
-def test_protocol_envelope_supports_question_required():
-    event = ProtocolEnvelope.model_validate(
-        {
-            "id": "evt_q",
-            "type": "question_required",
-            "protocolVersion": 1,
-            "sequence": 7,
-            "timestamp": "2026-08-24T00:00:00Z",
-            "payload": {
-                "questionId": "q_1",
-                "question": "选择处理方式",
-                "options": [{"id": "a", "label": "A"}],
-                "allowFreeText": True,
-            },
-        }
+def test_question_required_wire_envelope_shape():
+    """question_required 的出站形状由 events 构造器 + to_wire 决定。
+
+    此前这里用 ``gateway.schemas.ProtocolEnvelope`` 校验，但那套 Pydantic 模型
+    运行时从不参与编解码（已删除）。改为直接断言真身：构造器产出的 payload
+    已是 camelCase，``to_wire`` 补信封字段。
+    """
+
+    event = question_required(
+        conversation_id=42,
+        request_id="req_q",
+        question_id="q_1",
+        question="选择处理方式",
+        description=None,
+        options=[{"id": "a", "label": "A"}],
+        allow_free_text=True,
+        require_selection=True,
+        expires_at="2026-08-24T12:00:00+00:00",
     )
-    assert event.payload.question_id == "q_1"
-    assert event.payload.options[0].label == "A"
+    wire = to_wire(event, sequence=7, event_id="evt_q")
+
+    assert wire["type"] == "question_required"
+    assert wire["protocolVersion"] == 1
+    assert wire["sequence"] == 7
+    assert wire["conversationId"] == "42"
+    assert wire["requestId"] == "req_q"
+    assert wire["payload"]["questionId"] == "q_1"
+    assert wire["payload"]["options"][0]["label"] == "A"
+    assert wire["payload"]["allowFreeText"] is True

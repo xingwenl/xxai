@@ -248,6 +248,31 @@ agent.on('citation', (citation) => renderCitation(citation))
 agent.on('error', (error) => showError(error.message))
 ```
 
+### 错误处理
+
+所有失败都以 `AgentError` 暴露：它仍是 `Error` 的实例（`error.message` 等既有用法不变），额外带四个结构化字段，便于按码分支与决定是否重试。
+
+```typescript
+import { isAgentError, type AgentError } from 'xxai-agent'
+
+function showError(error: AgentError) {
+  toast(error.message)
+  if (error.code === 'chat_model_unavailable') {
+    // 稳定错误码可直接分支
+  }
+  if (error.retryable) scheduleRetry()
+}
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `code` | 稳定业务错误码，例如 `chat_model_unavailable`、`unsupported_sdk_version`；无码时为 `undefined` |
+| `retryable` | 是否值得重试（版本不兼容等为 `false`；REST 的 5xx/429 按状态码推断） |
+| `requestId` | 关联请求 ID，便于与服务端日志对齐 |
+| `details` | 附加诊断信息，例如版本不兼容时的 `minimumSdkVersion`/`supportedProtocolVersion` |
+
+同一个失败在 `onError`、`agent.on('error')` 与 `connect()` 的 reject 拿到的是**同一个对象**，不会出现一处有码、一处没有。版本不兼容时另有一条 `compatibility_error` 事件；`agent.on('error')` 仍会收到一次（不重复），未订阅 `compatibility_error` 也不会漏。用 `isAgentError(value)` 可在 `catch` 里安全收窄类型。
+
 ## 7. UI 模式
 
 ### 悬浮模式

@@ -1,4 +1,6 @@
 export { AgentClient } from './client'
+export { agentError, agentErrorFromResponse, isAgentError } from './errors'
+export type { AgentError } from './errors'
 export { EventEmitter } from './event-emitter'
 export { MessageStore } from './message-store'
 export { ToolRegistry } from './tool-registry'

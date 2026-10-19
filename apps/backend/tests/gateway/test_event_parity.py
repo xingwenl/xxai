@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 from types import SimpleNamespace
 
+from app.modules.gateway.auth import MINIMUM_SDK_VERSION, SERVER_VERSION
 from app.modules.agent_runtime.events import (
     PROTOCOL_VERSION,
     build_step_payload,
@@ -197,7 +198,13 @@ def golden_events() -> list:
         [
             message_started(conversation_id=101, request_id=REQUEST_ID),
             # 传输层专属事件也由同一构造器定义，保证 18 种类型只有一个形状来源。
-            session_ready(payload={"protocolVersion": PROTOCOL_VERSION}),
+            session_ready(
+                payload={
+                    "protocolVersion": PROTOCOL_VERSION,
+                    "serverVersion": SERVER_VERSION,
+                    "minimumSdkVersion": MINIMUM_SDK_VERSION,
+                }
+            ),
             pong(request_id=REQUEST_ID),
             host_tool_call(
                 conversation_id=None,

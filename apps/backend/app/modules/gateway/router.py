@@ -14,6 +14,7 @@ from redis.asyncio import Redis
 from app.core.config import get_settings
 from app.core.database import get_session_factory
 from app.core.logging import get_logger
+from app.modules.agent_runtime.error_codes import ErrorCode
 from app.modules.agent.repositories import AgentRepository
 from app.modules.agent.services import build_chat_model
 from app.modules.conversation.repositories import ConversationRepository
@@ -30,10 +31,10 @@ from app.modules.gateway.runtime import (
 )
 from app.modules.gateway.replay import ReplayStore
 from app.modules.gateway.auth import (
-    CAPABILITIES,
     MINIMUM_SDK_VERSION,
     SERVER_VERSION,
     PROTOCOL_SUBPROTOCOL,
+    CompatibilityResult,
     authenticate_embed_token,
     check_client_compatibility,
 )
@@ -102,6 +103,21 @@ async def _send_protocol_error(
     await websocket.send_text(envelope("error", payload, request_id=request_id))
 
 
+def _compatibility_error_message(compatibility: CompatibilityResult) -> str:
+    """把版本不兼容翻译成升级指引。
+
+    错误码供程序判断，message 供人阅读：客户端此前只会看到 close 4406，
+    既不知道为何被拒、也不知道该升到哪个版本。这里把服务端支持的目标
+    版本写进文案，并随 ``details`` 一并出站。
+    """
+
+    if compatibility.code == ErrorCode.UNSUPPORTED_PROTOCOL_VERSION:
+        supported = compatibility.details.get("supportedProtocolVersion", "")
+        return f"不支持的协议主版本，请升级客户端：服务端支持协议版本 {supported}"
+    minimum = compatibility.details.get("minimumSdkVersion", "")
+    return f"当前 SDK 版本过低，请升级到 {minimum} 或更高版本"
+
+
 def _numeric_sequence_floor(value: object) -> int:
     """把重放的 ``latestSequence`` 归一到可安全参与 max 计算的整数。
 
@@ -161,7 +177,7 @@ async def _handle_host_tools_register(
         await _send_protocol_error(
             websocket,
             envelope,
-            code="invalid_host_tools",
+            code=ErrorCode.INVALID_HOST_TOOLS,
             message="tools must be a list",
             retryable=False,
         )
@@ -401,7 +417,7 @@ async def _handle_host_tool_result(
             )
             future.set_result(result)
     else:
-        code = str(message.get("payload", {}).get("code", "host_tool_failed"))
+        code = str(message.get("payload", {}).get("code", ErrorCode.HOST_TOOL_FAILED))
         message_text = str(
             message.get("payload", {}).get("message", "host tool failed")
         )
@@ -421,7 +437,7 @@ async def _handle_host_tool_result(
             error=message_text,
         )
         future.set_result(
-            {"error": "host_tool_failed", "code": code, "message": message_text}
+            {"error": ErrorCode.HOST_TOOL_FAILED, "code": code, "message": message_text}
         )
 
 
@@ -453,7 +469,7 @@ async def _handle_message_send(
         await _send_protocol_error(
             websocket,
             envelope,
-            code="request_id_required",
+            code=ErrorCode.REQUEST_ID_REQUIRED,
             message="requestId is required",
             retryable=False,
         )
@@ -462,7 +478,7 @@ async def _handle_message_send(
         await _send_protocol_error(
             websocket,
             envelope,
-            code="request_in_progress",
+            code=ErrorCode.REQUEST_IN_PROGRESS,
             message="request already running",
             retryable=True,
         )
@@ -482,7 +498,7 @@ async def _handle_message_send(
         await _send_protocol_error(
             websocket,
             envelope,
-            code="invalid_conversation_id",
+            code=ErrorCode.INVALID_CONVERSATION_ID,
             message="conversationId must be a positive integer",
             retryable=False,
             request_id=request_id,
@@ -505,7 +521,7 @@ async def _handle_message_send(
             await _send_protocol_error(
                 websocket,
                 envelope,
-                code="invalid_attachments",
+                code=ErrorCode.INVALID_ATTACHMENTS,
                 message="附件格式无效或数量超过限制",
                 retryable=False,
             )
@@ -518,7 +534,7 @@ async def _handle_message_send(
             await _send_protocol_error(
                 websocket,
                 envelope,
-                code="invalid_attachments",
+                code=ErrorCode.INVALID_ATTACHMENTS,
                 message="附件字段格式无效",
                 retryable=False,
             )
@@ -531,7 +547,7 @@ async def _handle_message_send(
         await _send_protocol_error(
             websocket,
             envelope,
-            code="text_required",
+            code=ErrorCode.TEXT_REQUIRED,
             message="text is required",
             retryable=False,
         )
@@ -543,7 +559,7 @@ async def _handle_message_send(
         await _send_protocol_error(
             websocket,
             envelope,
-            code="invalid_thinking",
+            code=ErrorCode.INVALID_THINKING,
             message="thinking must be a boolean",
             retryable=False,
         )
@@ -566,7 +582,7 @@ async def _handle_message_send(
                 code=decision.code,
                 message=(
                     "message quota unavailable"
-                    if decision.code == "quota_unavailable"
+                    if decision.code == ErrorCode.QUOTA_UNAVAILABLE
                     else "message quota exceeded"
                 ),
                 retryable=decision.retryable,
@@ -592,7 +608,7 @@ async def _handle_message_send(
                 code=model_tokens_decision.code,
                 message=(
                     "model token quota unavailable"
-                    if model_tokens_decision.code == "quota_unavailable"
+                    if model_tokens_decision.code == ErrorCode.QUOTA_UNAVAILABLE
                     else "model token quota exceeded"
                 ),
                 retryable=model_tokens_decision.retryable,
@@ -864,7 +880,7 @@ async def _build_quota_snapshot(
     resources: dict = {}
     for resource in ("connection", "message", "model_tokens"):
         decision = await quota_service.peek(resource, dimensions)
-        if decision.code == "quota_unavailable":
+        if decision.code == ErrorCode.QUOTA_UNAVAILABLE:
             return None
         resources[resource] = {"limit": decision.limit, "current": decision.current}
     # token_issue 的 limit 与签发逻辑一致（见 embed/services.build_token_quota_service），
@@ -888,7 +904,7 @@ async def _build_quota_snapshot(
             agent_id=str(agent_id),
         ),
     )
-    if token_decision.code == "quota_unavailable":
+    if token_decision.code == ErrorCode.QUOTA_UNAVAILABLE:
         return None
     resources["token_issue"] = {
         "limit": token_decision.limit,
@@ -956,11 +972,23 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
             await websocket.close(code=4401)
             return
         auth_payload = message.get("payload", {})
+        # 不传默认值：把「客户端没声明版本」当成「声明了兼容版本」放行，
+        # 等于关掉版本协商这道门禁（见 auth.check_client_compatibility）。
         compatibility = check_client_compatibility(
-            protocol_version=auth_payload.get("protocolVersion", 1),
-            sdk_version=auth_payload.get("sdkVersion", "0.1.0"),
+            protocol_version=auth_payload.get("protocolVersion"),
+            sdk_version=auth_payload.get("sdkVersion"),
         )
         if not compatibility.allowed:
+            # 子协议门禁已放行，说明连接可承载出站帧；因此这里不能裸关闭，
+            # 否则客户端只看到 close 4406，拿不到稳定错误码与服务端目标版本。
+            await _send_protocol_error(
+                websocket,
+                envelope,
+                code=compatibility.code,
+                message=_compatibility_error_message(compatibility),
+                retryable=False,
+                details=compatibility.details,
+            )
             await websocket.close(code=4406)
             return
         token = message.get("payload", {}).get("token")
@@ -979,7 +1007,7 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
             await _send_protocol_error(
                 websocket,
                 envelope,
-                code="embed_token",
+                code=ErrorCode.EMBED_TOKEN,
                 message=err.message,
                 retryable=False,
             )
@@ -1084,7 +1112,6 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                     "subject": payload["sub"],
                     "serverVersion": SERVER_VERSION,
                     "minimumSdkVersion": MINIMUM_SDK_VERSION,
-                    "capabilities": sorted(CAPABILITIES),
                     "recovered": replay_result.recovered if replay_result else False,
                     "latestSequence": (
                         replay_result.latest_sequence if replay_result else None
@@ -1156,7 +1183,7 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                                 )
                             elif consume.exceeded:
                                 record_quota_rejection(
-                                    "model_tokens", "quota_exceeded"
+                                    "model_tokens", ErrorCode.QUOTA_EXCEEDED
                                 )
                                 logger.warning(
                                     "model token quota exceeded request_id=%s amount=%s current=%s limit=%s",
