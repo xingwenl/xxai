@@ -14,6 +14,7 @@ from app.modules.tools.business import knowledge_search  # noqa: F401
 from app.modules.tools.business import custom_component  # noqa: F401
 from app.modules.tools.business import runtime_info  # noqa: F401
 from app.modules.tools.business import create_task  # noqa: F401
+from app.modules.tools.business import create_skill  # noqa: F401
 from app.modules.tools.business import delegate_tasks  # noqa: F401
 from app.modules.tools.shop import registry as _shop_registry  # noqa: F401
 from app.modules.tools.business.framework import (
