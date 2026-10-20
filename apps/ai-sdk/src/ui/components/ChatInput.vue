@@ -52,7 +52,7 @@
         type="file"
         class="xxai-file-input"
         multiple
-        accept="image/png,image/jpeg,image/gif,image/webp,.txt,.md,.csv,.pdf,.docx,.xlsx,.pptx"
+        :accept="UPLOAD_ACCEPT"
         @change="handleFileSelect"
       />
       <input
@@ -74,6 +74,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import type { AttachmentEntry, AttachmentRef } from '../../core/types'
+import { UPLOAD_ACCEPT, resolveFileMimeType, withResolvedMimeType } from '../../core/upload-mime'
 
 interface Props {
   isSending?: boolean
@@ -130,23 +131,27 @@ function handlePaste(event: ClipboardEvent) {
 }
 
 function addFile(file: File) {
+  // 桌面端 File.type 可能为空（系统只给了文件名），按扩展名补上再上传，
+  // 否则会以 application/octet-stream 发给后端并被 MIME 白名单拒绝。
+  const mimeType = resolveFileMimeType(file)
+  const uploadFile = withResolvedMimeType(file)
   const id = `att_${++attachmentId}_${Date.now()}`
   const entry: AttachmentEntry = {
     id,
-    file,
+    file: uploadFile,
     filename: file.name,
-    mimeType: file.type || 'application/octet-stream',
+    mimeType,
     size: file.size,
     state: 'pending',
   }
 
   // 使用 Blob URL 即时预览，避免把图片 Base64 写入本地消息历史。
-  if (file.type.startsWith('image/')) {
+  if (mimeType.startsWith('image/')) {
     entry.thumbnailUrl = URL.createObjectURL(file)
   }
 
   attachments.value.push(entry)
-  emit('upload-attachment', file)
+  emit('upload-attachment', uploadFile)
 }
 
 function removeAttachment(id: string) {

@@ -11,6 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -381,6 +382,55 @@ def create_app(
             )
         except Exception as exc:  # 网络错误统一转为 502
             raise HTTPException(502, f"代理请求失败: {exc}") from exc
+
+    # ---------- AI Base HTTP 同源转发（避免渲染层跨域直连后端） ----------
+
+    forward_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]
+    # 只透传与鉴权/内容协商相关的头，其余（Origin/Referer 等）由宿主与 urllib 生成。
+    forward_headers = ("authorization", "content-type", "accept", "x-request-id")
+
+    @app.api_route("/api/v1/{path:path}", methods=forward_methods)
+    async def ai_base_proxy(request: Request, path: str) -> Response:
+        """把 ai-sdk 的 HTTP 调用（附件上传、会话列表等）转发到 AI Base。
+
+        渲染层只认宿主 origin，因此后端不需要给桌面来源配 CORS；Embed Client
+        secret 始终留在宿主进程内，透传的只有渲染层拿到的短期 token。
+        """
+        if ".." in Path(path).parts:
+            raise HTTPException(400, "非法转发路径")
+        try:
+            config = config_store.load()
+        except AgentConfigError as exc:
+            raise HTTPException(503, f"智能体配置不可用: {exc}") from exc
+        if config is None:
+            raise HTTPException(503, "尚未配置智能体后端，请在设置页填写 AI Base 地址与 Embed Client 凭证")
+
+        target = f"{config.base_url}/api/v1/{path}"
+        if request.url.query:
+            target = f"{target}?{request.url.query}"
+        headers = {
+            name: value for name, value in request.headers.items() if name.lower() in forward_headers
+        }
+        body = await request.body()
+        data = body if body and request.method not in {"GET", "HEAD"} else None
+        upstream = urllib.request.Request(target, data=data, method=request.method, headers=headers)
+        try:
+            response = await run_in_threadpool(_urlopen, upstream, 30)
+        except urllib.error.HTTPError as exc:
+            return Response(
+                content=exc.read(),
+                status_code=exc.code,
+                media_type=exc.headers.get("Content-Type", "application/json"),
+            )
+        except Exception as exc:  # 网络错误统一转为 502
+            raise HTTPException(502, f"转发 AI Base 请求失败: {exc}") from exc
+
+        with response:
+            content = response.read()
+            media_type = response.headers.get("Content-Type", "application/octet-stream")
+            if response.status == 204 or not content:
+                return Response(status_code=response.status, media_type=media_type)
+            return Response(content=content, status_code=response.status, media_type=media_type)
 
     # ---------- 插件静态资源 ----------
 

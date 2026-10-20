@@ -219,6 +219,16 @@ poetry run python build/build.py
 5. 一次性批量配置（推荐）：`python apps/desktop/scripts/configure_ai_base.py --client-id <id> --agent-id <id> --dry-run` 先看计划，再去掉 `--dry-run` 执行；脚本会把桌面来源并入 `allowed_origins`、按 `apps/ledger/tools.json` upsert 5 条策略并完成两处绑定（需要管理员账号）。
 6. 排障：`mode: "remote"` 但助手连不上时看宿主日志中 token 接口的 HTTP 错误；工具调用返回 `host_tool_not_registered` 说明 token 的 `host_tools` 为空（检查 Client 绑定 + `host_tool_names`），`Host tool registration rejected` 说明 schema 指纹不一致。
 
+#### 附件上传与 HTTP 调用（同源转发）
+
+ai-sdk 的 HTTP 接口（附件上传、会话列表、资源下载）由宿主**同源转发**，渲染层不直连 AI Base：
+
+- 渲染层 `baseUrl` 固定为 `${window.location.origin}/api/v1`；宿主新增 `@app.api_route("/api/v1/{path:path}")`（GET/POST/PUT/PATCH/DELETE/HEAD），把请求转发到 `~/.desktop-app/agent.json` 里的 `baseUrl`，透传 `Authorization` / `Content-Type` / `Accept` / `X-Request-Id` 与原始 body，回传上游状态码与响应体。
+- 因此**不需要**把桌面来源加进后端 `CORS_ORIGINS`：浏览器只看到同源的 `127.0.0.1:8765`（Vite 调试是 `8443`，走 dev 代理）。
+- 未配置智能体后端时转发返回 503；路径里出现 `..` 返回 400；其它网络错误返回 502。
+- 文件选择：SDK 的 `accept` 是纯 MIME 列表（`UPLOAD_ACCEPT`）。macOS 系统文件面板只认 MIME（`UTType.typeWithMIMEType_`），`.xlsx` 这类扩展名 token 会被静默丢弃，表现为「只能选图片」。
+- MIME 兜底：浏览器对 xlsx / pptx / csv 等常给出空 `file.type`，SDK 用 `resolveFileMimeType` 按扩展名补全后再上传，否则后端以「不支持的文件类型: application/octet-stream」拒绝。
+
 
 ### 插件 manifest 约定
 
