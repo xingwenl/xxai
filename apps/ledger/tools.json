@@ -1,0 +1,67 @@
+[
+  {
+    "name": "ledger_add_entry",
+    "description": "新增一条记账记录（支出或收入）。amount 必填，单位是元，最多两位小数；category 必填，分类名不在已有分类里时会自动登记为自定义分类；type 可选 expense（支出）或 income（收入），缺省按支出处理；note 为备注，可为空；occurred_on 为发生日期，格式 YYYY-MM-DD，缺省为今天。返回新增记录 entry 与当月汇总 month_summary。",
+    "sideEffect": "financial",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["expense", "income"] },
+        "amount": { "type": "number" },
+        "category": { "type": "string" },
+        "note": { "type": "string" },
+        "occurred_on": { "type": "string" }
+      },
+      "required": ["amount", "category"]
+    }
+  },
+  {
+    "name": "ledger_list_entries",
+    "description": "按条件查询记账明细，结果按发生日期倒序、同一天按创建时间倒序。month 可选，格式 YYYY-MM，省略则不限制月份；type 可选 expense 或 income，省略则不限制类型；category 可选，按分类名精确匹配；limit 可选，为返回条数上限，缺省 50、最大 500。返回 items（明细数组）与 total（符合条件、未受 limit 限制的总条数）。",
+    "sideEffect": "none",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "month": { "type": "string" },
+        "type": { "type": "string", "enum": ["expense", "income"] },
+        "category": { "type": "string" },
+        "limit": { "type": "number" }
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "ledger_month_summary",
+    "description": "统计某个自然月的收支汇总。month 可选，格式 YYYY-MM，省略则为当前月。返回 month、expense_yuan（支出合计）、income_yuan（收入合计）、balance_yuan（结余，收入减支出），以及 by_category（按分类拆分的支出、收入与笔数，按支出金额倒序）。金额单位均为元。",
+    "sideEffect": "none",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "month": { "type": "string" }
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "ledger_delete_entry",
+    "description": "按 id 删除一条记账记录。id 必填，为记录的唯一标识。记录不存在时会报错「记录不存在」。删除成功返回 { ok: true, id }。删除属于财务类操作，调用前请确认 id 来自 ledger_list_entries 的查询结果。",
+    "sideEffect": "financial",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" }
+      },
+      "required": ["id"]
+    }
+  },
+  {
+    "name": "ledger_list_categories",
+    "description": "列出当前可用的记账分类，返回 { expense: string[], income: string[] }，支出分类与收入分类分别给出，既包含内置分类也包含用户新增的自定义分类。记账前可先调用它以选择合适的分类名。",
+    "sideEffect": "none",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  }
+]

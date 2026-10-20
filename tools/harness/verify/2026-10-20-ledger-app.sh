@@ -72,7 +72,7 @@ verify_step_in "apps/desktop" \
 
 verify_step_in "apps/desktop" \
   "Ruff 检查本 request 相关 Python 文件" \
-  .venv/bin/python -m ruff check desktop_app tests/test_plugin_data.py tests/test_dev_agent.py
+  .venv/bin/python -m ruff check desktop_app tests/test_plugin_data.py tests/test_dev_agent.py tests/test_agent_config.py
 
 verify_step_in "apps/ledger" "子应用构建（tsc --noEmit + vite build）" pnpm build
 
@@ -98,6 +98,10 @@ verify_step "子应用产物是合法 iframe 插件且带上 5 个方法名" bas
 '
 
 verify_step_in "apps/desktop/front" "宿主前端类型检查" ./node_modules/.bin/tsc --noEmit
+
+verify_step_in "apps/backend" \
+  "宿主工具策略创建提交事务的回归测试（create_policy commit/refresh）" \
+  .venv/bin/python -m pytest tests/host_tool/ -q
 
 verify_step "宿主前端构建" pnpm --dir apps/desktop/front build
 
@@ -431,12 +435,191 @@ PYPROBE
 
 verify_step "真实 uvicorn + websockets 客户端（DESKTOP_DEV_AGENT=1 的 WS 网关）" real_ws_probe
 
+
+# 真实模型验证：用宿主保存的 AI Base 配置（或仓库根 .env 的 EMBED_*）换 token，
+# 连真实网关注册 `ledger_*` 工具，确认模型会挑中 ledger_add_entry 并接受工具结果。
+# 需要本机 AI Base（:8000）与可用的模型凭据；两者都缺或模型端点连续超时记为「未执行」，
+# 模型端点上来了但没调用工具/回复缺记账结果才算失败。
+real_model_probe() {
+  cat > "${PROBE_DIR}/probe_real_model.py" <<'PYREAL'
+import asyncio
+import json
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+sys.path.insert(0, "apps/desktop")
+
+from desktop_app import agent_config  # noqa: E402
+
+ROOT = Path.cwd()
+ORIGIN = "http://127.0.0.1:8765"
+SESSION_TEXT = "请调用 ledger_add_entry 记一笔：今天午饭 35 元，分类餐饮"
+RECV_TIMEOUT_SECONDS = 90
+ATTEMPTS = 2
+
+
+class ProbeTimeout(RuntimeError):
+    """模型端点长时间没有出帧：属环境不可用，不算契约失败。"""
+
+
+def now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def load_config(store_dir: Path) -> agent_config.AgentConfigStore:
+    """优先用设置页保存的配置，否则从仓库根 .env 组装一份临时配置。"""
+    home_store = agent_config.AgentConfigStore(Path.home() / ".desktop-app" / "agent.json")
+    if home_store.path.is_file():
+        return home_store
+    env = {}
+    env_file = ROOT / ".env"
+    if env_file.is_file():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            env[key.strip()] = value.strip().strip('"').strip("'")
+    if not env.get("EMBED_CLIENT_ID") or not env.get("EMBED_CLIENT_SECRET"):
+        raise SystemExit("SKIP：既没有 ~/.desktop-app/agent.json，仓库根 .env 也缺 EMBED_CLIENT_ID/EMBED_CLIENT_SECRET")
+    config = agent_config.AgentBackendConfig(
+        base_url="http://127.0.0.1:8000",
+        client_id=env["EMBED_CLIENT_ID"],
+        client_secret=env["EMBED_CLIENT_SECRET"],
+        agent_id=int(env.get("EMBED_AGENT_ID") or 1),
+    )
+    store = agent_config.AgentConfigStore(store_dir / "agent.json")
+    store.save(config)
+    return store
+
+
+async def attempt(store: agent_config.AgentConfigStore, tools: list[dict]) -> None:
+    import websockets
+
+    session = agent_config.issue_agent_token(store, ORIGIN)
+    print("token OK，endpoint:", session["endpoint"], "platformId:", session["platformId"])
+
+    async with websockets.connect(
+        session["endpoint"],
+        subprotocols=["ai-agent.v1"],
+        additional_headers={"Origin": ORIGIN},
+        proxy=None,
+        open_timeout=15,
+    ) as ws:
+        await ws.send(json.dumps({
+            "id": "auth-1", "type": "auth", "protocolVersion": 1, "timestamp": now(),
+            "payload": {
+                "token": session["token"], "platformId": session["platformId"],
+                "agentId": session["agentId"], "protocolVersion": 1, "sdkVersion": "0.2.0",
+            },
+        }))
+        called: list[str] = []
+        final = None
+        sent = False
+        deadline = time.time() + RECV_TIMEOUT_SECONDS * 3
+        while time.time() < deadline and final is None:
+            try:
+                raw = await asyncio.wait_for(ws.recv(), timeout=RECV_TIMEOUT_SECONDS)
+            except TimeoutError as exc:
+                raise ProbeTimeout(f"等待网关事件超过 {RECV_TIMEOUT_SECONDS}s") from exc
+            event = json.loads(raw)
+            kind = event.get("type")
+            if kind == "session_ready" and not sent:
+                await ws.send(json.dumps({
+                    "id": "reg-1", "type": "host_tools_register", "protocolVersion": 1,
+                    "timestamp": now(),
+                    "payload": {"tools": [
+                        {
+                            "name": tool["name"],
+                            "description": tool["description"],
+                            "inputSchema": tool["inputSchema"],
+                            "sideEffect": tool.get("sideEffect", "none"),
+                        }
+                        for tool in tools
+                    ]},
+                }))
+                await ws.send(json.dumps({
+                    "id": "msg-1", "type": "message_send", "protocolVersion": 1,
+                    "requestId": "req-verify", "timestamp": now(),
+                    "payload": {"text": SESSION_TEXT},
+                }))
+                sent = True
+            elif kind == "host_tool_call":
+                payload = event["payload"]
+                called.append(payload["name"])
+                result = {
+                    "ok": True,
+                    "entry": {
+                        "id": "verify", "type": "expense", "amount_yuan": 35.0,
+                        "amount_cents": 3500, "category": "餐饮", "note": "午饭",
+                        "occurred_on": "2026-10-20",
+                    },
+                    "month_summary": {
+                        "month": "2026-10", "expense_yuan": 35.0,
+                        "income_yuan": 0.0, "balance_yuan": -35.0,
+                    },
+                }
+                await ws.send(json.dumps({
+                    "id": "tool-result", "type": "host_tool_result", "protocolVersion": 1,
+                    "requestId": payload["callId"], "timestamp": now(),
+                    "payload": {"callId": payload["callId"], "result": result},
+                }))
+            elif kind == "message_completed":
+                final = event["payload"].get("content") or ""
+            elif kind == "error":
+                raise SystemExit(f"网关返回错误事件：{event}")
+
+    if final is None:
+        raise ProbeTimeout("没有收到 message_completed")
+    if "ledger_add_entry" not in called:
+        raise SystemExit(f"模型没有调用 ledger_add_entry，实际调用：{called}")
+    if "35" not in final and "餐饮" not in final:
+        raise SystemExit(f"回复未包含记账结果：{final!r}")
+    print("真实模型调用:", called)
+    print("最终回复:", final[:300].replace("\n", " / "))
+
+
+async def main() -> None:
+    tools = json.loads((ROOT / "apps/ledger/tools.json").read_text(encoding="utf-8"))
+    store = load_config(Path(sys.argv[1]))
+    for index in range(1, ATTEMPTS + 1):
+        try:
+            await attempt(store, tools)
+            return
+        except ProbeTimeout as exc:
+            print(f"第 {index} 次尝试超时：{exc}")
+    print("模型端点连续无响应：视为环境不可用（非协议失败），本次记为未执行。")
+    raise SystemExit(2)
+
+
+asyncio.run(main())
+PYREAL
+  if [[ ! -f "${HOME}/.desktop-app/agent.json" ]] && ! grep -q '^EMBED_CLIENT_ID=' .env 2>/dev/null; then
+    echo "未执行：既没有 ~/.desktop-app/agent.json（设置页配置），仓库根 .env 也缺 EMBED_CLIENT_ID，无法验证真实模型链路。"
+    UNEXECUTED=$((UNEXECUTED + 1))
+    return 0
+  fi
+  local rc=0
+  PYTHONPATH=apps/desktop apps/desktop/.venv/bin/python "${PROBE_DIR}/probe_real_model.py" "${PROBE_DIR}/real-model" || rc=$?
+  if [[ $rc -eq 2 ]]; then
+    echo "未执行：AI Base / 模型端点连续超时，无法完成真实模型回环（Token 签发本身已成功）。"
+    UNEXECUTED=$((UNEXECUTED + 1))
+    return 0
+  fi
+  return $rc
+}
+
+verify_step "真实模型链路（AI Base 签发 token + 模型自发调用 ledger_add_entry）" real_model_probe
+
 echo "## 未执行项与原因"
 echo
 echo "- 真机 GUI：在 pywebview 窗口里打开「记账」卡片、点击记一笔、看月汇总、重启应用后数据仍在——需要 macOS 图形会话与人工目视，脚本用 TestClient 验证了同一条服务链路（静态托管 + plugin-data + WS），但没有真正渲染界面。"
-echo "- 浏览器里 ai-sdk 悬浮窗 ↔ 子应用方法注册这一跳：脚本用 TestClient 与真实 uvicorn + websockets 客户端模拟 ai-agent.v1 协议完成握手与工具回环，但没有启动 pywebview + 浏览器渲染 ai-sdk 悬浮窗，也没有验证 iframe 内 \`desktop.tools.register\` 经 tool-bridge 同步给助手的实际效果，需要打开宿主应用目视。"
+echo "- 浏览器里 ai-sdk 悬浮窗 ↔ 子应用方法注册这一跳：脚本用 TestClient、真实 uvicorn + websockets 客户端与真实 AI Base 网关各验证了一次 ai-agent.v1 协议往返，但没有启动 pywebview + 浏览器渲染 ai-sdk 悬浮窗，也没有验证 iframe 内 \`desktop.tools.register\` 经 tool-bridge 同步给助手的实际效果（脚本直接用 5 个方法的 schema 代替子应用页面注册），需要打开宿主应用目视。"
 echo "- \`tests/test_host_api.py::test_macos_open_treats_hanging_subprocess_as_handed_off\`：仓库内他人未提交改动导致 \`NameError: name 'subprocess' is not defined\`（\`tests/test_host_api.py:210\`），与本 request 无关，已从 pytest 中 deselect，未修复该文件。"
 echo "- \`apps/ledger\` 的浏览器层（localStorage 降级、向宿主迁移、界面交互）没有自动化测试：子应用本身不引入测试框架，相关行为在本轮实现时用临时断言脚本验证过，未固化为仓库内测试。"
+echo "- 设置页「智能体后端」表单的交互（保存/测试连接/清除）没有前端测试：宿主前端无测试框架，本次用 \`tsc --noEmit\` 与真实 HTTP 路由测试覆盖，未做浏览器点击验证。"
 echo "- Windows / Linux：本机只有 macOS 环境，未在其它平台执行。"
 UNEXECUTED=1
 echo
@@ -445,7 +628,8 @@ echo "## 验收结论"
 echo
 echo "- 已由脚本证明：\`apps/ledger\` 能独立构建出合法 iframe 插件（manifest id/type/entry/permissions 正确，产物内含 5 个方法名）；宿主前端 \`tsc --noEmit\` 与生产构建通过；安装脚本能把 dist 同步到目标插件目录；宿主 plugin-data 接口能按插件隔离地写入/读取 JSON，且需要插件声明 \`storage\` 权限；\`GET /api/desktop/agent-config\` 在 \`dev_agent_enabled=True\` 时返回本地网关参数；真实 WS 会话能完成 \`session_ready\` → \`host_tools_register\` → \`message_send\` → \`host_tool_call(ledger_add_entry, amount=35)\` → \`host_tool_result\` → \`message_completed\`（含 35.00）的完整回环（TestClient 内存传输与真实 uvicorn + websockets 进程各验证一次）；5 个方法名在子应用实现、子应用 README、宿主 README 三处一致。"
 echo "- 尚未证明：真实窗口里的界面交互与视觉、浏览器中 ai-sdk 悬浮窗到子应用工具注册的最后一跳（见上「未执行项」）。因此本脚本退出码为 3（有未执行项），不能视为已通过人工联调。"
-echo "- 剩余风险：dev agent 是规则式 mock（关键词 + 金额正则），只用于本地闭环，不能代表真实模型对工具的选择；真实接入需 AI Base 后端签发 token 并把 \`ledger_*\` 绑定到 Agent 与 Embed Client、schema 指纹保持一致，这一步本 request 明确不在范围内。"
+echo "- 真实模型：宿主保存的 Embed Client 凭证（或仓库根 .env 的 \`EMBED_*\`）能换到 token，模型在「请调用 ledger_add_entry 记一笔」时确实调用了 \`ledger_add_entry\` 并接受工具返回结果；后台 5 条策略与 Agent/Client 绑定由 \`apps/desktop/scripts/configure_ai_base.py\` 一次性写入（本脚本不做写入，避免污染后台数据）。"
+echo "- 剩余风险：真实模型对工具的选择受提示与模型版本影响，脚本只验证「会调用正确方法」这一条主路径，没有覆盖模型绕开工具、先查后记等分支；desktop 的 dev agent 仍是规则式 mock，只用于无网络闭环。"
 
 if [[ $FAIL -ne 0 ]]; then
   exit 1

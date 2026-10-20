@@ -17,6 +17,7 @@ approval:
 - 子应用对外方法（5 个，由子应用在页面内注册，宿主转发）：`ledger_add_entry`、`ledger_list_entries`、`ledger_month_summary`、`ledger_delete_entry`、`ledger_list_categories`。
 - 宿主提供能力 ①：插件级本地持久化 `~/.desktop-app/plugin-data/<plugin_id>/<key>.json`，REST `GET/PUT/DELETE /api/desktop/plugin-data/{plugin_id}/{key}`，SDK `desktop.storage` 改为走宿主（不再用 localStorage）。
 - 宿主提供能力 ②：方法注册桥——子应用 `desktop.tools.register({name,description,inputSchema,sideEffect}, execute)`，宿主聚合为「工具集合」；子应用卸载/注销时移除。
+- 真实模型（m00689 追加）：助手默认接真实 AI Base Agent（deepseek），宿主用保存的 Embed Client 凭证换短期 token；5 个 `ledger_*` 方法走后台 HostToolPolicy + Agent/Client 双绑定 + schema 指纹三方一致校验；`DESKTOP_DEV_AGENT=1` 的规则式网关保留为离线兜底。
 - 宿主全局助手：只有一个，挂在宿主壳层，用 ai-sdk 自带悬浮 UI（`createAgentClient({ui:{mode:'floating'}})` 单例），工具集合随子应用动态增减；子应用打开的 iframe 在切换页面后保持常驻（隐藏），保证其方法持续可用。
 - 非目标：不碰 `apps/backend`；本批不做 MCP 端点与 SKILL.md（下一批）；不做多用户/云同步/预算/导入导出；不改多窗口逻辑（子应用默认 inline）。
 
@@ -72,6 +73,16 @@ approval:
 - `apps/desktop/front/src/App.tsx`：挂载全局助手（`useEffect` 一次）；插件页改为「已打开过的 iframe 常驻 + 非当前页 `hidden`」，保证子应用方法不因切页消失。
 - `apps/desktop/front/package.json`：新增 `xxai-agent: workspace:*`；根 `pnpm-lock.yaml` 更新。
 - 测试：`apps/desktop/tests/test_plugin_data.py`（REST + 原子写 + key 校验 + 权限/未启用插件拒绝）、`apps/desktop/tests/test_dev_agent.py`（`TestClient.websocket_connect` 走 session_ready → message 流 → host_tool_call → host_tool_result）；`tools/harness/verify/2026-10-20-ledger-app.sh`（构建 ledger → 安装到临时插件目录 → 断言 `/apps/ledger/index.html` 与 assets 可访问、manifest 校验、pytest、tsc）。
+- 真实模型接入（m00689 追加）：
+  - `apps/ledger/tools.json`：5 个方法的唯一契约源（name/description/sideEffect/inputSchema），`apps/ledger/src/lib/tools.ts` 改为从中导入，避免与后台策略的 schema 指纹漂移。
+  - 新增 `apps/desktop/desktop_app/agent_config.py`：`AgentBackendConfig`（baseUrl/clientId/clientSecret/agentId/hostToolNames，派生 ws 端点与 token 地址）、`AgentConfigStore`（`~/.desktop-app/agent.json`，0600 原子写）、`validate_local_origin`（只接受本机 http(s) 来源）、`issue_agent_token`（stdlib urllib 调 `POST /api/v1/embed/tokens`，解 JWT payload 取 platform_id）。
+  - `apps/desktop/desktop_app/server.py`：`GET/PUT/DELETE /api/desktop/agent-config`、`POST /api/desktop/agent-token`（secret 不出宿主进程；`agent_token_issuer` 可注入便于测试）。
+  - `apps/desktop/front/src/lib/assistant.ts`：remote 分支先换 token 拿 endpoint/platformId，`getToken` 每次经宿主刷新；dev 分支保留静态 token。
+  - `apps/desktop/front/src/components/settings.tsx`：新增「智能体后端」配置区（地址/Client ID/Secret/Agent ID/方法名，保存/测试连接/清除）。
+  - 新增 `apps/desktop/scripts/configure_ai_base.py`：管理员登录后把桌面来源并入 Embed Client `allowed_origins`，按 `tools.json` upsert 5 条 HostToolPolicy（canonical 指纹）并 PUT 绑定 Agent 与 Client。
+  - `apps/backend/app/modules/host_tool/repositories.py`：修复 `create_policy` 只 flush 不 commit（事务在会话退出时回滚），补 commit + refresh 与回归测试。
+  - `apps/desktop/tests/test_agent_config.py`：配置归一化/落盘权限/来源校验/token 换发与路由（含 issuer 打桩、错误码映射）。
+  - `apps/desktop/README.md`、`apps/ledger/README.md`、`docs/CHANGELOG.md` 说明真实模型配置与故障排查。
 - `apps/desktop/README.md` 新增「子应用能力契约（plugin-data / tools / 全局助手）」章节；`apps/ledger/README.md` 说明构建与安装；`docs/CHANGELOG.md` 同步。
 
 ## 验收标准
@@ -81,4 +92,5 @@ approval:
 3. 全局助手在宿主任意页面可用（悬浮球），其工具集合包含 5 个 `ledger_*` 方法；切换到其他页面后工具仍在（iframe 常驻），卸载/停用记账插件后工具消失。
 4. 设置 `DESKTOP_DEV_AGENT=1` 启动时：对助手说「今天午饭花了 35 块」→ 助手调用 `ledger_add_entry` → 记账页出现该条记录；说「这个月花了多少」→ 助手调用 `ledger_month_summary` 并读出合计。
 5. README 中记录的 5 个方法名与入参 schema，与子应用注册、dev agent 调用、后续后台 host tool 策略三方一致。
-6. `cd apps/desktop && .venv/bin/python -m pytest -q` 全绿；`pnpm --dir apps/ledger build`、`pnpm --dir apps/desktop/front build`、`tsc --noEmit` 通过；verify 脚本通过。
+6. 真实模型（m00689 追加）：设置页保存 AI Base 配置后「测试连接」成功；对助手说「今天午饭花了 35 块」→ 真实模型调用 `ledger_add_entry`，回复含金额与本月汇总；「这个月花了多少」→ 调 `ledger_month_summary`。后台策略/绑定/指纹任一不符时工具被网关静默忽略，需能从日志定位。
+7. `cd apps/desktop && .venv/bin/python -m pytest -q` 全绿；`pnpm --dir apps/ledger build`、`pnpm --dir apps/desktop/front build`、`tsc --noEmit` 通过；verify 脚本通过。

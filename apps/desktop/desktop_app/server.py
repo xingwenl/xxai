@@ -7,6 +7,7 @@ import mimetypes
 import tempfile
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -14,10 +15,12 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from desktop_app import agent_config
 from desktop_app import bookmarks
 from desktop_app import dev_agent
 from desktop_app import metadata
 from desktop_app import paths
+from desktop_app.agent_config import AgentBackendConfig, AgentConfigError, AgentConfigNotConfigured, AgentConfigStore
 from desktop_app.app_config import APP_NAME, APP_VERSION
 from desktop_app.bookmarks import MAX_BOOKMARKS_PER_REPORT, BookmarkItem
 from desktop_app.manager import PluginError, PluginExistsError, PluginManager, PluginNotFoundError
@@ -53,6 +56,22 @@ class InstallFromUrlRequest(BaseModel):
     iconUrl: str | None = None
 
 
+class AgentConfigRequest(BaseModel):
+    """智能体后端配置请求体；clientSecret 留空表示沿用已保存的 secret。"""
+
+    baseUrl: str = Field(description="AI Base 地址，例如 http://127.0.0.1:8000")
+    clientId: str = Field(description="Embed Client ID")
+    clientSecret: str | None = Field(default=None, description="Embed Client Secret；留空表示沿用旧值")
+    agentId: int = Field(description="Agent ID")
+    hostToolNames: list[str] | None = Field(default=None, description="希望启用的方法名")
+
+
+class AgentTokenRequest(BaseModel):
+    """换短期 token 的请求体：origin 必须与页面真实来源一致。"""
+
+    origin: str = Field(description="渲染层 window.location.origin")
+
+
 class CollectBookmarksRequest(BaseModel):
     """Chrome 扩展书签上报请求体。"""
 
@@ -65,6 +84,8 @@ def create_app(
     bookmarks_snapshot_path: Path | None = None,
     plugin_data: PluginDataStore | None = None,
     dev_agent_enabled: bool | None = None,
+    agent_config_store: AgentConfigStore | None = None,
+    agent_token_issuer: Callable[[AgentConfigStore, str], dict] | None = None,
 ) -> FastAPI:
     """构建内嵌 FastAPI 应用。
 
@@ -72,10 +93,14 @@ def create_app(
     - bookmarks_snapshot_path：书签快照路径（默认用户数据目录）
     - plugin_data：子应用数据存储（默认用户数据目录）
     - dev_agent_enabled：是否挂载本地 mock 智能体网关；None 时读 DESKTOP_DEV_AGENT 环境变量
+    - agent_config_store：AI Base 后端配置存储（默认 ~/.desktop-app/agent.json）
+    - agent_token_issuer：换 token 的可注入实现（默认走真实 AI Base；测试用它打桩）
     """
     manager = manager or PluginManager()
     snapshot_path = bookmarks_snapshot_path or bookmarks.snapshot_path()
     data_store = plugin_data or PluginDataStore()
+    config_store = agent_config_store or AgentConfigStore()
+    token_issuer = agent_token_issuer or agent_config.issue_agent_token
     dev_enabled = dev_agent.is_enabled_by_env() if dev_agent_enabled is None else dev_agent_enabled
     app = FastAPI(title=APP_NAME, version=APP_VERSION)
 
@@ -248,15 +273,70 @@ def create_app(
     # ---------- 全局助手连接配置 ----------
 
     @app.get("/api/desktop/agent-config")
-    def agent_config() -> dict:
-        """返回全局助手连接参数。
+    def get_agent_config() -> dict:
+        """返回全局助手连接参数：优先 AI Base 配置，其次本地 mock 网关。
 
-        当前只有本地 mock 网关一种来源；未启用时 enabled=false，宿主壳不挂载助手。
-        未来接入 AI Base 时，只需在这里返回真实 endpoint / 短期 token。
+        渲染层拿到的配置不含 client_secret；真正的短期 token 由 agent-token 接口现换。
         """
+        try:
+            config = config_store.load()
+        except AgentConfigError as exc:
+            # 配置损坏时明确报出来，避免用户以为是「没配」而反复保存
+            return {"enabled": False, "mode": "remote", "reason": str(exc)}
+        if config is not None:
+            return {"enabled": True, "mode": "remote", **config.redacted()}
         if dev_enabled:
             return dev_agent.session_payload()
-        return {"enabled": False, "reason": "未配置智能体后端（可用 DESKTOP_DEV_AGENT=1 启动本地网关）"}
+        return {
+            "enabled": False,
+            "reason": "未配置智能体后端：请在设置页填写 AI Base 连接信息，或用 DESKTOP_DEV_AGENT=1 启动本地网关",
+        }
+
+    @app.put("/api/desktop/agent-config")
+    def save_agent_config(req: AgentConfigRequest) -> dict:
+        """保存 AI Base 连接配置；secret 留空时沿用已保存的值。"""
+        previous: AgentBackendConfig | None
+        try:
+            previous = config_store.load()
+        except AgentConfigError:
+            previous = None
+        secret = (req.clientSecret or "").strip()
+        if not secret and previous is not None:
+            secret = previous.client_secret
+        if not secret:
+            raise HTTPException(400, "首次配置必须填写 Embed Client Secret")
+        try:
+            config = AgentBackendConfig(
+                base_url=req.baseUrl,
+                client_id=req.clientId,
+                client_secret=secret,
+                agent_id=req.agentId,
+                host_tool_names=tuple(req.hostToolNames or agent_config.DEFAULT_HOST_TOOL_NAMES),
+            )
+            config_store.save(config)
+        except AgentConfigError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"ok": True, "config": config.redacted()}
+
+    @app.delete("/api/desktop/agent-config")
+    def clear_agent_config() -> dict:
+        """清除 AI Base 配置（之后回落到本地 mock 网关或停用助手）。"""
+        removed = config_store.clear()
+        return {"ok": True, "removed": removed}
+
+    @app.post("/api/desktop/agent-token")
+    def create_agent_token(req: AgentTokenRequest) -> dict:
+        """用服务端保存的 Client 凭证换短期 token；secret 不出宿主进程。"""
+        try:
+            agent_config.validate_local_origin(req.origin)
+        except AgentConfigError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        try:
+            return token_issuer(config_store, req.origin)
+        except AgentConfigNotConfigured as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except AgentConfigError as exc:
+            raise HTTPException(502, str(exc)) from exc
 
     # ---------- Chrome 书签整理接口 ----------
 

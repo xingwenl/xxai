@@ -20,6 +20,7 @@ apps/desktop/
     server.py             # FastAPI 应用工厂（/api/desktop/* + /apps + 前端托管）
     plugin_data.py        # 子应用本地数据存储（plugin-data，JSON 文件原子写）
     dev_agent.py          # 本地 mock 智能体网关（DESKTOP_DEV_AGENT=1 时启用）
+    agent_config.py       # 真实 AI Base 配置与短期 token 换发
     registry.py           # 插件扫描（内置 + 用户）
     manager.py            # 插件安装/卸载/启停与状态持久化
     protocol.py           # manifest 协议
@@ -207,6 +208,15 @@ poetry run python build/build.py
 - 方法定义：`{ name, description, inputSchema, sideEffect }`，`sideEffect` 取 `none | navigation | write | financial | external`，宿主据此提示风险（记账的新增/删除声明为 `financial`）。
 - 助手只负责「调用」：鉴权、会话、工具策略仍由 AI Base 后端裁决（token 的 `host_tools`、Agent / Embed Client 绑定、schema 指纹必须一致）。
 - 本地闭环：`DESKTOP_DEV_AGENT=1` 启动宿主时，`desktop_app/dev_agent.py` 会在 `/api/v1/ws/agents/local` 起一个规则式 mock 网关（实现 ai-agent.v1 握手、`host_tools_register`、`host_tool_call`、流式回复），`GET /api/desktop/agent-config` 返回 `{enabled: true, mode: "dev", ...}`，前端据此连本地网关，无需 AI Base 后端即可调试「子应用方法 + 助手」链路。该网关不接真实模型，只做意图关键词匹配与工具调用。
+
+#### 接真实模型（AI Base）
+
+1. 在 AI Base 后台准备 **Embed Client**（记录 `client_id` / `client_secret`）与目标 **Agent**，把桌面页面的来源加入 Client 的 `allowed_origins`：生产 `http://127.0.0.1:8765`、Vite 调试 `http://127.0.0.1:8443`。
+2. 把子应用的方法登记成后台 HostToolPolicy（`side_effect` 与子应用声明一致），并同时绑定到该 Agent 与 Embed Client；`input_schema` 必须与子应用注册的完全一致（网关按「JSON 键排序 + 无空格」的 sha256 比对，不一致会静默忽略并记日志 `Host tool registration rejected`）。
+3. 宿主设置页 →「智能体后端」填入 AI Base 地址、Client ID、Client Secret、Agent ID、允许的方法名 → 保存 →「测试连接」。secret 仅写入宿主进程的 `~/.desktop-app/agent.json`（0600），渲染层只拿短期 token。
+4. 助手连接流程：前端 `POST /api/desktop/agent-token`（带 `window.location.origin`）→ 宿主用保存的凭证调 AI Base `POST /api/v1/embed/tokens`（带 `host_tool_names`）→ 返回短期 token 与 ws 端点 → ai-sdk 连接；token 到期由 SDK 提前 30 秒经同一接口刷新。`GET /api/desktop/agent-config` 返回 `mode: "remote"`，且**不包含** secret。
+5. 一次性批量配置（推荐）：`python apps/desktop/scripts/configure_ai_base.py --client-id <id> --agent-id <id> --dry-run` 先看计划，再去掉 `--dry-run` 执行；脚本会把桌面来源并入 `allowed_origins`、按 `apps/ledger/tools.json` upsert 5 条策略并完成两处绑定（需要管理员账号）。
+6. 排障：`mode: "remote"` 但助手连不上时看宿主日志中 token 接口的 HTTP 错误；工具调用返回 `host_tool_not_registered` 说明 token 的 `host_tools` 为空（检查 Client 绑定 + `host_tool_names`），`Host tool registration rejected` 说明 schema 指纹不一致。
 
 
 ### 插件 manifest 约定

@@ -6,7 +6,7 @@
 
 import { createAgentClient, type AgentClient, type ToolDefinition } from 'xxai-agent'
 import 'xxai-agent/style.css'
-import { getAgentConfig, type AgentConfig } from './api'
+import { getAgentConfig, issueAgentToken, type AgentConfig } from './api'
 import { listBridgeTools, subscribeBridgeTools, toAgentTool } from './tool-bridge'
 
 let client: AgentClient | null = null
@@ -45,16 +45,43 @@ export function mountAssistant(): Promise<void> {
       console.warn('[assistant] 读取智能体配置失败', err)
       return
     }
-    if (!config.enabled || !config.endpoint || !config.agentId || !config.platformId) {
+    if (!config.enabled) {
       console.info('[assistant] 未配置智能体后端，跳过挂载：', config.reason ?? '')
       return
     }
+    // remote 模式：先换一张短期 token 拿到真实 WS 地址与平台标识；后续 SDK 刷新 token 也走宿主，
+    // 这样 client_secret 只存在于宿主进程，渲染层拿到的永远是短期凭证。
+    let endpoint = config.endpoint
+    let platformId = config.platformId
+    let agentId = config.agentId
+    let displayName = config.displayName || '桌面用户'
+    let getToken: () => Promise<string>
+    if (config.mode === 'remote') {
+      try {
+        const initial = await issueAgentToken(window.location.origin)
+        endpoint = initial.endpoint
+        platformId = initial.platformId
+        agentId = String(initial.agentId)
+        displayName = initial.displayName || displayName
+      } catch (err) {
+        console.warn('[assistant] 换发 AI Base token 失败，请检查设置页的智能体后端配置', err)
+        return
+      }
+      getToken = async () => (await issueAgentToken(window.location.origin)).token
+    } else {
+      if (!endpoint || !agentId || !platformId) {
+        console.info('[assistant] 本地网关参数不完整，跳过挂载')
+        return
+      }
+      const devToken = config.token || ''
+      getToken = async () => devToken
+    }
     const agent: AgentClient = createAgentClient({
-      endpoint: resolveEndpoint(config.endpoint),
-      platformId: config.platformId,
-      agentId: config.agentId,
-      getToken: async () => config.token || '',
-      user: { id: 'desktop-user', displayName: '桌面用户' },
+      endpoint: resolveEndpoint(String(endpoint)),
+      platformId: String(platformId),
+      agentId: String(agentId),
+      getToken,
+      user: { id: 'desktop-user', displayName },
       ui: { mode: 'floating', position: 'right', theme: 'auto' },
     })
     client = agent
@@ -65,7 +92,7 @@ export function mountAssistant(): Promise<void> {
     try {
       await agent.connect()
     } catch (err) {
-      console.warn('[assistant] 连接失败（检查 DESKTOP_DEV_AGENT 是否开启）', err)
+      console.warn('[assistant] 连接失败（本地网关请检查 DESKTOP_DEV_AGENT，AI Base 请检查配置与网络）', err)
     }
   })()
   return mounting

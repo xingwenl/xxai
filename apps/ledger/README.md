@@ -62,6 +62,11 @@ pnpm --dir apps/ledger install:desktop
 
 `ledger_add_entry` / `ledger_delete_entry` 标记为 `sideEffect: 'financial'`，其余为 `none`。
 
+**契约唯一来源是 `apps/ledger/tools.json`**：页面从这里导入 schema，宿主的
+`scripts/configure_ai_base.py` 也从这里生成后台 HostToolPolicy。因为 AI Base 网关按
+「JSON 键排序 + 无空格」的 sha256 比对页面注册的 schema 与后台策略，两边各写一份必然漂移，
+改方法签名时只改这一个文件，然后重新构建 + 重跑配置脚本。
+
 默认分类：支出「餐饮、交通、购物、居住、娱乐、医疗、学习、其他」；收入「工资、奖金、
 理财、其他收入」。自定义分类追加到数组尾部并自动去重。
 
@@ -78,6 +83,20 @@ pnpm --dir apps/ledger install:desktop
 
 构建时 `base: './'`，所有资源都是相对路径，可以被宿主以任意前缀托管
 （`/apps/ledger/`、`file://` 均可），因此不使用 history 路由。
+
+## 数据位置
+
+## 接真实模型
+
+宿主设置页「智能体后端」填写 AI Base 地址与 Embed Client 凭证后，全局助手直接由真实
+Agent 驱动；本子应用不需要改代码，只需保证构建产物已安装、页面已被打开过（方法在页面运行后注册）。
+后台一次性准备（策略 + 绑定 + 来源白名单）：
+
+```bash
+python apps/desktop/scripts/configure_ai_base.py --client-id <client_id> --agent-id <agent_id>
+```
+
+细节见 [apps/desktop/README.md](../desktop/README.md) 的「接真实模型（AI Base）」一节。
 
 ## 数据位置
 

@@ -2,14 +2,19 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  clearAgentConfig,
+  getAgentConfig,
   getDesktopSettings,
   getPlugins,
   installPlugin,
   installFromUrl,
+  issueAgentToken,
   refreshMetadata,
+  saveAgentConfig,
   setPluginEnabled,
   uninstallPlugin,
   updatePluginMetadata,
+  type AgentConfig,
   type DesktopSettings,
   type Plugin,
 } from '../lib/api'
@@ -43,6 +48,14 @@ export default function Settings({
   const [editDesc, setEditDesc] = useState('')
   const [editIconUrl, setEditIconUrl] = useState('')
   const [refreshBusy, setRefreshBusy] = useState(false)
+  // 智能体后端（AI Base）配置：secret 不回显，留空表示沿用宿主已保存的值
+  const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null)
+  const [agentBaseUrl, setAgentBaseUrl] = useState('http://127.0.0.1:8000')
+  const [agentClientId, setAgentClientId] = useState('')
+  const [agentSecret, setAgentSecret] = useState('')
+  const [agentId, setAgentId] = useState('1')
+  const [agentToolNames, setAgentToolNames] = useState('')
+  const [agentBusy, setAgentBusy] = useState(false)
 
   const load = useCallback(() => {
     getPlugins()
@@ -50,6 +63,17 @@ export default function Settings({
       .catch((e) => toast('加载插件失败', String(e.message || e), 'error'))
     getDesktopSettings()
       .then(setInfo)
+      .catch(() => undefined)
+    getAgentConfig()
+      .then((config) => {
+        setAgentConfig(config)
+        if (config.mode === 'remote') {
+          setAgentBaseUrl(config.baseUrl || 'http://127.0.0.1:8000')
+          setAgentClientId(config.clientId || '')
+          setAgentId(String(config.agentId || '1'))
+          setAgentToolNames((config.hostToolNames || []).join(', '))
+        }
+      })
       .catch(() => undefined)
   }, [])
 
@@ -151,6 +175,68 @@ export default function Settings({
       toast('更新失败', String((e as Error).message || e), 'error')
     } finally {
       setRefreshBusy(false)
+    }
+  }
+
+  const handleSaveAgent = async () => {
+    const baseUrl = agentBaseUrl.trim()
+    const clientId = agentClientId.trim()
+    const numericAgentId = Number(agentId)
+    if (!baseUrl || !clientId) {
+      toast('提示', '请填写 AI Base 地址与 Embed Client ID', 'error')
+      return
+    }
+    if (!Number.isInteger(numericAgentId) || numericAgentId < 1) {
+      toast('提示', 'Agent ID 必须是正整数', 'error')
+      return
+    }
+    const names = agentToolNames
+      .split(/[\s,，]+/)
+      .map((name) => name.trim())
+      .filter(Boolean)
+    setAgentBusy(true)
+    try {
+      const { config } = await saveAgentConfig({
+        baseUrl,
+        clientId,
+        clientSecret: agentSecret.trim() || undefined,
+        agentId: numericAgentId,
+        hostToolNames: names.length ? names : undefined,
+      })
+      setAgentConfig(config)
+      setAgentSecret('')
+      toast('已保存', '刷新页面后助手按新配置连接', 'success')
+    } catch (e) {
+      toast('保存失败', String((e as Error).message || e), 'error')
+    } finally {
+      setAgentBusy(false)
+    }
+  }
+
+  const handleTestAgent = async () => {
+    setAgentBusy(true)
+    try {
+      const result = await issueAgentToken(window.location.origin)
+      toast('连接成功', `已换发 token（有效期 ${result.expiresIn} 秒）：${result.endpoint}`, 'success')
+    } catch (e) {
+      toast('连接失败', String((e as Error).message || e), 'error')
+    } finally {
+      setAgentBusy(false)
+    }
+  }
+
+  const handleClearAgent = async () => {
+    if (!window.confirm('清除智能体后端配置？清除后助手回落到本地网关（若开启）或停用。')) return
+    setAgentBusy(true)
+    try {
+      await clearAgentConfig()
+      setAgentConfig({ enabled: false })
+      setAgentSecret('')
+      toast('已清除', '刷新页面后生效', 'success')
+    } catch (e) {
+      toast('清除失败', String((e as Error).message || e), 'error')
+    } finally {
+      setAgentBusy(false)
     }
   }
 
@@ -384,6 +470,116 @@ export default function Settings({
               暂无插件，点击上方按钮安装
             </div>
           )}
+        </div>
+      </section>
+
+      {/* 智能体后端：桌面助手（ai-sdk 悬浮窗）连接哪里、能用哪些方法 */}
+      <section style={glass} className="p-5 mt-4">
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <h2 className="font-600 text-[15px]" style={{ color: 'var(--foreground)' }}>智能体后端</h2>
+          <span
+            className="text-[11px] px-2 py-0.5 rounded-md font-mono"
+            style={{
+              background: agentConfig?.enabled ? 'rgba(var(--primary-ink-rgb) / 0.10)' : 'rgba(var(--hairline-rgb) / 0.10)',
+              color: agentConfig?.enabled ? 'var(--primary-ink)' : 'var(--color-mid)',
+            }}
+          >
+            {agentConfig?.mode === 'remote' ? 'AI Base' : agentConfig?.mode === 'dev' ? '本地网关' : '未配置'}
+          </span>
+        </div>
+        <p className="text-[12px] mb-3" style={{ color: 'var(--color-mid)' }}>
+          配置 AI Base 后，宿主用 Embed Client 凭证换短期 token，secret 只保存在本机；未配置时可用
+          <code className="mx-1">DESKTOP_DEV_AGENT=1</code>
+          启动本地网关做离线联调。
+        </p>
+
+        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+          <label className="flex flex-col gap-1 text-[12px]" style={{ color: 'var(--color-mid)' }}>
+            AI Base 地址
+            <input
+              value={agentBaseUrl}
+              onChange={(e) => setAgentBaseUrl(e.target.value)}
+              placeholder="http://127.0.0.1:8000"
+              className="px-3 py-2 rounded-xl text-[13px] outline-none"
+              style={{ background: 'rgba(var(--hairline-rgb) / 0.05)', border: '1px solid rgba(var(--hairline-rgb) / 0.12)', color: 'var(--foreground)' }}
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-[12px]" style={{ color: 'var(--color-mid)' }}>
+            Embed Client ID
+            <input
+              value={agentClientId}
+              onChange={(e) => setAgentClientId(e.target.value)}
+              placeholder="client_xxx"
+              className="px-3 py-2 rounded-xl text-[13px] outline-none"
+              style={{ background: 'rgba(var(--hairline-rgb) / 0.05)', border: '1px solid rgba(var(--hairline-rgb) / 0.12)', color: 'var(--foreground)' }}
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-[12px]" style={{ color: 'var(--color-mid)' }}>
+            Embed Client Secret{agentConfig?.hasSecret ? '（已保存，留空沿用）' : ''}
+            <input
+              type="password"
+              value={agentSecret}
+              onChange={(e) => setAgentSecret(e.target.value)}
+              placeholder={agentConfig?.hasSecret ? '不修改请留空' : '只保存在本机'}
+              className="px-3 py-2 rounded-xl text-[13px] outline-none"
+              style={{ background: 'rgba(var(--hairline-rgb) / 0.05)', border: '1px solid rgba(var(--hairline-rgb) / 0.12)', color: 'var(--foreground)' }}
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-[12px]" style={{ color: 'var(--color-mid)' }}>
+            Agent ID
+            <input
+              value={agentId}
+              onChange={(e) => setAgentId(e.target.value)}
+              placeholder="1"
+              className="px-3 py-2 rounded-xl text-[13px] outline-none"
+              style={{ background: 'rgba(var(--hairline-rgb) / 0.05)', border: '1px solid rgba(var(--hairline-rgb) / 0.12)', color: 'var(--foreground)' }}
+            />
+          </label>
+        </div>
+
+        <label className="flex flex-col gap-1 text-[12px] mt-3" style={{ color: 'var(--color-mid)' }}>
+          允许调用的方法（逗号分隔；留空用默认 ledger_* 集合）
+          <input
+            value={agentToolNames}
+            onChange={(e) => setAgentToolNames(e.target.value)}
+            placeholder="ledger_add_entry, ledger_list_entries, ledger_month_summary"
+            className="px-3 py-2 rounded-xl text-[13px] outline-none font-mono"
+            style={{ background: 'rgba(var(--hairline-rgb) / 0.05)', border: '1px solid rgba(var(--hairline-rgb) / 0.12)', color: 'var(--foreground)' }}
+          />
+        </label>
+
+        <div className="flex flex-wrap items-center gap-2 mt-4">
+          <button
+            disabled={agentBusy}
+            onClick={handleSaveAgent}
+            className="px-4 py-2 rounded-xl text-[13px] font-600 disabled:opacity-50"
+            style={{ background: 'var(--fill-gradient)', color: 'var(--primary-foreground)' }}
+          >
+            {agentBusy ? '处理中…' : '保存配置'}
+          </button>
+          <button
+            disabled={agentBusy || !agentConfig?.enabled}
+            onClick={handleTestAgent}
+            className="px-4 py-2 rounded-xl text-[13px] font-600 disabled:opacity-40"
+            style={{ background: 'rgba(var(--primary-ink-rgb) / 0.10)', color: 'var(--primary-ink)' }}
+          >
+            测试连接
+          </button>
+          <button
+            disabled={agentBusy || !agentConfig?.mode}
+            onClick={handleClearAgent}
+            className="px-4 py-2 rounded-xl text-[13px] font-500 disabled:opacity-40"
+            style={{ background: '#f43f5e12', color: '#f43f5e' }}
+          >
+            清除
+          </button>
+          <span className="text-[12px] ml-auto" style={{ color: agentConfig?.enabled ? 'var(--color-mid)' : '#f43f5e' }}>
+            {agentConfig?.reason || (agentConfig?.mode === 'remote'
+              ? `Agent ${agentConfig.agentId} · ${agentConfig.clientId || ''}`
+              : agentConfig?.mode === 'dev'
+                ? '离线规则式网关'
+                : '')}
+          </span>
         </div>
       </section>
 

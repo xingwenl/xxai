@@ -152,24 +152,75 @@ export async function proxyFetch(method: 'GET' | 'POST', url: string, body?: unk
 
 // ── 全局助手连接配置 ─────────────────────────────────────────────────────────
 
-/** 宿主智能体配置；enabled=false 表示当前没有可用的智能体后端（含本地开发网关）。 */
+/** 宿主智能体配置；enabled=false 表示当前没有可用的智能体后端（含 AI Base 与本地开发网关）。 */
 export interface AgentConfig {
   enabled: boolean
+  /** remote = 真实 AI Base（宿主换 token）；dev = 本地规则式网关 */
   mode?: 'dev' | 'remote'
   /** WebSocket 地址，可能是相对路径（如 /api/v1/ws/agents/local） */
   endpoint?: string
-  platformId?: string
-  agentId?: string
-  /** 本地开发网关的一次性 token；接入 AI Base 时应改为服务端换发的短期 token */
+  platformId?: string | number
+  /** 本地网关是 "local"，AI Base 是数字 ID */
+  agentId?: string | number
+  /** 仅本地开发网关下发的一次性 token；remote 模式由 agent-token 接口现换 */
   token?: string
   displayName?: string
   version?: string
   reason?: string
+  /** 以下字段仅 remote 模式返回（不含 secret） */
+  baseUrl?: string
+  clientId?: string
+  hostToolNames?: string[]
+  externalUserId?: string
+  hasSecret?: boolean
+}
+
+/** remote 模式下由宿主换发的短期 token 与连接参数。 */
+export interface AgentTokenResult {
+  token: string
+  expiresIn: number
+  /** 形如 ws://127.0.0.1:8000/api/v1/ws/agents/1 */
+  endpoint: string
+  platformId: string
+  agentId: number
+  displayName?: string
+  mode: 'remote'
+}
+
+export interface AgentConfigInput {
+  baseUrl: string
+  clientId: string
+  /** 留空表示沿用宿主已保存的 secret */
+  clientSecret?: string
+  agentId: number
+  hostToolNames?: string[]
 }
 
 /** 读取宿主当前可用的智能体连接参数；没有配置时返回 enabled=false。 */
 export function getAgentConfig(): Promise<AgentConfig> {
   return request('/api/desktop/agent-config')
+}
+
+/** 保存 AI Base 连接配置；secret 只落宿主进程，不会返回给渲染层。 */
+export function saveAgentConfig(input: AgentConfigInput): Promise<{ ok: boolean; config: AgentConfig }> {
+  return request('/api/desktop/agent-config', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+
+export function clearAgentConfig(): Promise<{ ok: boolean; removed: boolean }> {
+  return request('/api/desktop/agent-config', { method: 'DELETE' })
+}
+
+/** 用宿主保存的 Client 凭证换短期 token；origin 必须是当前页面真实来源。 */
+export function issueAgentToken(origin: string): Promise<AgentTokenResult> {
+  return request('/api/desktop/agent-token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ origin }),
+  })
 }
 
 // ── 子应用本地数据（plugin-data） ────────────────────────────────────────────
