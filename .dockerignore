@@ -1,5 +1,6 @@
-# front 镜像以仓库根为构建上下文（需要同时取到 apps/front 与它 `file:` 依赖的 apps/ai-sdk），
-# 这里挡掉与镜像无关的体积：依赖目录、构建产物、缓存与本地临时文件。
+# front 镜像以仓库根为构建上下文（pnpm workspace 需要根 lockfile 与各成员的 package.json，
+# 以及 apps/front、apps/ai-sdk 的源码），这里挡掉与镜像无关的体积：依赖目录、构建产物、缓存
+# 与本地临时文件。
 # 注意：本文件只对「以仓库根为 context」的构建生效，apps/backend 等以子目录为 context 的服务
 # 使用它们自己的 .dockerignore。
 .git
@@ -12,3 +13,20 @@
 **/.env*
 .dsh-verify-shell
 docs
+# 根上下文只服务 front 镜像，其余应用目录、worktree 与本地临时产物都不需要传输
+.worktrees
+tmp
+tools
+deploy
+draw-things-output
+.superpowers
+.ruff_cache
+.dsh
+apps/backend
+apps/desktop
+apps/shop
+apps/chrome-extension
+# apps/desktop/front 与 apps/shop 是 pnpm workspace 成员，容器内 install 需要读到它们的
+# package.json；它们的源码与构建产物仍然不进镜像上下文。
+!apps/shop/package.json
+!apps/desktop/front/package.json

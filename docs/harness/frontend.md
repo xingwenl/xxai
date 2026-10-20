@@ -65,6 +65,8 @@
 
 `verify.md` 不能只写"已测试通过"，至少要记录执行命令、预期结果、实际结果、失败项与例外。
 
+本仓库是 pnpm workspace（`apps/ai-sdk`、`apps/front`、`apps/shop`、`apps/desktop/front` 共用根 `pnpm-lock.yaml`），依赖统一在仓库根 `pnpm install` 安装；`apps/front` 通过 `workspace:*` 软链引用 `apps/ai-sdk`，SDK 改动后用 `pnpm build:sdk` 重建 dist。
+
 常见验证命令（以 `apps/front/package.json` 的 scripts 为准）：
 
 - `pnpm --dir apps/front lint`

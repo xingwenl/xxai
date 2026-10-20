@@ -792,11 +792,21 @@ ECharts 只接受 `JSON.parse` 得到的对象，不会执行围栏里的 JS 表
 
 ## 11. 本地开发和 Demo
 
+本包单独开发仍可用 npm（发布链路见第 12 节，CI 走 `npm ci`）：
+
 ```bash
 cd apps/ai-sdk
 npm install
 npm run build
 npm run demo
+```
+
+在 monorepo 里更推荐用仓库根的 pnpm workspace（`apps/front`、`apps/shop`、`apps/desktop/front` 是同一 workspace 成员）：
+
+```bash
+pnpm install     # 仓库根一次装完，并触发本包 prepare 生成 dist/
+pnpm build:sdk   # 只重建 dist
+pnpm --dir apps/ai-sdk exec vite build   # 同上，等价写法
 ```
 
 SDK 源码开发命令：
@@ -808,7 +818,7 @@ npm run test -- --run
 npm run type-check
 ```
 
-> ⚠️ `dist/` 不被 git 跟踪。仓库内以 `file:` 方式引用本 SDK 的宿主（`apps/front`、`apps/shop`）在 pnpm 下是**复制** `dist` 而非软链，且不会触发本包的 `prepare` 脚本。因此改动 `apps/ai-sdk/src` 之后，需要重新 `npm run build`，再到宿主目录重跑 `pnpm install` 才能生效；干净克隆时同样要先构建本包。
+> ⚠️ `dist/` 不被 git 跟踪。仓库根 `pnpm install` 会执行本包的 `prepare`（= `npm run build`）生成 `dist/`。宿主 `apps/front`、`apps/shop` 通过 `workspace:*` 软链到本包目录（`node_modules/xxai-agent -> ../../ai-sdk`），改动 `apps/ai-sdk/src` 后只需重建 dist（`pnpm build:sdk` 或 `pnpm --filter xxai-agent build`），宿主 dev server / 打包会直接读到新产物，不需要重装依赖。发布到 npm 不受影响：`workspace:*` 在 pack/publish 时会被替换成实际版本号。
 
 本地 Demo 页面通过 dev server 的同源代理 `/demo-api/agent-token` 换 token，需要先设置 `EMBED_CLIENT_ID`、`EMBED_CLIENT_SECRET`、`EMBED_AGENT_ID` 和 `EMBED_ORIGIN`（见 [2.2 本地 Demo 方式](#22-本地-demo-方式)）；AI Base 后端也要配置同样的 Embed 变量。
 

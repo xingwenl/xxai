@@ -21,9 +21,11 @@ hua8 登录（验证码 + auth/login）→ 浏览器持有 shopToken / shopUserI
 1. 后端准备（ai-base）：确保 `EMBED_CLIENT_ID` / `EMBED_CLIENT_SECRET` / `EMBED_AGENT_ID` / `EMBED_ORIGIN` 已配置，目标智能体已绑定 Embed Client。
 2. 安装依赖并启动：
 
+在**仓库根目录**安装 workspace 依赖（本包是根 `pnpm-workspace.yaml` 的成员）：
+
 ```bash
 pnpm install
-pnpm dev
+pnpm --dir apps/shop dev   # 或根目录 pnpm dev:shop
 ```
 
 3. 打开 `http://localhost:5174`，用店铺运营平台账号登录。

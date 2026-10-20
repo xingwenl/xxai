@@ -1,0 +1,5 @@
+packages:
+  - 'apps/ai-sdk'
+  - 'apps/front'
+  - 'apps/shop'
+  - 'apps/desktop/front'
