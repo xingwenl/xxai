@@ -51,7 +51,8 @@ AI 识别到以下指令时，先执行对应的最小动作；完整语义、�
 
 - 涉及 `apps/backend/`：必读 [docs/harness/backend.md](docs/harness/backend.md)
 - 涉及 `apps/front/`：必读 [docs/harness/frontend.md](docs/harness/frontend.md)
-- 仓库级技能（`.codex/skills/`）：Codex 会自动索引该目录；任务匹配其描述时，先读取并遵守对应 `SKILL.md`（如 `.codex/skills/backend-basic-crud-table/`、`.codex/skills/frontend-architecture.md`、`.codex/skills/frontend-styling.md`）
+- 涉及 `apps/desktop` 子应用（新建 `apps/<name>` 装进桌面宿主、向全局助手注册方法）：必读 [.codex/skills/desktop-agent-subapp/SKILL.md](.codex/skills/desktop-agent-subapp/SKILL.md)
+- 仓库级技能（`.codex/skills/`）：Codex 会自动索引该目录；任务匹配其描述时，先读取并遵守对应 `SKILL.md`（如 `.codex/skills/backend-basic-crud-table/`、`.codex/skills/frontend-architecture.md`、`.codex/skills/frontend-styling.md`、`.codex/skills/desktop-agent-subapp/`）
 
 ## Git 管理约定
 
