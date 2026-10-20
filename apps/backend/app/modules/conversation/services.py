@@ -31,6 +31,8 @@ from app.modules.conversation.compaction import (
 )
 from app.modules.knowledge.runtime import build_embedding_model
 from app.modules.knowledge.services import build_citations, validate_embedding_dimension
+from app.modules.memory.repositories import MemoryRepository
+from app.modules.memory.services import load_memory_index_line
 from app.modules.conversation.schemas import sanitize_content_blocks
 from app.modules.conversation.serializers import (
     build_message_snapshots,
@@ -497,6 +499,7 @@ async def _run_execute_chat_model_round(
     citations: list[dict],
     request_id: str,
     max_iterations: int | None = None,
+    memory_index: str | None = None,
 ) -> GraphResult:
     """执行 REST 非流式对话的模型轮次（统一 AgentRuntime）。
 
@@ -519,6 +522,7 @@ async def _run_execute_chat_model_round(
         citations,
         # 模型名来自平台模型注册表解析出的实际调用模型（版本行已无该字段）。
         chat_model_name=getattr(model, "model_name", None),
+        memory_index=memory_index,
     )
     # 模型名取自实际调用模型：注册表解析后版本行不再有模型名，
     # 不传就会让内置窗口映射失效（压缩与护栏都会静默关闭）。
@@ -586,6 +590,7 @@ async def _run_chat_model_round_or_orchestration(
     end_user_id: int | None,
     allow_orchestration: bool,
     max_iterations: int | None = None,
+    memory_index: str | None = None,
 ):
     """一轮对话的产出：绑定编排时交给工作流，否则走普通的单 Agent 模型循环。
 
@@ -634,6 +639,7 @@ async def _run_chat_model_round_or_orchestration(
         citations=citations,
         request_id=request_id,
         max_iterations=max_iterations,
+        memory_index=memory_index,
     )
 
 
@@ -687,6 +693,27 @@ def orchestration_event_stream(
     )
 
 
+async def _load_memory_index(
+    repo, *, platform_id: int, user_id: int | None, allow_memory: bool
+) -> str | None:
+    """取系统提示里的记忆索引行（只含条数，不含任何事实值）。
+
+    - 无人值守运行传 ``allow_memory=False``：既不让模型看到「有记忆」，
+      也配合工具侧的 ``unattended`` 拒绝写入；
+    - 没有请求主体（终端用户会话、系统触发）时无记忆可言，直接跳过；
+    - 仓储替身可能不带 ``session``（单测用），此时视为无记忆而不是报错。
+    """
+
+    if not allow_memory or user_id is None:
+        return None
+    session = getattr(repo, "session", None)
+    if session is None:
+        return None
+    return await load_memory_index_line(
+        MemoryRepository(session), platform_id=platform_id, user_id=user_id
+    )
+
+
 async def execute_chat(
     repo: ConversationRepository,
     context,
@@ -700,6 +727,7 @@ async def execute_chat(
     invoke_tool_fn=None,
     end_user_id: int | None = None,
     allow_orchestration: bool = True,
+    allow_memory: bool = True,
     parent_loop_run_id: int | None = None,
     max_iterations: int | None = None,
 ):
@@ -743,6 +771,9 @@ async def execute_chat(
     # 而运行记录在这里才创建。与 conversation_id 同一套延迟求值口径。
     context.loop_run_id = loop.id
     runtime_tools = build_runtime_tool_list(context)
+    memory_index = await _load_memory_index(
+        repo, platform_id=platform_id, user_id=user_id, allow_memory=allow_memory
+    )
     try:
         result = await _run_chat_model_round_or_orchestration(
             context,
@@ -759,6 +790,7 @@ async def execute_chat(
             end_user_id=end_user_id,
             allow_orchestration=allow_orchestration,
             max_iterations=max_iterations,
+            memory_index=memory_index,
         )
     except Exception as error:
         # REST 非流式与流式入口共用同一错误语义：模型失败不能把 loop 留在
@@ -836,6 +868,7 @@ async def stream_chat(
     invoke_tool_fn=None,
     on_model_task_started=None,
     allow_orchestration: bool = True,
+    allow_memory: bool = True,
     max_iterations: int | None = None,
 ):
     logger.info(
@@ -927,11 +960,16 @@ async def stream_chat(
     tool_steps = {}
     next_step_sequence = generation_sequence + 1
     runtime_tools = build_runtime_tool_list(context)
+    # 与非流式同一口径：只注入记忆索引行，不注入记忆内容。
+    memory_index = await _load_memory_index(
+        repo, platform_id=platform_id, user_id=user_id, allow_memory=allow_memory
+    )
     system_prompt = build_system_prompt(
         context.version,
         context.skill_instructions,
         citations,
         chat_model_name=getattr(model, "model_name", None),
+        memory_index=memory_index,
     )
     # 绑定编排时用「同一套 AgentEvent」替换模型流：下游从事件消费到 assistant
     # 落库全都不用改，两条来源在收尾处自然合流。
@@ -1456,6 +1494,8 @@ async def execute_unattended_chat(
         conversation_id_provider=lambda: getattr(context, "conversation_id", None),
         confirmation_decider=confirmation_decider,
         loop_run_id_provider=lambda: getattr(context, "loop_run_id", None),
+        # 无人值守：没有在场用户，用户记忆类工具必须拒绝写入（见 user_memory）。
+        interactive=False,
     )
 
     # 对话模型与「任务级覆盖」走同一处解析：model_id 非空时以任务指定模型为准，
@@ -1482,6 +1522,8 @@ async def execute_unattended_chat(
         citations=[citation.model_dump() for citation in citations],
         invoke_tool_fn=invoke,
         allow_orchestration=allow_orchestration,
+        # 无人值守：不注入记忆索引，记忆工具也拒绝写入（见 tools/business/user_memory）。
+        allow_memory=False,
         parent_loop_run_id=parent_loop_run_id,
         max_iterations=max_iterations,
     )

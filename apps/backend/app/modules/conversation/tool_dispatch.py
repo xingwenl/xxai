@@ -56,6 +56,7 @@ def build_tool_invoker(
     platform_end_user_id: int | None = None,
     confirmation_decider: ConfirmationDecider | None = None,
     loop_run_id_provider: Callable[[], int | None] | None = None,
+    interactive: bool = True,
 ) -> Callable[..., Awaitable[Any]]:
     """构造工具调用函数，供 REST 聊天与无人值守任务共用。
 
@@ -96,6 +97,7 @@ def build_tool_invoker(
                     loop_run_id_provider() if loop_run_id_provider is not None else None
                 ),
                 confirmation_decider=confirmation_decider,
+                unattended=not interactive,
             )
 
         if kind == "skill_script":

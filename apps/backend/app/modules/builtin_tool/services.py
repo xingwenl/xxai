@@ -18,6 +18,7 @@ from app.core.config import get_settings
 from app.core.database import get_session_factory
 from app.modules.builtin_tool.registry import get_builtin_tool
 from app.modules.builtin_tool.schemas import BuiltinToolOutcome
+from app.modules.memory.services import SELF_SCOPED_WRITE_TOOLS
 from app.modules.tool_approval.contracts import (
     REJECTED_BY_POLICY,
     ConfirmationDecision,
@@ -71,6 +72,7 @@ async def invoke_builtin_tool(
     session=None,
     loop_run_id: int | None = None,
     confirmation_decider=None,
+    unattended: bool = False,
 ) -> BuiltinToolOutcome:
     """旧入口：参数与返回结构不变，直接执行注册表里的业务工具 handler。
 
@@ -100,7 +102,20 @@ async def invoke_builtin_tool(
     # 审批闸口：只对声明有副作用的工具生效（none/navigation 直接执行）。
     # 以注册表定义为准，而不是运行时传进来的 tool 对象，避免旁路。
     side_effect = coerce_side_effect(getattr(definition, "side_effect", "none"))
-    if side_effect != "none":
+
+    # 白名单直通：用户记忆的读写只作用于**当前用户本人**（读的是自己的记忆，
+    # 写的是自己的记忆，不改变任何他人可见的状态），交互会话里为它弹确认卡
+    # 只会让「记一下我的城市」多一步无意义的点击。代价是模型可能在用户没要求
+    # 时写入，因此配套三件事：写入有白名单与敏感类别限制、写后回显原值、用户
+    # 可随时删除。白名单不覆盖无人值守与端用户会话——那两条通路没有在场的人
+    # 能看见这件事发生。
+    self_scoped_write = (
+        side_effect != "none"
+        and definition.name in SELF_SCOPED_WRITE_TOOLS
+        and not unattended
+        and user_id is not None
+    )
+    if side_effect != "none" and not self_scoped_write:
         decision = await _decide_confirmation(
             confirmation_decider, definition=definition, call=call
         )
@@ -133,6 +148,7 @@ async def invoke_builtin_tool(
         shop_token=shop_token,
         shop_user_id=shop_user_id,
         confirmation_decider=confirmation_decider,
+        unattended=unattended,
     )
     # 流式 AgentRuntime 会在独立的模型任务中执行工具；复用 Gateway 正在
     # flush/commit 的 AsyncSession 会触发 asyncpg 的并发操作错误。诊断类

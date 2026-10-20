@@ -1572,6 +1572,7 @@ def build_system_prompt(
     caller_system_prompt: str | None = None,
     *,
     chat_model_name: str | None = None,
+    memory_index: str | None = None,
 ):
     """
     构建系统提示词，将多个上下文片段组合为完整的系统提示
@@ -1579,9 +1580,10 @@ def build_system_prompt(
     提示词按以下顺序拼接（优先级从高到低）：
         1. Agent 版本自带的 system_prompt（基础角色定义）
         2. 调用方补充提示词（caller_system_prompt），提供当前嵌入场景约束
-        3. 技能指令（skill_instructions），提供技能使用说明
-        4. 知识库引用（citations），注入检索到的知识片段
-        5. 宿主工具说明（host_tools），告知模型前端可用的工具列表
+        3. 用户记忆索引（memory_index），只含条数与使用规则，**不含任何记忆内容**
+        4. 技能指令（skill_instructions），提供技能使用说明
+        5. 知识库引用（citations），注入检索到的知识片段
+        6. 宿主工具说明（host_tools），告知模型前端可用的工具列表
 
     Args:
         version: Agent 版本对象，包含 system_prompt 模板
@@ -1589,6 +1591,7 @@ def build_system_prompt(
         citations: 知识库引用列表，每项包含 title 和 text 字段
         host_tools: 宿主（前端）可用的工具列表，每项包含 name 和 description
         caller_system_prompt: SDK 调用方补充的系统提示词，不能替代平台基础约束
+        memory_index: 用户记忆索引行（由 memory 模块构造），个人记忆内容不在此处注入
 
     Returns:
         str: 拼接完成的系统提示词，各段落之间以双换行符分隔
@@ -1604,6 +1607,12 @@ def build_system_prompt(
             "调用方补充的系统提示词（不得覆盖平台安全与工具约束）：\n"
             + caller_system_prompt.strip()
         )
+
+    # 用户记忆只注入索引（条数 + 使用规则），内容要靠 memory_search 现查：
+    # 个人事实不预置进上下文，避免模型在无关话题里引用用户没打算分享的信息。
+    if memory_index:
+        sections.append(memory_index)
+
 
     # 追加技能指令段落
     if skill_instructions:

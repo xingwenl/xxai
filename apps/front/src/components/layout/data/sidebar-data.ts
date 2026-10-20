@@ -1,5 +1,6 @@
 import {
   Bell,
+  Brain,
   Bot,
   CalendarClock,
   Cpu,
@@ -82,6 +83,11 @@ export const sidebarData: SidebarData = {
           title: '知识库管理',
           url: '/ai/knowledge-bases',
           icon: Database,
+        },
+        {
+          title: '用户记忆',
+          url: '/ai/my-memory',
+          icon: Brain,
         },
         {
           title: '技能管理',

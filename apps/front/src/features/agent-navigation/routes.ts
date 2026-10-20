@@ -3,6 +3,7 @@ export const internalPageRoutes = {
   智能体管理: '/ai/bots',
   平台管理: '/ai/platforms',
   知识库管理: '/ai/knowledge-bases',
+  用户记忆: '/ai/my-memory',
   技能管理: '/ai/skills',
   EmbedClient管理: '/ai/embed-clients',
   宿主工具策略: '/ai/host-tools',

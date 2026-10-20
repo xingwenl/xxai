@@ -55,3 +55,16 @@ class ErrorCode(StrEnum):
     REQUEST_FAILED = "request_failed"
     QUOTA_EXCEEDED = "quota_exceeded"
     QUOTA_UNAVAILABLE = "quota_unavailable"
+
+    # 用户记忆：写入判定失败时返回给模型与前端的是同一套码。
+    MEMORY_PRINCIPAL_REQUIRED = "memory_principal_required"
+    MEMORY_KIND_INVALID = "memory_kind_invalid"
+    MEMORY_MODE_INVALID = "memory_mode_invalid"
+    MEMORY_EMPTY = "memory_empty"
+    MEMORY_KEY_REQUIRED = "memory_key_required"
+    MEMORY_KEY_NOT_ALLOWED_FOR_INFERRED = "memory_key_not_allowed_for_inferred"
+    MEMORY_INFERRED_REQUIRES_FACT = "memory_inferred_requires_fact"
+    MEMORY_CONTENT_TOO_LONG = "memory_content_too_long"
+    MEMORY_SENSITIVE_REQUIRES_EXPLICIT = "memory_sensitive_requires_explicit"
+    MEMORY_FACT_CONFLICT = "memory_fact_conflict"
+    MEMORY_NOT_FOUND = "memory_not_found"

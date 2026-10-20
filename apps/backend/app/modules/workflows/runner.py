@@ -875,6 +875,8 @@ async def _run_tool_step(
             user_id=user_id,
             platform_end_user_id=end_user_id,
             confirmation_decider=build_confirmation_decider(policy),
+            # 工作流同样无人值守：用户记忆类工具在这里不接受写入。
+            interactive=False,
         )
         outcome = await invoke(
             tool=tool,

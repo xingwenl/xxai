@@ -53,6 +53,9 @@ class BusinessToolContext:
     # 本次运行的审批裁决器：委派类工具把它传给子运行，让子运行继承父的审批策略。
     # 交互式运行传 None（没有可问的人），子运行据此走「无确认通道」拒绝分支。
     confirmation_decider: Any | None = None
+    # 是否无人值守运行（任务、工作流）。有些工具只在有在场用户的交互会话里
+    # 生效（如用户记忆写入），无人值守时必须拒绝而不是静默执行。
+    unattended: bool = False
 
 
 @dataclass(frozen=True)
