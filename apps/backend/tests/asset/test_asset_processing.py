@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from functools import wraps
+from types import SimpleNamespace
 
 import pytest
 
@@ -162,3 +163,92 @@ class TestGatewayAttachmentSchema:
         from pydantic import ValidationError
         with pytest.raises(ValidationError):
             AttachmentRef(assetId="../../../etc/passwd", filename="evil.pdf", mimeType="application/pdf", size=100)
+
+
+class FakeProcessingRepo:
+    """记录 update_processing / create_chunks 调用的最小仓库替身。"""
+
+    def __init__(self) -> None:
+        self.session = object()
+        self.updates: list[dict] = []
+        self.chunks: list[dict] = []
+
+    async def update_processing(self, record, **values):
+        self.updates.append(values)
+        record.status = values.get("status", getattr(record, "status", None))
+        return record
+
+    async def create_chunks(self, records):
+        self.chunks.extend(records)
+        return [SimpleNamespace(**item) for item in records]
+
+
+def _parse_asset():
+    return SimpleNamespace(
+        id=1,
+        asset_id="a" * 32,
+        filename="scores.xlsx",
+        conversation_id=9,
+        content_type=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+        storage_key="assets/1/scores.xlsx",
+        platform_id=1,
+        agent_id=2,
+    )
+
+
+def _processing_record():
+    return SimpleNamespace(id=1, chunk_size=512, chunk_overlap=50, status=None)
+
+
+class TestExecuteProcessingFailures:
+    """解析失败必须落成 failed；静默 ready 会让附件永远检索不到内容。"""
+
+    @async_test
+    async def test_parse_error_marks_failed(self, monkeypatch):
+        from app.modules.asset_processing import services
+
+        def _raise(*_args, **_kwargs):
+            raise ValueError("未能从文件解析出文本（嗅探格式: markup）: scores.xlsx")
+
+        monkeypatch.setattr(services, "load_file_text", _raise)
+        repo = FakeProcessingRepo()
+
+        result = await services.execute_processing(
+            repo, _parse_asset(), _processing_record()
+        )
+
+        assert result.status == ProcessingStatus.failed
+        assert "未能从文件解析出文本" in repo.updates[-1]["error_message"]
+        assert repo.chunks == []
+
+    @async_test
+    async def test_empty_text_marks_failed(self, monkeypatch):
+        from app.modules.asset_processing import services
+
+        monkeypatch.setattr(services, "load_file_text", lambda *_a, **_k: "   ")
+        repo = FakeProcessingRepo()
+
+        result = await services.execute_processing(
+            repo, _parse_asset(), _processing_record()
+        )
+
+        assert result.status == ProcessingStatus.failed
+        assert "未能从文件中解析出文本" in repo.updates[-1]["error_message"]
+        assert repo.chunks == []
+
+
+class TestSplitTextToChunks:
+    """切块必须走 SentenceSplitter，不能静默退化成按字符硬切。"""
+
+    def test_sentences_are_not_cut_in_the_middle(self):
+        from app.modules.asset_processing.services import _split_text_to_chunks
+
+        text = "这是第一句话，用于验证切块不会切断句子。" * 80
+
+        chunks = _split_text_to_chunks(text, chunk_size=128, chunk_overlap=16)
+
+        assert len(chunks) > 1
+        assert all(chunk["text"].endswith("。") for chunk in chunks)
+        assert all(chunk["token_count"] >= 1 for chunk in chunks)

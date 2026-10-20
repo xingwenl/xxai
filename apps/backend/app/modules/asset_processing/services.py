@@ -159,9 +159,12 @@ async def execute_processing(
         )
 
         if not text.strip():
+            # 兜底：解析器返回空文本不能当成功，否则附件既不会注入模型，
+            # attachment_search 也永远搜不到内容且没有任何原因提示。
             return await processing_repo.update_processing(
                 record,
-                status=ProcessingStatus.ready,
+                status=ProcessingStatus.failed,
+                error_message="未能从文件中解析出文本，请确认文件内容与格式",
                 extracted_text_storage_key=None,
                 completed_at=datetime.now(timezone.utc),
             )
@@ -301,15 +304,17 @@ def _split_text_to_chunks(
     使用 SentenceSplitter 进行语义切分，回退为简单按字符切分。
     """
     try:
+        from llama_index.core import Document
         from llama_index.core.node_parser import SentenceSplitter
 
         splitter = SentenceSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
         )
-        nodes = splitter.get_nodes_from_documents(
-            [type("_Doc", (), {"text": text, "metadata": {}})()]
-        )
+        # 必须用真正的 Document：SentenceSplitter 内部会读 node.id_ 等属性，
+        # 之前用临时类伪造文档对象会抛 AttributeError，导致所有附件都静默
+        # 退化成就近按字符硬切（把句子和表格行切断，检索质量下降）。
+        nodes = splitter.get_nodes_from_documents([Document(text=text)])
         return [
             {
                 "text": node.text,
@@ -319,7 +324,7 @@ def _split_text_to_chunks(
             for node in nodes
         ]
     except Exception:
-        logger.warning("SentenceSplitter 不可用，回退为简单字符切分")
+        logger.warning("SentenceSplitter 不可用，回退为简单字符切分", exc_info=True)
         return _simple_chunk_split(text, chunk_size, chunk_overlap)
 
 

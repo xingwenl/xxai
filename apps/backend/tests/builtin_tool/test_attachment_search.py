@@ -60,6 +60,12 @@ class FakeProcessingRepo:
     async def search_chunks(self, **kwargs):
         return self.search_results.get(kwargs["asset_id"], [])[: kwargs["limit"]]
 
+    async def count_chunks(self, **kwargs):
+        asset_id = kwargs["asset_id"]
+        if asset_id in self.search_results:
+            return len(self.search_results[asset_id])
+        return len(self.chunks_by_asset.get(asset_id, []))
+
 
 def _chunk(position, content, page_number=None):
     return SimpleNamespace(
@@ -270,3 +276,92 @@ def test_search_empty_query_rejected(monkeypatch):
     with pytest.raises(BusinessToolError) as exc:
         asyncio.run(_run({"query": "   "}, _ctx(repo), monkeypatch))
     assert str(exc.value) == "invalid_arguments"
+
+
+def test_search_reports_no_text_extracted(monkeypatch):
+    """解析标 ready 但没有切块（文件未抽出文本）时必须返回原因，而不是空数组。"""
+    repo = FakeAssetRepo([_asset("doc-1")])
+    processing = FakeProcessingRepo(ready_ids=["doc-1"], chunks_by_asset={})
+    monkeypatch.setattr(
+        attachment_search, "AssetProcessingRepository", lambda _s: processing
+    )
+
+    result = asyncio.run(_run({"query": "总成绩"}, _ctx(repo), monkeypatch))
+
+    assert result["results"] == []
+    assert result["reason"] == "asset_not_searchable"
+    assert result["skipped"] == [
+        {"filename": "doc-1.pdf", "reason": "no_text_extracted"}
+    ]
+
+
+def test_search_reports_no_document_asset(monkeypatch):
+    """会话里只有图片时说明没有可检索文档，而不是报“没有匹配”。"""
+    repo = FakeAssetRepo([_asset("img-1", content_type="image/png")])
+    processing = FakeProcessingRepo(ready_ids=["img-1"])
+    monkeypatch.setattr(
+        attachment_search, "AssetProcessingRepository", lambda _s: processing
+    )
+
+    result = asyncio.run(_run({"query": "内容"}, _ctx(repo), monkeypatch))
+
+    assert result["results"] == []
+    assert result["reason"] == "no_document_asset"
+
+
+def test_search_no_match_keeps_reason(monkeypatch):
+    repo = FakeAssetRepo([_asset("doc-1")])
+    processing = FakeProcessingRepo(
+        ready_ids=["doc-1"],
+        chunks_by_asset={"doc-1": [_chunk(0, "完全无关的内容", 1)]},
+    )
+    monkeypatch.setattr(
+        attachment_search, "AssetProcessingRepository", lambda _s: processing
+    )
+
+    result = asyncio.run(_run({"query": "不存在的关键词"}, _ctx(repo), monkeypatch))
+
+    assert result["reason"] == "no_match"
+    assert result["skipped"] == [{"filename": "doc-1.pdf", "reason": "no_match"}]
+
+
+def test_search_marks_truncated_long_chunk(monkeypatch):
+    """单块超过上限时截断，并用 truncated 标记，避免误以为原文就这么长。"""
+    long_text = "总成绩" + "x" * (attachment_search.SEARCH_CHUNK_MAX_CHARS + 100)
+    repo = FakeAssetRepo([_asset("doc-1")])
+    processing = FakeProcessingRepo(
+        ready_ids=["doc-1"], chunks_by_asset={"doc-1": [_chunk(0, long_text, 1)]}
+    )
+    monkeypatch.setattr(
+        attachment_search, "AssetProcessingRepository", lambda _s: processing
+    )
+
+    result = asyncio.run(_run({"query": "总成绩"}, _ctx(repo), monkeypatch))
+
+    item = result["results"][0]
+    assert item["truncated"] is True
+    assert len(item["content"]) == attachment_search.SEARCH_CHUNK_MAX_CHARS
+
+
+def test_search_default_limit_matches_schema(monkeypatch):
+    """默认返回条数与 input_schema 上限一致，且不超过默认条数。"""
+    repo = FakeAssetRepo([_asset("doc-1")])
+    processing = FakeProcessingRepo(
+        ready_ids=["doc-1"],
+        chunks_by_asset={
+            "doc-1": [_chunk(i, f"总成绩命中 {i}", 1) for i in range(20)]
+        },
+    )
+    monkeypatch.setattr(
+        attachment_search, "AssetProcessingRepository", lambda _s: processing
+    )
+
+    result = asyncio.run(_run({"query": "总成绩"}, _ctx(repo), monkeypatch))
+
+    assert len(result["results"]) == attachment_search.DEFAULT_SEARCH_LIMIT
+    schema = get_business_tool("attachment_search").input_schema
+    assert schema["properties"]["limit"]["maximum"] == attachment_search.MAX_SEARCH_LIMIT
+    assert (
+        str(attachment_search.DEFAULT_SEARCH_LIMIT)
+        in schema["properties"]["limit"]["description"]
+    )

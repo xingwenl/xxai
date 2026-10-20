@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.asset_processing.models import (
@@ -141,6 +141,29 @@ class AssetProcessingRepository:
             (chunk, max(0.0, min(1.0, 1.0 - float(distance_value))))
             for chunk, distance_value in result.all()
         ]
+
+    async def count_chunks(
+        self,
+        *,
+        asset_id: int,
+        conversation_id: int,
+        processing_id: int,
+    ) -> int:
+        """统计指定处理版本下的切块数量。
+
+        用于区分“没有命中关键词”和“这份文件根本没解析出文本”：
+        后者需要把原因返回给模型，否则只能看到空结果无从判断。
+        """
+        result = await self.session.scalar(
+            select(func.count())
+            .select_from(ConversationAssetChunk)
+            .where(
+                ConversationAssetChunk.asset_id == asset_id,
+                ConversationAssetChunk.conversation_id == conversation_id,
+                ConversationAssetChunk.processing_id == processing_id,
+            )
+        )
+        return int(result or 0)
 
     async def search_chunks_keyword(
         self,

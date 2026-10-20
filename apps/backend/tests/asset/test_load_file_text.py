@@ -82,6 +82,34 @@ def _build_xlsx(path: Path, sheets: dict[str, list[list[object]]]) -> None:
     workbook.save(path)
 
 
+def _build_spreadsheetml(sheets: dict[str, list[list[object]]]) -> bytes:
+    """构造 Excel 2003 XML（SpreadsheetML）字节。
+
+    该格式是纯 XML 而非 zip 包，但常被导出成 .xlsx 扩展名，
+    用于覆盖“按文件头嗅探真实格式”的场景。
+    """
+    sheet_parts = []
+    for name, rows in sheets.items():
+        row_parts = []
+        for row in rows:
+            cells = "".join(
+                f'<Cell><Data ss:Type="String">{value}</Data></Cell>' for value in row
+            )
+            row_parts.append(f"<Row>{cells}</Row>")
+        sheet_parts.append(
+            f'<Worksheet ss:Name="{name}"><Table>{"".join(row_parts)}</Table></Worksheet>'
+        )
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<?mso-application progid="Excel.Sheet"?>'
+        '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"'
+        ' xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">'
+        + "".join(sheet_parts)
+        + "</Workbook>"
+    )
+    return xml.encode("utf-8")
+
+
 PDF_MIME = "application/pdf"
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -150,6 +178,61 @@ class TestLoadFileText:
         image.write_bytes(b"not a real image")
 
         assert load_file_text(image, "image/png") == ""
+
+    def test_spreadsheetml_named_xlsx_extracted(self, tmp_path: Path) -> None:
+        """真实场景：Excel 2003 XML 被命名为 .xlsx，pandas 会报无法判断格式。"""
+        xlsx = tmp_path / "scores.xlsx"
+        xlsx.write_bytes(
+            _build_spreadsheetml(
+                {
+                    "Sheet1": [
+                        ["岗位代码", "总成绩"],
+                        ["2026003", 72.86],
+                    ]
+                }
+            )
+        )
+
+        text = load_file_text(xlsx, XLSX_MIME)
+
+        assert "# Sheet1" in text
+        assert "岗位代码\t总成绩" in text
+        assert "2026003\t72.86" in text
+
+    def test_markup_named_pdf_falls_back_to_markup(self, tmp_path: Path) -> None:
+        """扩展名/MIME 与内容不符时，按真实字节走 markup 兜底抽取。"""
+        pdf = tmp_path / "table.pdf"
+        pdf.write_bytes(
+            b"<html><body><table><tr><td>2026003</td>"
+            b"<td>72.86</td></tr></table></body></html>"
+        )
+
+        text = load_file_text(pdf, PDF_MIME)
+
+        assert "2026003" in text
+        assert "72.86" in text
+
+    def test_plain_text_extracted(self, tmp_path: Path) -> None:
+        csv = tmp_path / "notes.csv"
+        csv.write_text("岗位,总成绩\n综合管理,88.5", encoding="utf-8")
+
+        assert "综合管理,88.5" in load_file_text(csv, "text/csv")
+
+    def test_empty_document_raises(self, tmp_path: Path) -> None:
+        """抽不出文本必须抛错，不能静默返回空串当解析成功。"""
+        empty = tmp_path / "empty.txt"
+        empty.write_bytes(b"")
+
+        with pytest.raises(ValueError, match="未能从文件解析出文本"):
+            load_file_text(empty, "text/plain")
+
+    def test_binary_with_document_mime_raises(self, tmp_path: Path) -> None:
+        """二进制冒充文档时同样抛错，而不是把乱码当正文入库。"""
+        broken = tmp_path / "broken.xlsx"
+        broken.write_bytes(b"\x00\x01\x02\x03\xff\xfe garbage bytes")
+
+        with pytest.raises(ValueError, match="未能从文件解析出文本"):
+            load_file_text(broken, XLSX_MIME)
 
     def test_missing_file_raises(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):
