@@ -53,6 +53,35 @@ function finiteNumberOrZero(value: unknown): number {
 }
 
 /**
+ * 判定 token「即将过期」的提前量。
+ *
+ * 留出余量是为了覆盖两种情况：请求发出时 token 还有效、到达服务端时已过期；
+ * 以及客户端与服务端之间的时钟偏差。
+ */
+const TOKEN_EXPIRY_MARGIN_MS = 30_000
+
+/**
+ * 从 JWT payload 里读出 `exp` 并换算成毫秒时间戳。
+ *
+ * 这里不验签——签名由服务端校验，客户端读 `exp` 只用于决定缓存的 token 是否
+ * 还值得复用。非 JWT 或没有 `exp` 时返回 null，调用方据此退化为「不缓存」，
+ * 与历史行为一致，把 token 生命周期交回宿主管理。
+ */
+function readTokenExpiryMs(token: string): number | null {
+  const segment = token.split('.')[1]
+  if (!segment) return null
+  try {
+    const base64 = segment.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')
+    const payload = JSON.parse(atob(padded)) as { exp?: unknown }
+    const exp = payload.exp
+    return typeof exp === 'number' && Number.isFinite(exp) ? exp * 1000 : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * 把 `context_usage` 事件的 payload 归一成 `ContextUsage`。
  *
  * 网关允许 `windowTokens`/`percent`/`lastCompactedAt` 为 null，这里再做一次
@@ -114,7 +143,17 @@ export class AgentClient {
    * 否则新会话会显示上一个会话的占用。
    */
   private _contextUsage: ContextUsage | null = null
-  private _token: string = '';
+  /**
+   * 缓存的 embed access token。
+   *
+   * 服务端签发的 token 是短期的（默认 10 分钟），远短于宿主登录态，因此不能
+   * 像登录态那样一直复用：`_tokenExpiresAt` 记录它的过期时间点，`exp` 读不出来
+   * 时置 0，表示「不可按时间判断，下次用到就重新换」。
+   */
+  private _token: string = ''
+  private _tokenExpiresAt = 0
+  /** 正在进行的换取请求；并发调用共用它，避免同一时刻打多次签发接口。 */
+  private _tokenPromise: Promise<string> | null = null
   readonly storageKey: string
 
   /** 干净的 HTTP API 根路径，优先使用 baseUrl，否则从 WS endpoint 推导。 */
@@ -159,7 +198,8 @@ export class AgentClient {
 
     this.transport = new WebSocketTransport({
       endpoint: this.options.endpoint,
-      getToken: this._getToken.bind(this),
+      // 传输层只关心「拿一枚当前可用的 token」；缓存与刷新策略统一在 _getToken 里。
+      getToken: () => this._getToken(),
       platformId: this.options.platformId,
       agentId: this.options.agentId,
       user: this.options.user,
@@ -174,27 +214,82 @@ export class AgentClient {
     this.setupTransportListeners()
     this.persistState()
   }
-  async _getToken() {
+  /**
+   * 取得一枚可用的 embed access token。
+   *
+   * 宿主提供的 `getToken` 每次都会换一枚短期 token，所以 SDK 只在确认它还
+   * 新鲜时复用缓存：`exp` 缺失（非 JWT）按「不缓存」处理，避免像过去那样
+   * 把 10 分钟的 token 当成登录态一直用到用户刷新页面。
+   */
+  async _getToken(forceRefresh = false): Promise<string> {
     if (!this.options?.getToken) return ''
-    if (this._token) return this._token
-    const token = await this.options.getToken({
+    const freshEnough =
+      this._token &&
+      this._tokenExpiresAt > Date.now() + TOKEN_EXPIRY_MARGIN_MS
+    if (!forceRefresh && freshEnough) return this._token
+    if (forceRefresh) this._invalidateToken()
+    if (!this._tokenPromise) {
+      const pending = this._issueToken().finally(() => {
+        // 只清理自己的句柄：并发刷新时后来者可能已经建了新的请求。
+        if (this._tokenPromise === pending) this._tokenPromise = null
+      })
+      this._tokenPromise = pending
+    }
+    return this._tokenPromise
+  }
+
+  /** 真正向宿主换取 token，并记录它的过期时间。 */
+  private async _issueToken(): Promise<string> {
+    const provider = this.options?.getToken
+    if (!provider) return ''
+    const token = await provider({
       platformId: this.options.platformId,
       agentId: this.options.agentId,
       user: this.options.user
     })
     this._token = token
+    this._tokenExpiresAt = readTokenExpiryMs(token) ?? 0
+    return token
+  }
 
-    return token;
+  /** 作废缓存：token 被服务端拒绝时调用，下次取用时重新向宿主换取。 */
+  private _invalidateToken(): void {
+    this._token = ''
+    this._tokenExpiresAt = 0
+    this._tokenPromise = null
+  }
+
+  /**
+   * 发起需要 embed token 的 REST 请求。
+   *
+   * token 可能在两次请求之间过期，或被服务端提前判定失效（撤销、时钟偏差），
+   * 因此 401 时作废缓存并重换一次 token 重试一次；仍失败就把错误交给调用方。
+   * 不做无限重试，避免宿主 `getToken` 本身出问题时打转。
+   */
+  private async _authorizedFetch(
+    url: string,
+    init: {
+      method?: string
+      headers?: Record<string, string>
+      body?: BodyInit
+    } = {}
+  ): Promise<Response> {
+    const send = (token: string) =>
+      fetch(url, {
+        ...init,
+        headers: { ...init.headers, Authorization: `Bearer ${token}` }
+      })
+    const response = await send(await this._getToken())
+    if (response.status !== 401) return response
+    const refreshed = await this._getToken(true)
+    return send(refreshed)
   }
 
   /** 获取受保护的会话资源，返回仅在当前页面有效的 Blob URL。 */
   async loadAsset(url: string): Promise<string> {
     const endpoint = this._httpBaseUrl
     const resourceUrl = new URL(url, endpoint).toString()
-    const token = await this._getToken()
-    const response = await fetch(resourceUrl, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
+    const response = await this._authorizedFetch(resourceUrl)
     if (!response.ok) {
       throw await agentErrorFromResponse(response, 'asset request failed')
     }
@@ -531,12 +626,15 @@ export class AgentClient {
         this.eventEmitter.emit('context_compacted', result)
         break
       }
-      case 'error':
-        this.handleRequestError(
-          msg.payload as Record<string, unknown>,
-          msg.requestId
-        )
+      case 'error': {
+        const payload = msg.payload as Record<string, unknown>
+        // 网关单独回 embed_token 错误码时说明缓存 token 已被判失效（过期或撤销）。
+        // 立刻作废缓存，后面的自动重连才会换到新 token，而不是拿旧 token 重试到
+        // 重连次数耗尽、聊天彻底断死。
+        if (payload.code === 'embed_token') this._invalidateToken()
+        this.handleRequestError(payload, msg.requestId)
         break
+      }
       default:
         console.log('Unhandled message type:', msg.type)
     }
@@ -794,7 +892,6 @@ export class AgentClient {
     file: File
   ): Promise<{ assetId: string; filename: string; mimeType: string; size: number; status: string; conversationId?: number }> {
     const baseUrl = this._httpBaseUrl
-    const token = await this._getToken()
 
     const formData = new FormData()
     formData.append('file', file)
@@ -802,16 +899,10 @@ export class AgentClient {
       ? `${baseUrl}/embed/conversations/${encodeURIComponent(this.conversationId)}/assets`
       : `${baseUrl}/embed/assets`
 
-    const response = await fetch(
-      uploadUrl,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
-      }
-    )
+    const response = await this._authorizedFetch(uploadUrl, {
+      method: 'POST',
+      body: formData
+    })
 
     if (!response.ok) {
       throw await agentErrorFromResponse(response, '上传失败')
@@ -837,15 +928,9 @@ export class AgentClient {
     assetId: string
   ): Promise<{ assetId: string; status: string; chunks?: Array<{ position: number; content: string; pageNumber?: number; tokenCount: number }> }> {
     const baseUrl = this._httpBaseUrl
-    const token = await this._getToken()
 
-    const response = await fetch(
-      `${baseUrl}/embed/conversations/${this.conversationId}/assets/${assetId}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      }
+    const response = await this._authorizedFetch(
+      `${baseUrl}/embed/conversations/${this.conversationId}/assets/${assetId}`
     )
 
     if (!response.ok) {
@@ -859,16 +944,10 @@ export class AgentClient {
   /** 删除附件。 */
   async deleteAsset(assetId: string): Promise<void> {
     const baseUrl = this._httpBaseUrl
-    const token = await this._getToken()
 
-    const response = await fetch(
+    const response = await this._authorizedFetch(
       `${baseUrl}/embed/conversations/${this.conversationId}/assets/${assetId}`,
-      {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      }
+      { method: 'DELETE' }
     )
 
     if (!response.ok) {
@@ -900,14 +979,13 @@ export class AgentClient {
    */
   async listConversations(options?: { page?: number; pageSize?: number }): Promise<ConversationPage> {
     const baseUrl = this._httpBaseUrl
-    const token = await this._getToken()
     const params = new URLSearchParams({
       page: String(options?.page ?? 1),
       page_size: String(options?.pageSize ?? 20)
     })
-    const response = await fetch(`${baseUrl}/embed/conversations?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
+    const response = await this._authorizedFetch(
+      `${baseUrl}/embed/conversations?${params.toString()}`
+    )
     if (!response.ok) {
       throw await agentErrorFromResponse(response, '会话列表加载失败')
     }
@@ -984,10 +1062,9 @@ export class AgentClient {
   async deleteConversation(conversationId: number | string): Promise<void> {
     const id = String(conversationId)
     const baseUrl = this._httpBaseUrl
-    const token = await this._getToken()
-    const response = await fetch(
+    const response = await this._authorizedFetch(
       `${baseUrl}/embed/conversations/${encodeURIComponent(id)}`,
-      { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }
+      { method: 'DELETE' }
     )
     if (!response.ok) {
       throw await agentErrorFromResponse(response, '会话删除失败')
@@ -1013,16 +1090,12 @@ export class AgentClient {
       throw new Error('当前没有可压缩的会话：请先发送消息创建会话，或打开一个历史会话')
     }
     const baseUrl = this._httpBaseUrl
-    const token = await this._getToken()
     const trimmed = typeof instructions === 'string' ? instructions.trim() : ''
-    const response = await fetch(
+    const response = await this._authorizedFetch(
       `${baseUrl}/embed/conversations/${encodeURIComponent(conversationId)}/context/compact`,
       {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(trimmed ? { instructions: trimmed } : {})
       }
     )
@@ -1063,10 +1136,8 @@ export class AgentClient {
   /** 读取会话历史快照并转换成 SDK 的 Message 结构。 */
   private async fetchHistory(conversationId: string): Promise<Message[]> {
     const baseUrl = this._httpBaseUrl
-    const token = await this._getToken()
-    const response = await fetch(
-      `${baseUrl}/embed/conversations/${encodeURIComponent(conversationId)}/messages`,
-      { headers: { Authorization: `Bearer ${token}` } }
+    const response = await this._authorizedFetch(
+      `${baseUrl}/embed/conversations/${encodeURIComponent(conversationId)}/messages`
     )
     if (!response.ok) {
       throw await agentErrorFromResponse(response, '历史消息加载失败')

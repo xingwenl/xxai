@@ -17,7 +17,7 @@
 
 ## 2. 先确定 Token 获取方式
 
-SDK 的 `getToken` 返回的是 AI Base 签发的短期 Embed Access Token，不是模型 API Key，也不是 `client_secret`。默认有效期为 10 分钟，首次连接和每次重连都会重新调用 `getToken`。
+SDK 的 `getToken` 返回的是 AI Base 签发的短期 Embed Access Token，不是模型 API Key，也不是 `client_secret`。默认有效期为 10 分钟，远短于接入项目的登录态，因此托管方必须按「随时可能被再次调用」来实现 `getToken`：SDK 会缓存 token 但按 JWT 的 `exp` 判断新鲜度（提前 30 秒视为过期），缓存不可用时才调用；服务端以 `401` 或 WS `embed_token` 错误拒绝时，SDK 会作废缓存并重换一次。
 
 | 场景 | 方式 | 是否适合生产 |
 | --- | --- | --- |
@@ -209,7 +209,7 @@ SDK 不生成、不拼接、不通过 WebSocket 发送 `external_user_id`。接�
 | `baseUrl` | `string` | 否 | HTTP API 根路径，用于附件上传、状态查询、删除和资源下载；未提供时从 `endpoint` 推导 |
 | `platformId` | `string` | 是 | 平台 ID |
 | `agentId` | `string` | 是 | Agent ID |
-| `getToken` | `(context) => Promise<string>` | 是 | 获取短期 Embed Access Token；连接和重连都会调用 |
+| `getToken` | `(context) => Promise<string>` | 是 | 获取短期 Embed Access Token；首次使用、缓存临近过期（提前 30 秒）、以及被服务端 401 / WS `embed_token` 拒绝时调用 |
 | `user` | `{ id: string; displayName?: string }` | 否 | 传给 token provider 的业务上下文，不负责认证 |
 | `ui` | `UIOptions` | 否 | `floating` 或 `headless` 等 UI 配置 |
 | `systemPrompt` | `string` | 否 | 随每次消息发送给后端并作为调用方补充系统提示词参与回答 |
@@ -846,7 +846,9 @@ SDK 通过 GitHub Actions 自动发布到 npm 官方仓库，工作流见 `.gith
 
 ### token 过期怎么办？
 
-SDK 在重连时会再次调用 `getToken`。如果主动断开后重新连接，也应重新获取短期 token，不要缓存长期 token。
+交给 SDK：它按 JWT 的 `exp` 缓存 token，剩余有效期不足 30 秒就重新调用 `getToken`；REST 收到 `401`、WS 收到 `embed_token` 错误时也会作废缓存并重换一次。接入方只需要保证 `getToken` 可以随时被调用（通常就是重新走一遍自己的 token 代理），不要自己返回一枚长期 token 或把过期时间写死。
+
+如果 `getToken` 返回的不是 JWT、或 payload 里没有 `exp`，SDK 无法判断新鲜度，会退化为不缓存——每次取用都重新调用。
 
 ## 14. 安全检查清单
 

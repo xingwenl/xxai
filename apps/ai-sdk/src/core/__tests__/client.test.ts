@@ -894,3 +894,163 @@ describe('AgentClient protocol events', () => {
     await expect(client.compactContext()).rejects.toThrow(/没有可压缩的会话/)
   })
 })
+
+/** 造一枚只关心 exp 的假 JWT：SDK 不验签，只需要 payload 可解析。 */
+function makeJwt(expSeconds: number): string {
+  const encode = (value: Record<string, unknown>) =>
+    btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  return `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode({ exp: expSeconds })}.signature`
+}
+
+function okConversationsResponse() {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({ data: { items: [], total: 0, page: 1, page_size: 20 } })
+  }
+}
+
+describe('AgentClient embed token 生命周期', () => {
+  it('未过期的 JWT 会被复用，不重复向宿主换取', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okConversationsResponse())
+    vi.stubGlobal('fetch', fetchMock)
+    const getToken = vi.fn(async () => makeJwt(Math.floor(Date.now() / 1000) + 600))
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws',
+      baseUrl: 'https://api.test/v1',
+      platformId: 'p',
+      agentId: 'a',
+      getToken
+    })
+
+    await client.listConversations()
+    await client.listConversations()
+
+    expect(getToken).toHaveBeenCalledTimes(1)
+    vi.unstubAllGlobals()
+  })
+
+  it('token 临近过期时重新换取，而不是继续用旧 token', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okConversationsResponse())
+    vi.stubGlobal('fetch', fetchMock)
+    let issued = 0
+    const getToken = vi.fn(async () => {
+      issued += 1
+      // 10 秒后过期，落在刷新提前量内，第二次取用必须重换。
+      return makeJwt(Math.floor(Date.now() / 1000) + 10)
+    })
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws',
+      baseUrl: 'https://api.test/v1',
+      platformId: 'p',
+      agentId: 'a',
+      getToken
+    })
+
+    await client.listConversations()
+    await client.listConversations()
+
+    expect(issued).toBe(2)
+    vi.unstubAllGlobals()
+  })
+
+  it('非 JWT 的 token 不缓存，每次取用都重新向宿主换取', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okConversationsResponse())
+    vi.stubGlobal('fetch', fetchMock)
+    const getToken = vi.fn(async () => 'plain-token')
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws',
+      baseUrl: 'https://api.test/v1',
+      platformId: 'p',
+      agentId: 'a',
+      getToken
+    })
+
+    await client.listConversations()
+    await client.listConversations()
+
+    expect(getToken).toHaveBeenCalledTimes(2)
+    vi.unstubAllGlobals()
+  })
+
+  it('401 时作废旧 token、换新 token 重试一次', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        json: async () => ({ success: false, message: 'invalid embed token', code: 401 })
+      })
+      .mockResolvedValueOnce(okConversationsResponse())
+    vi.stubGlobal('fetch', fetchMock)
+    let issued = 0
+    const getToken = vi.fn(async () => `token-${++issued}`)
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws',
+      baseUrl: 'https://api.test/v1',
+      platformId: 'p',
+      agentId: 'a',
+      getToken
+    })
+
+    const page = await client.listConversations()
+
+    expect(page.items).toEqual([])
+    expect(issued).toBe(2)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer token-1')
+    expect(fetchMock.mock.calls[1][1].headers.Authorization).toBe('Bearer token-2')
+    vi.unstubAllGlobals()
+  })
+
+  it('重试用完仍 401 时抛出服务端错误，不无限重试', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({ success: false, message: 'invalid embed token', code: 401 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws',
+      baseUrl: 'https://api.test/v1',
+      platformId: 'p',
+      agentId: 'a',
+      getToken: async () => 'token'
+    })
+
+    await expect(client.listConversations()).rejects.toThrow('invalid embed token')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    vi.unstubAllGlobals()
+  })
+
+  it('网关回 embed_token 错误时作废缓存，后续请求换到新 token', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okConversationsResponse())
+    vi.stubGlobal('fetch', fetchMock)
+    let issued = 0
+    const getToken = vi.fn(async () => {
+      issued += 1
+      return makeJwt(Math.floor(Date.now() / 1000) + 600)
+    })
+    const client = new AgentClient({
+      endpoint: 'wss://agent.test/ws',
+      baseUrl: 'https://api.test/v1',
+      platformId: 'p',
+      agentId: 'a',
+      getToken
+    })
+    // 先拿一枚并缓存。
+    await client.listConversations()
+    expect(issued).toBe(1)
+
+    const transport = (client as any).transport
+    transport.emit('message', {
+      id: '1', type: 'error', protocolVersion: 1, sequence: 1,
+      timestamp: new Date().toISOString(),
+      payload: { code: 'embed_token', message: 'invalid embed token', retryable: false }
+    })
+
+    await client.listConversations()
+    expect(issued).toBe(2)
+    vi.unstubAllGlobals()
+  })
+})
