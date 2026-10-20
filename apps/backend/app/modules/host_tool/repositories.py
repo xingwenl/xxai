@@ -50,7 +50,9 @@ class HostToolRepository:
             **payload.model_dump(),
         )
         self.session.add(policy)
-        await self.session.flush()
+        # 创建后必须立即提交：get_db_session 退出时不提交事务，仅 flush 会让新策略在响应返回后丢失。
+        await self.session.commit()
+        await self.session.refresh(policy)
         return policy
 
     async def update_policy(self, policy, values: dict):
