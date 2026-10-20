@@ -39,6 +39,7 @@ class FakeProcessingRepo:
         self.ready_ids = set(ready_ids)
         self.chunks_by_asset = chunks_by_asset or {}
         self.search_results = search_results or {}
+        self.last_search_kwargs = None
 
     async def get_processing(self, asset_id, conversation_id):
         if asset_id in self.ready_ids:
@@ -58,13 +59,16 @@ class FakeProcessingRepo:
         return scored[: kwargs["limit"]]
 
     async def search_chunks(self, **kwargs):
+        self.last_search_kwargs = kwargs
         return self.search_results.get(kwargs["asset_id"], [])[: kwargs["limit"]]
 
     async def count_chunks(self, **kwargs):
         asset_id = kwargs["asset_id"]
-        if asset_id in self.search_results:
-            return len(self.search_results[asset_id])
-        return len(self.chunks_by_asset.get(asset_id, []))
+        # 显式配置了 chunks_by_asset 时以它为准：向量检索用例会用
+        # search_results=[] 模拟“低于阈值被过滤”，此时切块其实存在。
+        if asset_id in self.chunks_by_asset:
+            return len(self.chunks_by_asset[asset_id])
+        return len(self.search_results.get(asset_id, []))
 
 
 def _chunk(position, content, page_number=None):
@@ -101,7 +105,29 @@ def _ctx(repo, *, user_id=None, **kwargs) -> BusinessToolContext:
     return BusinessToolContext(**values)
 
 
-async def _run(args, ctx, monkeypatch, *, embedding_enabled=False):
+class FakeEmbeddingModel:
+    """返回固定维度查询向量；fail=True 时模拟 embedding 服务不可用。"""
+
+    def __init__(self, *, dim=2, fail=False):
+        self.dim = dim
+        self.fail = fail
+
+    async def aget_query_embedding(self, query):
+        if self.fail:
+            raise RuntimeError("embedding service unavailable")
+        return [0.1] * self.dim
+
+
+async def _run(
+    args,
+    ctx,
+    monkeypatch,
+    *,
+    embedding_enabled=False,
+    embedding_fail=False,
+    embedding_dim=2,
+    min_score=0.5,
+):
     async def _no_model(*_args, **_kwargs):
         return None
 
@@ -112,20 +138,21 @@ async def _run(args, ctx, monkeypatch, *, embedding_enabled=False):
         lambda _model_config: embedding_enabled,
     )
     if embedding_enabled:
-        class FakeModel:
-            async def aget_query_embedding(self, query):
-                return [0.1, 0.2]
-
         monkeypatch.setattr(
             attachment_search,
             "build_attachment_embedding_model",
-            lambda _model_config: FakeModel(),
+            lambda _model_config: FakeEmbeddingModel(
+                dim=embedding_dim, fail=embedding_fail
+            ),
         )
-        monkeypatch.setattr(
-            attachment_search,
-            "get_settings",
-            lambda: SimpleNamespace(attachment_embedding_dimension=2),
-        )
+    monkeypatch.setattr(
+        attachment_search,
+        "get_settings",
+        lambda: SimpleNamespace(
+            attachment_embedding_dimension=2,
+            attachment_retrieval_min_score=min_score,
+        ),
+    )
     tool = get_business_tool("attachment_search")
     return await tool.handler(args, ctx)
 
@@ -365,3 +392,92 @@ def test_search_default_limit_matches_schema(monkeypatch):
         str(attachment_search.DEFAULT_SEARCH_LIMIT)
         in schema["properties"]["limit"]["description"]
     )
+
+
+def test_search_passes_relevance_threshold_to_repository(monkeypatch):
+    """向量检索必须把相关度下限传给仓储，否则低分片段会凑数返回。"""
+    repo = FakeAssetRepo([_asset("doc-1")])
+    processing = FakeProcessingRepo(ready_ids=["doc-1"])
+    processing.search_results = {"doc-1": [(_chunk(0, "向量命中", 1), 0.8)]}
+    monkeypatch.setattr(
+        attachment_search, "AssetProcessingRepository", lambda _s: processing
+    )
+
+    result = asyncio.run(
+        _run(
+            {"query": "总成绩"},
+            _ctx(repo),
+            monkeypatch,
+            embedding_enabled=True,
+            min_score=0.42,
+        )
+    )
+
+    assert processing.last_search_kwargs["min_score"] == 0.42
+    assert result["results"][0]["match"] == "vector"
+
+
+def test_search_falls_back_to_keyword_when_vector_filtered_out(monkeypatch):
+    """向量结果被阈值过滤干净后，应退回词法检索而不是直接返回空。"""
+    repo = FakeAssetRepo([_asset("doc-1")])
+    processing = FakeProcessingRepo(
+        ready_ids=["doc-1"],
+        chunks_by_asset={"doc-1": [_chunk(0, "总成绩 72.86", 1)]},
+    )
+    # 向量链路模拟“全部低于阈值”：仓储返回空列表
+    processing.search_results = {"doc-1": []}
+    monkeypatch.setattr(
+        attachment_search, "AssetProcessingRepository", lambda _s: processing
+    )
+
+    result = asyncio.run(
+        _run({"query": "总成绩"}, _ctx(repo), monkeypatch, embedding_enabled=True)
+    )
+
+    assert len(result["results"]) == 1
+    assert result["results"][0]["match"] == "keyword"
+
+
+def test_search_falls_back_to_keyword_when_embedding_fails(monkeypatch):
+    """embedding 服务不可用时检索不能整体失败，应退回词法检索。"""
+    repo = FakeAssetRepo([_asset("doc-1")])
+    processing = FakeProcessingRepo(
+        ready_ids=["doc-1"],
+        chunks_by_asset={"doc-1": [_chunk(0, "总成绩 72.86", 1)]},
+    )
+    monkeypatch.setattr(
+        attachment_search, "AssetProcessingRepository", lambda _s: processing
+    )
+
+    result = asyncio.run(
+        _run(
+            {"query": "总成绩"},
+            _ctx(repo),
+            monkeypatch,
+            embedding_enabled=True,
+            embedding_fail=True,
+        )
+    )
+
+    assert len(result["results"]) == 1
+    assert result["results"][0]["match"] == "keyword"
+
+
+def test_search_no_match_when_vector_and_keyword_both_empty(monkeypatch):
+    """向量被阈值过滤且词法也不命中时，才报 no_match。"""
+    repo = FakeAssetRepo([_asset("doc-1")])
+    processing = FakeProcessingRepo(
+        ready_ids=["doc-1"],
+        chunks_by_asset={"doc-1": [_chunk(0, "完全无关的内容", 1)]},
+    )
+    processing.search_results = {"doc-1": []}
+    monkeypatch.setattr(
+        attachment_search, "AssetProcessingRepository", lambda _s: processing
+    )
+
+    result = asyncio.run(
+        _run({"query": "股票行情"}, _ctx(repo), monkeypatch, embedding_enabled=True)
+    )
+
+    assert result["results"] == []
+    assert result["reason"] == "no_match"

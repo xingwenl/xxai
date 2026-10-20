@@ -119,6 +119,10 @@ class Settings:
     attachment_embedding_base_url: str | None
     attachment_embedding_api_key: str | None
     attachment_embedding_dimension: int | None
+    # 附件向量检索的最小余弦相似度。低于该阈值的切块视为“没匹配上”，
+    # 不再返回给模型（pgvector 检索本身没有阈值，不设限会把整库最相似
+    # 的 k 条全部返回，即使用户问的内容文档里根本没有）。
+    attachment_retrieval_min_score: float
     agent_master_key: str
     builtin_http_get_timeout_seconds: float
     builtin_http_get_text_max_bytes: int
@@ -290,6 +294,16 @@ def get_settings() -> Settings:
         attachment_embedding_api_key=os.getenv("ATTACHMENT_EMBEDDING_API_KEY"),
         attachment_embedding_dimension=_parse_optional_int(
             "ATTACHMENT_EMBEDDING_DIMENSION"
+        ),
+        # 经验值：text-embedding-v3 下相关问句 top1 约 0.55~0.68，
+        # 无关问句 top1 约 0.38~0.45，0.5 能稳住这条分界线；换模型时
+        # 可用环境变量重新标定，避免把阈值写死在代码里。
+        attachment_retrieval_min_score=min(
+            1.0,
+            max(
+                0.0,
+                float(os.getenv("ATTACHMENT_RETRIEVAL_MIN_SCORE", "0.5")),
+            ),
         ),
         agent_master_key=os.getenv(
             "AGENT_MASTER_KEY", "dev-agent-master-key-change-me"

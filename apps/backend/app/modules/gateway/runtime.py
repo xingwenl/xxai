@@ -226,12 +226,15 @@ async def _retrieve_attachment_chunks(
     dimension = get_settings().attachment_embedding_dimension
     if len(query_embedding) != dimension:
         raise ValueError("attachment embedding dimension mismatch")
+    # 低于相关度阈值的切块不注入：注入“最相似的 k 条”里可能有与问题无关的
+    # 内容，会污染上下文；检索不到时上层退回整段文本注入，召回不受影响。
     return await processing_repo.search_chunks(
         asset_id=asset.id,
         conversation_id=conversation_id,
         processing_id=processing.id,
         embedding=query_embedding,
         limit=ATTACHMENT_RETRIEVAL_TOP_K,
+        min_score=get_settings().attachment_retrieval_min_score,
     )
 
 

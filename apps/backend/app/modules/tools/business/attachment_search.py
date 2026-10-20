@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 
 from app.core.config import get_settings
+from app.core.logging import get_logger
 from app.modules.asset_processing.models import ProcessingStatus
 from app.modules.asset_processing.repositories import AssetProcessingRepository
 from app.modules.asset_processing.runtime import (
@@ -36,6 +37,8 @@ MAX_SEARCH_LIMIT = 12
 SEARCH_RESULT_MAX_CHARS = 12_000
 # 未指定 asset_id 时最多纳入检索的文档附件数量
 MAX_SEARCH_ASSETS = 10
+
+logger = get_logger(__name__)
 
 
 def _keyword_terms(query: str) -> list[str]:
@@ -106,27 +109,42 @@ async def _search_asset_chunks(
     query: str,
     limit: int,
     model_config,
-) -> list:
-    """按 embedding 配置检索单个附件的切块：向量优先，词法兜底。"""
+) -> tuple[list, str]:
+    """检索单个附件的切块，返回（命中列表, 命中方式）。
+
+    命中方式取值：vector（向量检索且过了相关度阈值）、keyword（词法兜底）、
+    空字符串（向量与词法都没命中）。向量检索前先按阈值过滤，过滤后为空才
+    退回词法，既避免把“整库最相似的 k 条”当结果返回，又能在问句与原文
+    措辞差异大时用关键词命中兜住召回。
+    """
+    min_score = get_settings().attachment_retrieval_min_score
     if attachment_embedding_enabled(model_config):
-        model = build_attachment_embedding_model(model_config)
-        query_embedding = await model.aget_query_embedding(query)
-        dimension = get_settings().attachment_embedding_dimension
-        if len(query_embedding) == dimension:
-            return await processing_repo.search_chunks(
-                asset_id=asset.id,
-                conversation_id=asset.conversation_id,
-                processing_id=processing.id,
-                embedding=query_embedding,
-                limit=limit,
-            )
-    return await processing_repo.search_chunks_keyword(
+        try:
+            model = build_attachment_embedding_model(model_config)
+            query_embedding = await model.aget_query_embedding(query)
+        except Exception as exc:  # noqa: BLE001 - 向量链路异常时退回词法检索
+            logger.warning("附件查询向量生成失败，改走词法检索: %s", exc)
+        else:
+            dimension = get_settings().attachment_embedding_dimension
+            if len(query_embedding) == dimension:
+                hits = await processing_repo.search_chunks(
+                    asset_id=asset.id,
+                    conversation_id=asset.conversation_id,
+                    processing_id=processing.id,
+                    embedding=query_embedding,
+                    limit=limit,
+                    min_score=min_score,
+                )
+                if hits:
+                    return hits, "vector"
+    hits = await processing_repo.search_chunks_keyword(
         asset_id=asset.id,
         conversation_id=asset.conversation_id,
         processing_id=processing.id,
         terms=_keyword_terms(query),
         limit=limit,
     )
+    return (hits, "keyword") if hits else ([], "")
 
 
 def _empty_reason(assets: list, skipped: list[dict]) -> str:
@@ -153,7 +171,12 @@ def _empty_reason(assets: list, skipped: list[dict]) -> str:
         "不传则检索当前会话全部已解析文档。"
         "结果使用：result.results 每项含 filename、position（第几段）、"
         "page_number（页码）、content（片段原文）、truncated（原文是否被截断）、"
-        "score（相关度 0-1），可直接引用片段内容回答；无匹配时 results 为空数组，"
+        "score（相关度 0-1：match=vector 时是余弦相似度，match=keyword 时"
+        "是关键词重合度按最高者归一化，两者不可直接比较）、"
+        "match（vector 语义命中 / keyword 关键词命中；仅当语义检索不可用或"
+        "全部低于阈值时才回退关键词），"
+        "可直接引用片段内容回答；相似度低于阈值的片段不会返回，"
+        "无匹配时 results 为空数组，"
         "并给出 reason 说明原因（no_document_asset 无文档附件 / "
         "asset_not_searchable 附件没解析出文本 / no_match 确实没有匹配），"
         "skipped 中列出被跳过附件及其原因，可据此向用户解释而不是断言文档没有内容。"
@@ -234,7 +257,7 @@ async def attachment_search_business(args: dict, ctx: BusinessToolContext) -> di
         if chunk_count == 0:
             skipped.append({"filename": asset.filename, "reason": "no_text_extracted"})
             continue
-        hits = await _search_asset_chunks(
+        hits, match_kind = await _search_asset_chunks(
             processing_repo,
             asset,
             processing,
@@ -255,6 +278,7 @@ async def attachment_search_business(args: dict, ctx: BusinessToolContext) -> di
                     "content": content[:SEARCH_CHUNK_MAX_CHARS],
                     "truncated": len(content) > SEARCH_CHUNK_MAX_CHARS,
                     "score": round(float(score), 4),
+                    "match": match_kind,
                 }
             )
     results.sort(key=lambda item: item["score"], reverse=True)

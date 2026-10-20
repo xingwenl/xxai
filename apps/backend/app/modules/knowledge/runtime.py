@@ -6,7 +6,6 @@ from urllib.parse import urljoin, urlparse
 import httpx
 from bs4 import BeautifulSoup
 from app.core.logging import get_logger
-from llama_index.core import SimpleDirectoryReader
 from llama_index.embeddings.openai import OpenAIEmbedding, OpenAIEmbeddingModelType
 
 from app.core.config import get_settings
@@ -73,10 +72,21 @@ def resolve_storage_path(path: str, storage_root: str | Path | None = None) -> P
 
 
 def load_file_text(path: str) -> str:
-    documents = SimpleDirectoryReader(
-        input_files=[resolve_storage_path(path)]
-    ).load_data()
-    return "\n\n".join(document.text for document in documents if document.text)
+    """抽取知识库文档文本。
+
+    复用附件处理链路的解析器：它按文件头字节嗅探真实格式（PDF/OOXML、
+    Excel 2003 XML、XML/HTML、纯文本），并且抽不出文本时抛错——旧实现
+    直接用 SimpleDirectoryReader，遇到“扩展名像 xlsx 实为 SpreadsheetML”
+    之类的文件只会打一条 Skipping 日志然后返回空串，任务被当成成功、
+    文档却一条切块都没有。
+    """
+    # 局部导入：asset_processing.runtime 反向依赖本模块的 resolve_storage_path，
+    # 模块级导入会形成循环。
+    from app.modules.asset_processing.runtime import (
+        load_file_text as _extract_document_text,
+    )
+
+    return _extract_document_text(resolve_storage_path(path), mime_type="")
 
 
 def _is_local_embedding_endpoint(base_url: str | None) -> bool:

@@ -120,10 +120,16 @@ class AssetProcessingRepository:
         processing_id: int,
         embedding: list[float],
         limit: int,
+        min_score: float = 0.0,
     ) -> list[tuple[ConversationAssetChunk, float]]:
-        """按余弦距离检索会话内指定处理版本的切块，返回（chunk, 相似度）。"""
+        """按余弦距离检索会话内指定处理版本的切块，返回（chunk, 相似度）。
+
+        min_score 是相关度下限：pgvector 的 Top-K 检索一定会返回 k 条最相似的
+        切块，哪怕用户问的内容文档里根本没有，所以必须在这里把低分结果过滤掉，
+        否则调用方无法区分“确实相关”和“凑数的第 k 名”。
+        """
         distance = ConversationAssetEmbedding.embedding.cosine_distance(embedding)
-        result = await self.session.execute(
+        statement = (
             select(ConversationAssetChunk, distance.label("distance"))
             .join(
                 ConversationAssetEmbedding,
@@ -137,6 +143,10 @@ class AssetProcessingRepository:
             .order_by(distance)
             .limit(limit)
         )
+        if min_score > 0:
+            # 相似度 = 1 - 余弦距离，等价于只保留 distance <= 1 - min_score
+            statement = statement.where(distance <= 1.0 - min_score)
+        result = await self.session.execute(statement)
         return [
             (chunk, max(0.0, min(1.0, 1.0 - float(distance_value))))
             for chunk, distance_value in result.all()
