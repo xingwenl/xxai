@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from conftest import seed_plugin
+from desktop_app.agent_config import AgentConfigStore
 from desktop_app.manager import PluginManager
 from desktop_app.plugin_data import (
     MAX_VALUE_BYTES,
@@ -33,6 +34,9 @@ def _client(plugin_env: dict, tmp_path: Path, dev_agent_enabled: bool = False) -
         manager,
         plugin_data=_store(tmp_path),
         dev_agent_enabled=dev_agent_enabled,
+        # 显式隔离配置文件：本机若在设置页保存过真实 AI Base 凭证（~/.desktop-app/agent.json），
+        # 默认 store 会读到它并把 agent-config 变成 remote，导致断言不稳定。
+        agent_config_store=AgentConfigStore(tmp_path / "agent.json"),
     )
     return TestClient(app)
 

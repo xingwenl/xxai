@@ -759,6 +759,21 @@ export default function App() {
     }
   }, [plugins, mountedApps])
 
+  // 声明了 tools 权限的子应用在宿主启动时就静默挂载（隐藏 iframe，只加载不展示）。
+  // 全局助手在壳层启动即连接、但子应用的方法要等 iframe 加载后才注册；若不做这一步，
+  // 用户不先打开「记账」就问助手，模型会看到一份空工具列表，回复「没有记账工具」。
+  useEffect(() => {
+    if (!loaded) return
+    const toolAppIds = plugins
+      .filter((p) => (p.permissions || []).includes('tools'))
+      .map((p) => p.id)
+    if (toolAppIds.length === 0) return
+    setMountedApps((prev) => {
+      const added = toolAppIds.filter((id) => !prev.includes(id))
+      return added.length === 0 ? prev : [...prev, ...added]
+    })
+  }, [loaded, plugins])
+
   // 打开子应用时让返回入口亮相一次，然后自己让位；指针悬停时由 backHover 继续撑着。
   // 注意：这里不能用 window 的 mousemove 判断「指针到了左上角」——插件是 iframe，
   // 指针压在它上面时父文档收不到任何坐标，那种唤出写法是无效的。

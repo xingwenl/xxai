@@ -71,6 +71,7 @@ approval:
 - 新增 `apps/desktop/front/src/lib/tool-bridge.ts`：宿主侧工具集合（`registerPluginTools/getAllTools/onToolsChanged`），把子应用方法转成 ai-sdk `ToolDefinition`（`execute` 调子应用注册的 handler，异常/超时转错误）。
 - 新增 `apps/desktop/front/src/lib/assistant.ts`：全局助手单例；`createAgentClient({ endpoint, platformId, agentId, getToken, ui:{mode:'floating',position:'right',theme:'auto'} })` + `import 'xxai-agent/style.css'`；订阅 tool-bridge 变化做 `registerTools`/`unregisterTool`；端点与 token 来自 `GET /api/desktop/agent-config`（dev agent 时返回本机 mock 网关参数），`enabled:false` 时不挂载。
 - `apps/desktop/front/src/App.tsx`：挂载全局助手（`useEffect` 一次）；插件页改为「已打开过的 iframe 常驻 + 非当前页 `hidden`」，保证子应用方法不因切页消失。
+- `apps/desktop/front/src/App.tsx`（m01088 修复）：声明了 `tools` 权限的子应用在 `plugins` 加载完成后**静默预挂载**（隐藏 iframe，不点开也加载），让全局助手在启动时就能拿到方法；否则用户不先打开「记账」就问助手，模型会看到空工具列表并回复「没有记账工具」。
 - `apps/desktop/front/package.json`：新增 `xxai-agent: workspace:*`；根 `pnpm-lock.yaml` 更新。
 - 测试：`apps/desktop/tests/test_plugin_data.py`（REST + 原子写 + key 校验 + 权限/未启用插件拒绝）、`apps/desktop/tests/test_dev_agent.py`（`TestClient.websocket_connect` 走 session_ready → message 流 → host_tool_call → host_tool_result）；`tools/harness/verify/2026-10-20-ledger-app.sh`（构建 ledger → 安装到临时插件目录 → 断言 `/apps/ledger/index.html` 与 assets 可访问、manifest 校验、pytest、tsc）。
 - 真实模型接入（m00689 追加）：
@@ -89,7 +90,7 @@ approval:
 
 1. `pnpm install && pnpm --dir apps/ledger build` 通过，`apps/ledger/dist/` 含 `index.html`、`manifest.json`、`assets/*`，页面在浏览器里可直接打开使用（无宿主时数据落 localStorage，有宿主时落 plugin-data）。
 2. `node apps/ledger/scripts/install-to-desktop.mjs` 后，桌面应用应用页出现「记账」卡片，点开进入记账页；可记一笔、看月汇总与明细、删除单条，重启应用后数据仍在（`~/.desktop-app/plugin-data/ledger/ledger.json`）。
-3. 全局助手在宿主任意页面可用（悬浮球），其工具集合包含 5 个 `ledger_*` 方法；切换到其他页面后工具仍在（iframe 常驻），卸载/停用记账插件后工具消失。
+3. 全局助手在宿主任意页面可用（悬浮球），其工具集合包含 5 个 `ledger_*` 方法；**启动后不打开记账应用也有这 5 个方法**（声明 `tools` 的子应用静默预挂载），切换到其他页面后工具仍在（iframe 常驻），卸载/停用记账插件后工具消失。
 4. 设置 `DESKTOP_DEV_AGENT=1` 启动时：对助手说「今天午饭花了 35 块」→ 助手调用 `ledger_add_entry` → 记账页出现该条记录；说「这个月花了多少」→ 助手调用 `ledger_month_summary` 并读出合计。
 5. README 中记录的 5 个方法名与入参 schema，与子应用注册、dev agent 调用、后续后台 host tool 策略三方一致。
 6. 真实模型（m00689 追加）：设置页保存 AI Base 配置后「测试连接」成功；对助手说「今天午饭花了 35 块」→ 真实模型调用 `ledger_add_entry`，回复含金额与本月汇总；「这个月花了多少」→ 调 `ledger_month_summary`。后台策略/绑定/指纹任一不符时工具被网关静默忽略，需能从日志定位。

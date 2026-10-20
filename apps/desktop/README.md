@@ -205,6 +205,7 @@ poetry run python build/build.py
 
 宿主壳层挂着一个全局 AI 助手（`front/src/lib/assistant.ts`，单例、ai-sdk 自带悬浮窗），整个宿主只有一份，**不随子应用打开/关闭重复创建**。子应用通过 `tools.register` 提供方法后，`front/src/lib/tool-bridge.ts` 把方法集合同步给助手；子应用关闭或卸载时自动注销。
 
+- 方法注册时机：声明了 `tools` 权限的子应用会被宿主**启动即静默挂载**（隐藏 iframe，不点开也加载页面），因此助手一启动就能拿到它的方法；用户真正点开时只是把这一层显示出来，不会再新起一份。
 - 方法定义：`{ name, description, inputSchema, sideEffect }`，`sideEffect` 取 `none | navigation | write | financial | external`，宿主据此提示风险（记账的新增/删除声明为 `financial`）。
 - 助手只负责「调用」：鉴权、会话、工具策略仍由 AI Base 后端裁决（token 的 `host_tools`、Agent / Embed Client 绑定、schema 指纹必须一致）。
 - 本地闭环：`DESKTOP_DEV_AGENT=1` 启动宿主时，`desktop_app/dev_agent.py` 会在 `/api/v1/ws/agents/local` 起一个规则式 mock 网关（实现 ai-agent.v1 握手、`host_tools_register`、`host_tool_call`、流式回复），`GET /api/desktop/agent-config` 返回 `{enabled: true, mode: "dev", ...}`，前端据此连本地网关，无需 AI Base 后端即可调试「子应用方法 + 助手」链路。该网关不接真实模型，只做意图关键词匹配与工具调用。
@@ -292,7 +293,7 @@ node scripts/build_css.mjs --watch
 
 - 数据：走宿主 `storage` → `~/.desktop-app/plugin-data/ledger/ledger.json`；脱离宿主直接打开时回退 `localStorage['ledger:data']`。
 - 方法：注册 `ledger_add_entry`、`ledger_list_entries`、`ledger_month_summary`、`ledger_delete_entry`、`ledger_list_categories` 五个 `ledger_*` 方法，交给全局助手调用（新增/删除标记为 `financial`）。
-- 打开记账应用后，这些方法才会注册进助手；应用保持常驻（切换页面只隐藏 iframe），因此助手随时可调用。
+- 该插件声明了 `tools` 权限，宿主启动时会静默预挂载它：**不点开「记账」也能让助手记账**（页面已在后台加载并注册方法）；点开只是把这一层显示出来。
 
 ```bash
 pnpm install                              # 根目录安装一次
@@ -308,7 +309,7 @@ cd apps/ledger && node scripts/install-to-desktop.mjs   # 装到 ~/.desktop-app/
 - **启动后显示「宿主前端未构建」**：先执行 `pnpm --dir apps/desktop/front build` 生成 `front/dist`。
 - **打包后页面 404**：确认 `build/desktop.spec` 的 `datas` 包含 `(front/dist, "front_dist")`、`(static, "static")` 与 `(plugins, "plugins")`，且 `paths.py` 在打包模式下指向 `sys._MEIPASS` 对应目录。
 - **插件页报「权限不足」**：检查插件 `manifest.json` 的 `permissions` 是否声明了对应能力（notify/settings/storage/tools/events/http/platform/log）。
-- **助手悬浮球不出现 / 子应用方法助手看不到**：先确认宿主能从 `GET /api/desktop/agent-config` 拿到 `enabled: true`（本地调试用 `DESKTOP_DEV_AGENT=1` 启动）；再确认子应用 manifest 声明了 `tools` 且页面已真正打开（工具在子应用运行后注册，未打开不会出现在助手工具表里）。
+- **助手悬浮球不出现 / 子应用方法助手看不到**：先确认宿主能从 `GET /api/desktop/agent-config` 拿到 `enabled: true`（本地调试用 `DESKTOP_DEV_AGENT=1` 启动）；再确认子应用 manifest 声明了 `tools`（宿主启动时会静默预挂载这类子应用，无需点开）；若刚改过前端，需要重启桌面应用让新的 `front/dist` 生效。
 - **插件页拿不到 `window.desktop`**：插件必须在 `desktop-ready` 事件后再使用 SDK，参考上文示例写法。
 - **开发时怎么打开控制台**：浏览器模式直接按 `Cmd+Option+I`；pywebview 窗口用 `DESKTOP_DEBUG=1` 启动后右键 → 检查元素。
 - **主题 / 星标重启后丢失**：确认以本仓库代码启动（已关闭 pywebview 隐私模式）；旧版本安装的应用不受影响。

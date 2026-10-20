@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from desktop_app.manager import PluginManager
+from desktop_app.agent_config import AgentConfigStore
 from desktop_app.plugin_data import PluginDataStore
 from desktop_app.server import create_app
 
@@ -45,6 +46,8 @@ def _client(plugin_env: dict, tmp_path: Path, enabled: bool = True) -> TestClien
         manager,
         plugin_data=PluginDataStore(root=tmp_path / "plugin-data"),
         dev_agent_enabled=enabled,
+        # 同上：隔离本机真实凭证，否则 remote 配置会盖过 dev 网关。
+        agent_config_store=AgentConfigStore(tmp_path / "agent.json"),
     )
     return TestClient(app)
 
