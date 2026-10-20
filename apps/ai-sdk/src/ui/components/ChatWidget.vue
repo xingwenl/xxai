@@ -357,12 +357,12 @@ const contextTokensText = computed(() =>
 const contextTitle = computed(() => {
   if (!contextUsage.value) return ''
   if (!contextRing.value) {
-    return `上下文占用 ${contextTokensText.value}（模型窗口大小未知，无法估算百分比）`
+    return `上下文已用 ${contextTokensText.value}（模型窗口大小未知，无法估算百分比）`
   }
+  // 环旁边只显示百分比，绝对量放在提示里，兼顾「一眼扫」与「核对口径」。
+  const detail = `上下文已用 ${contextRing.value.text}（${contextRing.value.detail}）`
   const compactedAt = contextUsage.value.lastCompactedAt
-  return compactedAt
-    ? `上下文占用 ${contextRing.value.text}；上次压缩：${compactedAt}`
-    : `上下文占用 ${contextRing.value.text}`
+  return compactedAt ? `${detail}；上次压缩：${compactedAt}` : detail
 })
 
 /** 手动压缩是否进行中（进行中禁用按钮，避免重复请求）。 */

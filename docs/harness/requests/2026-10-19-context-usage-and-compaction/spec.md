@@ -68,6 +68,7 @@ approval:
 9. `ai-sdk/src/core/protocol.ts` 两处白名单同步加两个事件（`parseProtocolEvent` 把未知类型归一到 `unknown` 后丢弃，不同步则前端收不到）；`types.ts` 新增 `ContextUsage`/`ContextCompacted`。
 10. `ai-sdk/src/core/client.ts`：接住两个事件并维护 `contextUsage` getter，`emit('context_usage')`/`emit('context_compacted')`；新增 `compactContext(instructions?)`（复用 `_getToken()` + Bearer REST）；补订阅 `'client_info'`（QuotaRing 正因未订阅而晚到不刷新）。
 11. `ai-sdk/src/ui/context-ring.ts`（纯函数，沿用 `quota-ring.ts` 形状与测试风格）+ `ContextRing.vue` + `ChatWidget.vue` header：占用环与 `used/limit(percent%)` 文案，70/90 两档配色；窗口未知时只显示绝对 token 数；旁边一个手动压缩按钮（飞行中禁用）。
+    - 2026-10-19 追加（验收后按用户要求收紧文案）：环旁只留百分比（`11%`，不足 0.5% 时 `<1%`），`used/limit` 绝对量改为 `detail` 字段、只出现在悬停提示里（`上下文已用 11%（12.3K / 1.0M）`）——header 那一行横向空间有限，长文案会把连接状态挤掉。
 12. 测试与文档：`tests/conversation/test_context_compaction.py`、`tests/conversation/test_rest_parity.py`（新增「REST 历史真的到达模型」回归用例；原计划的 `tests/gateway/test_context_events.py` 未单独建，等价覆盖在 `tests/agent_runtime/test_context_metrics.py` 与 golden 对拍）、`tests/gateway/test_event_parity.py` 与 `apps/ai-sdk/src/core/__tests__/fixtures/run-events.golden.json` 同步新增 2 事件、SDK `context-ring.test.ts`/`client.test.ts`、`tools/harness/verify/2026-10-19-context-usage-and-compaction.sh`、README、`docs/CHANGELOG.md`、`docs/adr/0011-context-usage-and-compaction.md`。
 
 ## 验收标准

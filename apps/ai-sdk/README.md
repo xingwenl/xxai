@@ -295,10 +295,11 @@ import { contextRingState, formatTokens } from 'xxai-agent'
 
 const ring = contextRingState(agent.contextUsage?.usedTokens, agent.contextUsage?.windowTokens)
 // ring === null：窗口未知，退化为 formatTokens(agent.contextUsage?.usedTokens ?? 0) 文本
-// ring 非空：{ ratio, color, text }
+// ring 非空：{ ratio, color, text, detail }
 //   ratio 是 0–100 的百分比（超出窗口时截断到 100）
 //   color 按占用分档：<70% 主题色、70–90% #F59E0B、>=90% #EF4444
-//   text 形如 "12.3K/1.0M (1%)"
+//   text 是环旁边那行极简文本，形如 "11%"；有占用但不足 0.5% 时为 "<1%"
+//   detail 是完整口径 "12.3K / 1.0M"，建议只放进 title 提示，不要和 text 一起平铺
 ```
 
 需要用户手动触发压缩时调用 `compactContext()`，它请求 `POST /embed/conversations/{conversationId}/context/compact`（使用 `getToken` 返回的 embed token）：

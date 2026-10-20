@@ -609,7 +609,7 @@
   flex: 0 0 auto;
 }
 
-/* 环与文本并排：20px 的环里放不下 "12.3K/1.0M (1%)" 这类文案。 */
+/* 环与百分比文本并排：20px 的环里放不下文字，绝对量改由 title 提示承载。 */
 .xxai-context-ring {
   display: flex;
   align-items: center;

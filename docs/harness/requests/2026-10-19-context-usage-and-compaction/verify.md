@@ -1,7 +1,7 @@
 ---
 source: script
 request: 2026-10-19-context-usage-and-compaction
-ranAt: "2026-10-20 14:25:59 CST"
+ranAt: "2026-10-20 14:51:22 CST"
 exitCode: 0
 ---
 
@@ -25,7 +25,7 @@ step_unit_conversation
 ........................................................................ [ 44%]
 ........................................................................ [ 89%]
 .................                                                        [100%]
-161 passed in 8.88s
+161 passed in 7.21s
 结果：通过
 
 ### 后端单测：agent_runtime（AC1/AC6 事件）
@@ -36,7 +36,7 @@ step_unit_agent_runtime
 
 ........................................................................ [ 60%]
 ...............................................                          [100%]
-119 passed in 2.12s
+119 passed in 2.92s
 结果：通过
 
 ### 后端单测：gateway（含祖传 golden 对拍）
@@ -53,7 +53,7 @@ step_unit_gateway
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-118 passed, 1 skipped, 1 warning in 2.61s
+118 passed, 1 skipped, 1 warning in 2.75s
 结果：通过
 
 ### 后端单测：embed（AC5 手动压缩 REST）
@@ -63,7 +63,7 @@ step_unit_embed
 ```
 
 ...........................                                              [100%]
-27 passed in 3.33s
+27 passed in 3.55s
 结果：通过
 
 ### AC1：阈值必须早于护栏预算（否则护栏会先硬删历史）
@@ -239,9 +239,9 @@ step_sdk_vitest
 
  RUN  v2.1.9 /Users/lixingwen/xw/study/ai-base/apps/ai-sdk
 
+ ✓ src/ui/__tests__/window-layout.test.ts (12 tests) 4ms
  ✓ src/ui/__tests__/message-presentation.test.ts (10 tests) 5ms
- ✓ src/ui/__tests__/window-layout.test.ts (12 tests) 5ms
- ✓ src/core/__tests__/protocol.test.ts (11 tests) 5ms
+ ✓ src/core/__tests__/protocol.test.ts (11 tests) 4ms
 stdout | src/core/__tests__/websocket.test.ts > WebSocketTransport > queues messages until session_ready and does not reconnect after explicit disconnect
 [xxai-agent][conversation] transport sending message { requestId: 'req-1', conversationId: undefined }
 
@@ -252,10 +252,48 @@ stdout | src/core/__tests__/websocket.test.ts > WebSocketTransport > uses a rest
 [xxai-agent][conversation] transport sending message { requestId: 'req-restored', conversationId: '42' }
 [xxai-agent][conversation] transport sending message { requestId: 'req-new', conversationId: undefined }
 
- ✓ src/core/__tests__/websocket.test.ts (11 tests) 14ms
- ✓ src/ui/__tests__/markdown-content.test.ts (7 tests) 6ms
- ✓ src/ui/__tests__/markdown-diagram-renderers.test.ts (18 tests) 29ms
- ✓ src/core/__tests__/compatibility.test.ts (4 tests) 53ms
+ ✓ src/core/__tests__/websocket.test.ts (11 tests) 11ms
+ ✓ src/core/__tests__/compatibility.test.ts (4 tests) 48ms
+ ✓ src/ui/__tests__/markdown-diagram-renderers.test.ts (18 tests) 116ms
+ ✓ src/ui/__tests__/markdown-content.test.ts (7 tests) 44ms
+stdout | src/core/__tests__/client.test.ts > AgentClient protocol events > 同步服务端事件顶层的 conversationId 到客户端消息和工具上下文
+[xxai-agent][conversation] client synchronized conversation id {
+  eventType: 'message_started',
+  requestId: 'r',
+  previousConversationId: undefined,
+  conversationId: '42'
+}
+
+stderr | src/core/__tests__/client.test.ts > AgentClient protocol events > ends a queued request when the transport fails before message_started
+Connection error: Error: WebSocket closed (4401)
+    at /Users/lixingwen/xw/study/ai-base/apps/ai-sdk/src/core/__tests__/client.test.ts:279:29
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1056:11)
+    at runSuite (file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runFiles (file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1262:5)
+    at startTests (file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1271:3)
+    at file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/vitest@2.1.9_jsdom@26.1.0/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11
+    at withEnv (file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/vitest@2.1.9_jsdom@26.1.0/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:90:5)
+
+stderr | src/core/__tests__/client.test.ts > AgentClient protocol events > 兼容性失败只上报一次（compatibility_error 与 error 成对发出时不重复）
+Connection error: Error [AgentError]: 当前 SDK 版本过低，请升级到 0.2.0 或更高版本
+    at /Users/lixingwen/xw/study/ai-base/apps/ai-sdk/src/core/__tests__/client.test.ts:602:26
+    at file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:146:14
+    at file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:39:7)
+    at runTest (file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1056:17)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at runSuite (file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runFiles (file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1262:5)
+    at startTests (file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1271:3) {
+  code: 'unsupported_sdk_version',
+  retryable: false
+}
+
+ ✓ src/core/__tests__/client.test.ts (37 tests) 56ms
 stdout | src/core/__tests__/conversations.test.ts > conversations_changed 事件 > 会在首条消息创建会话后通知列表刷新
 [xxai-agent][conversation] client synchronized conversation id {
   eventType: 'message_started',
@@ -318,46 +356,9 @@ stdout | src/core/__tests__/conversations.test.ts > conversations_changed 事件
   conversationId: '88'
 }
 
- ✓ src/core/__tests__/conversations.test.ts (12 tests) 7ms
-stdout | src/core/__tests__/client.test.ts > AgentClient protocol events > 同步服务端事件顶层的 conversationId 到客户端消息和工具上下文
-[xxai-agent][conversation] client synchronized conversation id {
-  eventType: 'message_started',
-  requestId: 'r',
-  previousConversationId: undefined,
-  conversationId: '42'
-}
-
-stderr | src/core/__tests__/client.test.ts > AgentClient protocol events > ends a queued request when the transport fails before message_started
-Connection error: Error: WebSocket closed (4401)
-    at /Users/lixingwen/xw/study/ai-base/apps/ai-sdk/src/core/__tests__/client.test.ts:279:29
-    at processTicksAndRejections (node:internal/process/task_queues:105:5)
-    at file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:5
-    at runTest (file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1056:11)
-    at runSuite (file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
-    at runSuite (file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
-    at runFiles (file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1262:5)
-    at startTests (file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1271:3)
-    at file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/vitest@2.1.9_jsdom@26.1.0/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11
-    at withEnv (file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/vitest@2.1.9_jsdom@26.1.0/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:90:5)
-
-stderr | src/core/__tests__/client.test.ts > AgentClient protocol events > 兼容性失败只上报一次（compatibility_error 与 error 成对发出时不重复）
-Connection error: Error [AgentError]: 当前 SDK 版本过低，请升级到 0.2.0 或更高版本
-    at /Users/lixingwen/xw/study/ai-base/apps/ai-sdk/src/core/__tests__/client.test.ts:602:26
-    at file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:146:14
-    at file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:11
-    at runWithTimeout (file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:39:7)
-    at runTest (file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1056:17)
-    at processTicksAndRejections (node:internal/process/task_queues:105:5)
-    at runSuite (file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
-    at runSuite (file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
-    at runFiles (file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1262:5)
-    at startTests (file:///Users/lixingwen/xw/study/ai-base/apps/ai-sdk/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1271:3) {
-  code: 'unsupported_sdk_version',
-  retryable: false
-}
-
- ✓ src/core/__tests__/client.test.ts (37 tests) 33ms
- ✓ src/core/__tests__/errors.test.ts (8 tests) 3ms
+ ✓ src/core/__tests__/conversations.test.ts (12 tests) 77ms
+ ✓ src/ui/__tests__/context-ring.test.ts (10 tests) 8ms
+ ✓ src/core/__tests__/errors.test.ts (8 tests) 4ms
 stdout | src/core/__tests__/client-replay.test.ts > replayed assistant events > materializes a completed message when message_started was not replayed
 [xxai-agent][conversation] client synchronized conversation id {
   eventType: 'message_completed',
@@ -366,7 +367,6 @@ stdout | src/core/__tests__/client-replay.test.ts > replayed assistant events > 
   conversationId: '42'
 }
 
- ✓ src/core/__tests__/client-replay.test.ts (3 tests) 5ms
 stdout | src/core/__tests__/client-replay.test.ts > replayed assistant events > accumulates replayed deltas before the completion event
 [xxai-agent][conversation] client synchronized conversation id {
   eventType: 'message_delta',
@@ -387,23 +387,23 @@ stdout | src/core/__tests__/client-replay.test.ts > replayed assistant events > 
   conversationId: '42'
 }
 
- ✓ src/ui/__tests__/context-ring.test.ts (8 tests) 3ms
+ ✓ src/core/__tests__/client-replay.test.ts (3 tests) 16ms
  ✓ src/core/__tests__/attachments.test.ts (4 tests) 2ms
- ✓ src/ui/__tests__/markdown-fence-registry.test.ts (5 tests) 3ms
- ✓ src/ui/__tests__/two-step-confirm.test.ts (6 tests) 4ms
- ✓ src/ui/__tests__/quota-ring.test.ts (5 tests) 5ms
+ ✓ src/ui/__tests__/markdown-fence-registry.test.ts (5 tests) 15ms
+ ✓ src/ui/__tests__/quota-ring.test.ts (5 tests) 8ms
+ ✓ src/ui/__tests__/two-step-confirm.test.ts (6 tests) 30ms
  ✓ src/core/__tests__/page-tools.test.ts (3 tests) 5ms
- ✓ src/ui/__tests__/window-storage.test.ts (3 tests) 2ms
- ✓ src/ui/__tests__/context-ring.component.test.ts (3 tests) 5ms
- ✓ src/ui/__tests__/chat-scroll.test.ts (2 tests) 2ms
  ✓ src/ui/__tests__/header-name.test.ts (4 tests) 2ms
- ✓ src/ui/__tests__/chat-message.ssr.test.ts (9 tests) 24ms
- ✓ src/ui/__tests__/markdown-diagram-dom.test.ts (7 tests) 132ms
+ ✓ src/ui/__tests__/window-storage.test.ts (3 tests) 2ms
+ ✓ src/ui/__tests__/chat-scroll.test.ts (2 tests) 1ms
+ ✓ src/ui/__tests__/context-ring.component.test.ts (4 tests) 6ms
+ ✓ src/ui/__tests__/chat-message.ssr.test.ts (9 tests) 22ms
+ ✓ src/ui/__tests__/markdown-diagram-dom.test.ts (7 tests) 131ms
 
  Test Files  23 passed (23)
-      Tests  192 passed (192)
-   Start at  14:25:51
-   Duration  1.81s (transform 1.15s, setup 0ms, collect 2.41s, tests 353ms, environment 785ms, prepare 2.01s)
+      Tests  195 passed (195)
+   Start at  14:51:13
+   Duration  2.23s (transform 1.32s, setup 0ms, collect 3.43s, tests 618ms, environment 1.04s, prepare 2.24s)
 
 结果：通过
 
@@ -437,12 +437,12 @@ rendering chunks...
 [vite:dts] Start generate declaration files...
 computing gzip size...
 dist/style.css          45.07 kB │ gzip:   8.07 kB
-dist/xxai-agent.es.js  456.23 kB │ gzip: 139.60 kB
-[vite:dts] Declaration files built in 2040ms.
+dist/xxai-agent.es.js  456.41 kB │ gzip: 139.76 kB
+[vite:dts] Declaration files built in 2172ms.
 
 dist/style.css            45.07 kB │ gzip:   8.07 kB
-dist/xxai-agent.umd.cjs  308.40 kB │ gzip: 114.10 kB
-✓ built in 2.93s
+dist/xxai-agent.umd.cjs  308.49 kB │ gzip: 114.16 kB
+✓ built in 3.13s
 结果：通过
 
 ### AC3：产物契约（导出齐全 / 引擎外置且惰性 / 入口 <1MB）
@@ -467,8 +467,8 @@ formatTokens: function
 命中种类 = 2（期望 2）
 
 入口体积（要求 <1MB，同时说明引擎没有被内联进来）：
--rw-r--r--@ 1 lixingwen  staff  460133 10 20 14:25 apps/ai-sdk/dist/xxai-agent.es.js
--rw-r--r--@ 1 lixingwen  staff  310443 10 20 14:25 apps/ai-sdk/dist/xxai-agent.umd.cjs
+-rw-r--r--@ 1 lixingwen  staff  460369 10 20 14:51 apps/ai-sdk/dist/xxai-agent.es.js
+-rw-r--r--@ 1 lixingwen  staff  310534 10 20 14:51 apps/ai-sdk/dist/xxai-agent.umd.cjs
 
 类型声明包含新增公共类型：
 结果：通过

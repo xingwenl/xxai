@@ -5,13 +5,20 @@
  * 耗尽线），而上下文占用是「用了多少 / 模型窗口多大」，业务上按百分比表述
  * （<70% 正常、70–90% 偏高、≥90% 接近溢出），因此这里的 `ratio` 是 0–100。
  * 消费方驱动 SVG 弧长时记得除以 100。
+ *
+ * 文案分两档：环旁边只留百分比（`11%`），绝对量放悬停提示——头像旁边那一行
+ * 横向空间有限，`12.3K / 1.0M (11%)` 会把连接状态挤掉，而百分比才是用户在
+ * 这个位置真正想扫一眼的信息。
  */
 
 export interface ContextRingState {
   /** 占用百分比，取值 0–100（超出窗口时截断到 100）。 */
   ratio: number
   color: string
+  /** 环右侧的极简文本，形如 `11%`；占用不足 0.5% 时显示 `<1%`。 */
   text: string
+  /** 完整口径（`12.3K / 1.0M`），只用于悬停提示，不占环旁边的横向空间。 */
+  detail: string
 }
 
 const NORMAL_COLOR = 'var(--agent-primary, #0EA5E9)'
@@ -65,9 +72,12 @@ export function contextRingState(
   }
   const ratio = Math.min(100, (usedTokens / windowTokens) * 100)
   const color = ratio >= 90 ? DANGER_COLOR : ratio >= 70 ? WARNING_COLOR : NORMAL_COLOR
+  const percent = Math.round(ratio)
   return {
     ratio,
     color,
-    text: `${formatTokens(usedTokens)}/${formatTokens(windowTokens)} (${Math.round(ratio)}%)`
+    // 有占用但四舍五入成 0% 时会显得像没读到数据，显式说成「不到 1%」。
+    text: percent === 0 && ratio > 0 ? '<1%' : `${percent}%`,
+    detail: `${formatTokens(usedTokens)} / ${formatTokens(windowTokens)}`
   }
 }
