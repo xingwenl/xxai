@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import mimetypes
 import tempfile
 import urllib.error
@@ -14,11 +15,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from desktop_app import bookmarks
+from desktop_app import dev_agent
 from desktop_app import metadata
 from desktop_app import paths
 from desktop_app.app_config import APP_NAME, APP_VERSION
 from desktop_app.bookmarks import MAX_BOOKMARKS_PER_REPORT, BookmarkItem
 from desktop_app.manager import PluginError, PluginExistsError, PluginManager, PluginNotFoundError
+from desktop_app.plugin_data import MAX_VALUE_BYTES, PluginDataError, PluginDataStore, PluginDataTooLarge
+from desktop_app.registry import PluginInfo
 from desktop_app.security import MAX_ZIP_SIZE
 
 
@@ -59,10 +63,20 @@ class CollectBookmarksRequest(BaseModel):
 def create_app(
     manager: PluginManager | None = None,
     bookmarks_snapshot_path: Path | None = None,
+    plugin_data: PluginDataStore | None = None,
+    dev_agent_enabled: bool | None = None,
 ) -> FastAPI:
-    """构建内嵌 FastAPI 应用；可传入共享 PluginManager 与书签快照路径（默认自建）。"""
+    """构建内嵌 FastAPI 应用。
+
+    - manager：插件管理器（默认自建）
+    - bookmarks_snapshot_path：书签快照路径（默认用户数据目录）
+    - plugin_data：子应用数据存储（默认用户数据目录）
+    - dev_agent_enabled：是否挂载本地 mock 智能体网关；None 时读 DESKTOP_DEV_AGENT 环境变量
+    """
     manager = manager or PluginManager()
     snapshot_path = bookmarks_snapshot_path or bookmarks.snapshot_path()
+    data_store = plugin_data or PluginDataStore()
+    dev_enabled = dev_agent.is_enabled_by_env() if dev_agent_enabled is None else dev_agent_enabled
     app = FastAPI(title=APP_NAME, version=APP_VERSION)
 
     @app.get("/api/health")
@@ -177,6 +191,73 @@ def create_app(
             "userDataDir": str(paths.user_data_dir()),
         }
 
+    # ---------- 子应用本地数据接口（plugin-data） ----------
+
+    @app.get("/api/desktop/plugin-data/{plugin_id}")
+    def list_plugin_data_keys(plugin_id: str) -> dict[str, list[str]]:
+        """返回插件已持久化的数据键列表。"""
+        _require_enabled_plugin(manager, plugin_id, ability="storage")
+        try:
+            return {"keys": data_store.keys(plugin_id)}
+        except PluginDataError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.get("/api/desktop/plugin-data/{plugin_id}/{key}")
+    def get_plugin_data(plugin_id: str, key: str) -> Response:
+        """读取单个数据键，返回存储时的原始 JSON。"""
+        _require_enabled_plugin(manager, plugin_id, ability="storage")
+        try:
+            raw = data_store.read_raw(plugin_id, key)
+        except PluginDataError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if raw is None:
+            raise HTTPException(404, f"数据不存在: {key}")
+        return Response(content=raw, media_type="application/json")
+
+    @app.put("/api/desktop/plugin-data/{plugin_id}/{key}")
+    async def put_plugin_data(plugin_id: str, key: str, request: Request) -> dict[str, bool]:
+        """写入单个数据键；请求体为任意合法 JSON 值，大小受 MAX_VALUE_BYTES 限制。"""
+        _require_enabled_plugin(manager, plugin_id, ability="storage")
+        body = await request.body()
+        if not body:
+            raise HTTPException(400, "请求体为空，需要一个 JSON 值")
+        if len(body) > MAX_VALUE_BYTES:
+            raise HTTPException(400, f"值超过大小上限（{MAX_VALUE_BYTES} 字节）")
+        try:
+            value = json.loads(body)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(400, f"请求体不是合法 JSON: {exc}") from exc
+        try:
+            data_store.write(plugin_id, key, value)
+        except PluginDataTooLarge as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except PluginDataError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"ok": True}
+
+    @app.delete("/api/desktop/plugin-data/{plugin_id}/{key}")
+    def delete_plugin_data(plugin_id: str, key: str) -> Response:
+        """删除单个数据键（不存在时同样返回 204，保持幂等）。"""
+        _require_enabled_plugin(manager, plugin_id, ability="storage")
+        try:
+            data_store.delete(plugin_id, key)
+        except PluginDataError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return Response(status_code=204)
+
+    # ---------- 全局助手连接配置 ----------
+
+    @app.get("/api/desktop/agent-config")
+    def agent_config() -> dict:
+        """返回全局助手连接参数。
+
+        当前只有本地 mock 网关一种来源；未启用时 enabled=false，宿主壳不挂载助手。
+        未来接入 AI Base 时，只需在这里返回真实 endpoint / 短期 token。
+        """
+        if dev_enabled:
+            return dev_agent.session_payload()
+        return {"enabled": False, "reason": "未配置智能体后端（可用 DESKTOP_DEV_AGENT=1 启动本地网关）"}
+
     # ---------- Chrome 书签整理接口 ----------
 
     @app.post("/api/desktop/bookmarks/collect")
@@ -233,6 +314,11 @@ def create_app(
         """插件静态资源服务：按插件目录解析相对路径，拒绝路径穿越。"""
         return _serve_plugin_file(manager, plugin_id, file_path or "index.html")
 
+    # ---------- 本地 mock 智能体网关（仅开发闭环，不连 AI Base） ----------
+
+    if dev_enabled:
+        dev_agent.register_dev_agent(app)
+
     # ---------- 静态资源挂载（顺序：/css → / 宿主前端） ----------
 
     # 插件共享样式：/css/tailwind.css 供插件页面引用
@@ -253,6 +339,25 @@ def create_app(
 def _urlopen(request: urllib.request.Request, timeout: int = 15):
     """独立封装便于测试注入；生产行为等价 urllib.request.urlopen。"""
     return urllib.request.urlopen(request, timeout=timeout)
+
+
+def _require_enabled_plugin(
+    manager: PluginManager,
+    plugin_id: str,
+    ability: str | None = None,
+) -> PluginInfo:
+    """校验插件存在、可用且已声明所需能力；作为子应用数据接口的统一前置检查。"""
+    try:
+        plugin = manager.get(plugin_id)
+    except PluginNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    if plugin.error:
+        raise HTTPException(400, f"插件 manifest 异常: {plugin.error}")
+    if not plugin.enabled:
+        raise HTTPException(403, f"插件已停用: {plugin_id}")
+    if ability and ability not in plugin.permissions:
+        raise HTTPException(403, f"插件未声明 {ability} 能力，无法使用该接口")
+    return plugin
 
 
 def _serve_plugin_file(manager: PluginManager, plugin_id: str, file_path: str) -> FileResponse:

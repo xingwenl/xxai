@@ -6,6 +6,8 @@
     "build:sdk": "pnpm --filter xxai-agent build",
     "build:front": "pnpm --filter shadcn-admin build",
     "dev:front": "pnpm --filter shadcn-admin dev",
-    "dev:shop": "pnpm --filter shop-agent-web dev"
+    "dev:shop": "pnpm --filter shop-agent-web dev",
+    "dev:ledger": "pnpm --filter ledger-web dev",
+    "build:ledger": "pnpm --filter ledger-web build"
   }
 }

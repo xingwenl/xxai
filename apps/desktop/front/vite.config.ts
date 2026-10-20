@@ -21,7 +21,8 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 8443,
     proxy: {
-      '/api': devApiTarget,
+      // ws: true 让全局助手的 WebSocket 连接（/api/v1/ws/agents/...）也能走开发代理
+      '/api': { target: devApiTarget, ws: true },
       '/apps': devApiTarget,
       '/css': devApiTarget,
     },

@@ -1,11 +1,20 @@
 // 宿主 SDK（TypeScript 版）：注入插件 iframe 的 window.desktop
 // 契约与静态版一致：宿主在 iframe load 后注入并触发 desktop-ready 事件
 
-import { getDesktopSettings, getPlugins, proxyFetch, type Plugin } from './api'
+import {
+  deletePluginData,
+  getDesktopSettings,
+  getPluginData,
+  getPlugins,
+  listPluginDataKeys,
+  proxyFetch,
+  setPluginData,
+  type Plugin,
+} from './api'
+import { registerPluginTools, unregisterPluginTools, type HostToolDefinition, type HostToolHandler } from './tool-bridge'
 import { toast } from './toast'
 
 const LS_SETTINGS_PREFIX = 'desktop:settings:'
-const LS_STORAGE_PREFIX = 'desktop:storage:'
 
 export interface DesktopSdk {
   ready: Promise<boolean>
@@ -15,9 +24,21 @@ export interface DesktopSdk {
   getApps(): Promise<Plugin[]>
   navigate(path: string): void
   openApp(id: string): void
-  notify?(opts: { title?: string; body?: string }): void
+  /** 支持 `notify({title, body})` 与 `notify(title, body)` 两种写法（后者是记账等新插件契约）。 */
+  notify?(opts: { title?: string; body?: string } | string, body?: string): void
   settings?: { get(key: string, fallback?: unknown): unknown; set(key: string, value: unknown): void }
-  storage?: { get(key: string, fallback?: unknown): unknown; set(key: string, value: unknown): void }
+  /** 子应用本地数据：由宿主落盘（plugin-data），全异步。 */
+  storage?: {
+    get(key: string, fallback?: unknown): Promise<unknown>
+    set(key: string, value: unknown): Promise<void>
+    delete(key: string): Promise<void>
+    keys(): Promise<string[]>
+  }
+  /** 向全局助手注册可调用方法（manifest.permissions 需声明 tools）。 */
+  tools?: {
+    register(defs: HostToolDefinition[], handlers: Record<string, HostToolHandler>): Promise<void>
+    unregister(names: string[]): Promise<void>
+  }
   events?: {
     on(event: string, handler: (payload: unknown, meta: { source: string }) => void): () => void
     emit(event: string, payload?: unknown): void
@@ -83,7 +104,13 @@ export function createPluginSdk(plugin: Plugin): DesktopSdk {
   }
 
   if (perms.has('notify')) {
-    sdk.notify = (opts) => toast(opts.title || plugin.name, opts.body || '')
+    sdk.notify = (opts, body) => {
+      if (typeof opts === 'string') {
+        toast(opts, body || '')
+        return
+      }
+      toast(opts.title || plugin.name, opts.body || '')
+    }
   } else {
     sdk.notify = denied('notify')
   }
@@ -98,12 +125,38 @@ export function createPluginSdk(plugin: Plugin): DesktopSdk {
   }
 
   if (perms.has('storage')) {
+    // 数据落宿主 ~/.desktop-app/plugin-data/<pluginId>/<key>.json：
+    // 与浏览器 localStorage 不同，它是子应用真实数据，卸载宿主以外的清理责任在宿主。
     sdk.storage = {
-      get: (key, fallback = null) => readJson(LS_STORAGE_PREFIX + plugin.id + ':' + key, fallback),
-      set: (key, value) => writeJson(LS_STORAGE_PREFIX + plugin.id + ':' + key, value),
+      async get(key, fallback = null) {
+        const value = await getPluginData(plugin.id, key)
+        return value === null ? fallback : value
+      },
+      async set(key, value) {
+        await setPluginData(plugin.id, key, value)
+      },
+      async delete(key) {
+        await deletePluginData(plugin.id, key)
+      },
+      async keys() {
+        return (await listPluginDataKeys(plugin.id)).keys
+      },
     }
   } else {
     sdk.storage = denied('storage')
+  }
+
+  if (perms.has('tools')) {
+    sdk.tools = {
+      async register(defs, handlers) {
+        registerPluginTools(plugin, defs, handlers)
+      },
+      async unregister(names) {
+        unregisterPluginTools(plugin.id, names)
+      },
+    }
+  } else {
+    sdk.tools = denied('tools')
   }
 
   if (perms.has('events')) {

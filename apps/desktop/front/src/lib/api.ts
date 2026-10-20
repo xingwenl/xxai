@@ -149,3 +149,60 @@ export async function proxyFetch(method: 'GET' | 'POST', url: string, body?: unk
   }
   return data
 }
+
+// ── 全局助手连接配置 ─────────────────────────────────────────────────────────
+
+/** 宿主智能体配置；enabled=false 表示当前没有可用的智能体后端（含本地开发网关）。 */
+export interface AgentConfig {
+  enabled: boolean
+  mode?: 'dev' | 'remote'
+  /** WebSocket 地址，可能是相对路径（如 /api/v1/ws/agents/local） */
+  endpoint?: string
+  platformId?: string
+  agentId?: string
+  /** 本地开发网关的一次性 token；接入 AI Base 时应改为服务端换发的短期 token */
+  token?: string
+  displayName?: string
+  version?: string
+  reason?: string
+}
+
+/** 读取宿主当前可用的智能体连接参数；没有配置时返回 enabled=false。 */
+export function getAgentConfig(): Promise<AgentConfig> {
+  return request('/api/desktop/agent-config')
+}
+
+// ── 子应用本地数据（plugin-data） ────────────────────────────────────────────
+// 由宿主落盘到 ~/.desktop-app/plugin-data/<pluginId>/<key>.json，
+// 子应用不直接接触文件系统，只通过这组接口读写自己的键值。
+
+function pluginDataPath(pluginId: string, key: string): string {
+  return `/api/desktop/plugin-data/${encodeURIComponent(pluginId)}/${encodeURIComponent(key)}`
+}
+
+/** 键不存在时返回 null（与「值为 null」不可区分，子应用应避免存 null）。 */
+export async function getPluginData(pluginId: string, key: string): Promise<unknown | null> {
+  try {
+    return await request<unknown>(pluginDataPath(pluginId, key))
+  } catch (e) {
+    if (e instanceof Error && e.message.includes('数据不存在')) return null
+    throw e
+  }
+}
+
+export function setPluginData(pluginId: string, key: string, value: unknown): Promise<{ ok: boolean }> {
+  return request(pluginDataPath(pluginId, key), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    // undefined 不是合法 JSON，统一落成 null，避免发空 body 被宿主拒绝
+    body: JSON.stringify(value === undefined ? null : value),
+  })
+}
+
+export function deletePluginData(pluginId: string, key: string): Promise<null> {
+  return request(pluginDataPath(pluginId, key), { method: 'DELETE' })
+}
+
+export function listPluginDataKeys(pluginId: string): Promise<{ keys: string[] }> {
+  return request(`/api/desktop/plugin-data/${encodeURIComponent(pluginId)}`)
+}

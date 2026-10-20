@@ -1,6 +1,8 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { getPlugins, type Plugin } from './lib/api'
 import { toast } from './lib/toast'
+import { mountAssistant } from './lib/assistant'
+import { clearPluginTools } from './lib/tool-bridge'
 import PluginView from './components/plugin-view'
 import Settings from './components/settings'
 import ReactAppView from './components/react-app-view'
@@ -720,6 +722,9 @@ export default function App() {
   const [searchQ, setSearchQ] = useState('')
   const [openApp, setOpenApp] = useState<string | null>(null)
   const [fullscreen, setFullscreen] = useState(false)
+  // 打开过的子应用 id：其 iframe 会常驻（切走只隐藏、不卸载），
+  // 这样它通过 desktop.tools.register 注册给全局助手的方法不会随切页消失。
+  const [mountedApps, setMountedApps] = useState<string[]>([])
   const [fsSidebarVisible, setFsSidebarVisible] = useState(false)
   const [page, setPage] = useState<'apps' | 'settings'>('apps')
   const [sliding, setSliding] = useState(false)
@@ -734,6 +739,25 @@ export default function App() {
   const [backPeek, setBackPeek] = useState(false)
   const [backHover, setBackHover] = useState(false)
   const backVisible = backPeek || backHover
+
+  const rememberApp = useCallback((id: string) => {
+    setMountedApps((prev) => (prev.includes(id) ? prev : [...prev, id]))
+  }, [])
+
+  // 全局助手在壳层挂载一次；未配置智能体后端时 mountAssistant 内部自行跳过
+  useEffect(() => {
+    void mountAssistant()
+  }, [])
+
+  // 子应用被禁用/卸载后，同时清掉它的常驻层与注册给助手的方法
+  useEffect(() => {
+    const alive = new Set(plugins.map((p) => p.id))
+    for (const id of mountedApps) {
+      if (alive.has(id)) continue
+      clearPluginTools(id)
+      setMountedApps((prev) => prev.filter((x) => x !== id))
+    }
+  }, [plugins, mountedApps])
 
   // 打开子应用时让返回入口亮相一次，然后自己让位；指针悬停时由 backHover 继续撑着。
   // 注意：这里不能用 window 的 mousemove 判断「指针到了左上角」——插件是 iframe，
@@ -762,7 +786,9 @@ export default function App() {
       const m = window.location.hash.match(/^#\/app\/(.+)$/)
       if (m) {
         setPage('apps')
-        setOpenApp(decodeURIComponent(m[1]))
+        const id = decodeURIComponent(m[1])
+        rememberApp(id)
+        setOpenApp(id)
         enterFullscreen()
         return
       }
@@ -846,6 +872,7 @@ export default function App() {
 
   function navigateTo(id: string) {
     setPage('apps')
+    rememberApp(id)
     enterFullscreen()
     setSliding(true)
     setTimeout(() => { setOpenApp(id); setSliding(false) }, 10)
@@ -1193,52 +1220,62 @@ export default function App() {
         </>}
       </main>
 
-      {/* ── 插件全屏覆盖层：iframe 铺满全窗，顶部返回条与侧栏导航悬浮其上 ── */}
-      {openApp && fullscreen && (() => {
-        const plugin = plugins.find((p) => p.id === openApp)
-        if (!plugin) return null
+      {/* ── 子应用层：打开过的子应用保持挂载（非激活时 display:none）──
+          子应用是全屏沉浸形态，但 iframe 不能被卸载：它向全局助手注册的方法保存在
+          宿主内存里，卸载虽会清掉 UI 状态，却也会让助手侧的工具列表出现空窗。
+          激活的那一层再叠加返回按钮与侧栏导航。 */}
+      {plugins.filter((p) => mountedApps.includes(p.id)).map((plugin) => {
+        const active = openApp === plugin.id && fullscreen
         return (
-          <div className="fixed inset-0 z-50" style={{ background: 'var(--background)' }}>
+          <div
+            key={plugin.id}
+            className={active ? 'fixed inset-0 z-50' : 'hidden'}
+            style={{ background: 'var(--background)' }}
+            aria-hidden={!active}
+          >
             {/* iframe 铺满整个窗口 */}
             <div className="absolute inset-0">
               {plugin.type === 'react'
                 ? <ReactAppView appId={plugin.id} theme={theme} />
                 : <PluginView plugin={plugin} fullscreen />}
             </div>
-            {/* 左上角悬浮返回：子应用里唯一的宿主入口。不铺整条横栏、不占布局高度，
-                而且默认让位（指针不动就淡出），免得压住插件自己的 logo / 标题。
-                鼠标移回胶囊位置、按 Esc、或从左边缘把手唤出侧栏点「全部应用」都能回去。 */}
-            <button
-              onClick={handleBack}
-              onMouseEnter={() => setBackHover(true)}
-              onMouseLeave={() => setBackHover(false)}
-              title={IS_CHILD_WINDOW ? '关闭窗口（Esc）' : '返回应用列表（Esc）'}
-              className={`shell-back absolute z-30 flex items-center gap-1 px-3 h-8 text-[13px] font-600${backVisible ? ' is-visible' : ''}`}
-              style={{ left: 16, top: 16, color: 'var(--primary-ink)' }}
-            >
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
-                <path d="M10 12L6 8l4-4" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              返回
-            </button>
-            {/* 左侧悬浮导航（应用 / 设置 / 主题 / 头像）：默认隐藏，左边缘竖条把手展开 */}
-            <Sidebar
-              active={page === 'settings' ? 'settings' : openApp === 'bookmarks-organizer' ? 'bookmarks' : 'all'}
-              onSelect={(id) => {
-                setOpenApp(null)
-                exitFullscreen()
-                if (id === 'settings') setPage('settings')
-                else if (id === 'bookmarks') navigateTo('bookmarks-organizer')
-                else setPage('apps')
-              }}
-              theme={theme}
-              onThemeChange={setTheme}
-              visible={fsSidebarVisible}
-              onToggle={() => setFsSidebarVisible(v => !v)}
-            />
+            {active && (
+              <>
+                {/* 左上角悬浮返回：子应用里唯一的宿主入口。不铺整条横栏、不占布局高度，
+                    而且默认让位（指针不动就淡出），免得压住插件自己的 logo / 标题。 */}
+                <button
+                  onClick={handleBack}
+                  onMouseEnter={() => setBackHover(true)}
+                  onMouseLeave={() => setBackHover(false)}
+                  title={IS_CHILD_WINDOW ? '关闭窗口（Esc）' : '返回应用列表（Esc）'}
+                  className={`shell-back absolute z-30 flex items-center gap-1 px-3 h-8 text-[13px] font-600${backVisible ? ' is-visible' : ''}`}
+                  style={{ left: 16, top: 16, color: 'var(--primary-ink)' }}
+                >
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
+                    <path d="M10 12L6 8l4-4" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  返回
+                </button>
+                {/* 左侧悬浮导航（应用 / 设置 / 主题 / 头像）：默认隐藏，左边缘竖条把手展开 */}
+                <Sidebar
+                  active={page === 'settings' ? 'settings' : plugin.id === 'bookmarks-organizer' ? 'bookmarks' : 'all'}
+                  onSelect={(id) => {
+                    setOpenApp(null)
+                    exitFullscreen()
+                    if (id === 'settings') setPage('settings')
+                    else if (id === 'bookmarks') navigateTo('bookmarks-organizer')
+                    else setPage('apps')
+                  }}
+                  theme={theme}
+                  onThemeChange={setTheme}
+                  visible={fsSidebarVisible}
+                  onToggle={() => setFsSidebarVisible(v => !v)}
+                />
+              </>
+            )}
           </div>
         )
-      })()}
+      })}
 
       {/* 应用卡片右键菜单：渲染在壳层而不是卡片内，否则会被卡片的 overflow-hidden 裁掉 */}
       {menu && (() => {

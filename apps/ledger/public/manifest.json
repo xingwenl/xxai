@@ -1,0 +1,10 @@
+{
+  "id": "ledger",
+  "name": "记账",
+  "version": "0.1.0",
+  "description": "记账子应用：本地记账、月汇总，并向桌面助手提供 ledger_* 方法",
+  "icon": "icon.svg",
+  "entry": "index.html",
+  "type": "iframe",
+  "permissions": ["storage", "tools", "notify"]
+}

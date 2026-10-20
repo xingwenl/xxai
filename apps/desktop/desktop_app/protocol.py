@@ -16,7 +16,8 @@ PLUGIN_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 # 宿主 SDK 能力白名单；插件 manifest.permissions 声明所需能力，未声明则 SDK 对应方法不可用
 KNOWN_PERMISSIONS = frozenset(
-    {"notify", "settings", "storage", "events", "http", "platform", "log"}
+    # tools：允许子应用向全局助手注册可调用的方法（宿主工具桥）
+    {"notify", "settings", "storage", "events", "http", "platform", "log", "tools"}
 )
 
 # 子应用默认打开方式：inline=宿主壳内展开、browser=系统浏览器、window=新的原生窗口

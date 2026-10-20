@@ -11,13 +11,15 @@ apps/desktop/
   front/                  # 宿主前端主项目（React 19 + Vite + Tailwind v4）
     src/App.tsx           # 宿主壳：应用页 / 设置页 / 插件视图
     src/components/       # plugin-view（iframe+SDK 注入）、settings
-    src/lib/              # api.ts、desktop-sdk.ts、toast.ts
+    src/lib/              # api.ts、desktop-sdk.ts、tool-bridge.ts、assistant.ts、toast.ts
     dist/                 # 构建产物（由内嵌 FastAPI 托管）
   desktop_app/
     app_config.py         # 应用元信息统一配置（名称 / 版本 / Bundle ID / Logo 路径）
     __main__.py           # python -m desktop_app 入口
     main.py               # 窗口与后台服务线程编排
     server.py             # FastAPI 应用工厂（/api/desktop/* + /apps + 前端托管）
+    plugin_data.py        # 子应用本地数据存储（plugin-data，JSON 文件原子写）
+    dev_agent.py          # 本地 mock 智能体网关（DESKTOP_DEV_AGENT=1 时启用）
     registry.py           # 插件扫描（内置 + 用户）
     manager.py            # 插件安装/卸载/启停与状态持久化
     protocol.py           # manifest 协议
@@ -174,15 +176,38 @@ poetry run python build/build.py
 | 能力 | manifest 权限 | 方法 |
 |---|---|---|
 | 生命周期 | 默认 | `desktop.ready`、`appInfo()`、`getApps()`、`navigate(path)`、`openApp(id)` |
-| 通知 | `notify` | `notify({title, body})`（宿主 toast） |
-| 设置 | `settings` | `settings.get(key, default?)` / `settings.set(key, value)` |
-| 存储 | `storage` | `storage.get(key, default?)` / `storage.set(key, value)` |
+| 通知 | `notify` | `notify({title, body})` 或 `notify(title, body)`（宿主 toast） |
+| 设置 | `settings` | `settings.get(key, default?)` / `settings.set(key, value)`（**同步**，存宿主 localStorage） |
+| 存储 | `storage` | `storage.get(key, default?)` / `set(key, value)` / `delete(key)` / `keys()`（**全异步**，落 `~/.desktop-app/plugin-data/<pluginId>/<key>.json`） |
+| 方法注册 | `tools` | `tools.register(defs, handlers)` / `tools.unregister(names)`（把子应用能力交给全局助手调用） |
 | 事件总线 | `events` | `events.on(event, handler)` / `events.emit(event, payload)`（宿主跨插件转发） |
 | HTTP 代理 | `http` | `http.get(url, opts)` / `http.post(url, opts)`（经 `/api/desktop/proxy`） |
 | 平台信息 | `platform` | `platform.info()` |
 | 日志 | `log` | `log.info/warn/error(...)` |
 
 未声明权限的方法调用会抛出「权限不足」错误。
+
+### 子应用本地数据（plugin-data）
+
+`storage` 背后是宿主提供的持久化接口，按插件隔离、JSON 文件落盘，重启应用/电脑后仍在：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/desktop/plugin-data/{plugin_id}` | 列出该插件已有的 key |
+| GET | `/api/desktop/plugin-data/{plugin_id}/{key}` | 读取 JSON 值，缺失返回 404 |
+| PUT | `/api/desktop/plugin-data/{plugin_id}/{key}` | 写入任意 JSON（单值上限 256 KiB，临时文件 + 原子替换） |
+| DELETE | `/api/desktop/plugin-data/{plugin_id}/{key}` | 删除（幂等，204） |
+
+接口只对已启用且 manifest 声明了 `storage` 的插件开放；`key` 需匹配 `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`。数据目录不随插件卸载自动清理，避免误删用户账本等真实数据。
+
+### 全局助手与子应用方法（ai-sdk）
+
+宿主壳层挂着一个全局 AI 助手（`front/src/lib/assistant.ts`，单例、ai-sdk 自带悬浮窗），整个宿主只有一份，**不随子应用打开/关闭重复创建**。子应用通过 `tools.register` 提供方法后，`front/src/lib/tool-bridge.ts` 把方法集合同步给助手；子应用关闭或卸载时自动注销。
+
+- 方法定义：`{ name, description, inputSchema, sideEffect }`，`sideEffect` 取 `none | navigation | write | financial | external`，宿主据此提示风险（记账的新增/删除声明为 `financial`）。
+- 助手只负责「调用」：鉴权、会话、工具策略仍由 AI Base 后端裁决（token 的 `host_tools`、Agent / Embed Client 绑定、schema 指纹必须一致）。
+- 本地闭环：`DESKTOP_DEV_AGENT=1` 启动宿主时，`desktop_app/dev_agent.py` 会在 `/api/v1/ws/agents/local` 起一个规则式 mock 网关（实现 ai-agent.v1 握手、`host_tools_register`、`host_tool_call`、流式回复），`GET /api/desktop/agent-config` 返回 `{enabled: true, mode: "dev", ...}`，前端据此连本地网关，无需 AI Base 后端即可调试「子应用方法 + 助手」链路。该网关不接真实模型，只做意图关键词匹配与工具调用。
+
 
 ### 插件 manifest 约定
 
@@ -195,7 +220,7 @@ poetry run python build/build.py
   "icon": "icon.svg",
   "entry": "index.html",
   "open_mode": "inline",
-  "permissions": ["notify", "settings", "storage", "events", "http", "platform", "log"]
+  "permissions": ["notify", "settings", "storage", "tools", "events", "http", "platform", "log"]
 }
 ```
 
@@ -251,11 +276,29 @@ node scripts/build_css.mjs --watch
 - `desktop_app/host_api.py` 的 `HostApi` 暴露 pywebview `js_api` 能力（仅宿主壳页面可调用；插件一律走宿主 SDK）。
 - `static/` 仅保留插件共享 CSS 与「前端未构建」回退页。
 
+## 记账子应用（apps/ledger）
+
+`apps/ledger` 是第一个按「子应用只提供页面 + 方法、宿主提供数据能力」模式落地的独立子应用：React 19 + Vite 的纯网页，构建后以 `dist/` 作为 iframe 插件安装进宿主，自身不跑服务、不连数据库。
+
+- 数据：走宿主 `storage` → `~/.desktop-app/plugin-data/ledger/ledger.json`；脱离宿主直接打开时回退 `localStorage['ledger:data']`。
+- 方法：注册 `ledger_add_entry`、`ledger_list_entries`、`ledger_month_summary`、`ledger_delete_entry`、`ledger_list_categories` 五个 `ledger_*` 方法，交给全局助手调用（新增/删除标记为 `financial`）。
+- 打开记账应用后，这些方法才会注册进助手；应用保持常驻（切换页面只隐藏 iframe），因此助手随时可调用。
+
+```bash
+pnpm install                              # 根目录安装一次
+pnpm --dir apps/ledger build              # 产物在 apps/ledger/dist
+cd apps/ledger && node scripts/install-to-desktop.mjs   # 装到 ~/.desktop-app/plugins/ledger
+# 重启桌面应用，在应用页打开「记账」；用 DESKTOP_DEV_AGENT=1 启动可让助手直接记账
+```
+
+本地开发：`pnpm --dir apps/ledger dev`（http://127.0.0.1:5181，无宿主时自动用 localStorage）。详见 `apps/ledger/README.md`。
+
 ## 常见问题
 
 - **启动后显示「宿主前端未构建」**：先执行 `pnpm --dir apps/desktop/front build` 生成 `front/dist`。
 - **打包后页面 404**：确认 `build/desktop.spec` 的 `datas` 包含 `(front/dist, "front_dist")`、`(static, "static")` 与 `(plugins, "plugins")`，且 `paths.py` 在打包模式下指向 `sys._MEIPASS` 对应目录。
-- **插件页报「权限不足」**：检查插件 `manifest.json` 的 `permissions` 是否声明了对应能力（notify/settings/storage/events/http/platform/log）。
+- **插件页报「权限不足」**：检查插件 `manifest.json` 的 `permissions` 是否声明了对应能力（notify/settings/storage/tools/events/http/platform/log）。
+- **助手悬浮球不出现 / 子应用方法助手看不到**：先确认宿主能从 `GET /api/desktop/agent-config` 拿到 `enabled: true`（本地调试用 `DESKTOP_DEV_AGENT=1` 启动）；再确认子应用 manifest 声明了 `tools` 且页面已真正打开（工具在子应用运行后注册，未打开不会出现在助手工具表里）。
 - **插件页拿不到 `window.desktop`**：插件必须在 `desktop-ready` 事件后再使用 SDK，参考上文示例写法。
 - **开发时怎么打开控制台**：浏览器模式直接按 `Cmd+Option+I`；pywebview 窗口用 `DESKTOP_DEBUG=1` 启动后右键 → 检查元素。
 - **主题 / 星标重启后丢失**：确认以本仓库代码启动（已关闭 pywebview 隐私模式）；旧版本安装的应用不受影响。

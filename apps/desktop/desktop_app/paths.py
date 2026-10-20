@@ -47,3 +47,8 @@ def user_plugins_dir() -> Path:
 def state_file() -> Path:
     """返回插件启停状态持久化文件。"""
     return user_data_dir() / "state.json"
+
+
+def plugin_data_dir() -> Path:
+    """返回子应用数据根目录（每个插件在其下拥有独立子目录）。"""
+    return user_data_dir() / "plugin-data"

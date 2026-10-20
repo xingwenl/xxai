@@ -102,13 +102,14 @@
                   out("settings.lastVisit = " + JSON.stringify(d.settings.get("lastVisit")));
                   break;
                 case "storage-write": {
-                  const count = (d.storage.get("count") || 0) + 1;
-                  d.storage.set("count", count);
+                  // 子应用数据由宿主持久化（plugin-data），接口是异步的
+                  const count = ((await d.storage.get("count")) || 0) + 1;
+                  await d.storage.set("count", count);
                   out("storage.count = " + count);
                   break;
                 }
                 case "storage-read":
-                  out("storage.count = " + JSON.stringify(d.storage.get("count")));
+                  out("storage.count = " + JSON.stringify(await d.storage.get("count")));
                   break;
                 case "event-emit":
                   d.events.emit("hello:ping", { from: d.pluginId, at: Date.now() });
