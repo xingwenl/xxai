@@ -1,16 +1,18 @@
 ---
 source: script
 request: 2026-10-19-context-usage-and-compaction
-ranAt: "2026-10-19 17:26:25 CST"
+ranAt: "2026-10-20 14:25:59 CST"
 exitCode: 0
 ---
 
 ## 已执行的命令与结果
 
 后端单元测试（改了 agent_runtime 的 loop/events 与 conversation 的上下文构造，
-因此额外回归 agent_runtime / gateway / embed 三个目录）。两个新测试文件：
+因此额外回归 agent_runtime / gateway / embed 三个目录）。新测试文件：
 `tests/conversation/test_context_compaction.py`（纯函数与控制器顺序）、
-`tests/conversation/test_compaction_persistence.py`（sqlite 落库/幂等/坏摘要）、
+`tests/conversation/test_compaction_persistence.py`（sqlite 落库/幂等/坏摘要 + 
+自动触发的完整链路 transform→落库→事件 + 压缩后新请求从摘要续读）、
+`tests/conversation/test_rest_parity.py`（REST 历史真的到达模型）、
 `tests/agent_runtime/test_context_metrics.py`（新事件经 loop 发出）、
 `tests/embed/test_context_compaction_route.py`（REST 投影与 404）。
 
@@ -20,10 +22,10 @@ exitCode: 0
 step_unit_conversation
 ```
 
-........................................................................ [ 45%]
-........................................................................ [ 91%]
-..............                                                           [100%]
-158 passed in 6.96s
+........................................................................ [ 44%]
+........................................................................ [ 89%]
+.................                                                        [100%]
+161 passed in 8.88s
 结果：通过
 
 ### 后端单测：agent_runtime（AC1/AC6 事件）
@@ -34,7 +36,7 @@ step_unit_agent_runtime
 
 ........................................................................ [ 60%]
 ...............................................                          [100%]
-119 passed in 2.24s
+119 passed in 2.12s
 结果：通过
 
 ### 后端单测：gateway（含祖传 golden 对拍）
@@ -51,7 +53,7 @@ step_unit_gateway
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-118 passed, 1 skipped, 1 warning in 2.43s
+118 passed, 1 skipped, 1 warning in 2.61s
 结果：通过
 
 ### 后端单测：embed（AC5 手动压缩 REST）
@@ -61,7 +63,7 @@ step_unit_embed
 ```
 
 ...........................                                              [100%]
-27 passed in 3.37s
+27 passed in 3.33s
 结果：通过
 
 ### AC1：阈值必须早于护栏预算（否则护栏会先硬删历史）
@@ -237,9 +239,9 @@ step_sdk_vitest
 
  RUN  v2.1.9 /Users/lixingwen/xw/study/ai-base/apps/ai-sdk
 
- ✓ src/ui/__tests__/message-presentation.test.ts (10 tests) 3ms
- ✓ src/ui/__tests__/window-layout.test.ts (12 tests) 3ms
- ✓ src/core/__tests__/protocol.test.ts (11 tests) 4ms
+ ✓ src/ui/__tests__/message-presentation.test.ts (10 tests) 5ms
+ ✓ src/ui/__tests__/window-layout.test.ts (12 tests) 5ms
+ ✓ src/core/__tests__/protocol.test.ts (11 tests) 5ms
 stdout | src/core/__tests__/websocket.test.ts > WebSocketTransport > queues messages until session_ready and does not reconnect after explicit disconnect
 [xxai-agent][conversation] transport sending message { requestId: 'req-1', conversationId: undefined }
 
@@ -250,10 +252,10 @@ stdout | src/core/__tests__/websocket.test.ts > WebSocketTransport > uses a rest
 [xxai-agent][conversation] transport sending message { requestId: 'req-restored', conversationId: '42' }
 [xxai-agent][conversation] transport sending message { requestId: 'req-new', conversationId: undefined }
 
- ✓ src/core/__tests__/websocket.test.ts (11 tests) 17ms
+ ✓ src/core/__tests__/websocket.test.ts (11 tests) 14ms
  ✓ src/ui/__tests__/markdown-content.test.ts (7 tests) 6ms
- ✓ src/ui/__tests__/markdown-diagram-renderers.test.ts (18 tests) 25ms
- ✓ src/core/__tests__/compatibility.test.ts (4 tests) 47ms
+ ✓ src/ui/__tests__/markdown-diagram-renderers.test.ts (18 tests) 29ms
+ ✓ src/core/__tests__/compatibility.test.ts (4 tests) 53ms
 stdout | src/core/__tests__/conversations.test.ts > conversations_changed 事件 > 会在首条消息创建会话后通知列表刷新
 [xxai-agent][conversation] client synchronized conversation id {
   eventType: 'message_started',
@@ -316,7 +318,7 @@ stdout | src/core/__tests__/conversations.test.ts > conversations_changed 事件
   conversationId: '88'
 }
 
- ✓ src/core/__tests__/conversations.test.ts (12 tests) 13ms
+ ✓ src/core/__tests__/conversations.test.ts (12 tests) 7ms
 stdout | src/core/__tests__/client.test.ts > AgentClient protocol events > 同步服务端事件顶层的 conversationId 到客户端消息和工具上下文
 [xxai-agent][conversation] client synchronized conversation id {
   eventType: 'message_started',
@@ -354,9 +356,8 @@ Connection error: Error [AgentError]: 当前 SDK 版本过低，请升级到 0.2
   retryable: false
 }
 
- ✓ src/core/__tests__/client.test.ts (37 tests) 35ms
+ ✓ src/core/__tests__/client.test.ts (37 tests) 33ms
  ✓ src/core/__tests__/errors.test.ts (8 tests) 3ms
- ✓ src/ui/__tests__/context-ring.test.ts (8 tests) 3ms
 stdout | src/core/__tests__/client-replay.test.ts > replayed assistant events > materializes a completed message when message_started was not replayed
 [xxai-agent][conversation] client synchronized conversation id {
   eventType: 'message_completed',
@@ -365,6 +366,7 @@ stdout | src/core/__tests__/client-replay.test.ts > replayed assistant events > 
   conversationId: '42'
 }
 
+ ✓ src/core/__tests__/client-replay.test.ts (3 tests) 5ms
 stdout | src/core/__tests__/client-replay.test.ts > replayed assistant events > accumulates replayed deltas before the completion event
 [xxai-agent][conversation] client synchronized conversation id {
   eventType: 'message_delta',
@@ -385,23 +387,23 @@ stdout | src/core/__tests__/client-replay.test.ts > replayed assistant events > 
   conversationId: '42'
 }
 
- ✓ src/core/__tests__/client-replay.test.ts (3 tests) 6ms
- ✓ src/ui/__tests__/markdown-fence-registry.test.ts (5 tests) 3ms
+ ✓ src/ui/__tests__/context-ring.test.ts (8 tests) 3ms
  ✓ src/core/__tests__/attachments.test.ts (4 tests) 2ms
- ✓ src/ui/__tests__/quota-ring.test.ts (5 tests) 3ms
- ✓ src/ui/__tests__/header-name.test.ts (4 tests) 2ms
+ ✓ src/ui/__tests__/markdown-fence-registry.test.ts (5 tests) 3ms
+ ✓ src/ui/__tests__/two-step-confirm.test.ts (6 tests) 4ms
+ ✓ src/ui/__tests__/quota-ring.test.ts (5 tests) 5ms
+ ✓ src/core/__tests__/page-tools.test.ts (3 tests) 5ms
  ✓ src/ui/__tests__/window-storage.test.ts (3 tests) 2ms
- ✓ src/core/__tests__/page-tools.test.ts (3 tests) 3ms
- ✓ src/ui/__tests__/two-step-confirm.test.ts (6 tests) 5ms
- ✓ src/ui/__tests__/chat-scroll.test.ts (2 tests) 1ms
- ✓ src/ui/__tests__/context-ring.component.test.ts (3 tests) 6ms
- ✓ src/ui/__tests__/chat-message.ssr.test.ts (9 tests) 22ms
- ✓ src/ui/__tests__/markdown-diagram-dom.test.ts (7 tests) 131ms
+ ✓ src/ui/__tests__/context-ring.component.test.ts (3 tests) 5ms
+ ✓ src/ui/__tests__/chat-scroll.test.ts (2 tests) 2ms
+ ✓ src/ui/__tests__/header-name.test.ts (4 tests) 2ms
+ ✓ src/ui/__tests__/chat-message.ssr.test.ts (9 tests) 24ms
+ ✓ src/ui/__tests__/markdown-diagram-dom.test.ts (7 tests) 132ms
 
  Test Files  23 passed (23)
       Tests  192 passed (192)
-   Start at  17:26:16
-   Duration  1.85s (transform 1.17s, setup 0ms, collect 2.60s, tests 346ms, environment 1.12s, prepare 2.04s)
+   Start at  14:25:51
+   Duration  1.81s (transform 1.15s, setup 0ms, collect 2.41s, tests 353ms, environment 785ms, prepare 2.01s)
 
 结果：通过
 
@@ -436,11 +438,11 @@ rendering chunks...
 computing gzip size...
 dist/style.css          45.07 kB │ gzip:   8.07 kB
 dist/xxai-agent.es.js  456.23 kB │ gzip: 139.60 kB
-[vite:dts] Declaration files built in 1998ms.
+[vite:dts] Declaration files built in 2040ms.
 
 dist/style.css            45.07 kB │ gzip:   8.07 kB
 dist/xxai-agent.umd.cjs  308.40 kB │ gzip: 114.10 kB
-✓ built in 2.89s
+✓ built in 2.93s
 结果：通过
 
 ### AC3：产物契约（导出齐全 / 引擎外置且惰性 / 入口 <1MB）
@@ -465,8 +467,8 @@ formatTokens: function
 命中种类 = 2（期望 2）
 
 入口体积（要求 <1MB，同时说明引擎没有被内联进来）：
--rw-r--r--@ 1 lixingwen  staff  460133 10 19 17:26 apps/ai-sdk/dist/xxai-agent.es.js
--rw-r--r--@ 1 lixingwen  staff  310443 10 19 17:26 apps/ai-sdk/dist/xxai-agent.umd.cjs
+-rw-r--r--@ 1 lixingwen  staff  460133 10 20 14:25 apps/ai-sdk/dist/xxai-agent.es.js
+-rw-r--r--@ 1 lixingwen  staff  310443 10 20 14:25 apps/ai-sdk/dist/xxai-agent.umd.cjs
 
 类型声明包含新增公共类型：
 结果：通过
@@ -485,9 +487,13 @@ v2 requests: 17  存量跳过: 59  ERROR: 0  WARN: 0
 
 - **真进程端到端（AC4）**：本机没有运行中的 API/PostgreSQL/Redis（`docker compose` 未起），
   无法执行「真进程 WS 发消息 → 观察 header 占用增长 → 调小窗口触发自动压缩 → 查库出现新行」。
-  等价覆盖：`tests/conversation/test_compaction_persistence.py`（sqlite 真实仓储 + 真实压缩流程，
-  断言落库行、保留边界、幂等、坏摘要不落库）、`tests/embed/test_context_compaction_route.py`
-  （REST 投影与 404）、`tests/agent_runtime/test_context_metrics.py`（事件经 loop 进入事件流）、
+  等价覆盖：`tests/conversation/test_compaction_persistence.py`——其中
+  `test_auto_trigger_compacts_through_controller_and_emits_event` 按 loop 的真实顺序跑
+  `transform()` → 自动压缩 → 落库 → `drain_events()` 事件（含「不重复压缩」），
+  `test_load_model_history_resumes_from_latest_compaction` 覆盖下一轮请求从摘要 + 保留边界续读；
+  另有 `tests/embed/test_context_compaction_route.py`（REST 投影、404、幂等）、
+  `tests/agent_runtime/test_context_metrics.py`（事件经 loop 进入事件流）、
+  `tests/conversation/test_rest_parity.py`（REST 历史真的到达模型）、
   SDK `context-ring.component.test.ts`（header 环渲染）与 `client.test.ts`（事件接住与 getter）。
 - **真实模型 token 增长观测**：没有可用的外部模型端点到本机对话链路上，未跑真实模型；
   占用口径由 provider 真值（`prompt_tokens`）决定，其正确性由 `test_context_metrics.py` 的

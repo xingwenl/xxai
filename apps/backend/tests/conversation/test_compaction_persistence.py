@@ -15,10 +15,17 @@ from types import SimpleNamespace
 
 from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.core.config import get_settings
 from app.modules.agent.models import Agent
-from app.modules.conversation.compaction import compact_conversation
+from app.modules.conversation.compaction import (
+    build_context_controller,
+    build_model_history,
+    compact_conversation,
+    load_model_history,
+)
+from app.modules.conversation.runtime import COMPACTION_SUMMARY_TITLE
 from app.modules.conversation.models import (
     Conversation,
     ConversationContextCompaction,
@@ -309,5 +316,118 @@ def test_second_compaction_merges_previous_summary():
             "第一次摘要：确定了接口契约",
             "第二次摘要：并入第一次的契约结论",
         ]
+
+    _run(scenario)
+
+
+def test_auto_trigger_compacts_through_controller_and_emits_event():
+    """自动路径端到端：transform 判超阈值 → 压缩落库 → 事件待发 → 视图被替换。
+
+    loop 的真实顺序是 ``transform()`` 之后立刻 ``drain_events(messages)``。各段
+    单独有单测仍可能「接起来不工作」（阈值、切点、落库、事件四者任一口径不一致
+    都会让自动压缩静默不发生），所以这里按 loop 的顺序跑一遍真实仓储 + 伪造模型。
+    """
+
+    async def scenario(session):
+        conversation, _rows = await _seed(session, message_count=30)
+        repo = ConversationRepository(session)
+        history = await repo.list_recent_context_messages(
+            conversation.id, since=datetime.now(UTC).replace(year=2000)
+        )
+        model_history = build_model_history(history)
+        model = _FakeSummaryModel(text="自动压缩摘要")
+        controller = build_context_controller(
+            repo=repo,
+            conversation_id=conversation.id,
+            model=model,
+            history=model_history,
+            window_tokens=2_000,
+        )
+        # 阈值 = min(window - reserve(1024), floor(window * 0.75)) = min(976, 1500)。
+        assert controller.threshold == 976
+
+        current = HumanMessage(content="本次问题")
+        messages = [
+            SystemMessage(content="系统提示"),
+            *model_history.messages,
+            current,
+        ]
+
+        out = await controller.transform(messages)
+        events = controller.drain_events(out)
+
+        assert [name for name, _ in events] == ["context_compacted"]
+        payload = events[0][1]
+        assert payload["ok"] is True
+        assert payload["trigger"] == "auto"
+        assert payload["tokensAfter"] < payload["tokensBefore"]
+        assert payload["windowTokens"] == 2_000
+        assert 0 < payload["percent"] < 100
+
+        stored = await session.scalar(select(ConversationContextCompaction))
+        assert stored is not None
+        assert stored.trigger == "auto"
+        # 发给模型的视图 = 系统提示 + 摘要 + 保留边界之后的消息，旧行不再逐条回放。
+        assert out[0] is messages[0]
+        assert isinstance(out[1], SystemMessage)
+        assert out[1].content.startswith(COMPACTION_SUMMARY_TITLE)
+        assert "自动压缩摘要" in out[1].content
+        assert out[-1] is current
+        assert len(out) < len(messages)
+
+        # 小窗口下最容易出的 bug 是每轮重复压缩：没有新内容时不得再落新行。
+        again = await controller.compact(trigger="auto")
+        assert again.compacted is False
+        assert again.reason == "nothing_to_compact"
+        all_rows = (await session.scalars(select(ConversationContextCompaction))).all()
+        assert len(all_rows) == 1
+
+    _run(scenario)
+
+
+def test_load_model_history_resumes_from_latest_compaction():
+    """压缩后的新请求：视图 = 摘要 + 保留边界之后的消息。
+
+    这是「可恢复」的核心：原始消息一条不删，但模型只看到摘要加保留区。若仓储
+    读取这一环接错（比如漏读最新压缩行），压缩就退化成不可逆的信息丢失，而单测
+    ``build_history_view(compaction=...)`` 覆盖不到它。
+    """
+
+    async def scenario(session):
+        conversation, _rows = await _seed(session)
+        repo = ConversationRepository(session)
+        history = await repo.list_recent_context_messages(
+            conversation.id, since=datetime.now(UTC).replace(year=2000)
+        )
+        model = _FakeSummaryModel(text="上一轮的压缩摘要")
+        outcome = await compact_conversation(
+            repo=repo,
+            conversation_id=conversation.id,
+            model=model,
+            trigger="manual",
+            window_tokens=1_000,
+            rows=history,
+        )
+        assert outcome.compacted is True
+
+        resumed = await load_model_history(repo, conversation.id)
+
+        assert isinstance(resumed.messages[0], SystemMessage)
+        assert "上一轮的压缩摘要" in resumed.messages[0].content
+        assert resumed.compaction is not None
+        boundary = outcome.compaction.first_kept_message_id
+        kept_ids = {row_id for row_id, _message in resumed.bindings}
+        assert kept_ids == {row.id for row in history if row.id >= boundary}
+        assert len(resumed.bindings) < len(history)
+
+        # 模型视图里不再有边界之前的历史，但库里一条都没少。
+        stored_messages = (
+            await session.scalars(
+                select(ConversationMessage).where(
+                    ConversationMessage.conversation_id == conversation.id
+                )
+            )
+        ).all()
+        assert len(stored_messages) == len(history)
 
     _run(scenario)

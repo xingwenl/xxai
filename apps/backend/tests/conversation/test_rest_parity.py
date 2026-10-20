@@ -6,9 +6,10 @@
 """
 
 import asyncio
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
-from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage
 
 from app.modules.agent_runtime.contracts import ToolOutcome
 from app.core.config import get_settings as get_app_settings
@@ -1061,3 +1062,74 @@ def test_stream_chat_gray_max_turns_wrapup_terminates_like_legacy():
         and event["payload"].get("status") == "failed"
     ]
     assert len(legacy_failed) == 1
+
+
+class HistoryRow:
+    """历史行替身：字段与该模块读侧一致（content_blocks / metadata / tool_call_id）。"""
+
+    def __init__(self, identifier, role, content):
+        self.id = identifier
+        self.role = role
+        self.content = content
+        self.content_blocks = None
+        self.message_metadata = None
+        self.tool_call_id = None
+        self.status = "completed"
+        self.created_at = datetime.now(UTC)
+
+
+class HistoryRepository(FakeConversationRepository):
+    """带历史的替身仓库：第二轮请求能看到上一轮问答。"""
+
+    async def list_recent_context_messages(self, conversation_id, *, since):
+        return [
+            HistoryRow(1, "user", "上一轮问：退款规则？"),
+            HistoryRow(2, "assistant", "上一轮答：30 天内可申请。"),
+        ]
+
+
+class HistoryCapturingModel:
+    """记录本次调用收到的完整消息列表。"""
+
+    def __init__(self):
+        self.seen: list = []
+
+    async def ainvoke(self, messages):
+        self.seen = list(messages)
+        return AIMessage(
+            content="再答一句",
+            usage_metadata={"input_tokens": 9, "output_tokens": 3, "total_tokens": 12},
+        )
+
+
+def test_execute_chat_feeds_prior_history_to_model():
+    """REST 非流式必须把历史消息**真的**交给模型。
+
+    修复前这里把 ORM 行直接塞进 ``build_langchain_messages(history=...)``，
+    ``messages_for_model`` 不认识它们并**静默丢弃**——REST/SSE 用户问到第二句时
+    模型看不到任何上文（只有 gateway WS 走了 ``build_history_messages`` 转换）。
+    """
+
+    async def run():
+        repo = HistoryRepository()
+        repo.conversation = FakeConversation(1)
+        model = HistoryCapturingModel()
+        await execute_chat(
+            repo,
+            make_context(),
+            platform_id=3,
+            user_id=5,
+            message="再问一句",
+            conversation_id=1,
+            model=model,
+            citations=[],
+        )
+        return model
+
+    model = asyncio.run(run())
+    contents = [message.content for message in model.seen]
+
+    assert isinstance(model.seen[0], SystemMessage)
+    assert "上一轮问：退款规则？" in contents
+    assert "上一轮答：30 天内可申请。" in contents
+    assert contents[-1] == "再问一句"
