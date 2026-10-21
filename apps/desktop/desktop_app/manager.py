@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from desktop_app import metadata, paths
+from desktop_app.plugin_log import UNKNOWN_PLUGIN, PluginLog
 from desktop_app.protocol import PLUGIN_ID_PATTERN
 from desktop_app.registry import PluginInfo, PluginRegistry
 from desktop_app.security import MAX_ZIP_SIZE, safe_extract_zip
@@ -51,10 +52,13 @@ class PluginManager:
         builtin_dir: Path | None = None,
         user_dir: Path | None = None,
         state_file: Path | None = None,
+        log: PluginLog | None = None,
     ) -> None:
         self.builtin_dir = Path(builtin_dir) if builtin_dir else paths.builtin_plugins_dir()
         self.user_dir = Path(user_dir) if user_dir else paths.user_plugins_dir()
         self.state_file = Path(state_file) if state_file else paths.state_file()
+        # 事件日志默认放在状态文件旁边：生产即 ~/.desktop-app/plugin.log，测试传临时目录时也自然隔离
+        self.log = log or PluginLog(self.state_file.parent / "plugin.log")
         self._state = self._load_state()
 
     # ---------- 状态持久化 ----------
@@ -91,6 +95,20 @@ class PluginManager:
     # ---------- 安装 / 卸载 / 启停 ----------
 
     def install_zip(self, zip_path: Path) -> PluginInfo:
+        """安装 zip 插件包，并把成功/失败事件写进插件日志（不改原有异常与返回值）。"""
+        try:
+            plugin = self._install_zip(zip_path)
+        except PluginError as exc:
+            # 失败时可能连 manifest.id 都还没解析出来，用占位 id 记账，错因里带原文
+            self.log.append(UNKNOWN_PLUGIN, "install_failed", str(exc))
+            raise
+        except Exception as exc:  # 落盘异常等非业务错误同样留痕后再抛
+            self.log.append(UNKNOWN_PLUGIN, "install_failed", f"{type(exc).__name__}: {exc}")
+            raise
+        self.log.append(plugin.id, "install_ok", version=plugin.version)
+        return plugin
+
+    def _install_zip(self, zip_path: Path) -> PluginInfo:
         """安装 zip 插件包：受控解压 → 校验 → 原子落盘到用户插件目录。"""
         zip_path = Path(zip_path)
         if zip_path.stat().st_size > MAX_ZIP_SIZE:
@@ -139,6 +157,7 @@ class PluginManager:
         shutil.rmtree(plugin.dir)
         self._state.get("plugins", {}).pop(plugin_id, None)
         self._save_state()
+        self.log.append(plugin_id, "uninstall")
 
     def set_enabled(self, plugin_id: str, enabled: bool) -> PluginInfo:
         """启用/禁用插件（内置插件同样受状态控制，仅影响应用页展示）。"""
@@ -148,6 +167,7 @@ class PluginManager:
             "enabled": enabled,
         }
         self._save_state()
+        self.log.append(plugin_id, "enable" if enabled else "disable")
         return self.get(plugin_id)
 
     # ---------- 从 URL 安装远程壳插件 ----------
@@ -185,6 +205,30 @@ class PluginManager:
         return candidate
 
     def install_from_url(
+        self,
+        url: str,
+        name: str | None = None,
+        description: str | None = None,
+        icon_url: str | None = None,
+        fetcher=None,
+    ) -> PluginInfo:
+        """从 URL 安装远程壳插件，并把成功/失败事件写进插件日志（不改原有异常与返回值）。"""
+        try:
+            plugin = self._install_from_url(
+                url, name=name, description=description, icon_url=icon_url, fetcher=fetcher
+            )
+        except PluginError as exc:
+            self.log.append(UNKNOWN_PLUGIN, "install_failed", str(exc), source="url")
+            raise
+        except Exception as exc:
+            self.log.append(
+                UNKNOWN_PLUGIN, "install_failed", f"{type(exc).__name__}: {exc}", source="url"
+            )
+            raise
+        self.log.append(plugin.id, "install_ok", version=plugin.version, source="url")
+        return plugin
+
+    def _install_from_url(
         self,
         url: str,
         name: str | None = None,

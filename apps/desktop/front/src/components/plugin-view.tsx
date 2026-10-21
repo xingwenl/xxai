@@ -3,7 +3,14 @@
 import { useEffect, useRef } from 'react'
 import { createPluginSdk } from '../lib/desktop-sdk'
 import { toast } from '../lib/toast'
-import type { Plugin } from '../lib/api'
+import { logPluginEvent, type Plugin } from '../lib/api'
+import { getRuntimeStatus, setRuntimeStatus } from '../lib/runtime-status'
+import { countPluginTools, subscribeBridgeTools } from '../lib/tool-bridge'
+
+/** 上报生命周期事件；日志通道不可用时不影响页面加载。 */
+function report(pluginId: string, event: string, detail?: string): void {
+  void logPluginEvent(pluginId, event, detail).catch(() => {})
+}
 
 /** 在系统默认浏览器打开（优先 pywebview 宿主桥，浏览器调试模式回退 window.open）。 */
 async function openInBrowser(url: string) {
@@ -26,6 +33,7 @@ export default function PluginView({ plugin, fullscreen }: { plugin: Plugin; ful
     if (!frame) return
 
     const onLoad = () => {
+      report(plugin.id, 'iframe_load', plugin.entryUrl)
       try {
         const sdk = createPluginSdk(plugin)
         const win = frame.contentWindow as (Window & { desktop?: unknown }) | null
@@ -33,15 +41,29 @@ export default function PluginView({ plugin, fullscreen }: { plugin: Plugin; ful
         win.desktop = sdk
         if (sdk.attach) sdk.attach(frame)
         win.dispatchEvent(new CustomEvent('desktop-ready'))
+        report(plugin.id, 'sdk_injected')
+        setRuntimeStatus(plugin.id, { state: 'ready', tools: countPluginTools(plugin.id) })
       } catch (err) {
-        toast('插件 SDK 注入失败', String(err), 'error')
+        const message = err instanceof Error ? err.message : String(err)
+        report(plugin.id, 'sdk_inject_failed', message)
+        setRuntimeStatus(plugin.id, { state: 'failed', reason: message })
+        toast('插件 SDK 注入失败', message, 'error')
       } finally {
         frame.classList.add('is-ready')
       }
     }
 
+    // 方法注册发生在 desktop-ready 之后，订阅桥接变化以刷新「已注册方法数」
+    const unsubscribe = subscribeBridgeTools(() => {
+      if (getRuntimeStatus(plugin.id).state !== 'ready') return
+      setRuntimeStatus(plugin.id, { state: 'ready', tools: countPluginTools(plugin.id) })
+    })
+
     frame.addEventListener('load', onLoad)
-    return () => frame.removeEventListener('load', onLoad)
+    return () => {
+      frame.removeEventListener('load', onLoad)
+      unsubscribe()
+    }
   }, [plugin, isRemote])
 
   if (isRemote) {

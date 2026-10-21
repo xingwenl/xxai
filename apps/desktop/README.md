@@ -166,7 +166,7 @@ poetry run python build/build.py
 宿主壳由 `apps/desktop/front/`（React 19 + Vite + Tailwind v4）构建，提供两个一级页面（左侧导航切换）：
 
 - **应用页**：图标网格展示已安装插件，点击后按插件的默认打开方式打开（默认在内容区 iframe 加载插件页面，也可开在系统浏览器或新的原生窗口）。
-- **设置页**：zip 安装插件、启用/禁用、卸载，以及框架信息。
+- **设置页**：zip 安装插件、启用/禁用、卸载，展开单个插件的宿主配置表单、查看运行态与事件日志位置，以及框架信息。
 
 插件 = 一个目录（`manifest.json` + 静态资源）。内置插件位于 `plugins/`（随应用分发、不可卸载）；用户通过 zip 安装的插件存放在 `~/.desktop-app/plugins/`，启停状态持久化到 `~/.desktop-app/state.json`。
 
@@ -178,7 +178,7 @@ poetry run python build/build.py
 |---|---|---|
 | 生命周期 | 默认 | `desktop.ready`、`appInfo()`、`getApps()`、`navigate(path)`、`openApp(id)` |
 | 通知 | `notify` | `notify({title, body})` 或 `notify(title, body)`（宿主 toast） |
-| 设置 | `settings` | `settings.get(key, default?)` / `settings.set(key, value)`（**同步**，存宿主 localStorage） |
+| 设置 | `settings` | `settings.get(key, default?)` / `settings.set(key, value)`（**同步**，存宿主 localStorage）；`settings.getConfig()` / `settings.onChanged(handler)` 读取 manifest 声明的宿主配置（**只读**，见「插件宿主配置」） |
 | 存储 | `storage` | `storage.get(key, default?)` / `set(key, value)` / `delete(key)` / `keys()`（**全异步**，落 `~/.desktop-app/plugin-data/<pluginId>/<key>.json`） |
 | 方法注册 | `tools` | `tools.register(defs, handlers)` / `tools.unregister(names)`（把子应用能力交给全局助手调用） |
 | 事件总线 | `events` | `events.on(event, handler)` / `events.emit(event, payload)`（宿主跨插件转发） |
@@ -187,6 +187,45 @@ poetry run python build/build.py
 | 日志 | `log` | `log.info/warn/error(...)` |
 
 未声明权限的方法调用会抛出「权限不足」错误。
+
+### 插件宿主配置（settings[]）
+
+插件可以在 `manifest.json` 里用 `settings[]` 声明需要用户配置的项，宿主设置页会自动渲染表单，**不需要写任何设置界面**：
+
+```json
+{
+  "settings": [
+    { "key": "greeting", "label": "问候语", "type": "text", "default": "你好", "description": "显示在首页的问候语" },
+    { "key": "refresh", "label": "刷新间隔", "type": "number", "default": 30, "min": 5, "max": 300 },
+    { "key": "notify_on_start", "label": "启动时通知", "type": "boolean", "default": false },
+    { "key": "accent", "label": "主题色", "type": "select", "default": "sky",
+      "options": [{ "label": "天蓝", "value": "sky" }, { "label": "翠绿", "value": "emerald" }] }
+  ]
+}
+```
+
+- 类型只有四种：`text` / `number` / `boolean` / `select`；`select` 必须给非空 `options` 且 `default` 在其候选项内；`min` / `max` 仅 `number` 可用（闭区间）；`text` 单值上限 4096 字符。
+- `key` 需匹配 `^[a-z][a-z0-9_-]{0,63}$`，同一插件内唯一；**不允许重命名**——改名相当于丢配置。单个插件最多 32 项，每项 `options` 最多 50 个。
+- 配置值落在 `~/.desktop-app/plugin-config/<pluginId>.json`（原子写），保存时按 manifest 校验，非法值整单拒绝并返回中文原因；文件里已废弃的旧键在读取时被忽略。
+- 插件侧只读：`desktop.settings.getConfig()` 取 `{key: value}`，`desktop.settings.onChanged(handler)` 订阅变更（返回取消订阅函数）。设置页保存后宿主会广播 `desktop-config-changed`，运行中的应用立即拿到新值，无需重载 iframe。
+- `type=remote` 的插件不注入 SDK，因此不允许声明 `settings[]`。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/desktop/plugins/{plugin_id}/config` | 返回 `{"values": {...}}`：manifest 默认值 + 已保存值合并，未声明的旧键被丢弃 |
+| PUT | `/api/desktop/plugins/{plugin_id}/config` | body `{"values": {...}}`，校验失败返回 400（`detail` 为中文原因拼接，且不落盘） |
+
+这两个接口只要求插件存在且 manifest 合法，**不要求插件已启用**（停用期间也能改配置）。
+
+### 运行态与事件日志
+
+- 设置页每个插件会显示运行态：iframe 加载并注入 SDK 成功后为「运行中 · N 个方法」（N 为已注册的助手方法数），注入失败为「运行失败：原因」。
+- 宿主把插件生命周期事件写入 `~/.desktop-app/plugin.log`（JSONL，单行一条，超过 1 MiB 轮转为 `plugin.log.1`）：`install_ok` / `install_failed` / `uninstall` / `enable` / `disable` / `iframe_load` / `sdk_injected` / `sdk_inject_failed` / `tools_registered` / `tool_skipped` / `config_saved`。事件名是白名单，未知事件被拒绝。
+- 排序排障用：安装失败先看 `install_failed` 的 `error`；插件白屏看 `iframe_load` 后是否有 `sdk_injected`；助手调不到方法看 `tools_registered` / `tool_skipped`。配置保存只记 `keys`（键名），**不记配置值**，避免把隐私写进日志。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/desktop/plugin-log` | body `{"pluginId", "event", "detail"?}`，前端上报插件运行时事件；事件名不在白名单返回 400 |
 
 ### 子应用本地数据（plugin-data）
 
@@ -252,6 +291,7 @@ ai-sdk 的 HTTP 接口（附件上传、会话列表、资源下载）由宿主*
   - `browser`：在系统默认浏览器打开宿主壳页面（深链不带 `?child=1`，因此 Esc / 返回 退回应用列表）。此时没有 `window.pywebview` 宿主桥，插件需自行降级；macOS 走系统 `open` 命令，打不开浏览器时前端会提示「检查默认浏览器设置」而不是静默失败；
   - `window`：打开一个新的原生窗口，窗口里仍是宿主壳（深链 `#/app/<id>`），SDK 与权限白名单不变；同一插件重复打开只会聚焦已有窗口。
   - `type=remote` 的插件在 `browser` / `window` 下打开它自己的 `url`，且**不会**注入宿主桥；写错的 `open_mode` 会回退为 `inline`（仅记录警告，不影响插件加载）。
+- `settings`（可选）：声明式宿主配置项，见上文「插件宿主配置（settings[]）」；`type=remote` 的插件不允许声明。
 - zip 包结构：根为插件目录，或根下仅一个含 `manifest.json` 的目录（自动归一化）。
 
 ### 开发一个插件
@@ -273,6 +313,7 @@ ai-sdk 的 HTTP 接口（附件上传、会话列表、资源下载）由宿主*
 ```
 
 3. 启动应用后在设置页上传打包的 zip，或直接放入用户插件目录。
+4. 需要用户可调参数时，在 `manifest.json` 声明 `settings[]`，插件页用 `desktop.settings.getConfig()` 读取、`onChanged` 订阅变更（示例见内置 `plugins/hello-world`，它同时演示了通知、存储、方法注册与宿主配置）。
 
 > 提示：插件入口页建议在 `<head>` 中内联设置背景色（如 `background: #020617`），
 > 避免在宿主样式文件加载完成前出现白屏闪动；宿主会在插件页加载完成后淡入显示。
@@ -321,6 +362,9 @@ cd apps/ledger && node scripts/install-to-desktop.mjs   # 装到 ~/.desktop-app/
 - **插件页报「权限不足」**：检查插件 `manifest.json` 的 `permissions` 是否声明了对应能力（notify/settings/storage/tools/events/http/platform/log）。
 - **助手悬浮球不出现 / 子应用方法助手看不到**：先确认宿主能从 `GET /api/desktop/agent-config` 拿到 `enabled: true`（本地调试用 `DESKTOP_DEV_AGENT=1` 启动）；再确认子应用 manifest 声明了 `tools`（宿主启动时会静默预挂载这类子应用，无需点开）；若刚改过前端，需要重启桌面应用让新的 `front/dist` 生效。
 - **插件页拿不到 `window.desktop`**：插件必须在 `desktop-ready` 事件后再使用 SDK，参考上文示例写法。
+- **设置页没有「配置」按钮 / 保存配置报 400**：按钮只在插件声明了 `settings[]` 且 manifest 无错时出现；400 的 `detail` 是中文原因（例如取值不在候选项、超出 min/max、键未声明），修正后重试即可，非法提交不会落盘。
+- **改完配置运行中的应用没反应**：插件页必须用 `desktop.settings.getConfig()` 读取、`desktop.settings.onChanged()` 订阅；旧的 `settings.get/set` 存在宿主 localStorage，与宿主配置是两套数据。
+- **插件白屏或显示「运行失败」**：看 `~/.desktop-app/plugin.log`（JSONL）：有 `iframe_load` 但无 `sdk_injected` 说明入口页没等到 SDK 或脚本报错，`sdk_inject_failed` 的 `detail` 带具体原因。
 - **开发时怎么打开控制台**：浏览器模式直接按 `Cmd+Option+I`；pywebview 窗口用 `DESKTOP_DEBUG=1` 启动后右键 → 检查元素。
 - **主题 / 星标重启后丢失**：确认以本仓库代码启动（已关闭 pywebview 隐私模式）；旧版本安装的应用不受影响。
 - **窗口无法启动**：pywebview 依赖系统 WebView，macOS 需 macOS 10.13+，Linux 需安装 GTK 与 WebKit2 相关库。

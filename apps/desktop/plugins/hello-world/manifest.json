@@ -5,5 +5,33 @@
   "description": "示例应用：演示宿主 SDK 的全部基础能力",
   "icon": "icon.svg",
   "entry": "index.html",
-  "permissions": ["notify", "settings", "storage", "events", "http", "platform", "log"]
+  "permissions": ["notify", "settings", "storage", "events", "http", "platform", "log"],
+  "settings": [
+    {
+      "key": "greeting",
+      "label": "问候语",
+      "type": "text",
+      "default": "你好，世界",
+      "description": "在设置页修改后，应用页会实时更新（演示 settings.getConfig / onChanged）"
+    },
+    {
+      "key": "notify_on_start",
+      "label": "启动时发送通知",
+      "type": "boolean",
+      "default": false,
+      "description": "打开应用时弹一条宿主通知，便于验证配置是否生效"
+    },
+    {
+      "key": "accent",
+      "label": "强调色",
+      "type": "select",
+      "default": "sky",
+      "options": [
+        { "label": "天蓝", "value": "sky" },
+        { "label": "翠绿", "value": "emerald" },
+        { "label": "紫罗兰", "value": "violet" }
+      ],
+      "description": "问候语的显示颜色"
+    }
+  ]
 }

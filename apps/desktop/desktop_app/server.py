@@ -9,6 +9,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
@@ -25,6 +26,7 @@ from desktop_app.agent_config import AgentBackendConfig, AgentConfigError, Agent
 from desktop_app.app_config import APP_NAME, APP_VERSION
 from desktop_app.bookmarks import MAX_BOOKMARKS_PER_REPORT, BookmarkItem
 from desktop_app.manager import PluginError, PluginExistsError, PluginManager, PluginNotFoundError
+from desktop_app.plugin_config import PluginConfigError, PluginConfigStore, merge_defaults, validate_values
 from desktop_app.plugin_data import MAX_VALUE_BYTES, PluginDataError, PluginDataStore, PluginDataTooLarge
 from desktop_app.registry import PluginInfo
 from desktop_app.security import MAX_ZIP_SIZE
@@ -80,6 +82,20 @@ class CollectBookmarksRequest(BaseModel):
     source: str = Field(default="chrome-extension", description="上报来源标识")
 
 
+class PluginConfigRequest(BaseModel):
+    """插件配置保存请求体：values 为「配置键 → 值」，宿主按 manifest.settings[] 校验。"""
+
+    values: dict[str, Any] = Field(default_factory=dict, description="配置键到取值的映射")
+
+
+class PluginLogRequest(BaseModel):
+    """子应用上报事件日志的请求体；事件名必须在宿主白名单内。"""
+
+    pluginId: str = Field(description="上报事件的插件 id")
+    event: str = Field(description="事件名（白名单见 plugin_log.EVENT_NAMES）")
+    detail: str | None = Field(default=None, description="补充信息，宿主截断到 4 KiB")
+
+
 def create_app(
     manager: PluginManager | None = None,
     bookmarks_snapshot_path: Path | None = None,
@@ -87,6 +103,7 @@ def create_app(
     dev_agent_enabled: bool | None = None,
     agent_config_store: AgentConfigStore | None = None,
     agent_token_issuer: Callable[[AgentConfigStore, str], dict] | None = None,
+    plugin_config: PluginConfigStore | None = None,
 ) -> FastAPI:
     """构建内嵌 FastAPI 应用。
 
@@ -96,11 +113,14 @@ def create_app(
     - dev_agent_enabled：是否挂载本地 mock 智能体网关；None 时读 DESKTOP_DEV_AGENT 环境变量
     - agent_config_store：AI Base 后端配置存储（默认 ~/.desktop-app/agent.json）
     - agent_token_issuer：换 token 的可注入实现（默认走真实 AI Base；测试用它打桩）
+    - plugin_config：插件宿主配置存储（默认用户数据目录；事件日志复用 manager.log）
     """
     manager = manager or PluginManager()
     snapshot_path = bookmarks_snapshot_path or bookmarks.snapshot_path()
     data_store = plugin_data or PluginDataStore()
     config_store = agent_config_store or AgentConfigStore()
+    plugin_config_store = plugin_config or PluginConfigStore()
+    plugin_log = manager.log
     token_issuer = agent_token_issuer or agent_config.issue_agent_token
     dev_enabled = dev_agent.is_enabled_by_env() if dev_agent_enabled is None else dev_agent_enabled
     app = FastAPI(title=APP_NAME, version=APP_VERSION)
@@ -215,6 +235,8 @@ def create_app(
             "version": APP_VERSION,
             "pluginsDir": str(paths.builtin_plugins_dir()),
             "userDataDir": str(paths.user_data_dir()),
+            "pluginConfigDir": str(paths.plugin_config_dir()),
+            "pluginLogFile": str(paths.plugin_log_file()),
         }
 
     # ---------- 子应用本地数据接口（plugin-data） ----------
@@ -270,6 +292,44 @@ def create_app(
         except PluginDataError as exc:
             raise HTTPException(400, str(exc)) from exc
         return Response(status_code=204)
+
+    # ---------- 插件宿主配置与事件日志 ----------
+
+    @app.get("/api/desktop/plugins/{plugin_id}/config")
+    def get_plugin_config(plugin_id: str) -> dict:
+        """返回插件配置：manifest 默认值与已保存值合并后的完整取值。"""
+        plugin = _require_plugin(manager, plugin_id)
+        try:
+            stored = plugin_config_store.read(plugin_id)
+        except PluginConfigError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"values": merge_defaults(plugin.settings, stored)}
+
+    @app.put("/api/desktop/plugins/{plugin_id}/config")
+    def save_plugin_config(plugin_id: str, req: PluginConfigRequest) -> dict:
+        """保存插件配置：先按 manifest.settings[] 校验，非法值 400 且不落盘。"""
+        plugin = _require_plugin(manager, plugin_id)
+        errors = validate_values(plugin.settings, req.values)
+        if errors:
+            raise HTTPException(400, "；".join(errors))
+        values = merge_defaults(plugin.settings, req.values)
+        try:
+            plugin_config_store.write(plugin_id, values)
+        except PluginConfigError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        # 只记改动的键名、不记值：配置里可能有用户隐私
+        plugin_log.append(plugin_id, "config_saved", keys=",".join(sorted(req.values)) or "-")
+        return {"values": values}
+
+    @app.post("/api/desktop/plugin-log")
+    def report_plugin_event(req: PluginLogRequest) -> dict:
+        """接收前端上报的事件（iframe 加载、SDK 注入、方法注册等）写入 JSONL 日志。"""
+        _require_plugin(manager, req.pluginId)
+        try:
+            plugin_log.append(req.pluginId, req.event, req.detail)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"ok": True}
 
     # ---------- 全局助手连接配置 ----------
 
@@ -471,18 +531,28 @@ def _urlopen(request: urllib.request.Request, timeout: int = 15):
     return urllib.request.urlopen(request, timeout=timeout)
 
 
-def _require_enabled_plugin(
-    manager: PluginManager,
-    plugin_id: str,
-    ability: str | None = None,
-) -> PluginInfo:
-    """校验插件存在、可用且已声明所需能力；作为子应用数据接口的统一前置检查。"""
+def _require_plugin(manager: PluginManager, plugin_id: str) -> PluginInfo:
+    """校验插件存在且 manifest 可解析；不要求已启用。
+
+    配置与日志接口用它而不是 _require_enabled_plugin：停用的插件也要能改配置、
+    也要能查到历史日志，否则用户只能先启用再改，改错还得再停用。
+    """
     try:
         plugin = manager.get(plugin_id)
     except PluginNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
     if plugin.error:
         raise HTTPException(400, f"插件 manifest 异常: {plugin.error}")
+    return plugin
+
+
+def _require_enabled_plugin(
+    manager: PluginManager,
+    plugin_id: str,
+    ability: str | None = None,
+) -> PluginInfo:
+    """校验插件存在、可用且已声明所需能力；作为子应用数据接口的统一前置检查。"""
+    plugin = _require_plugin(manager, plugin_id)
     if not plugin.enabled:
         raise HTTPException(403, f"插件已停用: {plugin_id}")
     if ability and ability not in plugin.permissions:

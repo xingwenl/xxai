@@ -4,7 +4,7 @@
 // 宿主壳层的全局助手再把它们注册给 ai-sdk。子应用切页后 iframe 常驻（隐藏），
 // 因此方法不会因为用户离开子应用而消失；同名方法重注册会覆盖旧实现。
 
-import type { Plugin } from './api'
+import { logPluginEvent, type Plugin } from './api'
 
 export type HostToolSideEffect = 'none' | 'navigation' | 'write' | 'financial' | 'external'
 
@@ -38,6 +38,11 @@ function notify(): void {
   }
 }
 
+/** 上报方法注册结果；日志接口失败不影响注册本身（插件可能已停用）。 */
+function report(pluginId: string, event: string, detail: string): void {
+  void logPluginEvent(pluginId, event, detail).catch(() => {})
+}
+
 /** 注册某子应用的方法；方法名跨子应用冲突时保留先注册者并告警。 */
 export function registerPluginTools(
   plugin: Plugin,
@@ -45,19 +50,30 @@ export function registerPluginTools(
   handlers: Record<string, HostToolHandler>,
 ): void {
   let changed = false
+  const registered: string[] = []
+  const skipped: string[] = []
   for (const def of defs) {
     const handler = handlers[def.name]
     if (typeof handler !== 'function') {
       console.warn(`[tool-bridge] ${plugin.id} 的方法 ${def.name} 缺少执行函数，已跳过`)
+      skipped.push(def.name)
       continue
     }
     const existing = tools.get(def.name)
     if (existing && existing.pluginId !== plugin.id) {
       console.warn(`[tool-bridge] 方法名 ${def.name} 已被 ${existing.pluginId} 占用，${plugin.id} 的注册被忽略`)
+      skipped.push(`${def.name}(与 ${existing.pluginId} 冲突)`)
       continue
     }
     tools.set(def.name, { ...def, pluginId: plugin.id, pluginName: plugin.name, execute: handler })
+    registered.push(def.name)
     changed = true
+  }
+  if (registered.length > 0) {
+    report(plugin.id, 'tools_registered', registered.join(','))
+  }
+  if (skipped.length > 0) {
+    report(plugin.id, 'tool_skipped', skipped.join(','))
   }
   if (changed) notify()
 }
@@ -88,6 +104,15 @@ export function clearPluginTools(pluginId: string): void {
 /** 当前所有可挂给助手的方法快照。 */
 export function listBridgeTools(): BridgeTool[] {
   return [...tools.values()]
+}
+
+/** 某子应用当前已注册的方法数（设置页展示运行态用）。 */
+export function countPluginTools(pluginId: string): number {
+  let count = 0
+  for (const tool of tools.values()) {
+    if (tool.pluginId === pluginId) count += 1
+  }
+  return count
 }
 
 /** 订阅方法集合变化（返回取消订阅函数）。 */

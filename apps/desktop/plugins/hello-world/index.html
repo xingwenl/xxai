@@ -36,6 +36,10 @@
           <div class="font-semibold">desktop.settings.get</div>
           <div class="mt-1 text-xs text-slate-400">读取配置并输出</div>
         </button>
+        <button data-act="config-read" class="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-left transition hover:border-sky-500/60 hover:bg-slate-800">
+          <div class="font-semibold">desktop.settings.getConfig</div>
+          <div class="mt-1 text-xs text-slate-400">读取宿主配置（在设置页里改）</div>
+        </button>
         <button data-act="storage-write" class="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-left transition hover:border-sky-500/60 hover:bg-slate-800">
           <div class="font-semibold">desktop.storage.set</div>
           <div class="mt-1 text-xs text-slate-400">写入数据（count+=1）</div>
@@ -57,6 +61,12 @@
           <div class="mt-1 text-xs text-slate-400">输出平台与目录信息</div>
         </button>
       </div>
+
+      <section class="mt-6 rounded-xl border border-slate-800 bg-slate-900 p-4">
+        <h2 class="text-sm font-semibold text-slate-300">宿主配置（在设置页修改后实时更新）</h2>
+        <p id="host-greeting" class="mt-2 text-lg font-semibold text-sky-400">…</p>
+        <p id="host-config" class="mt-1 text-xs text-slate-400">尚未读取</p>
+      </section>
 
       <section class="mt-6">
         <h2 class="text-sm font-semibold text-slate-300">事件日志</h2>
@@ -80,6 +90,35 @@
         out("SDK 就绪 · plugin=" + d.pluginId);
         d.log.info("hello-world 启动完成");
 
+        // 宿主配置由 manifest.settings[] 声明、设置页渲染并校验，子应用只读
+        const ACCENTS = { sky: "#38bdf8", emerald: "#34d399", violet: "#a78bfa" };
+        const greetingEl = document.getElementById("host-greeting");
+        const configEl = document.getElementById("host-config");
+        const renderHostConfig = (values) => {
+          greetingEl.textContent = values.greeting;
+          greetingEl.style.color = ACCENTS[values.accent] || ACCENTS.sky;
+          configEl.textContent = JSON.stringify(values);
+        };
+        const readHostConfig = async () => {
+          const values = await d.settings.getConfig();
+          renderHostConfig(values);
+          return values;
+        };
+        let hostConfig = {};
+        try {
+          hostConfig = await readHostConfig();
+        } catch (err) {
+          configEl.textContent = "读取宿主配置失败：" + err.message;
+        }
+        if (hostConfig.notify_on_start) {
+          d.notify({ title: "你好世界", body: "启动通知已开启（来自宿主配置）" });
+        }
+        // 设置页保存后，宿主会向本 iframe 派发 desktop-config-changed
+        d.settings.onChanged((values) => {
+          renderHostConfig(values);
+          out("[配置] 已更新 " + JSON.stringify(values));
+        });
+
         let eventCount = 0;
         d.events.on("hello:ping", (payload, meta) => {
           eventCount += 1;
@@ -100,6 +139,9 @@
                   break;
                 case "settings-read":
                   out("settings.lastVisit = " + JSON.stringify(d.settings.get("lastVisit")));
+                  break;
+                case "config-read":
+                  out("宿主配置 = " + JSON.stringify(await readHostConfig()));
                   break;
                 case "storage-write": {
                   // 子应用数据由宿主持久化（plugin-data），接口是异步的

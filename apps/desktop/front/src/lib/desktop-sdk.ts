@@ -4,6 +4,7 @@
 import {
   deletePluginData,
   getDesktopSettings,
+  getPluginConfig,
   getPluginData,
   getPlugins,
   listPluginDataKeys,
@@ -26,7 +27,14 @@ export interface DesktopSdk {
   openApp(id: string): void
   /** 支持 `notify({title, body})` 与 `notify(title, body)` 两种写法（后者是记账等新插件契约）。 */
   notify?(opts: { title?: string; body?: string } | string, body?: string): void
-  settings?: { get(key: string, fallback?: unknown): unknown; set(key: string, value: unknown): void }
+  settings?: {
+    get(key: string, fallback?: unknown): unknown
+    set(key: string, value: unknown): void
+    /** 读取宿主配置：manifest.settings[] 的默认值与已保存值合并后的完整取值。 */
+    getConfig(): Promise<Record<string, unknown>>
+    /** 监听宿主配置变更（设置页保存后触发）；返回取消订阅函数。 */
+    onChanged(handler: (values: Record<string, unknown>) => void): () => void
+  }
   /** 子应用本地数据：由宿主落盘（plugin-data），全异步。 */
   storage?: {
     get(key: string, fallback?: unknown): Promise<unknown>
@@ -116,9 +124,31 @@ export function createPluginSdk(plugin: Plugin): DesktopSdk {
   }
 
   if (perms.has('settings')) {
+    const configHandlers = new Set<(values: Record<string, unknown>) => void>()
+    // 配置变更由宿主的设置页在保存成功后派发；SDK 在宿主窗口监听并按插件 id 过滤，
+    // 因为设置页改的是宿主配置，插件 iframe 没有写入通道（只读）。
+    const onConfigChanged = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ pluginId?: string; values?: Record<string, unknown> }>).detail
+      if (!detail || detail.pluginId !== plugin.id || !detail.values) return
+      configHandlers.forEach((handler) => {
+        try {
+          handler(detail.values!)
+        } catch (err) {
+          console.error('[desktop:config] handler 异常', err)
+        }
+      })
+    }
+    window.addEventListener('desktop-config-changed', onConfigChanged)
     sdk.settings = {
       get: (key, fallback = null) => readJson(LS_SETTINGS_PREFIX + plugin.id + ':' + key, fallback),
       set: (key, value) => writeJson(LS_SETTINGS_PREFIX + plugin.id + ':' + key, value),
+      async getConfig() {
+        return (await getPluginConfig(plugin.id)).values
+      },
+      onChanged(handler) {
+        configHandlers.add(handler)
+        return () => configHandlers.delete(handler)
+      },
     }
   } else {
     sdk.settings = denied('settings')

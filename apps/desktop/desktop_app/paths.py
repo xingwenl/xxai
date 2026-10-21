@@ -52,3 +52,17 @@ def state_file() -> Path:
 def plugin_data_dir() -> Path:
     """返回子应用数据根目录（每个插件在其下拥有独立子目录）。"""
     return user_data_dir() / "plugin-data"
+
+
+def plugin_config_dir() -> Path:
+    """返回宿主维护的插件配置根目录（每个插件一个 <id>.json）。
+
+    与 plugin-data 分开：plugin-data 归子应用读写，plugin-config 是宿主权威配置，
+    子应用只能通过 SDK 只读，避免两套写权限混在同一命名空间。
+    """
+    return user_data_dir() / "plugin-config"
+
+
+def plugin_log_file() -> Path:
+    """返回插件事件日志文件（JSONL，超过上限轮转为 plugin.log.1）。"""
+    return user_data_dir() / "plugin.log"

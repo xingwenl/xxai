@@ -1,5 +1,17 @@
 // 宿主 API 封装：与内嵌 FastAPI 的 /api/desktop/* 契约对应
 
+/** manifest.settings[] 声明的一项配置：宿主据此渲染表单，并在保存时校验取值。 */
+export interface PluginSetting {
+  key: string
+  label: string
+  type: 'text' | 'number' | 'boolean' | 'select'
+  default: unknown
+  description: string
+  options: { label: string; value: string }[]
+  min: number | null
+  max: number | null
+}
+
 export interface Plugin {
   id: string
   name: string
@@ -14,6 +26,8 @@ export interface Plugin {
   url: string | null
   builtin: boolean
   enabled: boolean
+  /** manifest 声明的配置项；空数组表示不需要宿主渲染配置表单 */
+  settings: PluginSetting[]
   installedAt: string | null
   error: string | null
   iconUrl: string | null
@@ -25,6 +39,10 @@ export interface DesktopSettings {
   version: string
   pluginsDir: string
   userDataDir: string
+  /** 插件宿主配置目录（~/.desktop-app/plugin-config） */
+  pluginConfigDir: string
+  /** 插件生命周期日志文件（~/.desktop-app/plugin.log） */
+  pluginLogFile: string
 }
 
 export interface BookmarkItem {
@@ -256,4 +274,38 @@ export function deletePluginData(pluginId: string, key: string): Promise<null> {
 
 export function listPluginDataKeys(pluginId: string): Promise<{ keys: string[] }> {
   return request(`/api/desktop/plugin-data/${encodeURIComponent(pluginId)}`)
+}
+
+// ── 插件宿主配置（manifest.settings[]） ───────────────────────────────────────
+// 配置由宿主落盘到 ~/.desktop-app/plugin-config/<pluginId>.json，
+// 子应用只通过 SDK 读取（宿主负责校验与表单渲染）。
+
+/** 读取插件配置：manifest 默认值与已保存值合并后的完整取值。 */
+export function getPluginConfig(pluginId: string): Promise<{ values: Record<string, unknown> }> {
+  return request(`/api/desktop/plugins/${encodeURIComponent(pluginId)}/config`)
+}
+
+/** 保存插件配置；值非法时宿主返回 400 并在 detail 里给出中文错因。 */
+export function savePluginConfig(
+  pluginId: string,
+  values: Record<string, unknown>,
+): Promise<{ values: Record<string, unknown> }> {
+  return request(`/api/desktop/plugins/${encodeURIComponent(pluginId)}/config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ values }),
+  })
+}
+
+/** 上报插件生命周期事件（iframe 加载 / SDK 注入 / 方法注册等）到宿主日志。 */
+export function logPluginEvent(
+  pluginId: string,
+  event: string,
+  detail?: string,
+): Promise<{ ok: boolean }> {
+  return request('/api/desktop/plugin-log', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pluginId, event, detail }),
+  })
 }

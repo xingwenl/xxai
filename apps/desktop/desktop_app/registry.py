@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +29,8 @@ class PluginInfo:
     installed_at: str | None = None
     error: str | None = None
     url: str | None = None
+    # manifest.settings 的字典形态：随 GET /api/desktop/plugins 一起下发，前端一次请求即可渲染表单
+    settings: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -46,6 +48,7 @@ class PluginInfo:
             "enabled": self.enabled,
             "installedAt": self.installed_at,
             "error": self.error,
+            "settings": self.settings,
             "iconUrl": f"/apps/{self.id}/{self.icon}" if self.icon else None,
             "entryUrl": self.url if self.type == "remote" and self.url else f"/apps/{self.id}/{self.entry}",
         }
@@ -111,6 +114,7 @@ class PluginRegistry:
                 dir=plugin_dir,
                 builtin=True,
                 enabled=bool(state_entry.get("enabled", True)),
+                settings=[item.model_dump() for item in manifest.settings],
             )
         for plugin_dir in self._iter_dirs(self.user_dir):
             manifest, error = self.load_manifest(plugin_dir)
@@ -150,6 +154,7 @@ class PluginRegistry:
                 builtin=False,
                 enabled=bool(state_entry.get("enabled", True)),
                 installed_at=state_entry.get("installedAt"),
+                settings=[item.model_dump() for item in manifest.settings],
             )
         return sorted(plugins.values(), key=lambda p: (not p.builtin, p.name.lower()))
 

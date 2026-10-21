@@ -38,7 +38,8 @@ description: Use when building a new sub-app under `apps/<name>` for the desktop
 
 - `vite.config.ts` 必须 `base: './'`（宿主按 `/apps/<id>/` 挂载，绝对路径会 404）；路由用 hash 或单页。
 - `public/manifest.json`：`id` 与目录名一致、匹配 `^[a-z0-9][a-z0-9_-]*$`，`type: "iframe"`，`entry: "index.html"`。
-- `permissions` 按需声明，缺一个对应能力就是 `权限不足` 抛错：`storage`（落数据）、`tools`（注册方法）、`notify`（提示）。
+- `permissions` 按需声明，缺一个对应能力就是 `权限不足` 抛错：`storage`（落数据）、`tools`（注册方法）、`notify`（提示）、`settings`（读写宿主配置）。
+- 需要用户可调参数时，在 manifest 里声明 `settings[]`（`text`/`number`/`boolean`/`select`），设置页会自动渲染表单，**不要自己搭设置页**；子应用侧用 `desktop.settings.getConfig()` 读、`desktop.settings.onChanged()` 订阅变更（只读，写入只能在宿主设置页）。
 - 在根 `pnpm-workspace.yaml` 追加 `- 'apps/<name>'`。
 - 提供 `scripts/install-to-desktop.mjs`：把 `dist/` 复制到 `~/.desktop-app/plugins/<id>`，支持 `--target`（最终插件目录）与 `--json`。
 
@@ -105,6 +106,7 @@ description: Use when building a new sub-app under `apps/<name>` for the desktop
 | 日志里注册了，但消息 `host_tools=[]` | token 的 `host_tools` claim：换 token 时是否传了 `hostToolNames` |
 | 工具在列表里但模型从不调用 | `AgentHostTool` / `EmbedClientHostTool` 是否绑定、策略 `is_enabled`、schema 指纹是否一致 |
 | 数据没落盘 / `权限不足` | 插件是否声明 `storage`；是否漏了 `await` |
+| 设置页没有「配置」入口 / 保存返回 400 | manifest 是否声明 `settings[]`（`type=remote` 不支持）；400 的 `detail` 是中文原因（候选值、min/max、未声明键） |
 | `agent-token` 返回 400/502 | 设置页配置是否完整、origin 是否精确匹配 `allowed_origins`、后端是否可达 |
 | 改了代码没生效 | 子应用 `build` + 重装 + **重启桌面应用** |
 
@@ -112,7 +114,7 @@ description: Use when building a new sub-app under `apps/<name>` for the desktop
 
 - 完整范例：`apps/ledger/`（`tools.json`、`src/lib/{desktop,store,tools}.ts`、`scripts/install-to-desktop.mjs`）
 - 宿主桥：`apps/desktop/front/src/lib/{desktop-sdk,tool-bridge,assistant}.ts`
-- 宿主后端：`apps/desktop/desktop_app/{plugin_data,agent_config,dev_agent,server}.py`
+- 宿主后端：`apps/desktop/desktop_app/{plugin_data,plugin_config,plugin_log,agent_config,dev_agent,server}.py`
 - 精确契约与代码骨架：`reference/contracts.md`
 - 模型侧配置脚本：`apps/desktop/scripts/configure_ai_base.py`
 - 契约文档：`apps/desktop/README.md`（宿主 SDK / plugin-data / 全局助手 / 记账子应用四节）
