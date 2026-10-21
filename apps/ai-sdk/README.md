@@ -1117,6 +1117,13 @@ const agent = createAgentClient({
 
 `getToken` 会收到目标 `agentId`，接入方据此换取对应 token（服务端仍会校验该智能体是否已绑定给当前 Embed Client）。
 
+候选列表里的「可用」指后台已绑定给**当前 Embed Client** 的智能体。SDK 不知道也不该去查当前 Client，宿主需要自己拿：
+
+- 后端签发的 Embed token 载荷里带 `client_id`，宿主可以解出它再查该 Client 的绑定（`apps/front` 的做法，见 `readEmbedTokenClientId`）；
+- 或者部署时显式配置一个 client id（`apps/front` 用 `VITE_AGENT_CLIENT_ID` 覆盖），适合一个前端同时接多个 Client 的场景。
+
+拿不到 Client、拉绑定失败或候选 ≤1 时都不展示入口，助手本身照常工作。
+
 | `AgentSwitchingOptions` 字段 | 说明 |
 | --- | --- |
 | `agents` | 候选列表；`agentId`、`name` 必填，`description`、`slug` 可选。少于 2 个候选时不展示切换入口 |

@@ -75,7 +75,8 @@ SDK：
 
 接入与文档：
 
-- `apps/front/src/features/agent-navigation/agent-navigation-bridge.tsx`：读 `VITE_AGENT_CLIENT_ID`，用后台登录态取启用 agent 与绑定的交集传给 `agentSwitching`，`requestAgentToken` 带 `agent_id`；缺 CLIENT_ID 时不启用并 `console.warn`。
+- `apps/front/src/features/agent-navigation/agent-navigation-bridge.tsx`：解析当前 Embed Client，用后台登录态取启用 agent 与绑定的交集传给 `agentSwitching`，`requestAgentToken` 带 `agent_id`；拿不到 Client 时不启用并 `console.warn`。
+- `apps/front/src/features/agent-navigation/embed-token.ts`（新）：`readEmbedTokenClientId()` 从后端签发的 Embed token 载荷读取 `client_id`；bridge 优先用它解析 Client，`VITE_AGENT_CLIENT_ID` 降级为多 Client 部署的显式覆盖（原方案漏配该变量会让切换入口静默消失）。
 - `apps/front/src/features/embed-clients/{index.tsx,api}`：表单开关与列表徽标、类型补字段。
 - `CONTEXT.md` 术语（智能体切换 / 可用智能体 / 智能体切换开关）、`docs/adr/0014-host-provided-agent-switching.md`、`docs/CHANGELOG.md`。
 - 新增 `tools/harness/verify/2026-10-21-ai-sdk-agent-switching.sh` 与其产出的 `verify.md`。

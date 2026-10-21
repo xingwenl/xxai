@@ -12,6 +12,7 @@ import { listAgents } from '@/api/agent'
 import { listEmbedClientAgents } from '@/api/embed-clients'
 import { useAuthStore } from '@/stores/auth-store'
 import { http, type AuthResetOptOut } from '@/lib/http'
+import { readEmbedTokenClientId } from './embed-token'
 import { resolveInternalRoute } from './routes'
 
 type AgentTokenResponse = {
@@ -56,20 +57,53 @@ async function requestAgentToken(
 }
 
 /**
+ * 解析当前悬浮助手使用的 Embed Client。
+ *
+ * 优先用显式配置的 `VITE_AGENT_CLIENT_ID`（一个部署同时接多个 Client 时使用）；
+ * 没配置时从后端签发的 Embed token 载荷里读取 `client_id`——后端就是用它签发 token 的，
+ * 这样宿主不必重复维护一份 client_id，也不会因为漏配导致切换入口静默消失。
+ *
+ * 换签失败（例如当前后台来源不在 Client 白名单）时返回 undefined：切换能力关闭，
+ * 悬浮助手本身仍然按原有路径挂载并暴露错误，保持旁路能力失败不影响主壳。
+ */
+async function resolveEmbedClientId(
+  displayName: string,
+  agentId: string
+): Promise<string | undefined> {
+  const configured = (
+    import.meta.env.VITE_AGENT_CLIENT_ID as string | undefined
+  )?.trim()
+  if (configured) return configured
+
+  try {
+    const token = await requestAgentToken(displayName, agentId)
+    return readEmbedTokenClientId(token.access_token)
+  } catch (error) {
+    if (import.meta.env.DEV) {
+      console.warn(
+        '[agent-navigation] 无法解析 Embed Client，已关闭悬浮助手的智能体切换',
+        error
+      )
+    }
+    return undefined
+  }
+}
+
+/**
  * 拉取「后台已启用且当前 Embed Client 已绑定」的智能体，作为 SDK 切换候选。
  *
- * 列表接口需要后台登录态，因此由宿主（而不是 SDK）拉取并传入；没配置
- * `VITE_AGENT_CLIENT_ID` 时无法判断可见范围，直接关闭切换入口（fail closed），
- * 不影响悬浮助手本身的挂载。设计见 docs/adr/0014-host-provided-agent-switching.md。
+ * 列表接口需要后台登录态，因此由宿主（而不是 SDK）拉取并传入；拿不到 Client
+ * 或拉取失败时直接关闭切换入口（fail closed），不影响悬浮助手本身的挂载。
+ * 设计见 docs/adr/0014-host-provided-agent-switching.md。
  */
 async function loadAgentSwitchOptions(
-  platformId: string
+  platformId: string,
+  clientId: string | undefined
 ): Promise<AgentSwitchOption[] | undefined> {
-  const clientId = import.meta.env.VITE_AGENT_CLIENT_ID as string | undefined
   if (!clientId) {
     if (import.meta.env.DEV) {
       console.warn(
-        '[agent-navigation] VITE_AGENT_CLIENT_ID 未配置，已关闭悬浮助手的智能体切换'
+        '[agent-navigation] 未解析到 Embed Client，已关闭悬浮助手的智能体切换'
       )
     }
     return undefined
@@ -146,7 +180,11 @@ export function AgentNavigationBridge() {
     }
 
     void (async () => {
-      const switchOptions = await loadAgentSwitchOptions(platformId)
+      // 先确定当前 Client，再据此取候选智能体；两步都做了降级，
+      // 任何一步失败都只关闭切换入口，不阻断悬浮助手挂载。
+      const clientId = await resolveEmbedClientId(user.name, agentId)
+      if (!active) return
+      const switchOptions = await loadAgentSwitchOptions(platformId, clientId)
       if (!active) return
 
       agent = createAgentClient({

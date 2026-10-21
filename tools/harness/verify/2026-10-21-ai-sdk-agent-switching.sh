@@ -123,16 +123,59 @@ front_static() {
   local ok=0
   grep -q 'allow_agent_switching' apps/front/src/api/embed-clients.ts || { echo "api/embed-clients.ts 缺少字段"; ok=1; }
   grep -q '允许切换智能体' apps/front/src/features/embed-clients/index.tsx || { echo "管理端缺少开关"; ok=1; }
-  for token in loadAgentSwitchOptions listEmbedClientAgents 'VITE_AGENT_CLIENT_ID' 'ctx.agentId'; do
+  for token in loadAgentSwitchOptions listEmbedClientAgents resolveEmbedClientId readEmbedTokenClientId 'ctx.agentId'; do
     grep -q "$token" apps/front/src/features/agent-navigation/agent-navigation-bridge.tsx || { echo "bridge 缺少 $token"; ok=1; }
   done
+  grep -q 'client_id' apps/front/src/features/agent-navigation/embed-token.ts || { echo "embed-token.ts 未读取 client_id claim"; ok=1; }
+  # VITE_AGENT_CLIENT_ID 已降级为「多 Client 显式覆盖」，仍需保留但不作为唯一来源。
+  grep -q 'VITE_AGENT_CLIENT_ID' apps/front/src/features/agent-navigation/agent-navigation-bridge.tsx || { echo "bridge 缺少 VITE_AGENT_CLIENT_ID 覆盖位"; ok=1; }
   grep -q 'VITE_AGENT_CLIENT_ID' apps/front/.env.example || { echo ".env.example 未记录 VITE_AGENT_CLIENT_ID"; ok=1; }
   return $ok
+}
+
+# 宿主侧 Client 解析：node 22 的类型剥离直接跑 TS 源码，覆盖 token 载荷读取的六种输入。
+# 这个函数是「看不到切换入口」那次漏配的直接回归用例，所以放在 verify 里持续跑。
+front_client_id_unit() {
+  local tmp
+  tmp=$(mktemp "${TMPDIR:-/tmp}/embed-token-unit-XXXXXX.mjs") || return 1
+  cat >"$tmp" <<'UNIT'
+const { readEmbedTokenClientId } = await import(process.env.EMBED_TOKEN_MODULE);
+
+const b64url = (obj) =>
+  Buffer.from(JSON.stringify(obj)).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const tokenWith = (payload) => `${b64url({ alg: 'HS256' })}.${b64url(payload)}.sig`;
+
+const cases = [
+  ['正常 client_id', tokenWith({ client_id: 'client_3-obQ0Bnv4' }), 'client_3-obQ0Bnv4'],
+  ['缺少 client_id', tokenWith({ agent_id: 1 }), undefined],
+  ['client_id 非字符串', tokenWith({ client_id: 123 }), undefined],
+  ['client_id 空白', tokenWith({ client_id: '   ' }), undefined],
+  ['payload 非 JSON', 'a.!!!.c', undefined],
+  ['空 token', '', undefined],
+];
+
+let failed = 0;
+for (const [name, input, expected] of cases) {
+  const actual = readEmbedTokenClientId(input);
+  const pass = actual === expected;
+  if (!pass) failed += 1;
+  console.log(`${pass ? 'PASS' : 'FAIL'} ${name}: ${JSON.stringify(actual)}`);
+}
+process.exit(failed === 0 ? 0 : 1);
+UNIT
+  if EMBED_TOKEN_MODULE="$PWD/apps/front/src/features/agent-navigation/embed-token.ts" node "$tmp"; then
+    rm -f "$tmp"
+    return 0
+  fi
+  echo "客户端解析单测失败（需要 Node 22 的类型剥离支持）"
+  rm -f "$tmp"
+  return 1
 }
 
 front_format() {
   (cd apps/front && npx prettier --check \
     src/features/agent-navigation/agent-navigation-bridge.tsx \
+    src/features/agent-navigation/embed-token.ts \
     src/features/embed-clients/index.tsx \
     src/api/embed-clients.ts)
 }
@@ -157,6 +200,7 @@ verify_step "SDK 切换实现/UI/导出/README 静态断言" sdk_static
 verify_step "SDK 单测（src 全量）" sdk_tests
 verify_step "SDK 类型检查" sdk_typecheck
 verify_step "宿主侧候选列表与后台开关静态断言" front_static
+verify_step "宿主侧 Client ID 解析单测（token 载荷）" front_client_id_unit
 verify_step "宿主侧改动文件格式检查" front_format
 verify_step "文档（ADR/spec/CONTEXT）静态断言" docs_static
 
@@ -167,7 +211,7 @@ if [[ $UNEXECUTED -eq 1 ]]; then
 else
   echo "- 无（本机数据库可达，迁移升降级已真实执行）。"
 fi
-echo "- 未做浏览器端真机联调：切换入口需要「后台开启开关 + 宿主传入 ≥2 个候选」的真实租户配置，本脚本只覆盖静态断言与单测；交互态由 ChatWidget 事件单测与 SDK 切换单测覆盖。"
+echo "- 未做浏览器端点击级联调：数据链路（token → client_id → 启用∩绑定候选 → session_ready.allowAgentSwitching）已用真实后端手工核对过，但没有在浏览器里真点一次切换；切换后的会话恢复与工具重注册由 SDK 事件单测覆盖。"
 echo
 
 echo "## 验收结论"

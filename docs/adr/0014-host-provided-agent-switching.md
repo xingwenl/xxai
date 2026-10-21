@@ -21,7 +21,7 @@ accepted
 9. **忙碌时禁止切换。** 生成中、等待工具确认、等待提问回答、压缩中重建 transport 会丢事件与 token 流；此时选择器置灰并给出原因，不排队、不静默丢弃。
 10. **重建 transport 后必须重注册宿主工具并清空待确认/待提问状态。** `WebSocketTransport` 的已注册工具是实例内状态，重建即丢；待确认的工具调用与待回答的问题属于旧连接，跨 agent 转发会打到错误的会话，一律清空。
 11. **切换能力对 headless 用户同样开放。** 除 UI 外公开 `availableAgents` / `canSwitchAgent` / `switchAgent()`，让自绘 UI 的宿主复用同一套校验与两阶段语义，避免 UI 与程序化路径两套行为。
-12. **`apps/front` 接入时用后台登录态自行求交集；缺少 `VITE_AGENT_CLIENT_ID` 时整个能力静默不启用。** 浮动助手是旁路能力，绝不能因为拿不到候选列表而影响主壳挂载；与 bridge 现有 `skipAuthReset` 的失败隔离思路一致。
+12. **`apps/front` 接入时用后台登录态自行求交集；当前 Client 由后端签发的 Embed token 载荷里读取，`VITE_AGENT_CLIENT_ID` 只是多 Client 部署的显式覆盖。** 最初让宿主必填 `VITE_AGENT_CLIENT_ID`，实测该变量一旦漏配，切换入口会静默消失且没有任何可见线索——而 token 的 `client_id` claim 本来就是「后端拿哪个 Client 签的」的唯一事实，宿主重复维护一份只会漂移。拿不到 Client 或取候选失败时仍整体关闭入口；浮动助手是旁路能力，绝不能因为拿不到候选列表而影响主壳挂载，与 bridge 现有 `skipAuthReset` 的失败隔离思路一致。
 
 ## Considered Options
 
@@ -38,7 +38,7 @@ accepted
 ## Consequences
 
 - 新增一列 + 一次 migration，语义向后兼容：存量 client 默认关闭，SDK 未配置 `agentSwitching` 时行为与今日完全一致。
-- 宿主多了一份「取候选列表」的责任：`apps/front` 需按 `VITE_AGENT_CLIENT_ID` 求「启用 agent ∩ 已绑定 agent」；其他宿主（desktop/shop）不配置即不启用。
+- 宿主多了一份「取候选列表」的责任：`apps/front` 从 Embed token 的 `client_id` claim 定位当前 Client（可用 `VITE_AGENT_CLIENT_ID` 覆盖）后求「启用 agent ∩ 已绑定 agent」；其他宿主（desktop/shop）不接入即不启用。
 - 列表与真实绑定可能不一致（管理员改了绑定而宿主列表未刷新）：表现为切换失败并提示，不会造成越权——服务端绑定校验是最终防线。
 - 首连目标由本地记忆决定时，用户可能先看到「上次选的那个 agent」而不是 `VITE_AGENT_ID`；这是有意行为，且开关关闭时会自动回退。
 - `storageKey` 从只读属性变为 getter，对外表现不变（首次渲染仍是同一字符串），但任何在构造后缓存该值的宿主代码需要重新取值。
