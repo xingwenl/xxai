@@ -72,7 +72,7 @@ approval:
 - 新增 `lib/runtime-status.ts`：运行态 pub/sub（`idle | ready | failed(原因)`），与 `tool-bridge.ts` 同形态，供设置页与后续卡片复用。
 - `lib/tool-bridge.ts`：注册/跳过时上报日志；新增 `countPluginTools(pluginId)`。
 - `components/plugin-view.tsx`：上报 `iframe_load` / `sdk_injected` / `sdk_inject_failed` 并刷新运行态（配置变更不经过 iframe 转发：SDK 直接订阅宿主窗口事件）。
-- `components/settings.tsx`：插件行展示运行态、已注册方法数、manifest 错误；声明了 `settings[]` 的插件展开配置表单（text/number/boolean/select），保存调 PUT，成功后 `window.dispatchEvent(new CustomEvent('desktop-config-changed', { detail: { pluginId, values } }))`。
+- `components/settings.tsx`：插件行展示运行态、已注册方法数、manifest 错误；声明了 `settings[]` 的插件有「配置」按钮，点击弹出配置弹窗（实现见「变更点」）。
 - `plugins/hello-world/`：演示插件声明 3 项 `settings[]`（text/boolean/select）并调用 `getConfig()` / `onChanged()`，作为「插件不写设置页也能被配置」的活样板（用户确认的增量）。
 
 文档与验证：
@@ -86,3 +86,10 @@ approval:
 3. headless 探针（临时 HOME + 一个声明 `settings[]` 的测试插件）：设置页出现对应输入控件；改值保存后 `~/.desktop-app/plugin-config/<id>.json` 值正确；`~/.desktop-app/plugin.log` 出现 `config_saved` 与 `iframe_load` 记录。
 4. 回归：`ledger`、`bookmarks-organizer`、`hello-world` 未声明 `settings[]` 时设置页不出现配置区，`desktop.settings.get/set` 仍读写 localStorage。
 5. `python3 tools/harness/audit.py` 无本次新增 ERROR。
+
+## 变更点（2026-10-21 追加，用户确认）
+
+- 配置表单从设置页内联展开改为**弹窗**：新增通用 `components/dialog.tsx`（遮罩 + 居中卡片 + 标题/说明/底部按钮；支持 Esc 与点遮罩关闭、打开时锁背景滚动并把焦点移入首个输入控件、关闭后归还焦点、通过 portal 渲染到 body 以免被父级 overflow/transform 裁剪），供后续页面复用。
+- 新增 `components/plugin-config-dialog.tsx`：字段仍由 `manifest.settings[]` 驱动，内部负责取默认值合并、保存（PUT）、中文错因内联展示；保存成功后关闭弹窗并广播 `desktop-config-changed`，失败保持打开。`settings.tsx` 只保留「点按钮 → 传插件对象给弹窗」。
+- 验证脚本相应更新：断言点击「配置」后出现 `role="dialog"`、标题为「<插件名> 配置」、表单字段在弹窗内；保存后断言弹窗自动关闭、运行中 iframe 收到新值；「保存配置」点击范围收敛到弹窗内（设置页「智能体后端」区块有同名按钮）。
+- `apps/desktop/README.md` 同步说明弹窗形态与 `Dialog` 组件的复用约定。

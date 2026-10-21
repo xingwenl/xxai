@@ -166,7 +166,7 @@ poetry run python build/build.py
 宿主壳由 `apps/desktop/front/`（React 19 + Vite + Tailwind v4）构建，提供两个一级页面（左侧导航切换）：
 
 - **应用页**：图标网格展示已安装插件，点击后按插件的默认打开方式打开（默认在内容区 iframe 加载插件页面，也可开在系统浏览器或新的原生窗口）。
-- **设置页**：zip 安装插件、启用/禁用、卸载，展开单个插件的宿主配置表单、查看运行态与事件日志位置，以及框架信息。
+- **设置页**：zip 安装插件、启用/禁用、卸载，在弹窗里修改单个插件的宿主配置、查看运行态与事件日志位置，以及框架信息。
 
 插件 = 一个目录（`manifest.json` + 静态资源）。内置插件位于 `plugins/`（随应用分发、不可卸载）；用户通过 zip 安装的插件存放在 `~/.desktop-app/plugins/`，启停状态持久化到 `~/.desktop-app/state.json`。
 
@@ -190,7 +190,7 @@ poetry run python build/build.py
 
 ### 插件宿主配置（settings[]）
 
-插件可以在 `manifest.json` 里用 `settings[]` 声明需要用户配置的项，宿主设置页会自动渲染表单，**不需要写任何设置界面**：
+插件可以在 `manifest.json` 里用 `settings[]` 声明需要用户配置的项，宿主设置页会自动渲染表单——点该插件的「配置」按钮在弹窗里修改，**不需要写任何设置界面**：
 
 ```json
 {
@@ -209,6 +209,7 @@ poetry run python build/build.py
 - 配置值落在 `~/.desktop-app/plugin-config/<pluginId>.json`（原子写），保存时按 manifest 校验，非法值整单拒绝并返回中文原因；文件里已废弃的旧键在读取时被忽略。
 - 插件侧只读：`desktop.settings.getConfig()` 取 `{key: value}`，`desktop.settings.onChanged(handler)` 订阅变更（返回取消订阅函数）。设置页保存后宿主会广播 `desktop-config-changed`，运行中的应用立即拿到新值，无需重载 iframe。
 - `type=remote` 的插件不注入 SDK，因此不允许声明 `settings[]`。
+- 配置弹窗用通用 `Dialog` 组件承载（`apps/desktop/front/src/components/dialog.tsx`：遮罩 + 居中卡片 + 标题/说明/底部按钮，支持 Esc 与点遮罩关闭、打开时锁背景滚动、关闭后归还焦点）；表单本身在 `plugin-config-dialog.tsx`。宿主其它页面要做浮层时复用 `Dialog`，不要各写一套 `fixed inset-0` 遮罩。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -362,7 +363,7 @@ cd apps/ledger && node scripts/install-to-desktop.mjs   # 装到 ~/.desktop-app/
 - **插件页报「权限不足」**：检查插件 `manifest.json` 的 `permissions` 是否声明了对应能力（notify/settings/storage/tools/events/http/platform/log）。
 - **助手悬浮球不出现 / 子应用方法助手看不到**：先确认宿主能从 `GET /api/desktop/agent-config` 拿到 `enabled: true`（本地调试用 `DESKTOP_DEV_AGENT=1` 启动）；再确认子应用 manifest 声明了 `tools`（宿主启动时会静默预挂载这类子应用，无需点开）；若刚改过前端，需要重启桌面应用让新的 `front/dist` 生效。
 - **插件页拿不到 `window.desktop`**：插件必须在 `desktop-ready` 事件后再使用 SDK，参考上文示例写法。
-- **设置页没有「配置」按钮 / 保存配置报 400**：按钮只在插件声明了 `settings[]` 且 manifest 无错时出现；400 的 `detail` 是中文原因（例如取值不在候选项、超出 min/max、键未声明），修正后重试即可，非法提交不会落盘。
+- **设置页没有「配置」按钮 / 保存配置报 400**：按钮只在插件声明了 `settings[]` 且 manifest 无错时出现，点击后在弹窗里改；400 会显示在弹窗底部且 `detail` 是中文原因（例如取值不在候选项、超出 min/max、键未声明），修正后重试即可，非法提交不会落盘、弹窗保持打开。
 - **改完配置运行中的应用没反应**：插件页必须用 `desktop.settings.getConfig()` 读取、`desktop.settings.onChanged()` 订阅；旧的 `settings.get/set` 存在宿主 localStorage，与宿主配置是两套数据。
 - **插件白屏或显示「运行失败」**：看 `~/.desktop-app/plugin.log`（JSONL）：有 `iframe_load` 但无 `sdk_injected` 说明入口页没等到 SDK 或脚本报错，`sdk_inject_failed` 的 `detail` 带具体原因。
 - **开发时怎么打开控制台**：浏览器模式直接按 `Cmd+Option+I`；pywebview 窗口用 `DESKTOP_DEBUG=1` 启动后右键 → 检查元素。

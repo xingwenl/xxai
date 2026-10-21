@@ -5,25 +5,23 @@ import {
   clearAgentConfig,
   getAgentConfig,
   getDesktopSettings,
-  getPluginConfig,
   getPlugins,
   installPlugin,
   installFromUrl,
   issueAgentToken,
   refreshMetadata,
   saveAgentConfig,
-  savePluginConfig,
   setPluginEnabled,
   uninstallPlugin,
   updatePluginMetadata,
   type AgentConfig,
   type DesktopSettings,
   type Plugin,
-  type PluginSetting,
 } from '../lib/api'
 import { toast } from '../lib/toast'
 import { getRuntimeStatus, subscribeRuntimeStatus } from '../lib/runtime-status'
 import PageHeader from './page-header'
+import PluginConfigDialog from './plugin-config-dialog'
 
 interface ThemeLike {
   primary: string
@@ -60,10 +58,8 @@ export default function Settings({
   const [agentId, setAgentId] = useState('1')
   const [agentToolNames, setAgentToolNames] = useState('')
   const [agentBusy, setAgentBusy] = useState(false)
-  // 插件宿主配置（manifest.settings[]）：由宿主渲染表单、校验取值后落盘
-  const [configOpenId, setConfigOpenId] = useState<string | null>(null)
-  const [configValues, setConfigValues] = useState<Record<string, unknown>>({})
-  const [configBusy, setConfigBusy] = useState(false)
+  // 插件宿主配置（manifest.settings[]）：表单、校验与保存都在 PluginConfigDialog 弹窗里
+  const [configPlugin, setConfigPlugin] = useState<Plugin | null>(null)
   // 运行态变化只用于触发重渲染，具体状态在渲染时用 getRuntimeStatus 读取
   const [, setRuntimeTick] = useState(0)
 
@@ -188,90 +184,6 @@ export default function Settings({
     } finally {
       setRefreshBusy(false)
     }
-  }
-
-  const openConfig = async (plugin: Plugin) => {
-    if (configOpenId === plugin.id) {
-      setConfigOpenId(null)
-      return
-    }
-    setConfigOpenId(plugin.id)
-    setConfigValues({})
-    try {
-      const { values } = await getPluginConfig(plugin.id)
-      setConfigValues(values)
-    } catch (e) {
-      toast('读取配置失败', String((e as Error).message || e), 'error')
-    }
-  }
-
-  const saveConfig = async (plugin: Plugin) => {
-    setConfigBusy(true)
-    try {
-      const { values } = await savePluginConfig(plugin.id, configValues)
-      setConfigValues(values)
-      toast('已保存', `${plugin.name} 的配置已生效`, 'success')
-      // 通知运行中的子应用：SDK 按 pluginId 过滤后回调 settings.onChanged
-      window.dispatchEvent(
-        new CustomEvent('desktop-config-changed', { detail: { pluginId: plugin.id, values } }),
-      )
-    } catch (e) {
-      toast('保存失败', String((e as Error).message || e), 'error')
-    } finally {
-      setConfigBusy(false)
-    }
-  }
-
-  const updateConfigValue = (key: string, value: unknown) => {
-    setConfigValues((current) => ({ ...current, [key]: value }))
-  }
-
-  const renderConfigField = (setting: PluginSetting) => {
-    const value = configValues[setting.key]
-    const fieldStyle = {
-      background: 'rgba(var(--hairline-rgb) / 0.05)',
-      border: '1px solid rgba(var(--hairline-rgb) / 0.12)',
-      color: 'var(--foreground)',
-    } as const
-    return (
-      <label key={setting.key} className="flex flex-col gap-1 text-[12px]" style={{ color: 'var(--color-mid)' }}>
-        {setting.label}
-        {setting.type === 'boolean' ? (
-          <input
-            type="checkbox"
-            checked={value === true}
-            onChange={(e) => updateConfigValue(setting.key, e.target.checked)}
-            className="w-4 h-4"
-          />
-        ) : setting.type === 'select' ? (
-          <select
-            value={typeof value === 'string' ? value : ''}
-            onChange={(e) => updateConfigValue(setting.key, e.target.value)}
-            className="px-3 py-2 rounded-xl text-[13px] outline-none"
-            style={fieldStyle}
-          >
-            {setting.options.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <input
-            type={setting.type === 'number' ? 'number' : 'text'}
-            value={value === null || value === undefined ? '' : String(value)}
-            min={setting.min ?? undefined}
-            max={setting.max ?? undefined}
-            onChange={(e) =>
-              updateConfigValue(setting.key, e.target.value === '' ? '' : setting.type === 'number' ? Number(e.target.value) : e.target.value)
-            }
-            className="px-3 py-2 rounded-xl text-[13px] outline-none"
-            style={fieldStyle}
-          />
-        )}
-        {setting.description && <span className="text-[11px]">{setting.description}</span>}
-      </label>
-    )
   }
 
   const handleSaveAgent = async () => {
@@ -504,11 +416,11 @@ export default function Settings({
 
                 {plugin.type !== 'remote' && !plugin.error && plugin.settings.length > 0 && (
                   <button
-                    onClick={() => openConfig(plugin)}
+                    onClick={() => setConfigPlugin(plugin)}
                     className="px-3 py-1.5 rounded-lg text-[12px] font-500"
                     style={{ background: 'rgba(var(--primary-ink-rgb) / 0.10)', color: 'var(--primary-ink)' }}
                   >
-                    {configOpenId === plugin.id ? '收起配置' : '配置'}
+                    配置
                   </button>
                 )}
 
@@ -581,39 +493,6 @@ export default function Settings({
                         style={{ background: 'var(--fill-gradient)', color: 'var(--primary-foreground)' }}
                       >
                         保存
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-              {/* 宿主配置面板：manifest.settings[] 驱动，保存后派发配置变更事件 */}
-              {configOpenId === plugin.id && plugin.settings.length > 0 && (
-                <div
-                  className="mx-4 mb-4 p-4 rounded-xl flex flex-col gap-3"
-                  style={{ background: 'rgba(var(--surface-rgb) / 0.88)', border: '1px solid rgba(var(--hairline-rgb) / 0.18)' }}
-                >
-                  <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
-                    {plugin.settings.map(renderConfigField)}
-                  </div>
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-[11px]" style={{ color: 'var(--color-mid)' }}>
-                      配置保存在本机，运行中的应用会立即收到变更
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => setConfigOpenId(null)}
-                        className="px-3 py-1.5 rounded-lg text-[12px] font-500"
-                        style={{ background: 'rgba(var(--surface-rgb) / 0.94)', color: 'var(--color-mid)' }}
-                      >
-                        取消
-                      </button>
-                      <button
-                        disabled={configBusy}
-                        onClick={() => saveConfig(plugin)}
-                        className="px-3 py-1.5 rounded-lg text-[12px] font-600 disabled:opacity-50"
-                        style={{ background: 'var(--fill-gradient)', color: 'var(--primary-foreground)' }}
-                      >
-                        {configBusy ? '保存中…' : '保存配置'}
                       </button>
                     </div>
                   </div>
@@ -763,6 +642,9 @@ export default function Settings({
           <div className="text-[13px]" style={{ color: 'var(--color-mid)' }}>加载中…</div>
         )}
       </section>
+
+      {/* 宿主配置弹窗：通用 Dialog 组件 + settings[] 驱动的表单 */}
+      <PluginConfigDialog plugin={configPlugin} onClose={() => setConfigPlugin(null)} />
     </div>
   )
 }
