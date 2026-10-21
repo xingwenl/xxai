@@ -274,6 +274,10 @@ export function EmbedClientsPage() {
                           临时工具{' '}
                           {client.allow_temporary_tools ? '允许' : '关闭'}
                         </div>
+                        <div className='text-xs text-muted-foreground'>
+                          智能体切换{' '}
+                          {client.allow_agent_switching ? '允许' : '关闭'}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className='flex items-center gap-2'>
