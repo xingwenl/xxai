@@ -44,7 +44,7 @@ description: Use when building a new sub-app under `apps/<name>` for the desktop
 - 在根 `pnpm-workspace.yaml` 追加 `- 'apps/<name>'`。
 - 提供 `scripts/install-to-desktop.mjs`：把 `dist/` 复制到 `~/.desktop-app/plugins/<id>`，支持 `--target`（最终插件目录）与 `--json`。
 - **发新版本只要改索引里的 version，宿主会自己认出「可升级」**：设置页在市场条目上显示「更新到 vX」，点一下就走「下载 → 校 sha256/大小 → 校包内 manifest id/version → 备份旧目录到 `~/.desktop-app/plugin-backups/<id>/`（保留最近 3 份）→ 同盘 rename 原子替换 → 失败自动回滚」，`plugin-data/` 与 `plugin-config/` 不动、启用状态沿用。因此：manifest 的 `id` 必须长期稳定（换 id 等于换插件，旧数据不会跟过去）、`version` 每次必须真的变大（宿主按 `desktop_app/version.py::version_greater` 逐段比较：`1` 与 `1.0.0` 相等、`-beta` 视为比正式版旧、降级会被拒绝）、升级后要能读旧的 `plugin-data`（不兼容就自己在子应用里做迁移）。内置插件与 `type=remote` 壳插件不参与市场升级。
-- 想让用户免 zip 安装，就把包上架到插件市场：`apps/desktop/scripts/make_plugin_zip.py` 会打印 sha256 / size 和可直接粘贴的索引条目；zip 放 `apps/desktop/market/packages/`，条目追加到 `apps/desktop/market/index.json`，`download` 填本仓库 raw 地址。宿主安装时会校 sha256、校包内 `manifest.json` 的 id/version，再走既有安装流程（校验失败不落文件）。本地联调用 `DESKTOP_PLUGIN_MARKET_URL=file:///abs/path/index.json`，关闭市场用 `DESKTOP_PLUGIN_MARKET=0`；CLI 用 `scripts/plugin_market.py list|install|entry|verify`。
+- 想让用户免 zip 安装，就把包上架到插件市场：一条命令 `cd apps/desktop && .venv/bin/python scripts/make_plugin_release.py <id>`（默认 hello-world，`--bump patch` 代改版本）。它会校验 manifest、确定性打包到 `apps/desktop/market/packages/`（同内容重复打包 sha256 一致）、更新 `apps/desktop/market/index.json`（含 Gitee `mirrors`）并打印提交推送命令；`--check-only` 只校验不出包，索引版本更高或同版本换包会被拦下（`--force` 放行）。旧入口 `make_plugin_zip.py` 仍可用（= `--no-index --out-dir dist`）。宿主安装时会校 sha256、校包内 `manifest.json` 的 id/version，再走既有安装流程（校验失败不落文件）。本地联调用 `DESKTOP_PLUGIN_MARKET_URL=file:///abs/path/index.json`，关闭市场用 `DESKTOP_PLUGIN_MARKET=0`；CLI 用 `scripts/plugin_market.py list|install|entry|verify`。
 
 **完成判据**：`pnpm --dir apps/<name> build` 产出 `dist/manifest.json`，`node scripts/install-to-desktop.mjs` 后宿主插件列表能看到它（重启应用）。
 
@@ -124,7 +124,7 @@ description: Use when building a new sub-app under `apps/<name>` for the desktop
 - 完整范例：`apps/ledger/`（`tools.json`、`src/lib/{desktop,store,tools}.ts`、`scripts/install-to-desktop.mjs`）
 - 宿主桥：`apps/desktop/front/src/lib/{desktop-sdk,tool-bridge,dashboard-bridge,assistant}.ts`
 - 宿主后端：`apps/desktop/desktop_app/{plugin_data,plugin_config,plugin_log,dev_reload,market,agent_config,dev_agent,server}.py`；更新相关 `apps/desktop/desktop_app/{version,transfer,app_update}.py`（版本比较 / 限字节下载与镜像回退 / 宿主自更新清单）
-- 市场与打包：`apps/desktop/market/index.json`、`apps/desktop/scripts/{plugin_market,make_plugin_zip}.py`、`apps/desktop/scripts/make_release.py`（宿主安装包打包 + `releases/latest.json` 发布清单）
+- 市场与打包：`apps/desktop/market/index.json`、`apps/desktop/scripts/plugin_market.py`（CLI 校验）、`apps/desktop/scripts/make_plugin_release.py`（子应用发布：确定性打包 + 更新索引）、`apps/desktop/scripts/make_plugin_zip.py`（旧入口，只打包）、`apps/desktop/scripts/make_release.py`（主应用发布：版本号 → 构建 → zip → `releases/latest.json` → 打 tag → 上传 GitHub/Gitee Release）
 - 精确契约与代码骨架：`reference/contracts.md`
 - 模型侧配置脚本：`apps/desktop/scripts/configure_ai_base.py`
 - 契约文档：`apps/desktop/README.md`（宿主 SDK / plugin-data / 全局助手 / 插件市场与插件升级 / 宿主应用更新 / 发布桌面版本 / 记账子应用）

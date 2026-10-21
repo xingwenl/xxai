@@ -6,8 +6,11 @@
 #   2. 插件升级端到端（临时 HOME + file:// 索引）：hasUpdate 标记、备份、数据保留、
 #      失败回滚、内置 / 未安装 / 降级错误语义
 #   3. 宿主更新端到端（临时 HOME + file:// 清单）：检查、镜像回退、下载校验、坏 sha 拒绝
-#   4. scripts/make_release.py：版本一致性自检、打包 + 清单生成、版本漂移拦截
-#   5. 前端构建 + Harness audit
+#   4. scripts/make_release.py（主应用发布）：版本一致性自检、打包 + 清单生成、
+#      --bump 同步三处版本、--dry-run 不落文件、版本漂移拦截、缺 token 时上传报错
+#   5. scripts/make_plugin_release.py（子应用发布）：确定性打包、索引更新、降级 /
+#      同版本换包护栏、--dry-run 不落文件、旧入口 make_plugin_zip.py 兼容
+#   6. 前端构建 + Harness audit
 #
 # 退出码：0 全通过 / 1 有失败 / 3 有未执行项 / 2 脚本自身错误。
 
@@ -553,14 +556,175 @@ PY
   fi
   grep -q "不一致" "${PROBE_DIR}/drift.out" || { echo "✗ 漂移输出缺少原因"; return 1; }
   echo "✓ 版本号漂移被 --check-only 拦截"
+
+  # 恢复一致后验 --bump patch：三处版本号与清单 latest 一起改
+  printf '{"name": "desktop-front", "version": "1.2.3"}\n' > "${proj}/front/package.json"
+  "$PY" "${proj}/scripts/make_release.py" --bump patch --notes "1.2.4" >"${PROBE_DIR}/bump.out" 2>&1 || {
+    cat "${PROBE_DIR}/bump.out"
+    return 1
+  }
+  "$PY" - "$proj" <<'PYEOF' || return 1
+import json
+import sys
+from pathlib import Path
+
+proj = Path(sys.argv[1])
+assert 'APP_VERSION = "1.2.4"' in (proj / "desktop_app" / "app_config.py").read_text(encoding="utf-8")
+assert 'version = "1.2.4"' in (proj / "pyproject.toml").read_text(encoding="utf-8")
+front = json.loads((proj / "front" / "package.json").read_text(encoding="utf-8"))
+assert front["version"] == "1.2.4", front
+manifest = json.loads((proj / "releases" / "latest.json").read_text(encoding="utf-8"))
+assert manifest["latest"] == "1.2.4", manifest
+print("✓ --bump patch 同步三处版本号与清单 latest")
+PYEOF
+  [[ $? -eq 0 ]] || return 1
+
+  # --dry-run 不得写任何文件
+  local before_manifest before_version
+  before_manifest="$("$PY" -c 'import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "${proj}/releases/latest.json")"
+  before_version="$(cat "${proj}/desktop_app/app_config.py")"
+  "$PY" "${proj}/scripts/make_release.py" --bump minor --build --git --publish all --dry-run >"${PROBE_DIR}/dryrun.out" 2>&1 || {
+    cat "${PROBE_DIR}/dryrun.out"
+    return 1
+  }
+  [[ "$before_manifest" == "$("$PY" -c 'import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "${proj}/releases/latest.json")" ]] || {
+    echo "✗ --dry-run 改写了清单"
+    return 1
+  }
+  [[ "$before_version" == "$(cat "${proj}/desktop_app/app_config.py")" ]] || {
+    echo "✗ --dry-run 改写了版本号"
+    return 1
+  }
+  grep -q "改写三处版本号" "${PROBE_DIR}/dryrun.out" || { echo "✗ --dry-run 计划不完整"; return 1; }
+  echo "✓ --dry-run 只打印计划、不写文件"
+
+  # 缺 token 时上传必须明确报错（不是静默成功）
+  if env -u GITHUB_TOKEN -u GH_TOKEN -u GITEE_TOKEN "$PY" "${proj}/scripts/make_release.py" --publish github >"${PROBE_DIR}/notoken.out" 2>&1; then
+    echo "✗ 缺 token 时 --publish github 竟然成功"
+    return 1
+  fi
+  grep -q "GITHUB_TOKEN" "${PROBE_DIR}/notoken.out" || { echo "✗ 缺 token 报错缺少提示"; return 1; }
+  echo "✓ 缺 GITHUB_TOKEN 时 --publish github 明确报错"
 }
 
-verify_step "scripts/make_release.py（打包 / 清单 / 版本一致性）" make_release_probe
+# ---------- 4b. make_plugin_release.py（子应用发布） ----------
+
+plugin_release_probe() {
+  local proj="${PROBE_DIR}/pluginproj"
+  rm -rf "$proj"
+  mkdir -p "${proj}/scripts" "${proj}/plugins/hello-world" "${proj}/market"
+  cp "${DESKTOP}/scripts/make_plugin_release.py" "${DESKTOP}/scripts/make_plugin_zip.py" "${proj}/scripts/"
+  # 用仓库里的示例插件当素材，只复制，不改仓库
+  cp -R "${DESKTOP}/plugins/hello-world/." "${proj}/plugins/hello-world/"
+  printf '{"version": 1, "plugins": []}\n' > "${proj}/market/index.json"
+
+  # 未收录时 --check-only 不报错
+  "$PY" "${proj}/scripts/make_plugin_release.py" hello-world --check-only >"${PROBE_DIR}/plugin-check.out" 2>&1 || {
+    cat "${PROBE_DIR}/plugin-check.out"
+    return 1
+  }
+  grep -q "尚未收录" "${PROBE_DIR}/plugin-check.out" || { echo "✗ 未收录提示缺失"; return 1; }
+
+  # 首次发布：打包 + 写索引
+  "$PY" "${proj}/scripts/make_plugin_release.py" hello-world >"${PROBE_DIR}/plugin-release-1.out" 2>&1 || {
+    cat "${PROBE_DIR}/plugin-release-1.out"
+    return 1
+  }
+  local zip_path="${proj}/market/packages/hello-world-0.1.0.zip"
+  [[ -f "$zip_path" ]] || { echo "✗ 没有生成 ${zip_path}"; return 1; }
+  local sha_first sha_second
+  sha_first="$("$PY" -c 'import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$zip_path")"
+
+  # 重复打包必须字节一致（否则同版本会被 sha 护栏拦下、发版不可复现）
+  "$PY" "${proj}/scripts/make_plugin_release.py" hello-world >"${PROBE_DIR}/plugin-release-2.out" 2>&1 || {
+    cat "${PROBE_DIR}/plugin-release-2.out"
+    return 1
+  }
+  sha_second="$("$PY" -c 'import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$zip_path")"
+  [[ "$sha_first" == "$sha_second" ]] || { echo "✗ 重复打包 sha256 不一致：${sha_first} vs ${sha_second}"; return 1; }
+  echo "✓ 确定性打包：重复打同一版本 sha256 一致（${sha_first}）"
+
+  # 索引能被宿主解析，且字段与包一致
+  "$PY" - "$proj" <<'PYEOF' || return 1
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+proj = Path(sys.argv[1])
+index = json.loads((proj / "market" / "index.json").read_text(encoding="utf-8"))
+assert index["version"] == 1, index
+assert len(index["plugins"]) == 1, index
+entry = index["plugins"][0]
+assert entry["id"] == "hello-world", entry
+assert entry["version"] == "0.1.0", entry
+zip_path = proj / "market" / "packages" / f"hello-world-{entry['version']}.zip"
+data = zip_path.read_bytes()
+assert entry["sha256"] == hashlib.sha256(data).hexdigest(), entry
+assert entry["size"] == len(data), entry
+assert "apps/desktop/market/packages/" in entry["download"], entry
+assert entry["mirrors"] and "gitee.com" in entry["mirrors"][0], entry
+print(f"✓ 索引条目自洽：{entry['id']} v{entry['version']}，含 Gitee mirrors")
+PYEOF
+  [[ $? -eq 0 ]] || return 1
+
+  # 降级必须被拦，且 manifest 不被改脏
+  local manifest_path="${proj}/plugins/hello-world/manifest.json"
+  local version_before version_after
+  version_before="$(cat "$manifest_path")"
+  if "$PY" "${proj}/scripts/make_plugin_release.py" hello-world --version 0.0.9 >"${PROBE_DIR}/plugin-guard.out" 2>&1; then
+    echo "✗ 降级发布未被拦截"
+    return 1
+  fi
+  grep -q "更高" "${PROBE_DIR}/plugin-guard.out" || { echo "✗ 降级拦截缺少原因"; return 1; }
+  version_after="$(cat "$manifest_path")"
+  [[ "$version_before" == "$version_after" ]] || { echo "✗ 拦下后 manifest 被改脏"; return 1; }
+  echo "✓ 索引版本更高时拒绝降级发布，且不改脏 manifest"
+
+  # --bump patch 发布 0.1.1
+  "$PY" "${proj}/scripts/make_plugin_release.py" hello-world --bump patch >"${PROBE_DIR}/plugin-bump.out" 2>&1 || {
+    cat "${PROBE_DIR}/plugin-bump.out"
+    return 1
+  }
+  grep -q '"version": "0.1.1"' "${proj}/market/index.json" || { echo "✗ 索引未更新到 0.1.1"; return 1; }
+  [[ -f "${proj}/market/packages/hello-world-0.1.1.zip" ]] || { echo "✗ 没有生成 0.1.1 的包"; return 1; }
+  grep -q '"version": "0.1.1"' "$manifest_path" || { echo "✗ manifest 未更新到 0.1.1"; return 1; }
+  echo "✓ --bump patch 同时更新 manifest、包与索引"
+
+  # --dry-run 不写文件
+  local index_before
+  index_before="$("$PY" -c 'import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "${proj}/market/index.json")"
+  "$PY" "${proj}/scripts/make_plugin_release.py" hello-world --bump minor --dry-run >"${PROBE_DIR}/plugin-dryrun.out" 2>&1 || {
+    cat "${PROBE_DIR}/plugin-dryrun.out"
+    return 1
+  }
+  [[ "$index_before" == "$("$PY" -c 'import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "${proj}/market/index.json")" ]] || {
+    echo "✗ --dry-run 改写了索引"
+    return 1
+  }
+  grep -q '"version": "0.1.1"' "$manifest_path" || { echo "✗ --dry-run 改写了 manifest"; return 1; }
+  echo "✓ --dry-run 只预演、不写文件"
+
+  # 旧入口兼容：make_plugin_zip.py = 只打包到 dist/、不动索引
+  ( cd "$proj" && "$PY" scripts/make_plugin_zip.py >"${PROBE_DIR}/plugin-zip-compat.out" 2>&1 ) || {
+    cat "${PROBE_DIR}/plugin-zip-compat.out"
+    return 1
+  }
+  [[ -f "${proj}/dist/hello-world-0.1.1.zip" ]] || { echo "✗ 旧入口没有打包到 dist/"; return 1; }
+  grep -q '"version": "0.1.1"' "${proj}/market/index.json" || { echo "✗ 旧入口动了索引"; return 1; }
+  echo "✓ 旧入口 make_plugin_zip.py 仍可用，且只打包不动索引"
+}
+
+verify_step "scripts/make_release.py（主应用发布：打包 / 清单 / 版本 / 预演 / token）" make_release_probe
+verify_step "scripts/make_plugin_release.py（子应用发布：确定性打包 / 索引 / 护栏）" plugin_release_probe
 
 # ---------- 5. 仓库内自检 + 前端构建 + audit ----------
 
 verify_step_in "$DESKTOP" "仓库内 make_release.py --check-only" \
   "$PY" scripts/make_release.py --check-only
+
+verify_step_in "$DESKTOP" "仓库内 make_plugin_release.py hello-world --check-only" \
+  "$PY" scripts/make_plugin_release.py hello-world --check-only
 
 if [[ -d "${DESKTOP}/front/node_modules" ]]; then
   verify_step_in "${DESKTOP}/front" "前端构建（pnpm build）" pnpm build
@@ -601,9 +765,10 @@ if [[ $FAIL -eq 0 ]]; then
   echo "- 版本比较单测与 apps/desktop 全量测试：通过（见上）。"
   echo "- 插件升级链路：通过（hasUpdate 标记、备份、plugin-data 保留、同版本 400 / 未安装 404 / 坏包 400 且不破坏本机版本）。"
   echo "- 宿主更新链路：通过（镜像回退、下载后 size/sha256 校验、坏包 400 且不覆盖已下载安装包、downloadedPath 回填）。"
-  echo "- make_release.py：通过（打包、清单 sha256/size/url/mirrors、可执行位、版本漂移拦截）。"
+  echo "- make_release.py（主应用发布）：通过（打包、清单 sha256/size/url/mirrors、可执行位、--bump 同步三处版本、--dry-run 不落文件、版本漂移拦截、缺 token 明确报错）。"
+  echo "- make_plugin_release.py（子应用发布）：通过（确定性打包 sha256 稳定、索引字段与包一致、降级护栏、--bump 同步 manifest/包/索引、--dry-run 不落文件、旧入口兼容）。"
   echo "- 前端构建：见上方结果；Harness audit：本 request 无新增 ERROR。"
-  echo "- 剩余风险：未在真实 GitHub/Gitee 网络环境跑过发布与下载（夹具用 file:// 替代）；未在 Windows / Linux 真机验证安装包替换。"
+  echo "- 剩余风险：未在真实 GitHub/Gitee 网络环境跑过发布与下载（夹具用 file:// 替代，Release 上传只验到「缺 token 明确报错」这一层）；未在 Windows / Linux 真机验证安装包替换。"
 else
   echo "- 存在失败步骤，未达到 spec 的验收标准，详见上方输出。"
 fi

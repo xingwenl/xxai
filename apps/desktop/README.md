@@ -396,17 +396,31 @@ https://raw.githubusercontent.com/xingwenl/xxai/main/apps/desktop/market/index.j
 
 错误语义：索引/包内容不合法或校验失败 → 400（`detail` 是中文原因）；下载或取索引失败 → 502；索引里没有该 id → 404；同名插件已安装 → 409。**校验失败不会落任何文件。**
 
-上架自己的插件：
+上架 / 发布子应用（一条命令：确定性打包 + 更新索引 + 打印提交推送命令）：
 
 ```bash
-# 1. 打包（会打印 sha256 / size 和可直接粘贴的索引条目）
-cd apps/desktop && .venv/bin/python scripts/make_plugin_zip.py
+cd apps/desktop
 
-# 2. 把 zip 放进 market/packages/，下载地址填本仓库 raw 地址
-#    https://raw.githubusercontent.com/xingwenl/xxai/main/apps/desktop/market/packages/<文件名>.zip
+# 新版本：manifest.json 里先改好 version，然后（默认 hello-world，可传任意插件 id 或目录）
+.venv/bin/python scripts/make_plugin_release.py hello-world
+# 也可以让脚本代改版本再发布（--version 可指定版本，仅往下调时需 --force）：
+.venv/bin/python scripts/make_plugin_release.py hello-world --bump patch
+.venv/bin/python scripts/make_plugin_release.py hello-world --version 0.3.0 --git
 
-# 3. 把条目追加到 market/index.json 并提交
+# 只校验包与索引是否自洽（CI 用，不出包、不写文件）
+.venv/bin/python scripts/make_plugin_release.py hello-world --check-only
 ```
+
+脚本做的事（`apps/desktop/scripts/make_plugin_release.py`）：
+
+1. 校验 `manifest.json`：id 规则、目录名必须等于 id、`name`/`version`/`entry`/`icon` 文件存在、`permissions` 是字符串数组。
+2. 打包到 `market/packages/<id>-<version>.zip`，包内顶层是 `<id>/`；固定时间戳与权限位，**同样的内容重复打包 sha256 完全一致**（不会因每次发版时间不同而变 hash）；跳过 `.DS_Store`、`__pycache__`、`node_modules`、`*.pyc`。
+3. 更新 `market/index.json`：`download` 指向本仓库 raw 地址，`mirrors` 指向 Gitee 同路径（主源失败宿主自动回退）；同 id 条目就地替换，不动其他插件与顺序。
+4. 打印 sha256 / size / permissions、要做的事和提交推送命令。
+
+护栏：索引里版本比本地高时拒绝发布（市场只提示升级、不会降级，确要回退加 `--force`）；同版本但包内容变了也拒绝（避免缓存过索引的用户装到不一致的内容，加 `--force` 覆盖）；任一护栏触发都不会把 `manifest.json` 改脏。
+
+`--git` 会顺便提交 `manifest.json` / zip / `market/index.json`（只提交不推送）；`--no-index --out-dir dist` 只打包不上架（旧的 `make_plugin_zip.py` 现在等价于这个用法，保留兼容）。
 
 也可以用 CLI 生成/校验条目（与宿主共用 `desktop_app/market.py`，校验口径完全一致）：
 
@@ -485,22 +499,26 @@ cd apps/desktop && .venv/bin/python scripts/make_plugin_zip.py
 
 ```bash
 cd apps/desktop
-# 1. 改三处版本号后先自检
+
+# 一条命令走完：递增版本 → 构建前端与产物 → 打平台 zip → 写 releases/latest.json → 提交并打 tag
+.venv/bin/python scripts/make_release.py --bump patch --build --git --notes "本次更新了什么"
+
+# 自动上传 Release（令牌走环境变量，见下）
+export GITHUB_TOKEN=... GITEE_TOKEN=...
+.venv/bin/python scripts/make_release.py --publish all --notes "本次更新了什么"
+
+# 只预演、不落任何文件；只校验版本号与清单是否自洽（CI 用）
+.venv/bin/python scripts/make_release.py --bump minor --build --git --publish all --dry-run
 .venv/bin/python scripts/make_release.py --check-only
-
-# 2. 构建前端 + PyInstaller 产物
-pnpm --dir front build
-.venv/bin/python build/build.py
-
-# 3. 打平台 zip、算 hash、合并进 releases/latest.json
-.venv/bin/python scripts/make_release.py --notes "本次更新了什么"
-
-# 4. 把 dist/releases/WW-<version>-<platform>.zip 上传到 GitHub Release（tag：desktop-v<version>）
-#    并把同一份 zip 同步到 Gitee Release（宿主会回退到 Gitee 镜像）
-# 5. 提交 releases/latest.json 与三处版本号，推送 main（raw 地址指向 main，推上去即生效）
 ```
 
-脚本会把清单里的 `url` 写成 GitHub Release 下载地址、`mirrors` 写成 Gitee 同 tag 地址；多平台发版时在每个平台各跑一次（默认只更新当前平台的条目，`--reset` 可清掉其他平台的旧条目）。`--asset <zip>` 可跳过重新打包、直接登记已有产物；`--platform` / `--github-repo` / `--gitee-repo` 可覆盖默认值。
+常用参数：`--bump major|minor|patch` 或 `--set-version X.Y.Z` 改三处版本号；`--build` 跑 `pnpm --dir front build` + `python build/build.py`；`--asset <zip>` 直接登记已有产物不重新打包；`--git` 提交 4 个文件并打本地 tag `desktop-v<version>`（**只打 tag 不推送**）；`--publish github|gitee|all` 上传 Release；`--platform` / `--github-repo` / `--gitee-repo` / `--branch` 覆盖默认值。
+
+令牌：GitHub 用 `GITHUB_TOKEN`（或 `GH_TOKEN`，需 `repo` 权限），Gitee 用 `GITEE_TOKEN`（私人令牌，需 `projects` 权限），二者只从环境变量读、不落盘。上传逻辑可重复执行：同名资产会先删后传，已存在的 Release 会复用而不是报错。
+
+脚本会把清单里的 `url` 写成 GitHub Release 下载地址、`mirrors` 写成 Gitee 同 tag 地址；多平台发版时在每个平台各跑一次（默认只更新当前平台的条目，`--reset` 可清掉其他平台的旧条目）。推送 `main` 后宿主即可检查到新版本（raw 地址指向 main）。
+
+> 宿主侧只做「检查 → 下载 → 校验 sha256 → 引导手动安装」，不会自动替换自己；`GITHUB_TOKEN` 只用于发版机器，绝不写进客户端。
 
 ### 开发一个插件
 

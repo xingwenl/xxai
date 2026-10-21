@@ -1,7 +1,7 @@
 ---
 source: script
 request: 2026-10-21-desktop-app-and-plugin-update
-ranAt: "2026-10-21 17:05:26 CST"
+ranAt: "2026-10-21 17:42:38 CST"
 exitCode: 0
 ---
 
@@ -35,7 +35,7 @@ exitCode: 0
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-362 passed, 1 warning in 2.08s
+362 passed, 1 warning in 2.52s
 结果：通过
 
 ### 插件升级端到端（临时 HOME + file:// 索引）
@@ -44,7 +44,7 @@ exitCode: 0
 plugin_upgrade_probe
 ```
 
-/var/folders/lr/0c65dm215n36_2_m8nt6fpnm0000gn/T/tmp.btmVUpgicQ/plugin-market
+/var/folders/lr/0c65dm215n36_2_m8nt6fpnm0000gn/T/tmp.HmtiWfv7Ok/plugin-market
 ✓ 升级成功：版本/内容换新、数据与状态保留、旧版本备份、无临时残留
 ✓ 错误语义：同版本 400、未安装 404、坏包 400 且本机版本不变
 结果：通过
@@ -55,13 +55,13 @@ plugin_upgrade_probe
 # 主源指向不可达路径、镜像指向 file:// 清单，验证回退与下载校验
 ```
 
-/var/folders/lr/0c65dm215n36_2_m8nt6fpnm0000gn/T/tmp.btmVUpgicQ/app-update
+/var/folders/lr/0c65dm215n36_2_m8nt6fpnm0000gn/T/tmp.HmtiWfv7Ok/app-update
 ✓ GET /api/desktop/app-update 走镜像回退拿到清单： 9.9.9
 ✓ 下载校验落盘、downloadedPath 回填、reveal 打开固定目录
 ✓ 坏 sha 返回 400 且不残留文件
 结果：通过
 
-### scripts/make_release.py（打包 / 清单 / 版本一致性）
+### scripts/make_release.py（主应用发布：打包 / 清单 / 版本 / 预演 / token）
 
 ```bash
 make_release_probe
@@ -71,18 +71,37 @@ make_release_probe
 清单文件: releases/latest.json
 ⚠ 清单文件还不存在，首次发版会创建
 ✓ 三处版本号一致：1.2.3
-打包 WW → dist/releases/WW-1.2.3-macos-arm64.zip
-✓ 产物：/private/var/folders/lr/0c65dm215n36_2_m8nt6fpnm0000gn/T/tmp.btmVUpgicQ/fakeproj/dist/releases/WW-1.2.3-macos-arm64.zip
-  sha256: 84eab1aca1d545c3abeb04c77501858b94eb052c12030fd768bb96eee2a97f18
+▶ 打包 WW → dist/releases/WW-1.2.3-macos-arm64.zip
+✓ 产物：/private/var/folders/lr/0c65dm215n36_2_m8nt6fpnm0000gn/T/tmp.HmtiWfv7Ok/fakeproj/dist/releases/WW-1.2.3-macos-arm64.zip
+  sha256: 595fe9da281633a8f5dcc94d5772e53f836b978e23aaa3583097b55ac61ba7e7
   size:   136
 ✓ 清单已更新：releases/latest.json（latest=1.2.3）
 
 下一步：
-  1. 上传 WW-1.2.3-macos-arm64.zip 到 GitHub Release（tag desktop-v1.2.3）
-  2. 同步到 Gitee Release（镜像清单与安装包，GitHub 不可达时宿主会回退）
-  3. 提交 releases/latest.json 与版本号变更，再推送 main 分支
+  1. 提交版本与清单并打 tag：git add -u && git commit -m 'chore(release): 桌面 v1.2.3'
+     git tag -a desktop-v1.2.3 -m 'chore(release): 桌面 v1.2.3'
+  2. 上传 WW-1.2.3-macos-arm64.zip 到 GitHub Release（tag desktop-v1.2.3），并同步一份到 Gitee Release
+     可改用 --publish github|gitee|all 自动上传（需要 GITHUB_TOKEN / GITEE_TOKEN）
+  3. 清单 url 指向 GitHub Release、mirrors 指向 Gitee 同 tag，推送 main 后宿主即可检查到 v1.2.3
 ✓ 打包出 WW-1.2.3-macos-arm64.zip，清单 sha256/size/url/mirrors 一致、可执行位保留
 ✓ 版本号漂移被 --check-only 拦截
+✓ --bump patch 同步三处版本号与清单 latest
+✓ --dry-run 只打印计划、不写文件
+✓ 缺 GITHUB_TOKEN 时 --publish github 明确报错
+结果：通过
+
+### scripts/make_plugin_release.py（子应用发布：确定性打包 / 索引 / 护栏）
+
+```bash
+plugin_release_probe
+```
+
+✓ 确定性打包：重复打同一版本 sha256 一致（f5458c06456f6c518b2a2e6a5ea9aa6c9c6392142276fb85308ca4ffe74d1c8f）
+✓ 索引条目自洽：hello-world v0.1.0，含 Gitee mirrors
+✓ 索引版本更高时拒绝降级发布，且不改脏 manifest
+✓ --bump patch 同时更新 manifest、包与索引
+✓ --dry-run 只预演、不写文件
+✓ 旧入口 make_plugin_zip.py 仍可用，且只打包不动索引
 结果：通过
 
 ### 仓库内 make_release.py --check-only
@@ -97,6 +116,20 @@ make_release_probe
 平台资产:   <空>
 ⚠ 清单里还没有任何平台资产，首次发版后由本脚本写入
 ✓ 清单校验通过
+结果：通过
+
+### 仓库内 make_plugin_release.py hello-world --check-only
+
+```bash
+( cd /Users/lixingwen/xw/study/ai-base/apps/desktop && /Users/lixingwen/xw/study/ai-base/apps/desktop/.venv/bin/python scripts/make_plugin_release.py hello-world --check-only )
+```
+
+插件目录: /Users/lixingwen/xw/study/ai-base/apps/desktop/plugins/hello-world
+manifest: apps/desktop/plugins/hello-world/manifest.json
+版本:     hello-world v0.1.0
+包:       apps/desktop/market/packages/hello-world-0.1.0.zip（4104 字节，sha256 f5458c06456f6c518b2a2e6a5ea9aa6c9c6392142276fb85308ca4ffe74d1c8f）
+索引:     v0.1.0 sha256 f5458c06456f6c518b2a2e6a5ea9aa6c9c6392142276fb85308ca4ffe74d1c8f
+✓ 索引与 manifest / 包自洽
 结果：通过
 
 ### 前端构建（pnpm build）
@@ -218,7 +251,7 @@ dist/assets/chunk-NGNAAXSQ-C2Wy9Xmz.js                  629.04 kB │ gzip: 127.
 dist/assets/echarts-CNcUJtm3.js                       1,124.20 kB │ gzip: 373.58 kB
 dist/assets/elk-QONTBCTQ-CKk4yOJ8.js                  1,462.89 kB │ gzip: 455.85 kB
 
-✓ built in 884ms
+✓ built in 867ms
 [plugin builtin:vite-reporter] 
 (!) Some chunks are larger than 500 kB after minification. Consider:
 - Using dynamic import() to code-split the application
@@ -248,7 +281,8 @@ v2 requests: 30  存量跳过: 59  ERROR: 1  WARN: 0
 - 版本比较单测与 apps/desktop 全量测试：通过（见上）。
 - 插件升级链路：通过（hasUpdate 标记、备份、plugin-data 保留、同版本 400 / 未安装 404 / 坏包 400 且不破坏本机版本）。
 - 宿主更新链路：通过（镜像回退、下载后 size/sha256 校验、坏包 400 且不覆盖已下载安装包、downloadedPath 回填）。
-- make_release.py：通过（打包、清单 sha256/size/url/mirrors、可执行位、版本漂移拦截）。
+- make_release.py（主应用发布）：通过（打包、清单 sha256/size/url/mirrors、可执行位、--bump 同步三处版本、--dry-run 不落文件、版本漂移拦截、缺 token 明确报错）。
+- make_plugin_release.py（子应用发布）：通过（确定性打包 sha256 稳定、索引字段与包一致、降级护栏、--bump 同步 manifest/包/索引、--dry-run 不落文件、旧入口兼容）。
 - 前端构建：见上方结果；Harness audit：本 request 无新增 ERROR。
-- 剩余风险：未在真实 GitHub/Gitee 网络环境跑过发布与下载（夹具用 file:// 替代）；未在 Windows / Linux 真机验证安装包替换。
+- 剩余风险：未在真实 GitHub/Gitee 网络环境跑过发布与下载（夹具用 file:// 替代，Release 上传只验到「缺 token 明确报错」这一层）；未在 Windows / Linux 真机验证安装包替换。
 - 脚本退出码：0

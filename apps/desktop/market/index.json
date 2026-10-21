@@ -7,7 +7,7 @@
       "version": "0.1.0",
       "description": "示例应用：演示宿主 SDK 的全部基础能力（通知 / 配置 / 存储 / 事件 / HTTP / 平台信息 / 日志 / 概览卡）",
       "download": "https://raw.githubusercontent.com/xingwenl/xxai/main/apps/desktop/market/packages/hello-world-0.1.0.zip",
-      "sha256": "79fdaab9d61b4b3211c5ec480b83a0674965e912438937c21f85426ab37f15aa",
+      "sha256": "f5458c06456f6c518b2a2e6a5ea9aa6c9c6392142276fb85308ca4ffe74d1c8f",
       "size": 4104,
       "permissions": [
         "notify",
@@ -18,6 +18,9 @@
         "platform",
         "log",
         "dashboard"
+      ],
+      "mirrors": [
+        "https://gitee.com/xingwenl/xxai/raw/main/apps/desktop/market/packages/hello-world-0.1.0.zip"
       ]
     }
   ]
