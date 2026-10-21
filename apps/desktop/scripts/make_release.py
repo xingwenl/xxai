@@ -325,6 +325,11 @@ def commit_and_tag(version: str) -> None:
 TOKEN_FILE_NAME = "release-tokens.json"
 TOKEN_ENV_NAMES = {"github": ("GITHUB_TOKEN", "GH_TOKEN"), "gitee": ("GITEE_TOKEN",)}
 HOST_LABELS = {"github": "GitHub", "gitee": "Gitee"}
+GITHUB_PERMISSION_HINT = (
+    "GitHub 令牌权限不足。细粒度令牌：Repository access 里勾选该仓库，"
+    "并给 Repository permissions → Contents 设为 Read and write（Metadata 会自动只读）；"
+    "经典令牌：私有库需要 repo、公开库 public_repo 即可。改完重新 --set-github-token 保存。"
+)
 
 
 def token_path() -> Path:
@@ -484,10 +489,16 @@ def publish_github(*, repo: str, version: str, asset_path: Path, notes: str) -> 
             data=payload,
         )
         if status not in (200, 201):
-            raise PublishError(f"创建 GitHub Release 失败（HTTP {status}）：{body.decode('utf-8', 'replace')[:300]}")
+            hint = GITHUB_PERMISSION_HINT if status in (401, 403) else ""
+            raise PublishError(
+                f"创建 GitHub Release 失败（HTTP {status}）：{body.decode('utf-8', 'replace')[:300]}\n{hint}"
+            )
         release = _json_dict(body, what="GitHub Release")
     else:
-        raise PublishError(f"查询 GitHub Release 失败（HTTP {status}）：{body.decode('utf-8', 'replace')[:300]}")
+        hint = GITHUB_PERMISSION_HINT if status in (401, 403) else ""
+        raise PublishError(
+            f"查询 GitHub Release 失败（HTTP {status}）：{body.decode('utf-8', 'replace')[:300]}\n{hint}"
+        )
 
     release_id = int(release.get("id") or 0)
     if not release_id:
@@ -515,7 +526,8 @@ def publish_github(*, repo: str, version: str, asset_path: Path, notes: str) -> 
         data=asset_path.read_bytes(),
     )
     if status not in (200, 201):
-        raise PublishError(f"上传 GitHub 资产失败（HTTP {status}）：{body.decode('utf-8', 'replace')[:300]}")
+        hint = GITHUB_PERMISSION_HINT if status in (401, 403) else ""
+        raise PublishError(f"上传 GitHub 资产失败（HTTP {status}）：{body.decode('utf-8', 'replace')[:300]}\n{hint}")
     return str(release.get("html_url") or page)
 
 
