@@ -103,6 +103,8 @@ class RuntimeToolDispatcher:
         agent_id: int,
         platform_id: int,
         end_user_id: int,
+        user_id: int | None = None,
+        client_id: str | None = None,
         event_queue: asyncio.Queue,
         pending_mcp_confirmations: dict[str, asyncio.Future],
         pending_host_results: dict[str, asyncio.Future],
@@ -115,6 +117,10 @@ class RuntimeToolDispatcher:
         self.agent_id = agent_id
         self.platform_id = platform_id
         self.end_user_id = end_user_id
+        # 后台用户身份（受信任入口签发 token 时带上的 claim）；第三方访客没有。
+        self.user_id = user_id
+        # 嵌入会话所属 Client：端用户记忆按 (client_id, end_user_id) 隔离。
+        self.client_id = client_id
         self.event_queue = event_queue
         self.pending_mcp_confirmations = pending_mcp_confirmations
         self.pending_host_results = pending_host_results
@@ -166,7 +172,9 @@ class RuntimeToolDispatcher:
                 platform_id=self.platform_id,
                 agent_id=self.agent_id,
                 conversation_id=self.context.conversation_id,
+                user_id=self.user_id,
                 platform_end_user_id=self.end_user_id,
+                client_id=self.client_id,
                 session=self.session,
                 # 运行记录由 stream_embed_chat 创建后回填到 context；
                 # 委派类工具据此把子运行挂到本次运行下。

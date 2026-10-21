@@ -27,17 +27,45 @@ class UserMemory(BaseModel, TimeModel):
 
     __tablename__ = "user_memories"
     __table_args__ = (
-        # 「同一用户同一 key 同时只有一条有效事实」由数据库保证：应用层先查再写
+        # 「同一主体同一 key 同时只有一条有效事实」由数据库保证：应用层先查再写
         # 在并发下会写出两条有效事实，而记忆的正确性正是这套系统的全部价值。
+        # 两种主体各有一条部分唯一索引：后台用户按 user_id，嵌入终端用户按
+        # (client_id, end_user_id)，见 docs/adr/0016-end-user-memory.md。
         Index(
             "uq_user_memories_active_fact",
             "platform_id",
             "user_id",
             "key",
             unique=True,
-            postgresql_where=text("kind = 'fact' AND valid_until IS NULL"),
+            postgresql_where=text(
+                "kind = 'fact' AND valid_until IS NULL AND user_id IS NOT NULL"
+            ),
+        ),
+        Index(
+            "uq_user_memories_active_end_user_fact",
+            "platform_id",
+            "client_id",
+            "end_user_id",
+            "key",
+            unique=True,
+            postgresql_where=text(
+                "kind = 'fact' AND valid_until IS NULL AND end_user_id IS NOT NULL"
+            ),
         ),
         Index("ix_user_memories_platform_id_user_id", "platform_id", "user_id"),
+        Index(
+            "ix_user_memories_platform_id_client_id_end_user_id",
+            "platform_id",
+            "client_id",
+            "end_user_id",
+        ),
+        # 主体恰好一种：要么后台用户，要么「Client + 终端用户」。两种都填会让
+        # 归属含糊（读侧按哪个过滤？），都不填则记忆成了无主数据。
+        CheckConstraint(
+            "(user_id IS NOT NULL AND client_id IS NULL AND end_user_id IS NULL) "
+            "OR (user_id IS NULL AND client_id IS NOT NULL AND end_user_id IS NOT NULL)",
+            name="ck_user_memories_exactly_one_principal",
+        ),
         CheckConstraint(
             "kind IN ('fact', 'event')", name="ck_user_memories_kind"
         ),
@@ -68,10 +96,27 @@ class UserMemory(BaseModel, TimeModel):
         nullable=False,
         comment="所属平台 ID；记忆按平台隔离，不跨平台共享",
     )
-    user_id: Mapped[int] = mapped_column(
+    user_id: Mapped[int | None] = mapped_column(
         ForeignKey("sys_users.id", ondelete="CASCADE"),
-        nullable=False,
-        comment="记忆所属的后台用户 ID，即会话主体；只有本人能读",
+        nullable=True,
+        comment=(
+            "记忆所属的后台用户 ID（sys_users.id）；与 client_id/end_user_id 恰好一种，"
+            "后台用户主体只有本人能读"
+        ),
+    )
+    client_id: Mapped[str | None] = mapped_column(
+        String(80),
+        ForeignKey("platform_embed_clients.client_id", ondelete="CASCADE"),
+        nullable=True,
+        comment=(
+            "嵌入终端用户主体所属的 Embed Client ID；与 end_user_id 成对出现，"
+            "用于隔离不同接入方带来的访客记忆"
+        ),
+    )
+    end_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("platform_end_users.id", ondelete="CASCADE"),
+        nullable=True,
+        comment="嵌入终端用户 ID（platform_end_users.id）；与 client_id 成对出现",
     )
     kind: Mapped[str] = mapped_column(
         String(10),

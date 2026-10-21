@@ -42,6 +42,9 @@ class BusinessToolContext:
     conversation_id: int
     user_id: int | None = None
     platform_end_user_id: int | None = None
+    # 嵌入会话所属的 Embed Client ID。端用户记忆按 (client_id, platform_end_user_id)
+    # 隔离：不同接入方的访客可能有相同的 external_user_id，不能合并。
+    client_id: str | None = None
     # 当前这次运行在 agent_loop_runs 里的 ID：委派类工具据此把子运行挂到父运行下。
     # 由调用方经 loop_run_id_provider 注入，非委派场景为 None。
     loop_run_id: int | None = None

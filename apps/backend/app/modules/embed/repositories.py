@@ -7,7 +7,6 @@ from app.modules.embed.models import (
     PlatformEndUser,
 )
 from app.modules.host_tool.models import EmbedClientHostTool, HostToolPolicy
-from app.shared.base_repository import BaseRepository
 
 
 class EmbedRepository:

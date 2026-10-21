@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db_session
 from app.core.security import require_current_active_user
+from app.modules.memory.principal import MemoryPrincipal, user_principal
 from app.modules.memory.repositories import MemoryRepository
 from app.modules.memory.schemas import (
     MemoryCreate,
@@ -39,12 +40,18 @@ async def _require_member(platform_id: int, user_id: int, session: AsyncSession)
         raise NotFoundException("platform not found")
 
 
+def _principal(platform_id: int, user_id: int) -> MemoryPrincipal:
+    """本人视图只服务后台用户主体；终端用户没有后台登录态，不会走到这里。"""
+
+    return user_principal(platform_id, user_id)
+
+
 async def _require_own_memory(
-    repo: MemoryRepository, *, platform_id: int, user_id: int, memory_id: int
+    repo: MemoryRepository, *, principal: MemoryPrincipal, memory_id: int
 ):
     row = await repo.get_by_id(memory_id)
     # 别人的记忆一律按「不存在」处理：返回 403 会暴露某条 id 确实属于别人。
-    if row is None or row.platform_id != platform_id or row.user_id != user_id:
+    if row is None or not principal.owns(row):
         raise NotFoundException("memory not found")
     return row
 
@@ -62,17 +69,15 @@ async def list_memories_endpoint(
 ):
     await _require_member(platform_id, current_user.id, session)
     repo = MemoryRepository(session)
-    rows = await repo.list_for_user(
-        platform_id,
-        current_user.id,
+    principal = _principal(platform_id, current_user.id)
+    rows = await repo.list_for(
+        principal,
         kind=normalize_kind(kind) if kind else None,
         include_history=include_history,
         query=query,
         limit=500,
     )
-    fact_count, event_count = await repo.count_active_by_kind(
-        platform_id, current_user.id
-    )
+    fact_count, event_count = await repo.count_active_by_kind(principal)
     return success_response(
         data=MemoryListData(
             items=[memory_read(row) for row in rows],
@@ -95,8 +100,7 @@ async def create_memory_endpoint(
     # 手填走 explicit：用户亲自输入的条目不受自动写入的白名单与敏感类别限制。
     result = await remember_memory(
         repo,
-        platform_id=platform_id,
-        user_id=current_user.id,
+        principal=_principal(platform_id, current_user.id),
         kind=payload.kind,
         key=payload.key,
         content=payload.content,
@@ -118,7 +122,9 @@ async def update_memory_endpoint(
     await _require_member(platform_id, current_user.id, session)
     repo = MemoryRepository(session)
     row = await _require_own_memory(
-        repo, platform_id=platform_id, user_id=current_user.id, memory_id=memory_id
+        repo,
+        principal=_principal(platform_id, current_user.id),
+        memory_id=memory_id,
     )
     if payload.content is None and payload.occurred_at is None:
         return success_response(data=memory_read(row))
@@ -140,7 +146,9 @@ async def delete_memory_endpoint(
     await _require_member(platform_id, current_user.id, session)
     repo = MemoryRepository(session)
     row = await _require_own_memory(
-        repo, platform_id=platform_id, user_id=current_user.id, memory_id=memory_id
+        repo,
+        principal=_principal(platform_id, current_user.id),
+        memory_id=memory_id,
     )
     await repo.delete(row)
     return success_response(message="记忆已删除")
@@ -154,7 +162,9 @@ async def delete_all_memories_endpoint(
 ):
     await _require_member(platform_id, current_user.id, session)
     repo = MemoryRepository(session)
-    deleted = await repo.delete_all_for_user(platform_id, current_user.id)
+    deleted = await repo.delete_all_for(
+        _principal(platform_id, current_user.id)
+    )
     return success_response(data={"deleted": deleted}, message="记忆已清空")
 
 
@@ -169,7 +179,7 @@ async def memory_stats_endpoint(
     await _require_member(platform_id, current_user.id, session)
     repo = MemoryRepository(session)
     fact_count, event_count = await repo.count_active_by_kind(
-        platform_id, current_user.id
+        _principal(platform_id, current_user.id)
     )
     return success_response(
         data={

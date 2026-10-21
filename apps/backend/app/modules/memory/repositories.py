@@ -6,18 +6,38 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from app.modules.memory.models import UserMemory
+from app.modules.memory.principal import MemoryPrincipal
 from app.shared.base_repository import BaseRepository
 from app.shared.exceptions import ConflictException
+
+
+def _principal_filters(principal: MemoryPrincipal) -> list:
+    """把主体翻译成过滤条件；读路径与写路径必须用同一口径，否则会串号。"""
+
+    filters = [UserMemory.platform_id == principal.platform_id]
+    if principal.user_id is not None:
+        filters.append(UserMemory.user_id == principal.user_id)
+    else:
+        filters.append(UserMemory.client_id == principal.client_id)
+        filters.append(UserMemory.end_user_id == principal.end_user_id)
+    return filters
+
+
+def _principal_columns(principal: MemoryPrincipal) -> dict:
+    """主体在表里落成哪几列；CHECK 约束保证不会两种都写。"""
+
+    if principal.user_id is not None:
+        return {"user_id": principal.user_id}
+    return {"client_id": principal.client_id, "end_user_id": principal.end_user_id}
 
 
 class MemoryRepository(BaseRepository[UserMemory]):
     def __init__(self, session) -> None:
         super().__init__(session, UserMemory)
 
-    async def list_for_user(
+    async def list_for(
         self,
-        platform_id: int,
-        user_id: int,
+        principal: MemoryPrincipal,
         *,
         kind: str | None = None,
         include_history: bool = False,
@@ -32,10 +52,7 @@ class MemoryRepository(BaseRepository[UserMemory]):
         「以前是什么」两种问题各有一条确定路径。
         """
 
-        stmt = select(UserMemory).where(
-            UserMemory.platform_id == platform_id,
-            UserMemory.user_id == user_id,
-        )
+        stmt = select(UserMemory).where(*_principal_filters(principal))
         if not include_history:
             stmt = stmt.where(UserMemory.valid_until.is_(None))
         if kind is not None:
@@ -59,15 +76,14 @@ class MemoryRepository(BaseRepository[UserMemory]):
         return list(result.scalars().all())
 
     async def list_events_recent(
-        self, platform_id: int, user_id: int, *, limit: int = 50
+        self, principal: MemoryPrincipal, *, limit: int = 50
     ) -> list[UserMemory]:
         """最近发生的经历，按发生时间倒序，供「我干过什么」类问题取用。"""
 
         stmt = (
             select(UserMemory)
             .where(
-                UserMemory.platform_id == platform_id,
-                UserMemory.user_id == user_id,
+                *_principal_filters(principal),
                 UserMemory.kind == "event",
             )
             .order_by(UserMemory.occurred_at.desc().nullslast(), UserMemory.id.desc())
@@ -77,11 +93,10 @@ class MemoryRepository(BaseRepository[UserMemory]):
         return list(result.scalars().all())
 
     async def find_active_fact(
-        self, platform_id: int, user_id: int, key: str
+        self, principal: MemoryPrincipal, key: str
     ) -> UserMemory | None:
         stmt = select(UserMemory).where(
-            UserMemory.platform_id == platform_id,
-            UserMemory.user_id == user_id,
+            *_principal_filters(principal),
             UserMemory.kind == "fact",
             UserMemory.key == key,
             UserMemory.valid_until.is_(None),
@@ -92,8 +107,7 @@ class MemoryRepository(BaseRepository[UserMemory]):
     async def upsert_fact(
         self,
         *,
-        platform_id: int,
-        user_id: int,
+        principal: MemoryPrincipal,
         key: str,
         content: str,
         occurred_at: datetime | None,
@@ -110,18 +124,18 @@ class MemoryRepository(BaseRepository[UserMemory]):
         """
 
         now = datetime.now(timezone.utc)
-        previous = await self.find_active_fact(platform_id, user_id, key)
+        previous = await self.find_active_fact(principal, key)
         if previous is not None:
             previous.valid_until = now
         row = UserMemory(
-            platform_id=platform_id,
-            user_id=user_id,
+            platform_id=principal.platform_id,
             kind="fact",
             key=key,
             content=content,
             occurred_at=occurred_at or now,
             source=source,
             source_conversation_id=source_conversation_id,
+            **_principal_columns(principal),
         )
         self.session.add(row)
         try:
@@ -137,22 +151,21 @@ class MemoryRepository(BaseRepository[UserMemory]):
     async def create_event(
         self,
         *,
-        platform_id: int,
-        user_id: int,
+        principal: MemoryPrincipal,
         content: str,
         occurred_at: datetime,
         source: str,
         source_conversation_id: int | None = None,
     ) -> UserMemory:
         row = UserMemory(
-            platform_id=platform_id,
-            user_id=user_id,
+            platform_id=principal.platform_id,
             kind="event",
             key=None,
             content=content,
             occurred_at=occurred_at,
             source=source,
             source_conversation_id=source_conversation_id,
+            **_principal_columns(principal),
         )
         self.session.add(row)
         await self.session.commit()
@@ -170,15 +183,14 @@ class MemoryRepository(BaseRepository[UserMemory]):
         return row
 
     async def count_active_by_kind(
-        self, platform_id: int, user_id: int
+        self, principal: MemoryPrincipal
     ) -> tuple[int, int]:
         """返回当前有效记忆的 (事实数, 经历数)，只用于注入索引行。"""
 
         stmt = (
             select(UserMemory.kind, func.count())
             .where(
-                UserMemory.platform_id == platform_id,
-                UserMemory.user_id == user_id,
+                *_principal_filters(principal),
                 UserMemory.valid_until.is_(None),
             )
             .group_by(UserMemory.kind)
@@ -187,11 +199,8 @@ class MemoryRepository(BaseRepository[UserMemory]):
         counts = {kind: int(count) for kind, count in result.all()}
         return counts.get("fact", 0), counts.get("event", 0)
 
-    async def delete_all_for_user(self, platform_id: int, user_id: int) -> int:
-        stmt = delete(UserMemory).where(
-            UserMemory.platform_id == platform_id,
-            UserMemory.user_id == user_id,
-        )
+    async def delete_all_for(self, principal: MemoryPrincipal) -> int:
+        stmt = delete(UserMemory).where(*_principal_filters(principal))
         result = await self.session.execute(stmt)
         await self.session.commit()
         return int(result.rowcount or 0)

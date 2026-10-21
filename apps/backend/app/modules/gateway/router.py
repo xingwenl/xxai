@@ -695,6 +695,10 @@ async def produce_embed_request(
                 agent_id=agent_id,
                 platform_id=int(payload["platform_id"]),
                 end_user_id=int(payload["sub"]),
+                # 受信任入口（后台登录态）签发的 token 额外带 user_id：记忆归属于
+                # 这位后台用户，管理台「我的记忆」能看到；第三方访客没有这个 claim。
+                user_id=payload.get("user_id"),
+                client_id=str(payload["client_id"]),
                 event_queue=event_queue,
                 pending_mcp_confirmations=pending_mcp_confirmations,
                 pending_host_results=pending_host_results,
@@ -763,6 +767,7 @@ async def produce_embed_request(
                     platform_id=payload["platform_id"],
                     client_id=str(payload["client_id"]),
                     end_user_id=int(payload["sub"]),
+                    user_id=payload.get("user_id"),
                     message=message["text"],
                     system_prompt=message.get("systemPrompt")
                     if isinstance(message.get("systemPrompt"), str)

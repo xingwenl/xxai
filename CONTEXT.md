@@ -243,3 +243,11 @@ _Avoid_: 智能体列表、候选模型、agent 商场
 **智能体切换开关（Agent Switching Toggle）**:
 后台 embed client 上的布尔配置 `allow_agent_switching`，决定该 client 接入的 SDK 是否允许终端用户切换智能体。它属于平台策略而不是 SDK 配置项，经 `session_ready` 的 client 快照下发。
 _Avoid_: 功能开关、feature flag、SDK 开关
+
+**记忆主体（Memory Principal）**:
+一条记忆归谁所有，有两种形态：后台用户（`sys_users.id`）或嵌入终端用户（`platform_embed_clients.client_id` + `platform_end_users.id`），由数据库 CHECK 保证恰好一种。它决定记忆的可见范围，也是「谁能忘掉这条」的依据。
+_Avoid_: 记忆所有者、账号、用户主体、principal 类型
+
+**端用户记忆（End-User Memory）**:
+归属嵌入终端用户而非后台用户的记忆。它由公开入口（`POST /embed/tokens`）签发的会话读写，按 Client 隔离——同一个 `external_user_id` 在两个 Client 下是两个人；不进管理台，只在会话内可查。
+_Avoid_: 访客记忆、匿名记忆、Client 记忆

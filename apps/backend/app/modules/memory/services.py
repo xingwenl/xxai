@@ -2,7 +2,8 @@
 
 这里的规则分三类，全部**由代码执行**而不是只写进提示词：
 
-1. 谁能写：没有在场主体（无人值守）一律拒绝；
+1. 谁能写：没有可识别主体（既没有后台用户，也不是带 Client 的终端用户）
+   一律拒绝，无人值守同样拒绝；
 2. 能自动写什么：``mode=inferred`` 只允许事实类、只允许白名单 key、不许碰
    敏感类别、不许写长文；
 3. 写了之后看到什么：事实返回「新值 + 原值」的回显，让用户在聊天里就能看出
@@ -10,12 +11,17 @@
 
 提示词是建议，代码才是边界——模型偶尔会把人名当城市、把玩笑当真话，这些
 判断不能交给它自己。
+
+主体有两种（后台用户 / 「Client + 终端用户」），见
+docs/adr/0016-end-user-memory.md；本层只接收 ``MemoryPrincipal``，不再自己
+拼 platform_id + user_id，避免某条路径漏掉 Client 隔离。
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from app.modules.memory.principal import MemoryPrincipal, user_principal
 from app.shared.exceptions import BadRequestException
 
 FACT = "fact"
@@ -222,17 +228,31 @@ def build_memory_index_line(fact_count: int, event_count: int) -> str:
     )
 
 
-async def load_memory_index_line(
-    memory_repo, *, platform_id: int, user_id: int | None
+async def load_memory_index_line_for_principal(
+    memory_repo, principal: MemoryPrincipal | None
 ) -> str | None:
     """读取主体当前记忆条数并构造索引行；没有主体时返回 None（不注入）。"""
 
+    if principal is None:
+        return None
+    fact_count, event_count = await memory_repo.count_active_by_kind(principal)
+    return build_memory_index_line(fact_count, event_count)
+
+
+async def load_memory_index_line(
+    memory_repo, *, platform_id: int, user_id: int | None
+) -> str | None:
+    """后台用户主体的索引行。
+
+    保留这个签名是因为 REST 对话路径（conversation/services.py）只知道后台
+    用户；它内部转成 ``MemoryPrincipal``，与嵌入路径共用同一套条数查询。
+    """
+
     if user_id is None:
         return None
-    fact_count, event_count = await memory_repo.count_active_by_kind(
-        platform_id, user_id
+    return await load_memory_index_line_for_principal(
+        memory_repo, user_principal(platform_id, user_id)
     )
-    return build_memory_index_line(fact_count, event_count)
 
 
 def _format_month_day(value: datetime | None) -> str:
@@ -293,8 +313,7 @@ def truncate_payloads(payloads: list[dict], max_chars: int = SEARCH_MAX_CHARS) -
 async def remember_memory(
     memory_repo,
     *,
-    platform_id: int,
-    user_id: int | None,
+    principal: MemoryPrincipal | None,
     kind: str,
     key: str | None,
     content: str,
@@ -304,7 +323,7 @@ async def remember_memory(
 ) -> dict:
     """写入一条记忆并返回回显结果。"""
 
-    if user_id is None:
+    if principal is None:
         raise BadRequestException(
             "memory write requires a present user",
             error_code="memory_principal_required",
@@ -316,8 +335,7 @@ async def remember_memory(
 
     if kind == FACT:
         row, previous = await memory_repo.upsert_fact(
-            platform_id=platform_id,
-            user_id=user_id,
+            principal=principal,
             key=normalized_key,
             content=text,
             occurred_at=occurred_at,
@@ -342,8 +360,7 @@ async def remember_memory(
         }
 
     row = await memory_repo.create_event(
-        platform_id=platform_id,
-        user_id=user_id,
+        principal=principal,
         content=text,
         occurred_at=occurred_at or datetime.now(timezone.utc),
         source=mode,
@@ -370,22 +387,20 @@ async def remember_memory(
 async def search_memory(
     memory_repo,
     *,
-    platform_id: int,
-    user_id: int | None,
+    principal: MemoryPrincipal | None,
     query: str | None,
     include_history: bool = False,
     kind: str | None = None,
 ) -> dict:
     """按需检索记忆：全量 active 返回（不走向量），可选关键词过滤。"""
 
-    if user_id is None:
+    if principal is None:
         raise BadRequestException(
             "memory search requires a present user",
             error_code="memory_principal_required",
         )
-    rows = await memory_repo.list_for_user(
-        platform_id,
-        user_id,
+    rows = await memory_repo.list_for(
+        principal,
         kind=normalize_kind(kind) if kind else None,
         include_history=include_history,
         query=query,

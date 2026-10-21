@@ -1,8 +1,12 @@
 import asyncio
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from types import SimpleNamespace
 
+import jwt
 import pytest
 
+from app.core.config import get_settings
 from app.modules.embed.schemas import EmbedTokenRequest, PlatformEmbedClientCreate
 from app.modules.embed.services import create_embed_client, issue_embed_token
 from app.modules.embed.security import decode_embed_token
@@ -51,7 +55,7 @@ class FakeEmbedRepository:
         return None
 
     async def get_end_user(self, platform_id: int, external_user_id: str):
-        return next(
+        matched = next(
             (
                 item
                 for item in self.created_end_users
@@ -60,6 +64,8 @@ class FakeEmbedRepository:
             ),
             None,
         )
+        # 仓储替身内部按 dict 记账便于断言，但返回给服务的必须是对象。
+        return SimpleNamespace(**matched) if matched is not None else None
 
     async def is_agent_allowed(self, client_id: int, agent_id: int):
         return agent_id == 11
@@ -206,6 +212,73 @@ def test_token_exchange_contains_scoped_claims_and_creates_external_user():
         assert repo.created_end_users[0]["external_user_id"] == "user_1"
         claims = decode_embed_token(token.access_token)
         assert claims["host_tools"] == ["calculate_total", "get_weather"]
+
+    asyncio.run(run())
+
+
+def test_trusted_entry_token_carries_backend_user_claim():
+    """受信任入口签发的 token 带 user_id；公开兑换入口不带。"""
+
+    async def run() -> None:
+        repo = FakeEmbedRepository()
+        created = await create_embed_client(
+            repo,
+            platform_id=7,
+            payload=PlatformEmbedClientCreate(
+                name="Acme Web", allowed_origins=["https://app.acme.test"]
+            ),
+        )
+        request = EmbedTokenRequest(
+            client_id=created.client.client_id,
+            client_secret=created.client_secret,
+            agent_id=11,
+            external_user_id="admin-1",
+            origin="https://app.acme.test",
+        )
+
+        public = await issue_embed_token(
+            repo, FakeAgentRepository(), request, platform_id=7
+        )
+        assert "user_id" not in decode_embed_token(public.access_token)
+
+        trusted = await issue_embed_token(
+            repo, FakeAgentRepository(), request, platform_id=7, user_id=1
+        )
+        assert decode_embed_token(trusted.access_token)["user_id"] == 1
+
+    asyncio.run(run())
+
+
+def test_decode_rejects_malformed_user_claim():
+    """user_id 只接受正整数：字符串、布尔值、0 都必须当作坏 token 拒绝。"""
+
+    async def run() -> None:
+        settings = get_settings()
+        for bad in ("1", True, 0, -3):
+            now = datetime.now(UTC)
+            token = jwt.encode(
+                {
+                    "iss": settings.embed_token_issuer,
+                    "aud": settings.embed_token_audience,
+                    "sub": "65",
+                    "platform_id": 1,
+                    "agent_id": 11,
+                    "client_id": "client-x",
+                    "origin": "https://app.acme.test",
+                    "host_tools": [],
+                    "temporary_tools": False,
+                    "protocol_version": 1,
+                    "jti": "jti-x",
+                    "iat": now,
+                    "nbf": now,
+                    "exp": now.timestamp() + 60,
+                    "user_id": bad,
+                },
+                settings.embed_jwt_secret_key,
+                algorithm=settings.embed_jwt_algorithm,
+            )
+            with pytest.raises(UnauthorizedException):
+                decode_embed_token(token)
 
     asyncio.run(run())
 

@@ -41,6 +41,7 @@ def create_embed_token(
     expires_in: int,
     host_tools: list[str] | None = None,
     temporary_tools: bool = False,
+    user_id: int | None = None,
 ) -> tuple[str, str]:
     settings = get_settings()
     jti = str(uuid4())
@@ -61,6 +62,10 @@ def create_embed_token(
         "nbf": now,
         "exp": now.timestamp() + expires_in,
     }
+    # 可选 claim：只有受信任入口（后台登录态）签发时才带，表示「这次会话代表
+    # 哪位后台用户」。第三方公开入口不签这个字段，下游据此按终端用户隔离记忆。
+    if user_id is not None:
+        payload["user_id"] = int(user_id)
     return (
         jwt.encode(
             payload,
@@ -96,6 +101,12 @@ def decode_embed_token(token: str) -> dict[str, Any]:
         raise UnauthorizedException("invalid embed token") from exc
     if payload.get("protocol_version") != 1:
         raise UnauthorizedException("unsupported embed protocol")
+    # user_id 决定记忆归属，必须是正整数；放行任意类型会让下游 int() 抛错或
+    # 把布尔值当 ID，属于可控输入导致的行为漂移。
+    if "user_id" in payload:
+        user_id = payload["user_id"]
+        if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id < 1:
+            raise UnauthorizedException("invalid embed token")
     return payload
 
 

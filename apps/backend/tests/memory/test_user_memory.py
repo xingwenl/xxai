@@ -14,6 +14,11 @@ from types import SimpleNamespace
 import pytest
 
 from app.modules.builtin_tool.services import invoke_builtin_tool
+from app.modules.memory.principal import (
+    MemoryPrincipal,
+    end_user_principal,
+    user_principal,
+)
 from app.modules.memory.services import (
     INFERRED_FACT_MAX_CHARS,
     SELF_SCOPED_WRITE_TOOLS,
@@ -134,12 +139,25 @@ def test_truncate_payloads_drops_entries_over_budget() -> None:
 
 
 class FakeMemoryRepository:
-    """只实现服务层用到的方法的仓储替身。"""
+    """只实现服务层用到的方法的仓储替身。
+
+    真仓储按主体列过滤，这里用「主体键」分桶模拟同样的隔离：同一个 Fake 里
+    不同主体的记忆互不可见，因此隔离规则可以被断言。
+    """
 
     def __init__(self) -> None:
-        self.facts: dict[str, SimpleNamespace] = {}
-        self.events: list[SimpleNamespace] = []
+        self.buckets: dict[tuple, dict[str, SimpleNamespace]] = {}
+        self.events: dict[tuple, list[SimpleNamespace]] = {}
         self._next_id = 1
+
+    @staticmethod
+    def _bucket(principal: MemoryPrincipal) -> tuple:
+        return (
+            principal.platform_id,
+            principal.user_id,
+            principal.client_id,
+            principal.end_user_id,
+        )
 
     def _row(self, kind: str, key: str | None, content: str, occurred_at):
         row = SimpleNamespace(
@@ -154,26 +172,43 @@ class FakeMemoryRepository:
         self._next_id += 1
         return row
 
-    async def upsert_fact(self, *, platform_id, user_id, key, content, occurred_at, source, source_conversation_id):
-        previous = self.facts.get(key)
+    async def upsert_fact(self, *, principal, key, content, occurred_at, source, source_conversation_id):
+        bucket = self._bucket(principal)
+        facts = self.buckets.setdefault(bucket, {})
+        previous = facts.get(key)
         if previous is not None:
             previous.valid_until = datetime.now(timezone.utc)
         row = self._row("fact", key, content, occurred_at)
-        self.facts[key] = row
+        row.platform_id = principal.platform_id
+        row.user_id = principal.user_id
+        row.client_id = principal.client_id
+        row.end_user_id = principal.end_user_id
+        facts[key] = row
         return row, previous
 
-    async def create_event(self, *, platform_id, user_id, content, occurred_at, source, source_conversation_id):
+    async def create_event(self, *, principal, content, occurred_at, source, source_conversation_id):
+        bucket = self._bucket(principal)
         row = self._row("event", None, content, occurred_at)
-        self.events.append(row)
+        row.platform_id = principal.platform_id
+        row.user_id = principal.user_id
+        row.client_id = principal.client_id
+        row.end_user_id = principal.end_user_id
+        self.events.setdefault(bucket, []).append(row)
         return row
 
-    async def list_for_user(self, platform_id, user_id, *, kind=None, include_history=False, query=None, key=None, limit=200):
-        rows = list(self.facts.values()) + self.events
+    async def list_for(self, principal, *, kind=None, include_history=False, query=None, key=None, limit=200):
+        bucket = self._bucket(principal)
+        rows = list(self.buckets.get(bucket, {}).values()) + self.events.get(bucket, [])
         if not include_history:
             rows = [row for row in rows if row.valid_until is None]
         if kind is not None:
             rows = [row for row in rows if row.kind == kind]
         return rows[:limit]
+
+    async def count_active_by_kind(self, principal):
+        rows = await self.list_for(principal)
+        facts = sum(1 for row in rows if row.kind == "fact")
+        return facts, len(rows) - facts
 
 
 def test_remember_memory_requires_a_present_principal() -> None:
@@ -181,8 +216,7 @@ def test_remember_memory_requires_a_present_principal() -> None:
         with pytest.raises(BadRequestException) as excinfo:
             await remember_memory(
                 FakeMemoryRepository(),
-                platform_id=1,
-                user_id=None,
+                principal=None,
                 kind="fact",
                 key="城市",
                 content="上海",
@@ -197,10 +231,10 @@ def test_remember_memory_requires_a_present_principal() -> None:
 def test_remember_fact_reports_previous_value() -> None:
     async def run() -> None:
         repo = FakeMemoryRepository()
+        principal = user_principal(1, 7)
         first = await remember_memory(
             repo,
-            platform_id=1,
-            user_id=7,
+            principal=principal,
             kind="fact",
             key="城市",
             content="北京",
@@ -211,8 +245,7 @@ def test_remember_fact_reports_previous_value() -> None:
 
         second = await remember_memory(
             repo,
-            platform_id=1,
-            user_id=7,
+            principal=principal,
             kind="fact",
             key="城市",
             content="上海",
@@ -228,16 +261,92 @@ def test_remember_fact_reports_previous_value() -> None:
 def test_search_memory_requires_principal_and_explains_empty_result() -> None:
     async def run() -> None:
         with pytest.raises(BadRequestException) as excinfo:
-            await search_memory(
-                FakeMemoryRepository(), platform_id=1, user_id=None, query="城市"
-            )
+            await search_memory(FakeMemoryRepository(), principal=None, query="城市")
         assert excinfo.value.error_code == "memory_principal_required"
 
         empty = await search_memory(
-            FakeMemoryRepository(), platform_id=1, user_id=7, query="城市"
+            FakeMemoryRepository(), principal=user_principal(1, 7), query="城市"
         )
         assert empty["items"] == []
         assert "不要编造" in empty["message"]
+
+    asyncio.run(run())
+
+
+def test_principal_requires_exactly_one_owner() -> None:
+    """主体要么后台用户、要么嵌入终端用户；两种都填或都不填都必须当场拒绝。"""
+
+    with pytest.raises(ValueError):
+        MemoryPrincipal(platform_id=1)
+    with pytest.raises(ValueError):
+        MemoryPrincipal(platform_id=1, user_id=7, client_id="c", end_user_id=9)
+    with pytest.raises(ValueError):
+        MemoryPrincipal(platform_id=1, client_id="c")
+    with pytest.raises(ValueError):
+        MemoryPrincipal(platform_id=0, user_id=7)
+
+    assert user_principal(1, 7).kind == "user"
+    end_user = end_user_principal(platform_id=1, client_id="c1", end_user_id=9)
+    assert end_user.kind == "end_user"
+
+
+def test_end_user_memory_is_isolated_by_client_and_end_user() -> None:
+    """同一个留言人 ID 在不同 Client 下是两个人；同一 Client 内不同人是两个人。"""
+
+    async def run() -> None:
+        repo = FakeMemoryRepository()
+        first = end_user_principal(platform_id=1, client_id="client-a", end_user_id=65)
+        other_client = end_user_principal(
+            platform_id=1, client_id="client-b", end_user_id=65
+        )
+        other_person = end_user_principal(
+            platform_id=1, client_id="client-a", end_user_id=66
+        )
+
+        await remember_memory(
+            repo,
+            principal=first,
+            kind="fact",
+            key="城市",
+            content="上海",
+            occurred_at=None,
+            mode="explicit",
+        )
+
+        assert (await search_memory(repo, principal=first, query=None))["items"]
+        for principal in (other_client, other_person):
+            assert (await search_memory(repo, principal=principal, query=None))["items"] == []
+
+        # 后台用户主体与终端用户主体共用一个平台也不串号。
+        assert (
+            await search_memory(repo, principal=user_principal(1, 7), query=None)
+        )["items"] == []
+
+    asyncio.run(run())
+
+
+def test_end_user_index_line_reports_counts() -> None:
+    """端用户会话也能拿到条数索引，但索引里只有条数与规则，没有记忆正文。"""
+
+    async def run() -> None:
+        from app.modules.memory.services import load_memory_index_line_for_principal
+
+        repo = FakeMemoryRepository()
+        principal = end_user_principal(platform_id=1, client_id="client-a", end_user_id=65)
+        await remember_memory(
+            repo,
+            principal=principal,
+            kind="fact",
+            key="姓名",
+            content="张三",
+            occurred_at=None,
+            mode="explicit",
+        )
+        line = await load_memory_index_line_for_principal(repo, principal)
+        assert line is not None
+        # 索引只给条数与使用规则，绝不把记忆正文塞进系统提示。
+        assert "张三" not in line
+        assert "事实 1 条" in line
 
     asyncio.run(run())
 
@@ -267,7 +376,9 @@ async def _approve_everything(definition, call):
     return ConfirmationDecision(approved=True, reason="test_auto_approved")
 
 
-async def _invoke_remember(*, user_id, unattended, decider, monkeypatch):
+async def _invoke_remember(
+    *, user_id, unattended, decider, monkeypatch, client_id=None, platform_end_user_id=None
+):
     from app.modules.tools.business import user_memory as user_memory_tools
 
     async def fake_remember_memory(memory_repo, **kwargs):
@@ -284,6 +395,8 @@ async def _invoke_remember(*, user_id, unattended, decider, monkeypatch):
         agent_id=2,
         conversation_id=3,
         user_id=user_id,
+        platform_end_user_id=platform_end_user_id,
+        client_id=client_id,
         session=None,
         confirmation_decider=decider,
         unattended=unattended,
@@ -319,8 +432,26 @@ def test_self_scoped_write_still_asks_when_unattended(monkeypatch) -> None:
     asyncio.run(run())
 
 
+def test_self_scoped_write_skips_confirmation_for_end_user(monkeypatch) -> None:
+    """公开入口的访客也是「本人范围」主体：不弹卡直接写自己的记忆。"""
+
+    async def run() -> None:
+        outcome = await _invoke_remember(
+            user_id=None,
+            unattended=False,
+            decider=None,
+            monkeypatch=monkeypatch,
+            client_id="client-a",
+            platform_end_user_id=65,
+        )
+        assert outcome.status == "completed"
+        assert outcome.result["message"] == "已记住：城市 = 上海"
+
+    asyncio.run(run())
+
+
 def test_self_scoped_write_is_not_bypassed_without_a_backend_user(monkeypatch) -> None:
-    """端用户会话（user_id 为空）没有可写的记忆主体，仍然走确认闸口并被拒绝。"""
+    """既没有后台用户、也没有 Client+终端用户时仍然走确认闸口并被拒绝。"""
 
     async def run() -> None:
         outcome = await _invoke_remember(

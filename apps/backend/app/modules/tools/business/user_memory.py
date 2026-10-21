@@ -1,6 +1,9 @@
-"""内置业务工具：让 Agent 读写「当前登录用户」自己的长期记忆。
+"""内置业务工具：让 Agent 读写「当前会话主体」自己的长期记忆。
 
-三条工具都只作用于**会话主体本人**（``ctx.user_id``），没有跨用户入口：
+三条工具都只作用于**会话主体本人**，没有跨主体入口。主体有两种：后台用户
+（``ctx.user_id``，控制台与 REST 对话）和嵌入终端用户
+（``ctx.client_id`` + ``ctx.platform_end_user_id``，第三方站点访客），
+隔离口径见 docs/adr/0016-end-user-memory.md：
 
 - ``remember_user_memory``：写事实（可按 key 覆盖）或经历（只追加）；
 - ``forget_user_memory``：按 id / key / 关键词删除；
@@ -18,6 +21,11 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from app.modules.memory.principal import (
+    MemoryPrincipal,
+    end_user_principal,
+    user_principal,
+)
 from app.modules.memory.repositories import MemoryRepository
 from app.modules.memory.services import (
     MODE_EXPLICIT,
@@ -48,19 +56,29 @@ def _parse_occurred_at(raw: object) -> datetime | None:
         ) from exc
 
 
-def _require_principal(ctx: BusinessToolContext) -> int:
-    """记忆写入与检索都要求「有在场主体」：无人值守与端用户会话一律拒绝。"""
+def _require_principal(ctx: BusinessToolContext) -> MemoryPrincipal:
+    """记忆写入与检索都要求「有在场主体」。
+
+    后台用户优先；嵌入会话没有后台登录态，用「Client + 终端用户」表达归属。
+    无人值守仍然一律拒绝——没有在场的人，静默写入的事实无法被纠正。
+    """
 
     if ctx.unattended:
         raise BusinessToolError(
             "memory_principal_required",
             "当前为无人值守运行，无法写入或读取用户记忆",
         )
-    if ctx.user_id is None:
-        raise BusinessToolError(
-            "memory_principal_required", "当前会话没有可识别的后台用户"
+    if ctx.user_id is not None:
+        return user_principal(ctx.platform_id, ctx.user_id)
+    if ctx.client_id and ctx.platform_end_user_id is not None:
+        return end_user_principal(
+            platform_id=ctx.platform_id,
+            client_id=ctx.client_id,
+            end_user_id=ctx.platform_end_user_id,
         )
-    return ctx.user_id
+    raise BusinessToolError(
+        "memory_principal_required", "当前会话没有可识别的用户"
+    )
 
 
 def _as_tool_error(exc: AppException) -> BusinessToolError:
@@ -125,15 +143,14 @@ def _as_tool_error(exc: AppException) -> BusinessToolError:
 async def remember_user_memory_business(
     args: dict, ctx: BusinessToolContext
 ) -> dict:
-    user_id = _require_principal(ctx)
+    principal = _require_principal(ctx)
     mode = str(args.get("mode") or MODE_EXPLICIT)
     if mode not in (MODE_EXPLICIT, MODE_INFERRED):
         raise BusinessToolError("memory_mode_invalid", "mode 只能是 explicit 或 inferred")
     try:
         return await remember_memory(
             MemoryRepository(ctx.session),
-            platform_id=ctx.platform_id,
-            user_id=user_id,
+            principal=principal,
             kind=str(args.get("kind") or ""),
             key=args.get("key"),
             content=str(args.get("content") or ""),
@@ -185,7 +202,7 @@ async def remember_user_memory_business(
     side_effect="write",
 )
 async def forget_user_memory_business(args: dict, ctx: BusinessToolContext) -> dict:
-    user_id = _require_principal(ctx)
+    principal = _require_principal(ctx)
     repo = MemoryRepository(ctx.session)
     memory_id = args.get("memory_id")
     key = str(args.get("key") or "").strip() or None
@@ -193,16 +210,12 @@ async def forget_user_memory_business(args: dict, ctx: BusinessToolContext) -> d
     delete_all = bool(args.get("all"))
 
     if delete_all:
-        deleted = await repo.delete_all_for_user(ctx.platform_id, user_id)
+        deleted = await repo.delete_all_for(principal)
         return {"status": "forgotten", "deleted": deleted, "message": "已清空全部记忆"}
 
     if memory_id is not None:
         row = await repo.get_by_id(int(memory_id))
-        if (
-            row is None
-            or row.platform_id != ctx.platform_id
-            or row.user_id != user_id
-        ):
+        if row is None or not principal.owns(row):
             raise BusinessToolError("memory_not_found", "没有找到这条记忆")
         content = row.content
         await repo.delete(row)
@@ -213,7 +226,7 @@ async def forget_user_memory_business(args: dict, ctx: BusinessToolContext) -> d
         }
 
     if key is not None:
-        row = await repo.find_active_fact(ctx.platform_id, user_id, key)
+        row = await repo.find_active_fact(principal, key)
         if row is None:
             raise BusinessToolError("memory_not_found", f"没有记录过 {key}")
         content = row.content
@@ -225,9 +238,8 @@ async def forget_user_memory_business(args: dict, ctx: BusinessToolContext) -> d
         }
 
     if query is not None:
-        rows = await repo.list_for_user(
-            ctx.platform_id,
-            user_id,
+        rows = await repo.list_for(
+            principal,
             include_history=True,
             query=query,
             limit=20,
@@ -282,12 +294,11 @@ async def forget_user_memory_business(args: dict, ctx: BusinessToolContext) -> d
     },
 )
 async def memory_search_business(args: dict, ctx: BusinessToolContext) -> dict:
-    user_id = _require_principal(ctx)
+    principal = _require_principal(ctx)
     try:
         return await search_memory(
             MemoryRepository(ctx.session),
-            platform_id=ctx.platform_id,
-            user_id=user_id,
+            principal=principal,
             query=args.get("query"),
             include_history=bool(args.get("include_history")),
             kind=args.get("kind"),

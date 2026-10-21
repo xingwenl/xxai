@@ -203,6 +203,9 @@ async def get_authenticated_agent_token_endpoint(
         # 显式 agent 用于 SDK 切换智能体后重新换 token；服务端仍按 Embed Client
         # 的绑定关系校验，未绑定的 agent 会被拒绝，不是越权入口。
         agent_id=agent_id,
+        # 这是受信任入口（后台登录态）：把登录用户签进 token，记忆归后台用户，
+        # 管理台「我的记忆」可见。公开 POST /embed/tokens 不传，按终端用户隔离。
+        user_id=current_user.id,
     )
     await session.commit()
     return success_response(data=token, message="agent token issued")

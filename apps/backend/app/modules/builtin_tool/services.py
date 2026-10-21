@@ -69,6 +69,7 @@ async def invoke_builtin_tool(
     conversation_id: int | None,
     user_id: int | None = None,
     platform_end_user_id: int | None = None,
+    client_id: str | None = None,
     session=None,
     loop_run_id: int | None = None,
     confirmation_decider=None,
@@ -103,17 +104,20 @@ async def invoke_builtin_tool(
     # 以注册表定义为准，而不是运行时传进来的 tool 对象，避免旁路。
     side_effect = coerce_side_effect(getattr(definition, "side_effect", "none"))
 
-    # 白名单直通：用户记忆的读写只作用于**当前用户本人**（读的是自己的记忆，
-    # 写的是自己的记忆，不改变任何他人可见的状态），交互会话里为它弹确认卡
-    # 只会让「记一下我的城市」多一步无意义的点击。代价是模型可能在用户没要求
-    # 时写入，因此配套三件事：写入有白名单与敏感类别限制、写后回显原值、用户
-    # 可随时删除。白名单不覆盖无人值守与端用户会话——那两条通路没有在场的人
-    # 能看见这件事发生。
+    # 白名单直通：用户记忆的读写只作用于**当前会话主体本人**（读的是自己的
+    # 记忆，写的是自己的记忆，不改变任何他人可见的状态），交互会话里为它弹
+    # 确认卡只会让「记一下我的城市」多一步无意义的点击。代价是模型可能在用户
+    # 没要求时写入，因此配套三件事：写入有白名单与敏感类别限制、写后回显原值、
+    # 用户可随时删除。主体可以是后台用户，也可以是「Client + 终端用户」；
+    # 白名单仍不覆盖无人值守——那条通路没有在场的人能看见这件事发生。
+    on_behalf_of_present_user = user_id is not None or (
+        client_id is not None and platform_end_user_id is not None
+    )
     self_scoped_write = (
         side_effect != "none"
         and definition.name in SELF_SCOPED_WRITE_TOOLS
         and not unattended
-        and user_id is not None
+        and on_behalf_of_present_user
     )
     if side_effect != "none" and not self_scoped_write:
         decision = await _decide_confirmation(
@@ -142,6 +146,7 @@ async def invoke_builtin_tool(
         conversation_id=conversation_id,
         user_id=user_id,
         platform_end_user_id=platform_end_user_id,
+        client_id=client_id,
         loop_run_id=loop_run_id,
         session=session,
         asset_repo=asset_repo,

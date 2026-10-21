@@ -11,6 +11,13 @@ from app.modules.conversation.services import (
     load_recent_history,
     orchestration_event_stream,
 )
+from app.modules.memory.principal import (
+    MemoryPrincipal,
+    end_user_principal,
+    user_principal,
+)
+from app.modules.memory.repositories import MemoryRepository
+from app.modules.memory.services import load_memory_index_line_for_principal
 from app.modules.conversation.runtime import (
     attach_tool_snapshots,
     build_tool_snapshots,
@@ -577,6 +584,42 @@ async def _finish_embed_chat(
     )
 
 
+def resolve_embed_memory_principal(
+    *,
+    platform_id: int,
+    user_id: int | None,
+    client_id: str | None,
+    end_user_id: int,
+) -> MemoryPrincipal | None:
+    """嵌入会话的记忆主体。
+
+    受信任入口（后台登录态签发的 token）带 ``user_id`` claim，此时记忆归后台用户，
+    管理台「我的记忆」可见；第三方访客只有 Client + 终端用户，按
+    ``(client_id, end_user_id)`` 隔离。两者都不成立时不注入记忆索引。
+    """
+
+    if user_id is not None:
+        return user_principal(platform_id, user_id)
+    if client_id:
+        return end_user_principal(
+            platform_id=platform_id, client_id=client_id, end_user_id=end_user_id
+        )
+    return None
+
+
+async def load_embed_memory_index(
+    repo: ConversationRepository, principal: MemoryPrincipal | None
+) -> str | None:
+    """只取条数索引行，不把记忆内容塞进上下文。"""
+
+    session = getattr(repo, "session", None)
+    if principal is None or session is None:
+        return None
+    return await load_memory_index_line_for_principal(
+        MemoryRepository(session), principal
+    )
+
+
 async def stream_embed_chat(
     repo: ConversationRepository,
     context,
@@ -585,6 +628,7 @@ async def stream_embed_chat(
     platform_id: int,
     end_user_id: int,
     client_id: str | None = None,
+    user_id: int | None = None,
     message: str,
     system_prompt: str | None = None,
     conversation_id: int | None,
@@ -741,6 +785,16 @@ async def stream_embed_chat(
         [tool.name for tool in host_tool_list],
         [tool.name for tool in tools],
     )
+    # 记忆内容不预注入（用户明确要求），只注入「已有 N 条」的索引行，让模型
+    # 知道该调 memory_search；主体口径与工具写入完全一致，否则会出现
+    # 「提示说有 3 条、工具查出来 0 条」的错位。
+    memory_principal = resolve_embed_memory_principal(
+        platform_id=platform_id,
+        user_id=user_id,
+        client_id=client_id,
+        end_user_id=end_user_id,
+    )
+    memory_index = await load_embed_memory_index(repo, memory_principal)
     ws_system_prompt = build_system_prompt(
         context.version,
         context.skill_instructions,
@@ -750,6 +804,7 @@ async def stream_embed_chat(
         host_tools=tools if host_tool_list else None,
         caller_system_prompt=system_prompt,
         chat_model_name=getattr(model, "model_name", None),
+        memory_index=memory_index,
     )
     # 上下文计量与压缩必须与 REST/SSE 同口径：历史走统一的模型消息视图
     # （含已生效的压缩摘要），窗口解析也用同一个函数。

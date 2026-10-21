@@ -57,6 +57,7 @@ async def issue_embed_token(
     *,
     platform_id: int,
     quota_service=None,
+    user_id: int | None = None,
 ):
     client = await embed_repo.get_client(platform_id, request.client_id)
     if (
@@ -104,6 +105,8 @@ async def issue_embed_token(
         expires_in=client.token_ttl_seconds,
         host_tools=sorted(set(request.host_tool_names) & client_tool_names),
         temporary_tools=client.allow_temporary_tools,
+        # 受信任入口传入后台用户 ID，记忆据此归属到该用户；公开入口不传。
+        user_id=user_id,
     )
     return EmbedTokenResponse(
         access_token=token, expires_in=client.token_ttl_seconds, jti=jti
@@ -120,6 +123,7 @@ async def issue_configured_agent_token(
     agent_id: int | None = None,
     client_id: str | None = None,
     client_secret: str | None = None,
+    user_id: int | None = None,
 ):
     """使用服务端 Embed 配置为受信任业务入口签发短期 Agent token。
 
@@ -133,6 +137,9 @@ async def issue_configured_agent_token(
     由于它们等同于签发权限，只能由服务端持有，不能下发给浏览器或客户端。
     此时必须显式给出 ``agent_id`` 与 ``origin``，避免默认 Agent 或默认来源与
     目标 Client 不匹配而拿到难以理解的报错。
+
+    ``user_id`` 只在调用方已确认后台登录态时传（如后台内嵌助手），签进 token
+    后记忆归属于这位后台用户；不传的记忆归属于「Client + 终端用户」。
     """
     settings = get_settings()
     if (client_id is None) != (client_secret is None):
@@ -179,6 +186,7 @@ async def issue_configured_agent_token(
                 if redis is not None
                 else None
             ),
+            user_id=user_id,
         )
     finally:
         if redis is not None:
