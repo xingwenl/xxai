@@ -1,7 +1,8 @@
 """create_skill 内置业务工具测试。
 
-锁定三件事：技能落在当前平台、创建后自动绑定当前 Agent（否则 load_skill
-看不到）、slug 冲突时给稳定错误码而不是覆盖或抛栈。
+锁定四件事：技能落在当前平台、创建后自动绑定当前 Agent（否则 load_skill
+看不到）、显式 slug 命中已绑定技能时按更新处理、越界（技能包 / 未绑定 /
+已停用）时给稳定错误码而不是静默覆盖。
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.modules.agent.models import Agent
 from app.modules.platform.models import Platform
-from app.modules.skill.models import AgentSkill, Skill
+from app.modules.skill.models import AgentSkill, Skill, SkillPackage
 from app.modules.tools.business.create_skill import create_skill_business
 from app.modules.tools.business.framework import (
     BUSINESS_TOOL_REGISTRY,
@@ -59,13 +60,14 @@ def _ctx(session, platform, agent, user) -> BusinessToolContext:
 
 
 def test_tool_is_registered_with_write_side_effect() -> None:
-    """工具已注册、声明写副作用，且描述说明会绑定到当前 Agent。"""
+    """工具已注册、声明写副作用，且描述说明创建/修改都会绑定到当前 Agent。"""
 
     tool = BUSINESS_TOOL_REGISTRY.get("create_skill")
     assert tool is not None
     assert tool.side_effect == "write"
     assert "load_skill" in tool.description
     assert "绑定" in tool.description
+    assert "修改" in tool.description
     schema = tool.input_schema
     assert set(schema["required"]) == {"name", "instruction_template"}
     assert schema["additionalProperties"] is False
@@ -147,8 +149,54 @@ def test_derives_unique_slug_when_name_is_chinese() -> None:
     asyncio.run(run())
 
 
-def test_explicit_slug_conflict_is_a_stable_error() -> None:
-    """显式 slug 已存在时报稳定错误码，且不创建第二条技能。"""
+def test_same_slug_updates_bound_skill_instead_of_duplicating() -> None:
+    """显式 slug 命中已绑定手工技能时按更新处理，不新建第二条。"""
+
+    async def run():
+        engine, session_factory = await _make_session()
+        async with session_factory() as session:
+            platform, agent, user = await _seed(session)
+            ctx = _ctx(session, platform, agent, user)
+            created = await create_skill_business(
+                {
+                    "name": "每周日报",
+                    "slug": "weekly-report",
+                    "description": "生成固定格式的每周工作日报",
+                    "instruction_template": "旧指令",
+                },
+                ctx,
+            )
+            updated = await create_skill_business(
+                {
+                    "name": "每周工作日报",
+                    "slug": "weekly-report",
+                    "instruction_template": "新指令",
+                },
+                ctx,
+            )
+
+            assert created["action"] == "created"
+            assert updated["action"] == "updated"
+            assert updated["skill"]["id"] == created["skill"]["id"]
+            assert "已更新" in updated["message"]
+
+            skills = list((await session.execute(select(Skill))).scalars())
+            assert len(skills) == 1
+            assert skills[0].name == "每周工作日报"
+            assert skills[0].instruction_template == "新指令"
+            # description 省略时保留原值，不会顺手清空简介。
+            assert skills[0].description == "生成固定格式的每周工作日报"
+
+            bindings = list((await session.execute(select(AgentSkill))).scalars())
+            assert len(bindings) == 1
+            assert bindings[0].skill_id == created["skill"]["id"]
+        await engine.dispose()
+
+    asyncio.run(run())
+
+
+def test_update_rejects_skill_not_bound_to_current_agent() -> None:
+    """未绑定当前 Agent 的技能不允许改，避免覆盖别的 Agent 正在用的技能。"""
 
     async def run():
         engine, session_factory = await _make_session()
@@ -157,9 +205,9 @@ def test_explicit_slug_conflict_is_a_stable_error() -> None:
             session.add(
                 Skill(
                     platform_id=platform.id,
-                    name="已有技能",
+                    name="别人的技能",
                     slug="daily-report",
-                    instruction_template="x",
+                    instruction_template="原始指令",
                 )
             )
             await session.commit()
@@ -167,16 +215,83 @@ def test_explicit_slug_conflict_is_a_stable_error() -> None:
             with pytest.raises(BusinessToolError) as exc:
                 await create_skill_business(
                     {
-                        "name": "重复技能",
+                        "name": "覆盖",
                         "slug": "daily-report",
-                        "instruction_template": "y",
+                        "instruction_template": "被篡改",
                     },
                     _ctx(session, platform, agent, user),
                 )
-            assert exc.value.code == "skill_slug_exists"
+            assert exc.value.code == "skill_update_forbidden"
 
-            skills = list((await session.execute(select(Skill))).scalars())
-            assert len(skills) == 1
+            skill = await session.scalar(select(Skill))
+            assert skill.instruction_template == "原始指令"
+            assert (await session.execute(select(AgentSkill))).first() is None
+        await engine.dispose()
+
+    asyncio.run(run())
+
+
+def test_update_rejects_package_skill_and_inactive_skill() -> None:
+    """技能包导入的技能、已停用的技能都拒绝更新（内容以技能包/管理端为准）。"""
+
+    async def run():
+        engine, session_factory = await _make_session()
+        async with session_factory() as session:
+            platform, agent, user = await _seed(session)
+            ctx = _ctx(session, platform, agent, user)
+            package = SkillPackage(
+                platform_id=platform.id,
+                name="包",
+                slug="pkg",
+                package_type="skill",
+                source_filename="pkg.zip",
+                storage_key="pkg.zip",
+                storage_path="/tmp/pkg",
+            )
+            session.add(package)
+            await session.flush()
+            package_skill = Skill(
+                platform_id=platform.id,
+                package_id=package.id,
+                name="包内技能",
+                slug="packaged",
+                instruction_template="包内指令",
+            )
+            inactive_skill = Skill(
+                platform_id=platform.id,
+                name="停用技能",
+                slug="disabled",
+                instruction_template="停用指令",
+                is_active=False,
+            )
+            session.add_all([package_skill, inactive_skill])
+            await session.flush()
+            session.add_all(
+                [
+                    AgentSkill(
+                        agent_id=agent.id, skill_id=package_skill.id, sort_order=0
+                    ),
+                    AgentSkill(
+                        agent_id=agent.id, skill_id=inactive_skill.id, sort_order=1
+                    ),
+                ]
+            )
+            await session.commit()
+
+            for slug in ("packaged", "disabled"):
+                with pytest.raises(BusinessToolError) as exc:
+                    await create_skill_business(
+                        {"name": "覆盖", "slug": slug, "instruction_template": "改"},
+                        ctx,
+                    )
+                assert exc.value.code == "skill_update_forbidden"
+
+            stored = {
+                item.slug: item
+                for item in (await session.execute(select(Skill))).scalars()
+            }
+            assert stored["packaged"].instruction_template == "包内指令"
+            assert stored["disabled"].instruction_template == "停用指令"
         await engine.dispose()
 
     asyncio.run(run())
