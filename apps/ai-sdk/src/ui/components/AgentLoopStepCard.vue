@@ -46,11 +46,15 @@
           <li v-for="run in childRuns" :key="run.id" class="xxai-loop-delegated-item">
             <div class="xxai-loop-delegated-head">
               <span class="xxai-loop-badge">{{ delegatedRunName(run) }}</span>
+              <span v-if="run.mode" class="xxai-loop-version">{{ delegatedModeText(run.mode) }}</span>
               <span class="xxai-loop-delegated-status" :class="`state-${run.status}`">
                 {{ delegatedStatusText(run.status) }}
               </span>
             </div>
             <span v-if="run.summary" class="xxai-loop-delegated-summary">{{ run.summary }}</span>
+            <span v-if="run.usage" class="xxai-loop-delegated-summary">
+              {{ delegatedUsageText(run.usage) }}
+            </span>
           </li>
         </ul>
       </details>
@@ -79,7 +83,13 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import type { AgentLoopStep, AgentLoopStepStatus, DelegatedRun, KnowledgeCitation } from '../../core';
+import type {
+  AgentLoopStep,
+  AgentLoopStepStatus,
+  DelegatedRun,
+  DelegatedRunUsage,
+  KnowledgeCitation,
+} from '../../core';
 import {
   THINKING_PLACEHOLDER,
   toolInputSummary,
@@ -155,6 +165,17 @@ function delegatedStatusText(status: string): string {
     cancelled: '已取消',
     waiting_confirmation: '待确认',
   } as Record<string, string>)[status] || status;
+}
+
+function delegatedModeText(mode: string): string {
+  return ({ self: '自克隆', bound: '绑定' } as Record<string, string>)[mode] || mode;
+}
+
+function delegatedUsageText(usage: DelegatedRunUsage): string {
+  const prompt = usage.promptTokens ?? 0;
+  const completion = usage.completionTokens ?? 0;
+  const total = usage.totalTokens ?? prompt + completion;
+  return `token ${total}（输入 ${prompt} / 输出 ${completion}）`;
 }
 
 function onThinkingToggle(event: Event) {

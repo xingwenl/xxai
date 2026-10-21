@@ -366,6 +366,39 @@ class ConversationRepository:
         await self.session.refresh(record)
         return record
 
+    async def usage_by_conversation_ids(
+        self, conversation_ids: list[int]
+    ) -> dict[int, dict[str, int]]:
+        """按会话聚合 token 用量。
+
+        委派出的每个子运行都有自己的独立会话与独立的用量行（父子不合并），读侧
+        要把「这次委派花了多少」补到每条 delegatedRun 上，就在这里一次查完。
+        会话没有任何用量行时不出现在结果里，调用方按缺省处理。
+        """
+        if not conversation_ids:
+            return {}
+        result = await self.session.execute(
+            select(
+                ModelUsageRecord.conversation_id,
+                func.coalesce(func.sum(ModelUsageRecord.prompt_tokens), 0),
+                func.coalesce(func.sum(ModelUsageRecord.completion_tokens), 0),
+                func.coalesce(func.sum(ModelUsageRecord.total_tokens), 0),
+            )
+            .where(ModelUsageRecord.conversation_id.in_(conversation_ids))
+            .group_by(ModelUsageRecord.conversation_id)
+        )
+        return {
+            conversation_id: {
+                "prompt_tokens": int(prompt_tokens or 0),
+                "completion_tokens": int(completion_tokens or 0),
+                "total_tokens": int(total_tokens or 0),
+            }
+            for conversation_id, prompt_tokens, completion_tokens, total_tokens in (
+                result.all()
+            )
+            if conversation_id is not None
+        }
+
     # ------------------------------------------------------------------
     # 后台会话记录（平台级只读视图）
     #

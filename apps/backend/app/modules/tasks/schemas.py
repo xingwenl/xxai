@@ -174,6 +174,10 @@ class TaskRunDelegatedRun(BaseModel):
     status: str
     summary: str | None = None
     conversationId: str | None = None
+    # 子运行自己的 token 用量（父子不合并），缺省表示没有记到用量。
+    usage: dict | None = None
+    # 委派模式：self=自克隆父智能体 / bound=派给绑定的子智能体。
+    mode: str | None = None
 
 
 class TaskRunDetail(BaseModel):

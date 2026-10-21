@@ -2,7 +2,7 @@
 
 ## Status
 
-accepted
+accepted（2026-10-21 修订：`可被派` 范围与「不新增白名单表」两条结论已被 `docs/adr/0015-subagent-bindings.md` 取代，其余结论不变）
 
 关联 Harness request：`2026-10-15-delegated-subagent-runtime`（tier A，spec 与验证证据见 `docs/harness/requests/2026-10-15-delegated-subagent-runtime/`）。
 

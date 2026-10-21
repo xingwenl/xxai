@@ -9,6 +9,8 @@ from app.modules.agent.schemas import (
     AgentDetailRead,
     AgentListData,
     AgentRead,
+    AgentSubagentListData,
+    AgentSubagentReplace,
     AgentUpdate,
     AgentVersionCreate,
     AgentVersionRead,
@@ -16,7 +18,9 @@ from app.modules.agent.schemas import (
 from app.modules.agent.services import (
     create_agent,
     create_agent_version,
+    list_subagent_bindings,
     publish_agent_version,
+    replace_subagent_bindings,
     rollback_agent,
     update_agent,
     delete_agent,
@@ -199,3 +203,49 @@ async def rollback_agent_endpoint(
         AgentRepository(session), agent_id, version_id, platform_id=platform_id
     )
     return success_response(data=_version_read(version), message="agent rolled back")
+
+
+@router.get(
+    "/{agent_id}/subagents", response_model=ApiResponse[AgentSubagentListData]
+)
+async def list_agent_subagents_endpoint(
+    platform_id: int,
+    agent_id: int,
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> ApiResponse[AgentSubagentListData]:
+    """读取「该智能体能派给谁」的绑定配置（含可添加候选）。
+
+    配置页据此渲染已绑定列表与下拉候选；运行期候选口径由同一份仓储方法得出，
+    两者不一致时问题会落到「配了却派不出去」上，所以读侧复用同一套谓词。
+    """
+    await _require_platform_admin(platform_id, current_user.id, session)
+    data = await list_subagent_bindings(
+        AgentRepository(session), agent_id, platform_id=platform_id
+    )
+    return success_response(
+        data=AgentSubagentListData.model_validate(data), message="subagents listed"
+    )
+
+
+@router.put(
+    "/{agent_id}/subagents", response_model=ApiResponse[AgentSubagentListData]
+)
+async def replace_agent_subagents_endpoint(
+    platform_id: int,
+    agent_id: int,
+    payload: AgentSubagentReplace,
+    current_user=Depends(require_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> ApiResponse[AgentSubagentListData]:
+    """整表替换绑定关系：数组顺序即展示顺序，空数组表示清空（回退兜底口径）。"""
+    await _require_platform_admin(platform_id, current_user.id, session)
+    data = await replace_subagent_bindings(
+        AgentRepository(session),
+        agent_id,
+        [(item.child_agent_id, item.enabled) for item in payload.items],
+        platform_id=platform_id,
+    )
+    return success_response(
+        data=AgentSubagentListData.model_validate(data), message="subagents replaced"
+    )

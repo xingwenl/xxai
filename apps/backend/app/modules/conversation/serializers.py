@@ -21,13 +21,18 @@ def build_delegated_run_payload(
     *,
     agent_slug: str | None = None,
     agent_name: str | None = None,
+    usage: dict | None = None,
+    mode: str | None = None,
 ) -> dict:
     """把一次**子运行**压成读侧投影里的条目。
 
     只暴露展示需要的字段：模型与工具的完整过程在子运行自己的会话里，读侧不去
     展开（父子是两条独立会话，跨会话拼过程会让这份投影失去稳定形状）。
+
+    ``usage``（该子运行自己的 token 合计）与 ``mode``（self=自克隆 / bound=绑定）
+    只在确实有值时出现——没有委派用量的历史运行，投影形状与引入这两个字段前一致。
     """
-    return {
+    payload = {
         "id": str(loop.id),
         "agentSlug": agent_slug,
         "agentName": agent_name or agent_slug,
@@ -35,6 +40,21 @@ def build_delegated_run_payload(
         "summary": loop.summary,
         "conversationId": str(loop.conversation_id),
     }
+    if usage:
+        # 契约与前端/ai-sdk 的 camelCase 对齐；total 缺失时用前两者相加兜底，
+        # 避免上游只返回部分字段时展示层出现 0。
+        prompt_tokens = int(usage.get("prompt_tokens") or 0)
+        completion_tokens = int(usage.get("completion_tokens") or 0)
+        payload["usage"] = {
+            "promptTokens": prompt_tokens,
+            "completionTokens": completion_tokens,
+            "totalTokens": int(
+                usage.get("total_tokens") or prompt_tokens + completion_tokens
+            ),
+        }
+    if mode:
+        payload["mode"] = mode
+    return payload
 
 
 def build_loop_payload(
@@ -142,8 +162,20 @@ async def load_delegated_runs(repo, loop_run_id: int) -> list[dict]:
     if not hasattr(repo, "list_child_loops"):
         return []
     rows = await repo.list_child_loops(loop_run_id)
+    usage_by_conversation: dict[int, dict] = {}
+    if rows and hasattr(repo, "usage_by_conversation_ids"):
+        usage_by_conversation = await repo.usage_by_conversation_ids(
+            [child.conversation_id for child, _slug, _name in rows]
+        )
     return [
-        build_delegated_run_payload(child, agent_slug=slug, agent_name=name)
+        build_delegated_run_payload(
+            child,
+            agent_slug=slug,
+            agent_name=name,
+            usage=usage_by_conversation.get(child.conversation_id),
+            # 自克隆 / 绑定的区分在运行期决定，落在 loop 的 metadata 里。
+            mode=(child.run_metadata or {}).get("delegationMode"),
+        )
         for child, slug, name in rows
     ]
 

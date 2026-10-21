@@ -1327,6 +1327,7 @@ async def _apply_delegation_policy(
     *,
     agent_repo,
     platform_id: int,
+    agent_id: int,
     allow_delegation: bool,
 ) -> list[Any]:
     """按委派策略裁剪内置工具清单，并把可派智能体清单注入委派工具的描述。
@@ -1335,9 +1336,11 @@ async def _apply_delegation_policy(
 
     1. ``allow_delegation=False``（子运行）时直接摘掉委派工具——深度恒为 1 靠的
        是"工具根本不在清单里"，而不是运行期再判断一次；
-    2. 允许委派且该 Agent 确实绑定了委派工具时，把静态工具定义换成一份**带本平台
-       可派智能体清单**的版本。静态 ``@business_tool`` 的 description 在导入期就固定，
-       无法按平台变化，只能在组装运行时上下文这一刻替换。
+    2. 允许委派且该 Agent 确实绑定了委派工具时，把静态工具定义换成一份**带可派
+       智能体清单**的版本。清单口径来自 ``list_delegatable_agents``：该 Agent 配了
+       子智能体绑定就只列绑定的那些，没配则回退全平台已发布（排除自己）。静态
+       ``@business_tool`` 的 description 在导入期就固定，无法按平台/绑定变化，
+       只能在组装运行时上下文这一刻替换。
     """
 
     from dataclasses import replace
@@ -1357,8 +1360,9 @@ async def _apply_delegation_policy(
         return [tool for tool in builtin_tools if not _is_delegate(tool)]
 
     try:
-        agents = await agent_repo.list_published_active_agents(
+        agents = await agent_repo.list_delegatable_agents(
             platform_id,
+            agent_id,
             limit=get_settings().delegation_max_agents_in_prompt,
         )
     except Exception:
@@ -1469,6 +1473,7 @@ async def load_runtime_context(
         builtin_tools,
         agent_repo=agent_repo,
         platform_id=platform_id,
+        agent_id=agent_id,
         allow_delegation=allow_delegation,
     )
 

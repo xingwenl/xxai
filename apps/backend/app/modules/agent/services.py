@@ -368,3 +368,74 @@ def build_chat_model(
         session_id_provider=session_id_provider,
         **model_options,
     )
+
+
+async def list_subagent_bindings(
+    repo: AgentRepository, agent_id: int, *, platform_id: int
+):
+    """读取父智能体的绑定配置，供后台配置页一次性拿到「已绑定 + 可添加」。
+
+    ``fallback`` 直接由「有没有绑定行」得出，与运行期候选口径（
+    ``list_delegatable_agents``）同源，避免配置页提示与真实派发范围不一致。
+    """
+    if await repo.get_agent(agent_id, platform_id) is None:
+        raise NotFoundException("agent not found")
+    rows = await repo.list_subagent_bindings(agent_id)
+    items = [
+        {
+            "child_agent_id": child.id,
+            "slug": child.slug,
+            "name": child.name,
+            "description": child.description,
+            "enabled": binding.enabled,
+            "sort_order": binding.sort_order,
+            "published": published_at is not None,
+            "active": bool(child.is_active),
+        }
+        for binding, child, published_at in rows
+    ]
+    available = await repo.list_subagent_available_agents(
+        platform_id, agent_id, limit=100
+    )
+    return {
+        "items": items,
+        # 只看「有没有绑定行」：绑定行即使全部停用/未发布，也算已配置，
+        # 此时不该回退到全平台。
+        "fallback": not await repo.has_subagent_bindings(agent_id),
+        "available": [
+            {
+                "id": agent.id,
+                "slug": agent.slug,
+                "name": agent.name,
+                "description": agent.description,
+            }
+            for agent in available
+        ],
+    }
+
+
+async def replace_subagent_bindings(
+    repo: AgentRepository,
+    agent_id: int,
+    items: list[tuple[int, bool]],
+    *,
+    platform_id: int,
+):
+    """整表替换父智能体的子智能体绑定。
+
+    校验在写入前一次性做完：子 Agent 必须属于同一平台、不能是自己、不能重复。
+    任何一条不合法都整体拒绝——半套绑定比没有绑定更难排查。
+    """
+    if await repo.get_agent(agent_id, platform_id) is None:
+        raise NotFoundException("agent not found")
+    seen: set[int] = set()
+    for child_agent_id, _enabled in items:
+        if child_agent_id == agent_id:
+            raise BadRequestException("agent cannot bind itself as subagent")
+        if child_agent_id in seen:
+            raise BadRequestException("duplicated subagent binding")
+        seen.add(child_agent_id)
+        if await repo.get_agent(child_agent_id, platform_id) is None:
+            raise NotFoundException(f"subagent not found: {child_agent_id}")
+    await repo.replace_subagent_bindings(agent_id, items)
+    return await list_subagent_bindings(repo, agent_id, platform_id=platform_id)

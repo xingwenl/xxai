@@ -602,6 +602,9 @@ def test_get_run_detail_exposes_delegated_runs() -> None:
             assert child.status == "completed"
             assert child.summary == "子运行完成"
             assert child.conversationId == str(child_conversation.id)
+            # 本次运行没有记用量、也没有委派模式元信息，两个新字段保持 None。
+            assert child.usage is None
+            assert child.mode is None
             # 序列化后的键名是前端契约（camelCase），不能退化成 snake_case
             assert set(child.model_dump()) == {
                 "id",
@@ -610,6 +613,8 @@ def test_get_run_detail_exposes_delegated_runs() -> None:
                 "status",
                 "summary",
                 "conversationId",
+                "usage",
+                "mode",
             }
         await engine.dispose()
 

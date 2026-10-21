@@ -161,6 +161,66 @@ export async function rollbackAgentVersion(
   return data
 }
 
+/**
+ * 主智能体的一条「可派子智能体」绑定。
+ * 字段沿用后端 snake_case 契约，顺序即列表展示与运行期提示顺序。
+ */
+export type AgentSubagent = {
+  child_agent_id: number
+  slug: string
+  name: string
+  description?: string | null
+  enabled: boolean
+  sort_order: number
+  /** 子 Agent 是否有已发布版本；未发布时运行期委派会失败。 */
+  published: boolean
+  /** 子 Agent 是否启用；停用后不可被派发。 */
+  active: boolean
+}
+
+/** 可新增为子智能体的候选：本平台已发布、且尚未在当前绑定里的 Agent。 */
+export type AgentSubagentCandidate = {
+  id: number
+  slug: string
+  name: string
+  description?: string | null
+}
+
+export type AgentSubagentListData = {
+  items: AgentSubagent[]
+  /** true 表示没有任何绑定，运行期回退「全平台已发布智能体（排除自己）」 */
+  fallback: boolean
+  available: AgentSubagentCandidate[]
+}
+
+/** 整表替换时的单项：数组顺序即 sort_order。 */
+export type AgentSubagentUpdateItem = {
+  child_agent_id: number
+  enabled: boolean
+}
+
+export async function listAgentSubagents(
+  platformId: number,
+  agentId: number
+): Promise<AgentSubagentListData> {
+  const { data } = await http.get<AgentSubagentListData>(
+    `/platforms/${platformId}/agents/${agentId}/subagents`
+  )
+  return data ?? { items: [], fallback: true, available: [] }
+}
+
+export async function replaceAgentSubagents(
+  platformId: number,
+  agentId: number,
+  items: AgentSubagentUpdateItem[]
+): Promise<AgentSubagentListData> {
+  const { data } = await http.put<AgentSubagentListData>(
+    `/platforms/${platformId}/agents/${agentId}/subagents`,
+    { items }
+  )
+  return data ?? { items: [], fallback: true, available: [] }
+}
+
 type BackendAgentPage = {
   page_no: number
   page_size: number

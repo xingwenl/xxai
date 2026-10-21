@@ -17,6 +17,7 @@ import { AgentKnowledgeTab } from './agent-knowledge-tab'
 import { AgentModelBindingsTab } from './agent-model-bindings-tab'
 import { AgentOverviewTab } from './agent-overview-tab'
 import { AgentSkillsTab } from './agent-skills-tab'
+import { AgentSubagentsTab } from './agent-subagents-tab'
 import { AgentToolsTab } from './agent-tools-tab'
 import { AgentUsageTab } from './agent-usage-tab'
 import { AgentVersionsTab } from './agent-versions-tab'
@@ -27,6 +28,7 @@ export type AgentTabKey =
   | 'knowledge'
   | 'skills'
   | 'tools'
+  | 'subagents'
   | 'versions'
   | 'usage'
   | 'models'
@@ -140,6 +142,7 @@ export function AgentDetailPage() {
             <TabsTrigger value='knowledge'>知识库</TabsTrigger>
             <TabsTrigger value='skills'>技能</TabsTrigger>
             <TabsTrigger value='tools'>工具</TabsTrigger>
+            <TabsTrigger value='subagents'>子智能体</TabsTrigger>
             <TabsTrigger value='versions'>版本</TabsTrigger>
             <TabsTrigger value='usage'>用量</TabsTrigger>
             <TabsTrigger value='models'>模型绑定</TabsTrigger>
@@ -161,6 +164,12 @@ export function AgentDetailPage() {
           </TabsContent>
           <TabsContent value='tools'>
             <AgentToolsTab platformId={platformId} agentId={agentIdNumber} />
+          </TabsContent>
+          <TabsContent value='subagents'>
+            <AgentSubagentsTab
+              platformId={platformId}
+              agentId={agentIdNumber}
+            />
           </TabsContent>
           <TabsContent value='versions'>
             <AgentVersionsTab platformId={platformId} agentId={agentIdNumber} />

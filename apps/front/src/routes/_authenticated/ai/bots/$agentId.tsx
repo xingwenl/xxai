@@ -11,6 +11,7 @@ const agentDetailSearch = z.object({
       'knowledge',
       'skills',
       'tools',
+      'subagents',
       'versions',
       'usage',
       'models',

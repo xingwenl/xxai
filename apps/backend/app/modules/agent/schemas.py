@@ -85,3 +85,49 @@ class AgentVersionRead(BaseModel):
 
 class AgentDetailRead(AgentRead):
     current_version: AgentVersionRead | None = None
+
+
+class AgentSubagentRead(BaseModel):
+    """配置页里的一条「已绑定子智能体」。
+
+    ``published``/``active`` 是读时计算的状态而非绑定字段：绑定不会因为子 Agent
+    取消发布而消失，但界面必须提示「这条绑定当前派不出去」。
+    """
+
+    child_agent_id: int
+    slug: str
+    name: str
+    description: str | None = None
+    enabled: bool
+    sort_order: int
+    published: bool
+    active: bool
+
+
+class AgentSubagentCandidate(BaseModel):
+    """可添加到绑定列表的候选（本平台已发布启用、尚未绑定）。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    slug: str
+    name: str
+    description: str | None = None
+
+
+class AgentSubagentListData(BaseModel):
+    items: list[AgentSubagentRead]
+    # 没有任何绑定时为 True：运行期回退「全平台已发布智能体（排除自己）」。
+    fallback: bool
+    available: list[AgentSubagentCandidate] = Field(default_factory=list)
+
+
+class AgentSubagentItemInput(BaseModel):
+    child_agent_id: int
+    enabled: bool = True
+
+
+class AgentSubagentReplace(BaseModel):
+    """整表替换：数组顺序即展示/提示清单顺序，空数组表示清空绑定。"""
+
+    items: list[AgentSubagentItemInput] = Field(default_factory=list, max_length=50)

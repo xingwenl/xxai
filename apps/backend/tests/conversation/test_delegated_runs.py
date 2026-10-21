@@ -668,12 +668,16 @@ def test_apply_delegation_policy_prunes_and_injects_catalog(monkeypatch) -> None
             def __init__(self, agents):
                 self.agents = agents
 
-            async def list_published_active_agents(self, platform_id, *, limit):
+            async def list_delegatable_agents(self, platform_id, parent_agent_id, *, limit):
                 return self.agents[:limit]
 
         # 没有绑定委派工具：原样返回，逐字不变
         untouched = await _apply_delegation_policy(
-            [other], agent_repo=_Repo([]), platform_id=1, allow_delegation=True
+            [other],
+            agent_repo=_Repo([]),
+            platform_id=1,
+            agent_id=1,
+            allow_delegation=True,
         )
         assert untouched == [other]
         assert untouched[0] is other
@@ -683,6 +687,7 @@ def test_apply_delegation_policy_prunes_and_injects_catalog(monkeypatch) -> None
             [builtin, other],
             agent_repo=_Repo([]),
             platform_id=1,
+            agent_id=1,
             allow_delegation=False,
         )
         assert [tool.name for tool in pruned] == [other.name]
@@ -693,6 +698,7 @@ def test_apply_delegation_policy_prunes_and_injects_catalog(monkeypatch) -> None
             [builtin],
             agent_repo=_Repo([SimpleNamespace(slug="alpha", name="Bot-alpha")]),
             platform_id=1,
+            agent_id=1,
             allow_delegation=True,
         )
         assert "alpha（Bot-alpha）" in injected[0].description
@@ -726,7 +732,9 @@ def test_load_runtime_context_prunes_mcp_for_child_runs(monkeypatch) -> None:
                     default_version=SimpleNamespace(id=1, version=1, model_name="m"),
                 )
 
-            async def list_published_active_agents(self, platform_id, *, limit):
+            async def list_delegatable_agents(
+                self, platform_id, parent_agent_id, *, limit
+            ):
                 return [SimpleNamespace(slug="alpha", name="Bot-alpha")]
 
         class _EmptyRepo:

@@ -1,10 +1,10 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.agent.models import Agent, AgentVersion
+from app.modules.agent.models import Agent, AgentVersion, SubagentBinding
 from app.modules.platform.models import PlatformAdmin
 from app.modules.agent.schemas import AgentCreate, AgentUpdate, AgentVersionCreate
 from app.modules.workflows.models import Workflow
@@ -253,3 +253,125 @@ class AgentRepository(BaseRepository[Agent]):
 
     async def rollback(self, agent: Agent, version_id: int) -> AgentVersion:
         return await self.publish_version(agent, version_id)
+
+    # ------------------------------------------------------------------
+    # 子智能体绑定：主智能体能派给谁
+    #
+    # 读侧（配置页）与运行期（清单注入、派发校验）都从这里取数，保证「界面上
+    # 看到的候选」与「真正能被派出去的 Agent」是同一个谓词，不会出现配置页有
+    # 但模型派不动、或反过来清单外还能派的漂移。
+    # ------------------------------------------------------------------
+
+    async def list_subagent_bindings(self, parent_agent_id: int):
+        """列出父智能体的全部绑定（含停用/已下线），并带子 Agent 的发布时间。
+
+        返回 ``(绑定行, 子 Agent, published_at)``；``published_at`` 走 outerjoin，
+        子 Agent 没有发布版本时它是 None——配置页据此提示「已取消发布」。
+        """
+        result = await self.session.execute(
+            select(SubagentBinding, Agent, AgentVersion.published_at)
+            .join(Agent, Agent.id == SubagentBinding.child_agent_id)
+            .outerjoin(AgentVersion, AgentVersion.id == Agent.default_version_id)
+            .where(SubagentBinding.parent_agent_id == parent_agent_id)
+            .order_by(SubagentBinding.sort_order.asc(), SubagentBinding.id.asc())
+        )
+        return list(result.all())
+
+    async def has_subagent_bindings(self, parent_agent_id: int) -> bool:
+        count = await self.session.scalar(
+            select(func.count())
+            .select_from(SubagentBinding)
+            .where(SubagentBinding.parent_agent_id == parent_agent_id)
+        )
+        return bool(count)
+
+    async def list_delegatable_agents(
+        self, platform_id: int, parent_agent_id: int, *, limit: int = 50
+    ) -> list[Agent]:
+        """父智能体运行期可派的子智能体清单（候选口径的唯一实现）。
+
+        有绑定：只取绑定内「开关启用 + 已发布 + 已启用」的子 Agent，按绑定排序；
+        没有任何绑定：回退到全平台已发布智能体（排除父自己），即本功能上线前的
+        老口径，存量 Agent 行为不变。
+
+        注意判断依据是「有没有绑定行」而不是「绑定内有没有可用行」：一旦配了
+        绑定，子 Agent 取消发布或停用就会让候选变空并让派发失败——这是有意的，
+        否则配置页显示的约束会静默失效。
+        """
+        if await self.has_subagent_bindings(parent_agent_id):
+            result = await self.session.execute(
+                select(Agent)
+                .join(SubagentBinding, SubagentBinding.child_agent_id == Agent.id)
+                .join(AgentVersion, AgentVersion.id == Agent.default_version_id)
+                .where(
+                    SubagentBinding.parent_agent_id == parent_agent_id,
+                    SubagentBinding.enabled.is_(True),
+                    Agent.platform_id == platform_id,
+                    Agent.id != parent_agent_id,
+                    Agent.is_active.is_(True),
+                    AgentVersion.published_at.is_not(None),
+                )
+                .order_by(SubagentBinding.sort_order.asc(), SubagentBinding.id.asc())
+                .limit(max(1, limit))
+            )
+            return list(result.scalars().all())
+
+        result = await self.session.execute(
+            select(Agent)
+            .join(AgentVersion, AgentVersion.id == Agent.default_version_id)
+            .where(
+                Agent.platform_id == platform_id,
+                Agent.id != parent_agent_id,
+                Agent.is_active.is_(True),
+                AgentVersion.published_at.is_not(None),
+            )
+            .order_by(Agent.slug.asc())
+            .limit(max(1, limit))
+        )
+        return list(result.scalars().all())
+
+    async def list_subagent_available_agents(
+        self, platform_id: int, parent_agent_id: int, *, limit: int = 50
+    ) -> list[Agent]:
+        """配置页「可添加」候选：本平台已发布启用、排除父自己与已绑定项。"""
+        bound_ids = select(SubagentBinding.child_agent_id).where(
+            SubagentBinding.parent_agent_id == parent_agent_id
+        )
+        result = await self.session.execute(
+            select(Agent)
+            .join(AgentVersion, AgentVersion.id == Agent.default_version_id)
+            .where(
+                Agent.platform_id == platform_id,
+                Agent.id != parent_agent_id,
+                Agent.is_active.is_(True),
+                AgentVersion.published_at.is_not(None),
+                Agent.id.not_in(bound_ids),
+            )
+            .order_by(Agent.slug.asc())
+            .limit(max(1, limit))
+        )
+        return list(result.scalars().all())
+
+    async def replace_subagent_bindings(
+        self, parent_agent_id: int, items: list[tuple[int, bool]]
+    ) -> None:
+        """整表替换绑定；数组顺序即 ``sort_order``。
+
+        调用方负责同平台、禁自指、去重校验（见 agent/services.py）。整表替换的
+        语义让前端一次保存就能表达排序与停用，不需要逐条 diff。
+        """
+        await self.session.execute(
+            delete(SubagentBinding).where(
+                SubagentBinding.parent_agent_id == parent_agent_id
+            )
+        )
+        for index, (child_agent_id, enabled) in enumerate(items):
+            self.session.add(
+                SubagentBinding(
+                    parent_agent_id=parent_agent_id,
+                    child_agent_id=child_agent_id,
+                    sort_order=index,
+                    enabled=enabled,
+                )
+            )
+        await self.session.commit()

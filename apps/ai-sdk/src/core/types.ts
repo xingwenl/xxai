@@ -85,6 +85,17 @@ export interface DelegatedRun {
   status: AgentLoopStatus | string
   summary: string | null
   conversationId: string | null
+  /** 该子运行自己的 token 合计（父子不合并）；未记账时省略。 */
+  usage?: DelegatedRunUsage
+  /** `self`=自克隆父智能体，`bound`=派给后台绑定的子智能体；历史运行省略。 */
+  mode?: 'self' | 'bound' | string
+}
+
+/** 单次子运行的 token 用量；与后端 `delegatedRuns[].usage` 逐字段一致。 */
+export interface DelegatedRunUsage {
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
 }
 
 export interface AgentLoopStep {

@@ -125,19 +125,27 @@ _Avoid_: 工作流关联、默认工作流、Agent 绑定
 _Avoid_: 对话运行、隐式触发、自动工作流
 
 **委派工具（delegate_tasks）**:
-父 Agent 模型可自主调用的一次批量派生：1~8 个子任务，每个子任务 = 一个可派智能体（slug）+ 一段自包含指令。它是否对某个 Agent 可用由 `agent_builtin_tools` 绑定决定，不是 Agent 自身的字段；参数级错误整体拒绝且不产生任何子运行，单个子任务失败只逐个回传。
+父 Agent 模型可自主调用的一次批量派生：1~8 个子任务，每个子任务 = 一个可派智能体（slug）+ 一段自包含指令；`agent` 省略时改为自克隆父 Agent（见「自克隆子运行」），并可给 `role` 追加到子运行系统提示。它是否对某个 Agent 可用由 `agent_builtin_tools` 绑定决定，不是 Agent 自身的字段；参数级错误整体拒绝且不产生任何子运行，单个子任务失败只逐个回传。
 _Avoid_: 派生工具、子 Agent 工具、subagent、委托
+
+**子智能体绑定（Subagent Binding）**:
+主 Agent 在后台显式配置的「可派子 Agent」清单（表 `agent_subagents`，含顺序与启用位），决定 `delegate_tasks` 的候选集合。父子两端必须同平台、禁止自指、随 Agent 删除级联；未配置任何绑定时回退「本平台全部已发布 Agent（排除父自己）」。
+_Avoid_: 白名单、团队、子 Agent 列表
 
 **子运行（Delegated Run）**:
 由委派工具派生出来的一轮独立 Agent 运行：新开独立会话与运行记录，并挂在派生它的父运行下。它与父运行是「父子运行」关系而非「会话内的一步」；上下文与父完全隔离，只拿到那段自包含指令，父模型只收回它的终态文本。
 _Avoid_: 子任务、子 Agent、子进程、Sub-run
+
+**自克隆子运行（Self-clone Delegated Run）**:
+`delegate_tasks` 里省略 `agent` 时派生出的子运行：目标 Agent 就是父 Agent 自己，继承其版本配置与工具清单，但同样新开会话、不拿父上下文、深度同为 1；可选的 `role` 只追加到它的系统提示，不改变安全边界与工具范围。
+_Avoid_: 临时 Agent、影子 Agent、匿名子智能体
 
 **委派深度（Delegation Depth）**:
 一次委派的层级数。v1 恒为 1——子运行不能再派生自己的子运行，且这一点由代码在派生工具这一处硬性切断（子运行的工具清单里不含委派工具），不靠配置或约定。
 _Avoid_: 嵌套层数、递归深度、层级
 
 **可派智能体（Delegatable Agent）**:
-当前可以被委派的 Agent，条件是「与父 Agent 同一平台且已发布」。v1 没有单独的「可被派」白名单。
+当前可以被委派的 Agent：父 Agent 有子智能体绑定时，取绑定内当前已发布且启用的那些；没有绑定时取本平台全部已发布 Agent（排除父自己）。「能不能委派」的总开关仍是父 Agent 是否绑定了 `delegate_tasks` 工具。
 _Avoid_: 子 Agent、目标 Agent、候选 Agent
 
 **会话（Conversation）**:

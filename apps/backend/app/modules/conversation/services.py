@@ -500,6 +500,7 @@ async def _run_execute_chat_model_round(
     request_id: str,
     max_iterations: int | None = None,
     memory_index: str | None = None,
+    caller_system_prompt: str | None = None,
 ) -> GraphResult:
     """执行 REST 非流式对话的模型轮次（统一 AgentRuntime）。
 
@@ -523,6 +524,8 @@ async def _run_execute_chat_model_round(
         # 模型名来自平台模型注册表解析出的实际调用模型（版本行已无该字段）。
         chat_model_name=getattr(model, "model_name", None),
         memory_index=memory_index,
+        # 委派自克隆时调用方传入的本次角色说明，只作为补充段落追加。
+        caller_system_prompt=caller_system_prompt,
     )
     # 模型名取自实际调用模型：注册表解析后版本行不再有模型名，
     # 不传就会让内置窗口映射失效（压缩与护栏都会静默关闭）。
@@ -591,6 +594,7 @@ async def _run_chat_model_round_or_orchestration(
     allow_orchestration: bool,
     max_iterations: int | None = None,
     memory_index: str | None = None,
+    caller_system_prompt: str | None = None,
 ):
     """一轮对话的产出：绑定编排时交给工作流，否则走普通的单 Agent 模型循环。
 
@@ -640,6 +644,7 @@ async def _run_chat_model_round_or_orchestration(
         request_id=request_id,
         max_iterations=max_iterations,
         memory_index=memory_index,
+        caller_system_prompt=caller_system_prompt,
     )
 
 
@@ -730,6 +735,8 @@ async def execute_chat(
     allow_memory: bool = True,
     parent_loop_run_id: int | None = None,
     max_iterations: int | None = None,
+    caller_system_prompt: str | None = None,
+    run_metadata: dict | None = None,
 ):
     logger.info(
         "Conversation chat started platform_id=%s user_id=%s end_user_id=%s agent_id=%s conversation_id=%s message_chars=%s citation_count=%s",
@@ -770,6 +777,11 @@ async def execute_chat(
     # 把本次运行的 ID 挂回上下文：委派类工具要在执行期就知道"我是哪一次运行派出来的"，
     # 而运行记录在这里才创建。与 conversation_id 同一套延迟求值口径。
     context.loop_run_id = loop.id
+    if run_metadata:
+        # 运行期才能确定的元信息（如委派模式 self/bound）：落进 loop 的 metadata，
+        # 读侧（delegatedRuns）据此区分自克隆与绑定的子运行。
+        loop.run_metadata = {**(loop.run_metadata or {}), **run_metadata}
+        await repo.save_loop(loop)
     runtime_tools = build_runtime_tool_list(context)
     memory_index = await _load_memory_index(
         repo, platform_id=platform_id, user_id=user_id, allow_memory=allow_memory
@@ -791,6 +803,7 @@ async def execute_chat(
             allow_orchestration=allow_orchestration,
             max_iterations=max_iterations,
             memory_index=memory_index,
+            caller_system_prompt=caller_system_prompt,
         )
     except Exception as error:
         # REST 非流式与流式入口共用同一错误语义：模型失败不能把 loop 留在
@@ -1417,6 +1430,9 @@ async def execute_unattended_chat(
     platform_tools_only: bool = False,
     parent_loop_run_id: int | None = None,
     max_iterations: int | None = None,
+    caller_system_prompt: str | None = None,
+    run_metadata: dict | None = None,
+    record_usage: bool = False,
 ):
     """无人值守执行一轮 Agent 对话（非 HTTP 入口）。
 
@@ -1439,6 +1455,12 @@ async def execute_unattended_chat(
     就断在这里）；``platform_tools_only=True`` 时剔除 MCP 工具（子运行不允许
     触碰 side_effect="external" 的能力）；``parent_loop_run_id`` 把本次运行挂到
     派生它的父运行下；``max_iterations`` 用子运行自己的（更小的）轮次上限。
+
+    委派场景追加的三个参数同样是「默认不改变既有行为」：
+    ``caller_system_prompt`` 是自克隆时由父运行给出的本次角色说明；
+    ``run_metadata`` 落进 loop 的 metadata（读侧据此区分 self/bound 子运行）；
+    ``record_usage=True`` 时把本次运行的 token 用量单独写进用量表——子运行的
+    用量不并回父运行，但委派结果里要能看到它花了多少。
     """
 
     from app.modules.agent.repositories import AgentRepository
@@ -1509,7 +1531,7 @@ async def execute_unattended_chat(
         session_id_provider=lambda: getattr(context, "conversation_id", None),
     )
 
-    return await execute_chat(
+    conversation, assistant_message, result = await execute_chat(
         ConversationRepository(session),
         context,
         platform_id=platform_id,
@@ -1526,7 +1548,29 @@ async def execute_unattended_chat(
         allow_memory=False,
         parent_loop_run_id=parent_loop_run_id,
         max_iterations=max_iterations,
+        caller_system_prompt=caller_system_prompt,
+        run_metadata=run_metadata,
     )
+    if record_usage:
+        # 子运行的用量不并回父运行（父的 usage 只统计父自己那一轮的模型调用），
+        # 但必须单独落一条用量记录，delegatedRuns 读侧才能看到"这次委派花了多少"。
+        usage = getattr(result, "usage", None) or {}
+        repo = ConversationRepository(session)
+        await repo.record_model_usage(
+            platform_id=platform_id,
+            agent_id=agent_id,
+            agent_version_id=context.version.id,
+            user_id=user_id,
+            platform_end_user_id=end_user_id,
+            conversation_id=conversation.id,
+            message_id=assistant_message.id,
+            request_id=f"loop-{getattr(result, 'loop_id', None)}",
+            model_name=getattr(model, "model_name", None),
+            prompt_tokens=usage.get("prompt_tokens"),
+            completion_tokens=usage.get("completion_tokens"),
+            total_tokens=usage.get("total_tokens"),
+        )
+    return conversation, assistant_message, result
 
 
 # ---------------------------------------------------------------------------

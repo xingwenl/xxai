@@ -133,3 +133,52 @@ class AgentVersion(BaseModel):
     agent: Mapped[Agent] = relationship(
         back_populates="versions", foreign_keys=[agent_id]
     )
+
+
+class SubagentBinding(BaseModel, TimeModel):
+    """父智能体 → 可派子智能体的绑定关系。
+
+    这张表只回答「主智能体能把任务派给谁」，不复制子 Agent 的任何配置：
+    子 Agent 的工具、技能、模型仍由它自己的发布版本决定。``enabled`` 是运行期
+    开关（停用后不进入候选清单但保留绑定与排序），与子 Agent 自身的
+    ``is_active`` 及发布状态共同决定是否真的可派。
+    """
+
+    __tablename__ = "agent_subagents"
+    __table_args__ = (
+        UniqueConstraint(
+            "parent_agent_id",
+            "child_agent_id",
+            name="uq_agent_subagents_parent_child",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True, autoincrement=True, comment="绑定关系主键"
+    )
+    parent_agent_id: Mapped[int] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="父智能体 ID（下发委派的一方）",
+    )
+    child_agent_id: Mapped[int] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="子智能体 ID（被委派执行的一方）",
+    )
+    sort_order: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+        comment="展示与提示清单的排序值，升序",
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="true",
+        comment="是否允许被委派；停用后不进入候选清单但保留绑定与排序",
+    )

@@ -10,6 +10,10 @@
   无人值守路径没有渠道把确认弹给人，只有「静默批准」和「不可用」两个选项；
 - **上下文隔离**：每个子运行走 ``execute_unattended_chat``——各自新建会话、只拿到
   自包含的 task 文本，父的历史不流转；
+- **候选收窄**：agent 只能填本智能体可派的子智能体（后台绑定过的那些，未配置时回退
+  全平台已发布，见 ``AgentRepository.list_delegatable_agents``）；省略 agent 表示
+  「自克隆」——继承父智能体自身的配置与工具跑一个同一人格的子运行，用 ``role`` 追加
+  本次角色提示，这样没有预先配置子智能体时也能并行拆活；
 - **每个子运行一个独立 Session**：绝不复用 ``ctx.session``。流式运行时它是网关正在
   flush/commit 的 AsyncSession，被并发子运行复用会撞 asyncpg 的并发操作错误。
 """
@@ -37,19 +41,24 @@ TRUNCATION_MARKER = "\n…（输出已按上限截断）"
 
 MAX_TASKS_IN_SCHEMA = 8
 
+# role 是追加到子运行系统提示的一小段角色说明，不是完整系统提示词；限制长度
+# 避免模型把整份上下文塞进来、把子运行的提示词挤爆。
+MAX_ROLE_CHARS = 500
+
 
 def build_agent_catalog_description(base: str, catalog: list[tuple[str, str]]) -> str:
-    """把「本平台可派智能体清单」拼进委派工具的描述。
+    """把「可派智能体清单」拼进委派工具的描述。
 
-    静态 ``@business_tool`` 的 description 在导入期就固定，无法随平台变化，因此
+    静态 ``@business_tool`` 的 description 在导入期就固定，无法随平台/绑定变化，因此
     运行时上下文组装时替换一份。清单为空时保持原描述不变——不向模型承诺一个
-    实际上不存在的清单。
+    实际上不存在的清单（此时仍有「省略 agent 自克隆」这条通用通道）。
     """
     if not catalog:
         return base
     lines = [f"- {slug}（{name}）" if name else f"- {slug}" for slug, name in catalog]
     return (
-        f"{base}\n\n当前平台可派的智能体（agent 字段只能填这里的 slug）：\n"
+        f"{base}\n\n当前可派的智能体（agent 字段只能填这里的 slug；"
+        "也可以省略 agent，表示继承你自身配置的自克隆子智能体）：\n"
         + "\n".join(lines)
     )
 
@@ -65,57 +74,109 @@ def _truncate_output(text: str, max_bytes: int) -> str:
 
 def _validate_arguments(
     arguments: dict[str, Any], *, max_tasks: int
-) -> list[dict[str, str]]:
-    """参数级校验：任何一项不合法就整体拒绝，不创建任何子运行。"""
+) -> list[dict[str, Any]]:
+    """参数级校验：任何一项不合法就整体拒绝，不创建任何子运行。
+
+    ``agent`` 可省略（=自克隆父智能体）；此时去重键用 ``__self__:<role>``——不能
+    拿空 agent 与某个真实 slug 撞键，否则「自克隆 + 派给 a」会被误判重复。
+    """
 
     raw_tasks = arguments.get("tasks")
     if not isinstance(raw_tasks, list) or not raw_tasks:
         raise BusinessToolError(
-            "invalid_tasks", "tasks 必须是非空数组，每项形如 {agent, task}"
+            "invalid_tasks", "tasks 必须是非空数组，每项形如 {agent?, task, role?}"
         )
     if len(raw_tasks) > max_tasks:
         raise BusinessToolError(
             "too_many_tasks",
             f"一次最多委派 {max_tasks} 个子任务，收到 {len(raw_tasks)} 个",
         )
-    tasks: list[dict[str, str]] = []
+    tasks: list[dict[str, Any]] = []
     seen: set[str] = set()
     for index, item in enumerate(raw_tasks):
         if not isinstance(item, dict):
             raise BusinessToolError("invalid_tasks", f"第 {index + 1} 项必须是对象")
         agent = item.get("agent")
         task = item.get("task")
-        if not isinstance(agent, str) or not agent.strip():
-            raise BusinessToolError("invalid_tasks", f"第 {index + 1} 项缺少 agent")
+        role = item.get("role")
+        if agent is not None and (not isinstance(agent, str) or not agent.strip()):
+            raise BusinessToolError(
+                "invalid_tasks", f"第 {index + 1} 项的 agent 必须是非空字符串，或省略"
+            )
         if not isinstance(task, str) or not task.strip():
             raise BusinessToolError("invalid_tasks", f"第 {index + 1} 项缺少 task")
-        slug = agent.strip()
-        if slug in seen:
+        if role is not None:
+            if not isinstance(role, str) or not role.strip():
+                raise BusinessToolError(
+                    "invalid_tasks", f"第 {index + 1} 项的 role 必须是非空字符串，或省略"
+                )
+            role = role.strip()
+            if len(role) > MAX_ROLE_CHARS:
+                raise BusinessToolError(
+                    "invalid_tasks",
+                    f"第 {index + 1} 项的 role 超过 {MAX_ROLE_CHARS} 字符",
+                )
+        slug = agent.strip() if isinstance(agent, str) else None
+        dedupe_key = f"__self__:{role or ''}" if slug is None else slug
+        if dedupe_key in seen:
+            label = slug if slug is not None else f"自克隆（role={role or ''}）"
             raise BusinessToolError(
-                "duplicate_agent", f"agent '{slug}' 在一次调用里出现了多次"
+                "duplicate_agent", f"agent '{label}' 在一次调用里出现了多次"
             )
-        seen.add(slug)
-        tasks.append({"agent": slug, "task": task.strip()})
+        seen.add(dedupe_key)
+        tasks.append({"agent": slug, "role": role, "task": task.strip()})
     return tasks
 
 
-async def _resolve_agents(session, platform_id: int, tasks: list[dict[str, str]]):
-    """把 slug 解析成本平台「已发布且已启用」的 Agent；任一不存在即整体拒绝。"""
+async def _resolve_agents(
+    session,
+    *,
+    platform_id: int,
+    parent_agent_id: int,
+    tasks: list[dict[str, Any]],
+):
+    """把子任务解析成「实际要跑的 Agent + 委派模式」。
+
+    候选清单与系统提示里注入的清单同源（``list_delegatable_agents``），保证模型
+    看到的 slug 集合与实际能派出去的集合不会漂移。返回 ``[(任务, Agent, 模式)]``，
+    模式取 ``"bound"``（绑定的子智能体）或 ``"self"``（自克隆父智能体）。
+    """
 
     from app.modules.agent.repositories import AgentRepository
 
     repo = AgentRepository(session)
-    resolved: list[tuple[dict[str, str], Any]] = []
+    candidates = await repo.list_delegatable_agents(
+        platform_id,
+        parent_agent_id,
+        limit=get_settings().delegation_max_agents_in_prompt,
+    )
+    by_slug = {agent.slug: agent for agent in candidates}
+    parent: Any | None = None
+    resolved: list[tuple[dict[str, Any], Any, str]] = []
     for item in tasks:
-        agent = await repo.get_published_active_agent_by_slug(
-            platform_id, item["agent"]
-        )
-        if agent is None:
+        slug = item["agent"]
+        if slug is None:
+            # 自克隆：复用父 Agent 的版本/模型/工具配置，只是换一个隔离会话。
+            if parent is None:
+                parent = await repo.get_published_agent(parent_agent_id, platform_id)
+            if parent is None:
+                raise BusinessToolError(
+                    "self_clone_unavailable",
+                    "当前智能体没有已发布版本，无法派发自克隆子智能体",
+                )
+            resolved.append((item, parent, "self"))
+            continue
+        child = by_slug.get(slug)
+        if child is None:
+            available = (
+                "、".join(f"'{agent.slug}'（{agent.name}）" for agent in candidates)
+                or "无"
+            )
             raise BusinessToolError(
                 "agent_not_available",
-                f"agent '{item['agent']}' 不是本平台可派的智能体",
+                f"agent '{slug}' 不在当前可派的子智能体清单内；可用：{available}",
             )
-        resolved.append((item, agent))
+        resolved.append((item, child, "bound"))
     return resolved
 
 
@@ -157,8 +218,10 @@ async def _fail_running_children(parent_loop_run_id: int, reason: str) -> None:
         "子任务之间不共享上下文，也读不到彼此的中间结果。"
         "子任务里不能使用需要人工确认的工具（外部 MCP、页面宿主工具），"
         "也不能再向下委派。"
-        "用法：tasks 是子任务数组，每项 {agent, task}；agent 填本平台可派智能体的 slug，"
-        "任务相同的 agent 不要重复。"
+        "用法：tasks 是子任务数组，每项 {agent?, task, role?}。agent 填可派智能体的 slug"
+        "（见工具描述里的清单）；也可以**省略 agent**——表示用你自己当前的配置与工具"
+        "克隆一个子智能体去跑，此时可用 role 写一小段角色说明（例如「只负责核对金额」），"
+        "同一批任务里两种写法可以混用。任务相同的 agent 不要重复。"
         "结果使用：返回 {tasks:[{agent,status,output|error}],succeeded,failed}，"
         "你可以据此对失败项重试或换人；单个子任务失败不会影响其他子任务。"
     ),
@@ -169,14 +232,24 @@ async def _fail_running_children(parent_loop_run_id: int, reason: str) -> None:
                 "type": "array",
                 "minItems": 1,
                 "maxItems": MAX_TASKS_IN_SCHEMA,
-                "description": "要并发派出的子任务，每项一个 {agent, task}",
+                "description": "要并发派出的子任务，每项一个 {agent?, task, role?}",
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
                     "properties": {
                         "agent": {
                             "type": "string",
-                            "description": "子智能体的 slug（见工具描述里的可派清单）",
+                            "description": (
+                                "子智能体的 slug（见工具描述里的可派清单）；"
+                                "省略则用你自己的配置克隆一个子智能体"
+                            ),
+                        },
+                        "role": {
+                            "type": "string",
+                            "description": (
+                                "可选的本次角色说明，追加到子运行的系统提示；"
+                                "只在省略 agent（自克隆）时使用"
+                            ),
                         },
                         "task": {
                             "type": "string",
@@ -186,7 +259,7 @@ async def _fail_running_children(parent_loop_run_id: int, reason: str) -> None:
                             ),
                         },
                     },
-                    "required": ["agent", "task"],
+                    "required": ["task"],
                 },
             }
         },
@@ -240,7 +313,12 @@ async def delegate_tasks(
         )
 
     tasks = _validate_arguments(arguments, max_tasks=settings.delegation_max_tasks)
-    resolved = await _resolve_agents(ctx.session, ctx.platform_id, tasks)
+    resolved = await _resolve_agents(
+        ctx.session,
+        platform_id=ctx.platform_id,
+        parent_agent_id=ctx.agent_id,
+        tasks=tasks,
+    )
 
     from app.modules.conversation.services import execute_unattended_chat
 
@@ -248,9 +326,18 @@ async def delegate_tasks(
     timeout_seconds = settings.delegation_timeout_seconds
     output_limit = settings.delegation_output_max_bytes
 
-    async def run_one(item: dict[str, str], child_agent) -> dict[str, Any]:
+    def _agent_label(item: dict[str, Any], child_agent, mode: str) -> str:
+        """回给模型的 agent 标识：绑定项用 slug，自克隆项显式标注。"""
+        if mode == "self":
+            return f"{child_agent.slug}（自克隆）"
+        return item["agent"] or child_agent.slug
+
+    async def run_one(
+        item: dict[str, Any], child_agent, mode: str
+    ) -> dict[str, Any]:
         """跑一个子运行；返回结果条目与（可能的）子运行 ID。"""
 
+        label = _agent_label(item, child_agent, mode)
         async with semaphore:
             loop_run_id: int | None = None
             try:
@@ -270,13 +357,24 @@ async def delegate_tasks(
                             parent_loop_run_id=ctx.loop_run_id,
                             max_iterations=settings.delegation_max_iterations,
                             confirmation_decider=inherited_decider,
+                            # 自克隆的 role 只作为「调用方补充提示」附加，不覆盖
+                            # 子智能体自身的系统提示与平台约束；绑定子智能体自带
+                            # 完整人格，不接受调用方追加角色。
+                            caller_system_prompt=(
+                                item.get("role") if mode == "self" else None
+                            ),
+                            # 记到 mode 上，读侧据此区分「绑定的子智能体」与「自克隆」。
+                            run_metadata={"delegationMode": mode},
+                            # 子运行 token 不并回父 usage，但单独落用量表，
+                            # 让 delegatedRuns 能看到这次委派花了多少。
+                            record_usage=True,
                         ),
                         timeout=timeout_seconds,
                     )
             except TimeoutError:
                 return (
                     {
-                        "agent": item["agent"],
+                        "agent": label,
                         "status": "failed",
                         "error": {"code": "delegation_timeout"},
                     },
@@ -287,7 +385,7 @@ async def delegate_tasks(
             except Exception as error:  # noqa: BLE001 - 单个子运行失败不中止其余
                 return (
                     {
-                        "agent": item["agent"],
+                        "agent": label,
                         "status": "failed",
                         "error": {
                             "code": "delegation_failed",
@@ -300,7 +398,7 @@ async def delegate_tasks(
             content = getattr(result, "content", None) or ""
             return (
                 {
-                    "agent": item["agent"],
+                    "agent": label,
                     "status": "completed",
                     "output": _truncate_output(str(content), output_limit),
                 },
@@ -309,7 +407,7 @@ async def delegate_tasks(
 
     try:
         settled = await asyncio.gather(
-            *(run_one(item, agent) for item, agent in resolved)
+            *(run_one(item, agent, mode) for item, agent, mode in resolved)
         )
     except BaseException:
         # 父被取消或并发池本身出错：把还在跑的子运行落为终态，避免留下
