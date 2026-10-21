@@ -756,15 +756,19 @@ export default function App() {
     void mountAssistant()
   }, [])
 
-  // 子应用被禁用/卸载后，同时清掉它的常驻层与注册给助手的方法
+  // 子应用被禁用/卸载后，同时清掉它的常驻层与注册给助手的方法。
+  // 注意必须等插件列表加载完成再清理：深链冷启动（/?child=1#/app/<id>）时 hash effect
+  // 会先 rememberApp(id)，若此刻 plugins 还是空数组，会把刚记住的 id 误判成「已卸载」清掉，
+  // 结果子应用层永远不渲染、页面只剩侧栏。
   useEffect(() => {
+    if (!loaded) return
     const alive = new Set(plugins.map((p) => p.id))
     for (const id of mountedApps) {
       if (alive.has(id)) continue
       clearPluginTools(id)
       setMountedApps((prev) => prev.filter((x) => x !== id))
     }
-  }, [plugins, mountedApps])
+  }, [loaded, plugins, mountedApps])
 
   // 声明了 tools / dashboard 权限的子应用在宿主启动时就静默挂载（隐藏 iframe，只加载不展示）。
   // tools：全局助手在壳层启动即连接，但子应用的方法要等 iframe 加载后才注册；若不做这一步，
