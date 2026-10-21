@@ -127,6 +127,21 @@ DESKTOP_DEV_FRONT=1 DESKTOP_DEBUG=1 poetry run python -m desktop_app
 - `DESKTOP_DEV_FRONT=1`：窗口直接加载 Vite dev server，改样式即时生效，不用 build。
 - `DESKTOP_DEBUG=1`：启用 Web Inspector（macOS 上窗口右键 → 检查元素，或启动时自动打开检查器）。
 
+### 插件目录热重载（开发态）
+
+改插件的 `manifest.json` / 入口页 / 静态资源时，不必重启宿主、也不必刷新页面：
+
+```bash
+cd apps/desktop
+DESKTOP_DEV_RELOAD=1 poetry run python -m desktop_app
+```
+
+- 默认关闭，打包态零成本：未设 `DESKTOP_DEV_RELOAD` 时 `GET /api/desktop/plugin-revision` 直接返回 `enabled: false`，前端不发轮询。
+- 开启后前端每 1.5s 拉一次指纹：后端对每个插件目录算 `sha256(相对路径 + mtime_ns + 大小)` 取前 12 位（跳过隐藏文件、`node_modules` / `.git` / `__pycache__` / `.venv` / `dist`，单插件最多 2000 个文件）。
+- 某个插件指纹变了就重拉插件列表并重建它的 iframe（toast「插件已热重载」）；**已打开的子应用与已注册给助手的方法不会丢**。
+- `type=react` 的子应用是宿主编译产物，不参与热重载——改完要 `pnpm --dir apps/desktop/front build` 并重启宿主（前端会提示）。
+- 新增/删除插件目录也会被发现（指纹变化），但仍建议通过设置页安装 zip 来走完整校验流程。
+
 ### 什么时候才需要 build
 
 - 正式启动（不带 `DESKTOP_DEV_FRONT` 的 `poetry run python -m desktop_app`，加载 `front/dist`）。
@@ -165,7 +180,7 @@ poetry run python build/build.py
 
 宿主壳由 `apps/desktop/front/`（React 19 + Vite + Tailwind v4）构建，提供两个一级页面（左侧导航切换）：
 
-- **应用页**：图标网格展示已安装插件，点击后按插件的默认打开方式打开（默认在内容区 iframe 加载插件页面，也可开在系统浏览器或新的原生窗口）。
+- **应用页**：图标网格展示已安装插件，点击后按插件的默认打开方式打开（默认在内容区 iframe 加载插件页面，也可开在系统浏览器或新的原生窗口）；声明了 `dashboard` 权限的插件可在首页「概览」区推送实时卡片。
 - **设置页**：zip 安装插件、启用/禁用、卸载，在弹窗里修改单个插件的宿主配置、查看运行态与事件日志位置，以及框架信息。
 
 插件 = 一个目录（`manifest.json` + 静态资源）。内置插件位于 `plugins/`（随应用分发、不可卸载）；用户通过 zip 安装的插件存放在 `~/.desktop-app/plugins/`，启停状态持久化到 `~/.desktop-app/state.json`。
@@ -180,6 +195,7 @@ poetry run python build/build.py
 | 通知 | `notify` | `notify({title, body})` 或 `notify(title, body)`（宿主 toast） |
 | 设置 | `settings` | `settings.get(key, default?)` / `settings.set(key, value)`（**同步**，存宿主 localStorage）；`settings.getConfig()` / `settings.onChanged(handler)` 读取 manifest 声明的宿主配置（**只读**，见「插件宿主配置」） |
 | 存储 | `storage` | `storage.get(key, default?)` / `set(key, value)` / `delete(key)` / `keys()`（**全异步**，落 `~/.desktop-app/plugin-data/<pluginId>/<key>.json`） |
+| 概览卡 | `dashboard` | `dashboard.publish(card)` / `dashboard.clear()`（把关键指标推到宿主首页「概览」区，见「首页概览卡」） |
 | 方法注册 | `tools` | `tools.register(defs, handlers)` / `tools.unregister(names)`（把子应用能力交给全局助手调用） |
 | 事件总线 | `events` | `events.on(event, handler)` / `events.emit(event, payload)`（宿主跨插件转发） |
 | HTTP 代理 | `http` | `http.get(url, opts)` / `http.post(url, opts)`（经 `/api/desktop/proxy`） |
@@ -227,6 +243,36 @@ poetry run python build/build.py
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/api/desktop/plugin-log` | body `{"pluginId", "event", "detail"?}`，前端上报插件运行时事件；事件名不在白名单返回 400 |
+
+### 首页概览卡（dashboard）
+
+子应用可以往宿主首页「概览」区推一张卡，把「本月支出」「书签总数」这类关键数字直接露在首页，用户不用先点开应用：
+
+```json
+{ "permissions": ["dashboard"] }
+```
+
+```js
+window.desktop.dashboard.publish({
+  title: "记账概览",
+  metrics: [
+    { label: "本月支出", value: "¥1,280" },
+    { label: "记录笔数", value: "36 笔" }
+  ],
+  recent: [
+    { text: "午餐 · 32 元", hint: "今天" },
+    { text: "地铁 · 6 元", hint: "昨天" }
+  ],
+  emptyText: "本月还没有记账"
+});
+```
+
+- 权限：manifest 必须声明 `dashboard`，否则调用抛「权限不足」。
+- 首屏加载：声明 `dashboard` 的子应用会在宿主启动时静默挂载（隐藏 iframe，只加载不展示，和声明 `tools` 的预挂载同一条路径），这样用户一进首页就能看到卡片；代价是这类子应用每次启动都会跑一次，别在启动脚本里做重活。
+- 宿主侧截断（不报错）：`title` ≤40、`metrics` ≤4 条（`label` ≤12 / `value` ≤24）、`recent` ≤5 条（`text` ≤80 / `hint` ≤24）、`emptyText` ≤40；超长自动加 `…`。
+- 指标与最近条目都为空时展示 `emptyText`；卡片数据是**内存态**，宿主刷新页面或重新挂载 iframe 后由插件重新 `publish`。
+- 点击卡片打开对应子应用；插件停用/卸载后首页不再展示它的卡片；没有任何卡片时首页不出现「概览」区。
+- 活样板：内置 `plugins/hello-world` 声明了 `dashboard` 并在 `desktop-ready` 后推送一张演示卡。
 
 ### 子应用本地数据（plugin-data）
 
@@ -281,7 +327,7 @@ ai-sdk 的 HTTP 接口（附件上传、会话列表、资源下载）由宿主*
   "icon": "icon.svg",
   "entry": "index.html",
   "open_mode": "inline",
-  "permissions": ["notify", "settings", "storage", "tools", "events", "http", "platform", "log"]
+  "permissions": ["notify", "settings", "storage", "tools", "events", "http", "platform", "log", "dashboard"]
 }
 ```
 
@@ -293,6 +339,7 @@ ai-sdk 的 HTTP 接口（附件上传、会话列表、资源下载）由宿主*
   - `window`：打开一个新的原生窗口，窗口里仍是宿主壳（深链 `#/app/<id>`），SDK 与权限白名单不变；同一插件重复打开只会聚焦已有窗口。
   - `type=remote` 的插件在 `browser` / `window` 下打开它自己的 `url`，且**不会**注入宿主桥；写错的 `open_mode` 会回退为 `inline`（仅记录警告，不影响插件加载）。
 - `settings`（可选）：声明式宿主配置项，见上文「插件宿主配置（settings[]）」；`type=remote` 的插件不允许声明。
+- `permissions` 支持：`notify` / `settings` / `storage` / `tools` / `events` / `http` / `platform` / `log` / `dashboard`；未声明的能力被调用时抛「权限不足」。
 - zip 包结构：根为插件目录，或根下仅一个含 `manifest.json` 的目录（自动归一化）。
 
 ### 开发一个插件
@@ -314,7 +361,8 @@ ai-sdk 的 HTTP 接口（附件上传、会话列表、资源下载）由宿主*
 ```
 
 3. 启动应用后在设置页上传打包的 zip，或直接放入用户插件目录。
-4. 需要用户可调参数时，在 `manifest.json` 声明 `settings[]`，插件页用 `desktop.settings.getConfig()` 读取、`onChanged` 订阅变更（示例见内置 `plugins/hello-world`，它同时演示了通知、存储、方法注册与宿主配置）。
+4. 需要用户可调参数时，在 `manifest.json` 声明 `settings[]`，插件页用 `desktop.settings.getConfig()` 读取、`onChanged` 订阅变更（示例见内置 `plugins/hello-world`）。
+5. 想在首页露数字时，声明 `dashboard` 权限并在 `desktop-ready` 后调 `dashboard.publish(...)`（同样见 `hello-world`；它把通知、存储、方法注册、宿主配置、概览卡五件事演示在一起）。
 
 > 提示：插件入口页建议在 `<head>` 中内联设置背景色（如 `background: #020617`），
 > 避免在宿主样式文件加载完成前出现白屏闪动；宿主会在插件页加载完成后淡入显示。
@@ -364,6 +412,8 @@ cd apps/ledger && node scripts/install-to-desktop.mjs   # 装到 ~/.desktop-app/
 - **助手悬浮球不出现 / 子应用方法助手看不到**：先确认宿主能从 `GET /api/desktop/agent-config` 拿到 `enabled: true`（本地调试用 `DESKTOP_DEV_AGENT=1` 启动）；再确认子应用 manifest 声明了 `tools`（宿主启动时会静默预挂载这类子应用，无需点开）；若刚改过前端，需要重启桌面应用让新的 `front/dist` 生效。
 - **插件页拿不到 `window.desktop`**：插件必须在 `desktop-ready` 事件后再使用 SDK，参考上文示例写法。
 - **设置页没有「配置」按钮 / 保存配置报 400**：按钮只在插件声明了 `settings[]` 且 manifest 无错时出现，点击后在弹窗里改；400 会显示在弹窗底部且 `detail` 是中文原因（例如取值不在候选项、超出 min/max、键未声明），修正后重试即可，非法提交不会落盘、弹窗保持打开。
+- **改了插件文件没反应**：确认宿主是以 `DESKTOP_DEV_RELOAD=1` 启动的（默认关闭）；仍在跑旧内容时看 `~/.desktop-app/plugin.log` 里有没有新的 `iframe_load`，并确认改的是插件目录内的文件（隐藏目录与 `node_modules` / `dist` 不参与指纹）；`type=react` 的子应用不参与热重载，需 `pnpm build` 后重启宿主。
+- **首页没有「概览」区 / 概览卡不显示**：确认 manifest 声明了 `dashboard` 权限、`publish` 写在 `desktop-ready` 之后；卡片数据是内存态，插件重新挂载后要重新 `publish`；插件停用/卸载后卡片不再展示；`metrics` / `recent` 里空的条目会被丢弃，全空时只显示 `emptyText`。
 - **改完配置运行中的应用没反应**：插件页必须用 `desktop.settings.getConfig()` 读取、`desktop.settings.onChanged()` 订阅；旧的 `settings.get/set` 存在宿主 localStorage，与宿主配置是两套数据。
 - **插件白屏或显示「运行失败」**：看 `~/.desktop-app/plugin.log`（JSONL）：有 `iframe_load` 但无 `sdk_injected` 说明入口页没等到 SDK 或脚本报错，`sdk_inject_failed` 的 `detail` 带具体原因。
 - **开发时怎么打开控制台**：浏览器模式直接按 `Cmd+Option+I`；pywebview 窗口用 `DESKTOP_DEBUG=1` 启动后右键 → 检查元素。

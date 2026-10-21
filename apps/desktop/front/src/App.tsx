@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
-import { getPlugins, type Plugin } from './lib/api'
+import { getPluginRevision, getPlugins, type Plugin } from './lib/api'
 import { toast } from './lib/toast'
 import { mountAssistant } from './lib/assistant'
 import { clearPluginTools } from './lib/tool-bridge'
@@ -8,6 +8,7 @@ import Settings from './components/settings'
 import ReactAppView from './components/react-app-view'
 import PageHeader from './components/page-header'
 import { AppCard, type AppItem } from './components/app-card'
+import { DashboardCards } from './components/dashboard-cards'
 
 // ── 子应用打开方式 ────────────────────────────────────────────────────────────
 // 与 desktop_app/protocol.py 的 OPEN_MODES 一一对应；插件在 manifest.open_mode 里声明默认值，
@@ -30,6 +31,10 @@ const IS_CHILD_WINDOW = new URLSearchParams(window.location.search).has('child')
 // 常驻会一直压住它们（实测 70×32 的胶囊会把插件自带的 logo 整个盖掉）。
 // 所以：进入子应用时亮一下，随后淡出；指针移回胶囊位置（父文档元素，iframe 吞不掉 hover）再亮。
 const BACK_PEEK_MS = 2800
+
+// 开发热重载的轮询间隔：仅 DESKTOP_DEV_RELOAD 开启时生效，1.5s 对开发体验足够、
+// 每次只回一个指纹哈希，代价可忽略（打包态端点直接返回 enabled:false）。
+const DEV_RELOAD_POLL_MS = 1500
 
 // ── themes ────────────────────────────────────────────────────────────────────
 
@@ -732,6 +737,8 @@ export default function App() {
   const [sidebarVisible, setSidebarVisible] = useState(true)
   const [plugins, setPlugins] = useState<Plugin[]>([])
   const [loaded, setLoaded] = useState(false)
+  // 插件 id → 热重载次数；作为 iframe 的 key 组成部分（见 PluginView）
+  const [reloadTokens, setReloadTokens] = useState<Record<string, number>>({})
   const [pinnedIds, setPinnedIds] = useState<string[]>(loadPinned)
   // 应用卡片的右键打开方式菜单；菜单渲染在壳层（卡片自身 overflow-hidden 会裁剪它）
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
@@ -759,17 +766,22 @@ export default function App() {
     }
   }, [plugins, mountedApps])
 
-  // 声明了 tools 权限的子应用在宿主启动时就静默挂载（隐藏 iframe，只加载不展示）。
-  // 全局助手在壳层启动即连接、但子应用的方法要等 iframe 加载后才注册；若不做这一步，
+  // 声明了 tools / dashboard 权限的子应用在宿主启动时就静默挂载（隐藏 iframe，只加载不展示）。
+  // tools：全局助手在壳层启动即连接，但子应用的方法要等 iframe 加载后才注册；若不做这一步，
   // 用户不先打开「记账」就问助手，模型会看到一份空工具列表，回复「没有记账工具」。
+  // dashboard：概览卡是子应用运行时 publish 到宿主内存里的，iframe 不加载就没有卡片；要让用户
+  // 一进首页就看见概览，声明 dashboard 的子应用必须随首屏静默跑起来。
   useEffect(() => {
     if (!loaded) return
-    const toolAppIds = plugins
-      .filter((p) => (p.permissions || []).includes('tools'))
+    const premountAppIds = plugins
+      .filter((p) => {
+        const perms = p.permissions || []
+        return perms.includes('tools') || perms.includes('dashboard')
+      })
       .map((p) => p.id)
-    if (toolAppIds.length === 0) return
+    if (premountAppIds.length === 0) return
     setMountedApps((prev) => {
-      const added = toolAppIds.filter((id) => !prev.includes(id))
+      const added = premountAppIds.filter((id) => !prev.includes(id))
       return added.length === 0 ? prev : [...prev, ...added]
     })
   }, [loaded, plugins])
@@ -836,6 +848,63 @@ export default function App() {
   }, [])
 
   useEffect(loadPlugins, [loadPlugins])
+
+  // 轮询时要用「当前插件列表」判断类型（react 子应用是宿主编译产物，不能靠重建 iframe 重载）
+  const pluginsRef = useRef<Plugin[]>([])
+  useEffect(() => {
+    pluginsRef.current = plugins
+  }, [plugins])
+
+  // 开发热重载：轮询后端插件目录指纹，变了就重拉列表并 bump 对应插件的 reloadToken。
+  // 不重启宿主、不刷新整页，已打开的子应用与已注册的工具都不会丢。
+  useEffect(() => {
+    let timer: number | undefined
+    let disposed = false
+    let fingerprints: Record<string, string> | null = null
+
+    const tick = async () => {
+      try {
+        const revision = await getPluginRevision()
+        if (disposed) return
+        const next = revision.plugins
+        if (fingerprints) {
+          const changed = Object.keys(next).filter(
+            (id) => fingerprints![id] !== undefined && fingerprints![id] !== next[id],
+          )
+          if (changed.length > 0) {
+            fingerprints = next
+            loadPlugins()
+            const reloadIds = changed.filter(
+              (id) => pluginsRef.current.find((plugin) => plugin.id === id)?.type !== 'react',
+            )
+            const reactIds = changed.filter((id) => !reloadIds.includes(id))
+            if (reloadIds.length > 0) {
+              setReloadTokens((prev) => {
+                const tokens = { ...prev }
+                for (const id of reloadIds) tokens[id] = (tokens[id] ?? 0) + 1
+                return tokens
+              })
+              toast('插件已热重载', reloadIds.join('、'))
+            }
+            if (reactIds.length > 0) {
+              toast('React 子应用改动需重新构建', `${reactIds.join('、')} 请执行 pnpm build 后重启宿主`)
+            }
+          }
+        } else {
+          fingerprints = next
+        }
+      } catch {
+        // 宿主重启的窗口期轮询会失败，静默重试即可，不要刷 toast
+      }
+      if (!disposed) timer = window.setTimeout(tick, DEV_RELOAD_POLL_MS)
+    }
+
+    timer = window.setTimeout(tick, DEV_RELOAD_POLL_MS)
+    return () => {
+      disposed = true
+      if (timer) window.clearTimeout(timer)
+    }
+  }, [loadPlugins])
 
   // 子应用只有全屏沉浸一种形态：进入时侧栏收起，只留左边缘把手可唤出
   const enterFullscreen = useCallback(() => {
@@ -1165,6 +1234,12 @@ export default function App() {
             </div>
           )}
 
+          {/* 概览卡：子应用通过 desktop.dashboard.publish(...) 推送的实时数字，
+              没有插件推卡片时整区不渲染（DashboardCards 内部返回 null） */}
+          {showPinned && (
+            <DashboardCards onOpen={openAppByMode} pluginIds={plugins.map((p) => p.id)} />
+          )}
+
           {/* all / filtered apps */}
           <section>
             {showPinned && (
@@ -1252,7 +1327,7 @@ export default function App() {
             <div className="absolute inset-0">
               {plugin.type === 'react'
                 ? <ReactAppView appId={plugin.id} theme={theme} />
-                : <PluginView plugin={plugin} fullscreen />}
+                : <PluginView plugin={plugin} fullscreen reloadToken={reloadTokens[plugin.id] ?? 0} />}
             </div>
             {active && (
               <>

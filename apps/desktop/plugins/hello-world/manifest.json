@@ -5,7 +5,7 @@
   "description": "示例应用：演示宿主 SDK 的全部基础能力",
   "icon": "icon.svg",
   "entry": "index.html",
-  "permissions": ["notify", "settings", "storage", "events", "http", "platform", "log"],
+  "permissions": ["notify", "settings", "storage", "events", "http", "platform", "log", "dashboard"],
   "settings": [
     {
       "key": "greeting",

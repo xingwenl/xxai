@@ -22,7 +22,16 @@ async function openInBrowser(url: string) {
   window.open(url, '_blank', 'noopener')
 }
 
-export default function PluginView({ plugin, fullscreen }: { plugin: Plugin; fullscreen?: boolean }) {
+export default function PluginView({
+  plugin,
+  fullscreen,
+  reloadToken = 0,
+}: {
+  plugin: Plugin
+  fullscreen?: boolean
+  /** 开发热重载令牌：变化时通过 key 强制重建 iframe，重新加载插件目录里的最新文件 */
+  reloadToken?: number
+}) {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const isRemote = plugin.type === 'remote'
 
@@ -105,6 +114,8 @@ export default function PluginView({ plugin, fullscreen }: { plugin: Plugin; ful
 
   return (
     <iframe
+      // key 变化即重建 iframe：开发热重载时让插件页重新从磁盘加载（见 App.tsx 的 revision 轮询）
+      key={`${plugin.id}:${reloadToken}`}
       ref={frameRef}
       className={fullscreen ? 'plugin-frame plugin-frame--fullscreen' : 'plugin-frame'}
       sandbox="allow-scripts allow-same-origin allow-forms"

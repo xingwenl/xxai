@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from desktop_app import agent_config
 from desktop_app import bookmarks
 from desktop_app import dev_agent
+from desktop_app import dev_reload
 from desktop_app import metadata
 from desktop_app import paths
 from desktop_app.agent_config import AgentBackendConfig, AgentConfigError, AgentConfigNotConfigured, AgentConfigStore
@@ -137,6 +138,17 @@ def create_app(
         """返回内置 + 用户插件列表（含启停状态）。"""
         return {"items": [p.to_dict() for p in manager.list_plugins()]}
 
+    @app.get("/api/desktop/plugin-revision")
+    def plugin_revision() -> dict:
+        """返回插件树指纹（开发热重载用）。
+
+        未开启 ``DESKTOP_DEV_RELOAD`` 时直接返回 enabled=false，不遍历磁盘：
+        生产环境不该为空转的轮询付出代价。
+        """
+        if not dev_reload.is_enabled():
+            return {"enabled": False, "revision": "", "plugins": {}}
+        return {"enabled": True, **dev_reload.snapshot(manager.builtin_dir, manager.user_dir)}
+
     @app.post("/api/desktop/plugins/install")
     async def install_plugin(request: Request) -> dict:
         """上传 zip 插件包并安装（请求体为 zip 原始字节流）。"""
@@ -228,7 +240,7 @@ def create_app(
         return Response(status_code=204)
 
     @app.get("/api/desktop/settings")
-    def desktop_settings() -> dict[str, str]:
+    def desktop_settings() -> dict[str, Any]:
         """返回框架信息（版本与关键目录）。"""
         return {
             "name": APP_NAME,
@@ -237,6 +249,7 @@ def create_app(
             "userDataDir": str(paths.user_data_dir()),
             "pluginConfigDir": str(paths.plugin_config_dir()),
             "pluginLogFile": str(paths.plugin_log_file()),
+            "devReload": dev_reload.is_enabled(),
         }
 
     # ---------- 子应用本地数据接口（plugin-data） ----------

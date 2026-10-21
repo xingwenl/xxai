@@ -13,6 +13,7 @@ import {
   type Plugin,
 } from './api'
 import { registerPluginTools, unregisterPluginTools, type HostToolDefinition, type HostToolHandler } from './tool-bridge'
+import { clearDashboardCard, publishDashboardCard } from './dashboard-bridge'
 import { toast } from './toast'
 
 const LS_SETTINGS_PREFIX = 'desktop:settings:'
@@ -50,6 +51,11 @@ export interface DesktopSdk {
   events?: {
     on(event: string, handler: (payload: unknown, meta: { source: string }) => void): () => void
     emit(event: string, payload?: unknown): void
+  }
+  /** 首页概览卡（manifest.permissions 需声明 dashboard）：推送到宿主首页「概览」区。 */
+  dashboard?: {
+    publish(card: unknown): boolean
+    clear(): void
   }
   http?: { get(url: string, opts?: Record<string, unknown>): Promise<unknown>; post(url: string, opts?: Record<string, unknown>): Promise<unknown> }
   platform?: { info(): Promise<unknown> }
@@ -187,6 +193,19 @@ export function createPluginSdk(plugin: Plugin): DesktopSdk {
     }
   } else {
     sdk.tools = denied('tools')
+  }
+
+  if (perms.has('dashboard')) {
+    sdk.dashboard = {
+      publish(card) {
+        return publishDashboardCard(plugin, card)
+      },
+      clear() {
+        clearDashboardCard(plugin.id)
+      },
+    }
+  } else {
+    sdk.dashboard = denied('dashboard')
   }
 
   if (perms.has('events')) {

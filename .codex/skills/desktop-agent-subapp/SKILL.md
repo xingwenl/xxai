@@ -38,8 +38,9 @@ description: Use when building a new sub-app under `apps/<name>` for the desktop
 
 - `vite.config.ts` 必须 `base: './'`（宿主按 `/apps/<id>/` 挂载，绝对路径会 404）；路由用 hash 或单页。
 - `public/manifest.json`：`id` 与目录名一致、匹配 `^[a-z0-9][a-z0-9_-]*$`，`type: "iframe"`，`entry: "index.html"`。
-- `permissions` 按需声明，缺一个对应能力就是 `权限不足` 抛错：`storage`（落数据）、`tools`（注册方法）、`notify`（提示）、`settings`（读写宿主配置）。
+- `permissions` 按需声明，缺一个对应能力就是 `权限不足` 抛错：`storage`（落数据）、`tools`（注册方法）、`notify`（提示）、`settings`（读取宿主配置与订阅变更）、`dashboard`（首页概览卡）。
 - 需要用户可调参数时，在 manifest 里声明 `settings[]`（`text`/`number`/`boolean`/`select`），设置页会自动渲染表单，**不要自己搭设置页**；子应用侧用 `desktop.settings.getConfig()` 读、`desktop.settings.onChanged()` 订阅变更（只读，写入只能在宿主设置页）。
+- 想让宿主首页「概览」区显示业务数字时，声明 `dashboard` 权限，并在 `desktop-ready` 之后调用 `desktop.dashboard.publish({ title, metrics: [{label, value}], recent: [{text, hint}], emptyText })`；卡片是展示层，宿主会把超长字段截断（标题 ≤40、指标 ≤4 条、最近 ≤5 条），详情仍放在子应用里；什么都不推就不显示。声明 `dashboard` 的子应用会在宿主启动时静默挂载（隐藏 iframe），所以卡片一进首页就有，但启动脚本要轻；可参考 `apps/desktop/plugins/hello-world`。
 - 在根 `pnpm-workspace.yaml` 追加 `- 'apps/<name>'`。
 - 提供 `scripts/install-to-desktop.mjs`：把 `dist/` 复制到 `~/.desktop-app/plugins/<id>`，支持 `--target`（最终插件目录）与 `--json`。
 
@@ -107,15 +108,17 @@ description: Use when building a new sub-app under `apps/<name>` for the desktop
 | 工具在列表里但模型从不调用 | `AgentHostTool` / `EmbedClientHostTool` 是否绑定、策略 `is_enabled`、schema 指纹是否一致 |
 | 数据没落盘 / `权限不足` | 插件是否声明 `storage`；是否漏了 `await` |
 | 设置页没有「配置」入口 / 保存返回 400 | manifest 是否声明 `settings[]`（`type=remote` 不支持）；400 的 `detail` 是中文原因（候选值、min/max、未声明键） |
+| 首页没有「概览」区 / 概览卡不显示 | manifest 是否声明 `dashboard`；`publish` 是否在 `desktop-ready` 之后；插件是否已启用；`metrics`/`recent` 是否为空数组 |
+| 改了插件目录里的文件没生效 | 开发态需用 `DESKTOP_DEV_RELOAD=1` 启动宿主（默认关闭）；`react` 类型子应用不走热重载，要 `pnpm build` 后重启 |
 | `agent-token` 返回 400/502 | 设置页配置是否完整、origin 是否精确匹配 `allowed_origins`、后端是否可达 |
 | 改了代码没生效 | 子应用 `build` + 重装 + **重启桌面应用** |
 
 ## References
 
 - 完整范例：`apps/ledger/`（`tools.json`、`src/lib/{desktop,store,tools}.ts`、`scripts/install-to-desktop.mjs`）
-- 宿主桥：`apps/desktop/front/src/lib/{desktop-sdk,tool-bridge,assistant}.ts`
-- 宿主后端：`apps/desktop/desktop_app/{plugin_data,plugin_config,plugin_log,agent_config,dev_agent,server}.py`
+- 宿主桥：`apps/desktop/front/src/lib/{desktop-sdk,tool-bridge,dashboard-bridge,assistant}.ts`
+- 宿主后端：`apps/desktop/desktop_app/{plugin_data,plugin_config,plugin_log,dev_reload,agent_config,dev_agent,server}.py`
 - 精确契约与代码骨架：`reference/contracts.md`
 - 模型侧配置脚本：`apps/desktop/scripts/configure_ai_base.py`
 - 契约文档：`apps/desktop/README.md`（宿主 SDK / plugin-data / 全局助手 / 记账子应用四节）
-- 端到端脚本：`tools/harness/verify/2026-10-20-ledger-app.sh`
+- 端到端脚本：`tools/harness/verify/2026-10-20-ledger-app.sh`、`tools/harness/verify/2026-10-21-desktop-plugin-dev-reload-dashboard.sh`（首页概览卡 + 插件目录热重载）

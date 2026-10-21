@@ -113,9 +113,29 @@
         if (hostConfig.notify_on_start) {
           d.notify({ title: "你好世界", body: "启动通知已开启（来自宿主配置）" });
         }
+        // 首页概览卡：manifest 声明 dashboard 权限后，把关键数字推到宿主首页「概览」区。
+        // 卡片是宿主内存态，宿主重挂 iframe（热重载/开关插件）后子应用会重新发布一次。
+        const publishDashboard = (values) => {
+          d.dashboard.publish({
+            title: "你好世界的概览",
+            metrics: [
+              { label: "问候语", value: values.greeting || "—" },
+              { label: "强调色", value: values.accent || "sky" },
+            ],
+            recent: [
+              { text: "启动时读取宿主配置", hint: "getConfig" },
+              { text: "配置变更实时同步", hint: "onChanged" },
+            ],
+            emptyText: "还没有数据",
+          });
+        };
+        publishDashboard(hostConfig);
+        out("[概览] 已向宿主首页推送概览卡");
+
         // 设置页保存后，宿主会向本 iframe 派发 desktop-config-changed
         d.settings.onChanged((values) => {
           renderHostConfig(values);
+          publishDashboard(values);
           out("[配置] 已更新 " + JSON.stringify(values));
         });
 

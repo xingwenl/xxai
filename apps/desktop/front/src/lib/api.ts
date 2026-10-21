@@ -43,6 +43,17 @@ export interface DesktopSettings {
   pluginConfigDir: string
   /** 插件生命周期日志文件（~/.desktop-app/plugin.log） */
   pluginLogFile: string
+  /** 开发热重载是否开启（宿主以 DESKTOP_DEV_RELOAD=1 启动时为 true） */
+  devReload: boolean
+}
+
+/** 插件树指纹：开发热重载靠比较 revision 判断「插件目录有没有变」。 */
+export interface PluginRevision {
+  enabled: boolean
+  /** 整棵插件树的摘要；enabled=false 时为空串 */
+  revision: string
+  /** 插件 id → 该插件目录的指纹，用于定位哪个插件变了 */
+  plugins: Record<string, string>
 }
 
 export interface BookmarkItem {
@@ -81,6 +92,11 @@ export function getPlugins(): Promise<{ items: Plugin[] }> {
 
 export function getDesktopSettings(): Promise<DesktopSettings> {
   return request('/api/desktop/settings')
+}
+
+/** 取插件树指纹（开发热重载）；未开启时返回 enabled=false，不产生磁盘遍历。 */
+export function getPluginRevision(): Promise<PluginRevision> {
+  return request('/api/desktop/plugin-revision')
 }
 
 /** 获取最近一次整理的书签快照；尚无快照时后端返回 404（调用方需区分处理）。 */
