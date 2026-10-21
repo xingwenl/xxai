@@ -16,9 +16,25 @@ from desktop_app.manager import PluginManager
 from desktop_app.server import create_app
 
 
+def _next_patch(version: str) -> str:
+    """返回比 version 高一个 patch 的版本号（测试用，避免绑死仓库真实版本）。"""
+    parts = version.split(".")
+    while len(parts) < 3:
+        parts.append("0")
+    try:
+        parts[2] = str(int(parts[2]) + 1)
+    except ValueError:
+        return f"{version}.1"
+    return ".".join(parts[:3])
+
+
+# 清单 fixture 里「更新的版本」：比当前 APP_VERSION 高一档
+UPDATE_VERSION = _next_patch(APP_VERSION)
+
+
 def _make_asset(tmp_path: Path, payload: bytes = b"fake-app-zip", **overrides) -> dict:
     """在 tmp 下写一个「发布资产」，返回清单里的平台条目。"""
-    name = overrides.pop("name", "WW-0.2.1-macos-arm64.zip")
+    name = overrides.pop("name", f"WW-{UPDATE_VERSION}-macos-arm64.zip")
     path = tmp_path / "release" / name
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(payload)
@@ -35,7 +51,7 @@ def _make_asset(tmp_path: Path, payload: bytes = b"fake-app-zip", **overrides) -
 def _write_manifest(
     tmp_path: Path,
     platforms: dict | None = None,
-    latest: str = "0.2.1",
+    latest: str = UPDATE_VERSION,
     **overrides,
 ) -> Path:
     path = tmp_path / "latest.json"
@@ -44,7 +60,7 @@ def _write_manifest(
         "latest": latest,
         "publishedAt": "2026-10-21T00:00:00Z",
         "notes": "修复若干问题",
-        "releaseUrl": "https://github.com/xingwenl/xxai/releases/tag/desktop-v0.2.1",
+        "releaseUrl": f"https://github.com/xingwenl/xxai/releases/tag/desktop-v{UPDATE_VERSION}",
         "platforms": platforms if platforms is not None else {"macos-arm64": _make_asset(tmp_path)},
     }
     payload.update(overrides)
@@ -70,10 +86,10 @@ def isolated_update(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 
 def test_parse_manifest_valid(tmp_path: Path) -> None:
     manifest = app_update.parse_manifest(_write_manifest(tmp_path).read_bytes())
-    assert manifest.latest == "0.2.1"
-    assert manifest.release_url.endswith("desktop-v0.2.1")
+    assert manifest.latest == UPDATE_VERSION
+    assert manifest.release_url.endswith(f"desktop-v{UPDATE_VERSION}")
     asset = manifest.platforms["macos-arm64"]
-    assert asset.name == "WW-0.2.1-macos-arm64.zip"
+    assert asset.name == f"WW-{UPDATE_VERSION}-macos-arm64.zip"
     assert asset.to_dict()["platform"] == "macos-arm64"
 
 
@@ -170,9 +186,9 @@ def test_platform_key(
 
 def test_get_update_info_reports_newer_version(tmp_path: Path) -> None:
     _write_manifest(tmp_path)
-    info = app_update.get_update_info("0.2.0")
+    info = app_update.get_update_info("0.0.1")
     assert info.enabled is True
-    assert info.latest == "0.2.1"
+    assert info.latest == UPDATE_VERSION
     assert info.has_update is True
     assert info.asset is not None and info.asset.key == "macos-arm64"
     assert info.downloaded_path == ""
@@ -180,9 +196,9 @@ def test_get_update_info_reports_newer_version(tmp_path: Path) -> None:
 
 def test_get_update_info_same_version_has_no_update(tmp_path: Path) -> None:
     _write_manifest(tmp_path)
-    info = app_update.get_update_info("0.2.1")
+    info = app_update.get_update_info(UPDATE_VERSION)
     assert info.has_update is False
-    assert info.latest == "0.2.1"
+    assert info.latest == UPDATE_VERSION
 
 
 def test_get_update_info_reports_error_not_latest(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -218,7 +234,7 @@ def test_download_asset_writes_verified_file(tmp_path: Path) -> None:
     _write_manifest(tmp_path)
     info = app_update.get_update_info("0.2.0")
     target, size, digest = app_update.download_asset(info)
-    assert target.parent == tmp_path / "updates" / "0.2.1"
+    assert target.parent == tmp_path / "updates" / UPDATE_VERSION
     assert target.read_bytes() == b"fake-app-zip"
     assert size == info.asset.size
     assert digest == info.asset.sha256
@@ -231,7 +247,7 @@ def test_download_asset_rejects_sha_mismatch(tmp_path: Path) -> None:
     info = app_update.get_update_info("0.2.0")
     with pytest.raises(app_update.AppUpdateValidationError, match="校验失败"):
         app_update.download_asset(info)
-    assert not (tmp_path / "updates" / "0.2.1").exists()
+    assert not (tmp_path / "updates" / UPDATE_VERSION).exists()
 
 
 def test_download_asset_rejects_size_mismatch(tmp_path: Path) -> None:
@@ -240,7 +256,7 @@ def test_download_asset_rejects_size_mismatch(tmp_path: Path) -> None:
     info = app_update.get_update_info("0.2.0")
     with pytest.raises(app_update.AppUpdateValidationError, match="校验失败"):
         app_update.download_asset(info)
-    assert not (tmp_path / "updates" / "0.2.1").exists()
+    assert not (tmp_path / "updates" / UPDATE_VERSION).exists()
 
 
 def test_download_asset_keeps_previous_package_on_bad_retry(tmp_path: Path) -> None:
@@ -293,7 +309,7 @@ def test_app_update_endpoint(plugin_env: dict, tmp_path: Path) -> None:
     downloaded = client.post("/api/desktop/app-update/download")
     assert downloaded.status_code == 200
     body = downloaded.json()
-    assert body["version"] == "0.2.1"
+    assert body["version"] == UPDATE_VERSION
     assert Path(body["path"]).is_file()
 
 

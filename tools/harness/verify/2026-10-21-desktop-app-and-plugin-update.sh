@@ -10,7 +10,9 @@
 #      --bump 同步三处版本、--dry-run 不落文件、版本漂移拦截、缺 token 时上传报错
 #   5. scripts/make_plugin_release.py（子应用发布）：确定性打包、索引更新、降级 /
 #      同版本换包护栏、--dry-run 不落文件、旧入口 make_plugin_zip.py 兼容
-#   6. 前端构建 + Harness audit
+#   6. 发布令牌持久化：--set-*-token 落盘（权限 600）、掩码显示、环境变量优先、
+#      --clear-tokens 清除
+#   7. 前端构建 + Harness audit
 #
 # 退出码：0 全通过 / 1 有失败 / 3 有未执行项 / 2 脚本自身错误。
 
@@ -715,8 +717,85 @@ PYEOF
   echo "✓ 旧入口 make_plugin_zip.py 仍可用，且只打包不动索引"
 }
 
+# ---------- 4c. 发布令牌持久化 ----------
+
+token_probe() {
+  local proj="${PROBE_DIR}/tokenproj"
+  local home="${PROBE_DIR}/tokenhome"
+  rm -rf "$proj" "$home"
+  mkdir -p "${proj}/scripts" "$home"
+  cp "${DESKTOP}/scripts/make_release.py" "${proj}/scripts/"
+  local token_file="${home}/.desktop-app/release-tokens.json"
+
+  # 未配置时状态明确
+  HOME="$home" "$PY" "${proj}/scripts/make_release.py" --token-status >"${PROBE_DIR}/token-1.out" 2>&1 || {
+    cat "${PROBE_DIR}/token-1.out"
+    return 1
+  }
+  grep -q "GitHub: 未配置" "${PROBE_DIR}/token-1.out" || { echo "✗ 未配置状态提示缺失"; return 1; }
+
+  # 保存两个平台的令牌（非交互传值，避免依赖 tty）
+  HOME="$home" "$PY" "${proj}/scripts/make_release.py" --set-github-token ghp_test_token_123456 >/dev/null 2>&1 || {
+    echo "✗ 保存 GitHub 令牌失败"
+    return 1
+  }
+  HOME="$home" "$PY" "${proj}/scripts/make_release.py" --set-gitee-token gitee_test_token_654321 >/dev/null 2>&1 || {
+    echo "✗ 保存 Gitee 令牌失败"
+    return 1
+  }
+
+  # 令牌文件权限必须是 600，且同时在仓库之外
+  "$PY" - "$home" <<'PYEOF' || return 1
+import json
+import os
+import stat
+import sys
+from pathlib import Path
+
+home = Path(sys.argv[1])
+path = home / ".desktop-app" / "release-tokens.json"
+assert path.is_file(), f"令牌文件没有落盘：{path}"
+mode = stat.S_IMODE(path.stat().st_mode)
+assert mode == 0o600, f"令牌文件权限应为 600，实际 {oct(mode)}"
+payload = json.loads(path.read_text(encoding="utf-8"))
+assert payload["github"] == "ghp_test_token_123456", payload
+assert payload["gitee"] == "gitee_test_token_654321", payload
+print("✓ 令牌落盘到 ~/.desktop-app/release-tokens.json，权限 600")
+PYEOF
+  [[ $? -eq 0 ]] || return 1
+
+  # --token-status 只显示首尾几位，不能输出完整令牌
+  HOME="$home" "$PY" "${proj}/scripts/make_release.py" --token-status >"${PROBE_DIR}/token-2.out" 2>&1 || {
+    cat "${PROBE_DIR}/token-2.out"
+    return 1
+  }
+  grep -q "ghp_…3456" "${PROBE_DIR}/token-2.out" || { echo "✗ 令牌掩码显示不符合预期"; return 1; }
+  if grep -q "ghp_test_token_123456" "${PROBE_DIR}/token-2.out"; then
+    echo "✗ --token-status 泄露了完整令牌"
+    return 1
+  fi
+  echo "✓ --token-status 只显示掩码，不打印完整令牌"
+
+  # 环境变量优先于令牌文件（CI 可用环境变量临时覆盖）
+  HOME="$home" GITHUB_TOKEN=env_override_token "$PY" "${proj}/scripts/make_release.py" --token-status >"${PROBE_DIR}/token-3.out" 2>&1 || {
+    cat "${PROBE_DIR}/token-3.out"
+    return 1
+  }
+  grep -q "环境变量 GITHUB_TOKEN" "${PROBE_DIR}/token-3.out" || { echo "✗ 环境变量没有优先于令牌文件"; return 1; }
+  echo "✓ 环境变量优先于本地令牌文件"
+
+  # --clear-tokens 删除文件
+  HOME="$home" "$PY" "${proj}/scripts/make_release.py" --clear-tokens >"${PROBE_DIR}/token-4.out" 2>&1 || {
+    cat "${PROBE_DIR}/token-4.out"
+    return 1
+  }
+  [[ ! -f "$token_file" ]] || { echo "✗ --clear-tokens 没有删除令牌文件"; return 1; }
+  echo "✓ --clear-tokens 删除本地令牌文件"
+}
+
 verify_step "scripts/make_release.py（主应用发布：打包 / 清单 / 版本 / 预演 / token）" make_release_probe
 verify_step "scripts/make_plugin_release.py（子应用发布：确定性打包 / 索引 / 护栏）" plugin_release_probe
+verify_step "scripts/make_release.py（发布令牌持久化 / 掩码 / 环境变量优先）" token_probe
 
 # ---------- 5. 仓库内自检 + 前端构建 + audit ----------
 
@@ -767,6 +846,7 @@ if [[ $FAIL -eq 0 ]]; then
   echo "- 宿主更新链路：通过（镜像回退、下载后 size/sha256 校验、坏包 400 且不覆盖已下载安装包、downloadedPath 回填）。"
   echo "- make_release.py（主应用发布）：通过（打包、清单 sha256/size/url/mirrors、可执行位、--bump 同步三处版本、--dry-run 不落文件、版本漂移拦截、缺 token 明确报错）。"
   echo "- make_plugin_release.py（子应用发布）：通过（确定性打包 sha256 稳定、索引字段与包一致、降级护栏、--bump 同步 manifest/包/索引、--dry-run 不落文件、旧入口兼容）。"
+  echo "- 发布令牌持久化：通过（--set-*-token 落盘 600、--token-status 只显示掩码、环境变量优先、--clear-tokens 删除）。"
   echo "- 前端构建：见上方结果；Harness audit：本 request 无新增 ERROR。"
   echo "- 剩余风险：未在真实 GitHub/Gitee 网络环境跑过发布与下载（夹具用 file:// 替代，Release 上传只验到「缺 token 明确报错」这一层）；未在 Windows / Linux 真机验证安装包替换。"
 else

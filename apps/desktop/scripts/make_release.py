@@ -23,7 +23,9 @@
    保留可执行位，算 sha256/size，合并进 `releases/latest.json`（只更新当前平台条目）。
 4. `--git`：提交版本文件与清单，并打本地 tag `desktop-v<version>`（不推送）。
 5. `--publish`：调 GitHub / Gitee REST API 建 Release 并上传 zip，可重复执行
-   （同名资产先删后传）。令牌来自环境变量 `GITHUB_TOKEN`（或 `GH_TOKEN`）、`GITEE_TOKEN`。
+   （同名资产先删后传）。令牌优先取环境变量 `GITHUB_TOKEN`（或 `GH_TOKEN`）、`GITEE_TOKEN`，
+   其次取 `~/.desktop-app/release-tokens.json`。用 `--set-github-token` / `--set-gitee-token`
+   交互式保存一次，之后不必每次 export（文件权限 600，不随仓库提交）。
 
 宿主只做「检查 → 下载 → 校验 → 引导手动安装」，不会自动替换自己；
 清单里的 url 指向 GitHub Release，mirrors 指向 Gitee 同 tag 地址（宿主自动回退）。
@@ -32,6 +34,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import hashlib
 import json
 import os
@@ -317,6 +320,94 @@ def commit_and_tag(version: str) -> None:
     print(f"✓ 已打 tag：{tag}")
 
 
+# ---------- 令牌 ----------
+
+TOKEN_FILE_NAME = "release-tokens.json"
+TOKEN_ENV_NAMES = {"github": ("GITHUB_TOKEN", "GH_TOKEN"), "gitee": ("GITEE_TOKEN",)}
+HOST_LABELS = {"github": "GitHub", "gitee": "Gitee"}
+
+
+def token_path() -> Path:
+    """令牌文件位置：用户数据目录下，不随仓库提交。"""
+    return Path.home() / ".desktop-app" / TOKEN_FILE_NAME
+
+
+def load_saved_tokens() -> dict[str, str]:
+    """读取已保存的令牌；文件不存在时返回空字典。"""
+    path = token_path()
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        _fail(f"{path} 不是合法 JSON：{exc}")
+    if not isinstance(payload, dict):
+        _fail(f"{path} 内容必须是 JSON 对象")
+    tokens: dict[str, str] = {}
+    for host in TOKEN_ENV_NAMES:
+        value = payload.get(host)
+        if isinstance(value, str) and value.strip():
+            tokens[host] = value.strip()
+    return tokens
+
+
+def resolve_token(host: str) -> tuple[str, str]:
+    """返回 (令牌, 来源说明)。环境变量优先于本地令牌文件（方便 CI 覆盖）。"""
+    for name in TOKEN_ENV_NAMES[host]:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value, f"环境变量 {name}"
+    saved = load_saved_tokens().get(host, "")
+    if saved:
+        return saved, f"本地令牌文件 {token_path()}"
+    return "", ""
+
+
+def save_token(host: str, token: str) -> Path:
+    """保存令牌到本地文件（0600），保留另一个平台的令牌。"""
+    token = token.strip()
+    if not token:
+        _fail("令牌不能为空")
+    path = token_path()
+    tokens = load_saved_tokens()
+    tokens[host] = token
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.parent.chmod(0o700)
+    except OSError:
+        pass
+    path.write_text(json.dumps(tokens, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
+    return path
+
+
+def clear_tokens() -> Path:
+    """删除令牌文件（不报错）。"""
+    path = token_path()
+    path.unlink(missing_ok=True)
+    return path
+
+
+def mask_token(token: str) -> str:
+    """只显示首尾几位，避免终端/日志泄露完整令牌。"""
+    if len(token) <= 8:
+        return "…"
+    return f"{token[:4]}…{token[-4:]}"
+
+
+def print_token_status() -> None:
+    print(f"令牌文件: {token_path()}")
+    for host, label in HOST_LABELS.items():
+        token, source = resolve_token(host)
+        if token:
+            print(f"  {label}: 已配置 {mask_token(token)}（来源：{source}）")
+        else:
+            print(f"  {label}: 未配置（用 --set-{host}-token 保存）")
+
+
 # ---------- 上传 Release ----------
 
 
@@ -361,9 +452,12 @@ def _github_headers(token: str) -> dict[str, str]:
 
 def publish_github(*, repo: str, version: str, asset_path: Path, notes: str) -> str:
     """建/取 GitHub Release，删同名旧资产后上传当前 zip，返回 release 页面地址。"""
-    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    token, source = resolve_token("github")
     if not token:
-        raise PublishError("缺少 GITHUB_TOKEN（或 GH_TOKEN），无法上传 GitHub Release")
+        raise PublishError(
+            "缺少 GitHub 令牌：先运行 --set-github-token 保存一次，或临时 export GITHUB_TOKEN / GH_TOKEN"
+        )
+    print(f"  使用 GitHub 令牌（{source}）")
     tag = f"{TAG_PREFIX}{version}"
     headers = _github_headers(token)
     api = f"https://api.github.com/repos/{repo}"
@@ -445,9 +539,10 @@ def _multipart(fields: dict[str, str], file_field: str, file_path: Path) -> tupl
 
 def publish_gitee(*, repo: str, version: str, asset_path: Path, notes: str) -> str:
     """建/取 Gitee 发行版并上传附件，返回发行版页面地址。"""
-    token = os.environ.get("GITEE_TOKEN")
+    token, source = resolve_token("gitee")
     if not token:
-        raise PublishError("缺少 GITEE_TOKEN，无法上传 Gitee 发行版")
+        raise PublishError("缺少 Gitee 令牌：先运行 --set-gitee-token 保存一次，或临时 export GITEE_TOKEN")
+    print(f"  使用 Gitee 令牌（{source}）")
     tag = f"{TAG_PREFIX}{version}"
     api = f"https://gitee.com/api/v5/repos/{repo}"
     page = f"https://gitee.com/{repo}/releases/tag/{tag}"
@@ -520,8 +615,8 @@ def plan_lines(args: argparse.Namespace, platform_key: str, planned_version: str
     if args.git:
         lines.append(f"git 提交 + 打 tag：{TAG_PREFIX}{planned_version}")
     for host in _publish_hosts(args.publish):
-        token_name = "GITHUB_TOKEN" if host == "github" else "GITEE_TOKEN"
-        lines.append(f"上传 {host} Release（令牌来自环境变量 {token_name}）")
+        token, source = resolve_token(host)
+        lines.append(f"上传 {host} Release（令牌：{source if token else '未配置，先 --set-' + host + '-token'}）")
     return lines
 
 
@@ -545,10 +640,53 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="只打印将要执行的步骤，不写文件、不跑构建、不上传")
     parser.add_argument("--github-repo", default=GITHUB_REPO, help=f"GitHub 仓库，默认 {GITHUB_REPO}")
     parser.add_argument("--gitee-repo", default=GITEE_REPO, help=f"Gitee 仓库，默认 {GITEE_REPO}")
+    parser.add_argument(
+        "--set-github-token",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="TOKEN",
+        help="保存 GitHub 令牌到本地（不带值则交互输入，不回显）",
+    )
+    parser.add_argument(
+        "--set-gitee-token",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="TOKEN",
+        help="保存 Gitee 令牌到本地（不带值则交互输入，不回显）",
+    )
+    parser.add_argument("--token-status", action="store_true", help="查看已配置的令牌（只显示首尾几位）")
+    parser.add_argument("--clear-tokens", action="store_true", help="删除本地保存的令牌")
     args = parser.parse_args(argv)
 
     if args.bump and args.set_version:
         _fail("--bump 与 --set-version 只能二选一")
+
+    # 令牌管理是独立动作，做完直接退出（不打包、不上传）
+    token_actions = (("github", args.set_github_token), ("gitee", args.set_gitee_token))
+    handled_token = False
+    for host, value in token_actions:
+        if value is None:
+            continue
+        if value:
+            raw = value
+        else:
+            try:
+                raw = getpass.getpass(f"粘贴 {HOST_LABELS[host]} 令牌（不回显）: ")
+            except (EOFError, KeyboardInterrupt):
+                _fail("没有读到令牌，已取消")
+        path = save_token(host, raw)
+        print(f"✓ 已保存 {HOST_LABELS[host]} 令牌到 {path}（权限 600，不随仓库提交）")
+        handled_token = True
+    if handled_token:
+        return 0
+    if args.token_status:
+        print_token_status()
+        return 0
+    if args.clear_tokens:
+        print(f"✓ 已删除令牌文件：{clear_tokens()}")
+        return 0
 
     if args.check_only:
         if args.bump or args.set_version or args.build or args.git or args.publish != "none" or args.dry_run:
@@ -643,7 +781,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"     git tag -a {tag} -m 'chore(release): 桌面 v{version}'")
     if args.publish == "none":
         print(f"  2. 上传 {asset_path.name} 到 GitHub Release（tag {tag}），并同步一份到 Gitee Release")
-        print("     可改用 --publish github|gitee|all 自动上传（需要 GITHUB_TOKEN / GITEE_TOKEN）")
+        print(
+            "     可改用 --publish github|gitee|all 自动上传（令牌用 --set-github-token / --set-gitee-token 保存一次即可）"
+        )
     else:
         pending = [host for host in ("github", "gitee") if host not in {item[0] for item in published}]
         if pending:

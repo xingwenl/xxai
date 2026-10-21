@@ -124,7 +124,7 @@ description: Use when building a new sub-app under `apps/<name>` for the desktop
 - 完整范例：`apps/ledger/`（`tools.json`、`src/lib/{desktop,store,tools}.ts`、`scripts/install-to-desktop.mjs`）
 - 宿主桥：`apps/desktop/front/src/lib/{desktop-sdk,tool-bridge,dashboard-bridge,assistant}.ts`
 - 宿主后端：`apps/desktop/desktop_app/{plugin_data,plugin_config,plugin_log,dev_reload,market,agent_config,dev_agent,server}.py`；更新相关 `apps/desktop/desktop_app/{version,transfer,app_update}.py`（版本比较 / 限字节下载与镜像回退 / 宿主自更新清单）
-- 市场与打包：`apps/desktop/market/index.json`、`apps/desktop/scripts/plugin_market.py`（CLI 校验）、`apps/desktop/scripts/make_plugin_release.py`（子应用发布：确定性打包 + 更新索引）、`apps/desktop/scripts/make_plugin_zip.py`（旧入口，只打包）、`apps/desktop/scripts/make_release.py`（主应用发布：版本号 → 构建 → zip → `releases/latest.json` → 打 tag → 上传 GitHub/Gitee Release）
+- 市场与打包：`apps/desktop/market/index.json`、`apps/desktop/scripts/plugin_market.py`（CLI 校验）、`apps/desktop/scripts/make_plugin_release.py`（子应用发布：确定性打包 + 更新索引）、`apps/desktop/scripts/make_plugin_zip.py`（旧入口，只打包）、`apps/desktop/scripts/make_release.py`（主应用发布：版本号 → 构建 → zip → `releases/latest.json` → 打 tag → 上传 GitHub/Gitee Release；令牌用 `--set-github-token` / `--set-gitee-token` 存到 `~/.desktop-app/release-tokens.json`，环境变量优先）
 - 精确契约与代码骨架：`reference/contracts.md`
 - 模型侧配置脚本：`apps/desktop/scripts/configure_ai_base.py`
 - 契约文档：`apps/desktop/README.md`（宿主 SDK / plugin-data / 全局助手 / 插件市场与插件升级 / 宿主应用更新 / 发布桌面版本 / 记账子应用）

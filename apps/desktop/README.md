@@ -503,8 +503,11 @@ cd apps/desktop
 # 一条命令走完：递增版本 → 构建前端与产物 → 打平台 zip → 写 releases/latest.json → 提交并打 tag
 .venv/bin/python scripts/make_release.py --bump patch --build --git --notes "本次更新了什么"
 
-# 自动上传 Release（令牌走环境变量，见下）
-export GITHUB_TOKEN=... GITEE_TOKEN=...
+# 首次使用：把令牌保存到本机（交互输入、不回显），之后不用再 export
+.venv/bin/python scripts/make_release.py --set-github-token
+.venv/bin/python scripts/make_release.py --set-gitee-token
+
+# 自动上传 Release（自动读取上面保存的令牌，见下）
 .venv/bin/python scripts/make_release.py --publish all --notes "本次更新了什么"
 
 # 只预演、不落任何文件；只校验版本号与清单是否自洽（CI 用）
@@ -514,11 +517,11 @@ export GITHUB_TOKEN=... GITEE_TOKEN=...
 
 常用参数：`--bump major|minor|patch` 或 `--set-version X.Y.Z` 改三处版本号；`--build` 跑 `pnpm --dir front build` + `python build/build.py`；`--asset <zip>` 直接登记已有产物不重新打包；`--git` 提交 4 个文件并打本地 tag `desktop-v<version>`（**只打 tag 不推送**）；`--publish github|gitee|all` 上传 Release；`--platform` / `--github-repo` / `--gitee-repo` / `--branch` 覆盖默认值。
 
-令牌：GitHub 用 `GITHUB_TOKEN`（或 `GH_TOKEN`，需 `repo` 权限），Gitee 用 `GITEE_TOKEN`（私人令牌，需 `projects` 权限），二者只从环境变量读、不落盘。上传逻辑可重复执行：同名资产会先删后传，已存在的 Release 会复用而不是报错。
+令牌：GitHub 用 `GITHUB_TOKEN`（或 `GH_TOKEN`，需 `repo` 权限），Gitee 用 `GITEE_TOKEN`（私人令牌，需 `projects` 权限）。查找顺序是「环境变量 → 本地令牌文件」：`--set-github-token` / `--set-gitee-token` 把令牌保存到 `~/.desktop-app/release-tokens.json`（权限 `600`，在仓库之外，不会被提交），不带参数运行时交互输入不回显；也可 `--set-github-token ghp_xxx` 直接传值（会进 shell 历史，不推荐）；`--token-status` 查看配置情况（只显示首尾几位），`--clear-tokens` 清除。CI 里继续用环境变量即可，优先级更高、可临时覆盖。上传逻辑可重复执行：同名资产会先删后传，已存在的 Release 会复用而不是报错。
 
 脚本会把清单里的 `url` 写成 GitHub Release 下载地址、`mirrors` 写成 Gitee 同 tag 地址；多平台发版时在每个平台各跑一次（默认只更新当前平台的条目，`--reset` 可清掉其他平台的旧条目）。推送 `main` 后宿主即可检查到新版本（raw 地址指向 main）。
 
-> 宿主侧只做「检查 → 下载 → 校验 sha256 → 引导手动安装」，不会自动替换自己；`GITHUB_TOKEN` 只用于发版机器，绝不写进客户端。
+> 宿主侧只做「检查 → 下载 → 校验 sha256 → 引导手动安装」，不会自动替换自己；发布令牌只存在于发版机器上，绝不写进客户端。
 
 ### 开发一个插件
 
