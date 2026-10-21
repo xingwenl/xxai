@@ -1,4 +1,4 @@
-"""插件管理：zip 安装（受控解压 + 原子落盘）、卸载、启停与状态持久化。"""
+"""插件管理：zip 安装（受控解压 + 原子落盘）、升级（备份 + 回滚）、卸载、启停与状态持久化。"""
 
 from __future__ import annotations
 
@@ -9,15 +9,21 @@ import shutil
 import tempfile
 import urllib.parse
 import zipfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from desktop_app import metadata, paths
 from desktop_app.plugin_log import UNKNOWN_PLUGIN, PluginLog
-from desktop_app.protocol import PLUGIN_ID_PATTERN
+from desktop_app.protocol import PLUGIN_ID_PATTERN, PluginManifest
 from desktop_app.registry import PluginInfo, PluginRegistry
 from desktop_app.security import MAX_ZIP_SIZE, safe_extract_zip
+from desktop_app.version import version_greater
+
+# 每个插件保留的旧版本备份份数：够回滚最近几次，又不会把用户数据目录撑大
+MAX_PLUGIN_BACKUPS = 3
 
 
 class PluginError(Exception):
@@ -110,9 +116,32 @@ class PluginManager:
 
     def _install_zip(self, zip_path: Path) -> PluginInfo:
         """安装 zip 插件包：受控解压 → 校验 → 原子落盘到用户插件目录。"""
+        with self._stage_zip(zip_path) as (manifest, plugin_src, manifest_at_root):
+            if any(p.id == manifest.id for p in self.list_plugins()):
+                raise PluginExistsError(f"插件已存在: {manifest.id}")
+            dest = self.user_dir / manifest.id
+            if dest.exists():
+                raise PluginExistsError(f"插件目录已存在: {dest}")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            self._move_plugin_tree(plugin_src, dest, manifest_at_root=manifest_at_root)
+            self._state.setdefault("plugins", {})[manifest.id] = {
+                "enabled": True,
+                "installedAt": datetime.now(timezone.utc).isoformat(),
+            }
+            self._save_state()
+        return self.get(manifest.id)
+
+    @contextmanager
+    def _stage_zip(self, zip_path: Path) -> Iterator[tuple[PluginManifest, Path, bool]]:
+        """解压 zip 并校验 manifest，产出 (manifest, 归一化插件根, 清单是否在 zip 根)。
+
+        临时目录的生命周期覆盖整个 with 块，调用方必须在块内完成落盘；安装与升级
+        共用这一步，避免把安全解压/归一化/清单校验写两遍。
+        """
         zip_path = Path(zip_path)
-        if zip_path.stat().st_size > MAX_ZIP_SIZE:
-            raise PluginError(f"zip 文件超过大小限制（{zip_path.stat().st_size} > {MAX_ZIP_SIZE}）")
+        size = zip_path.stat().st_size
+        if size > MAX_ZIP_SIZE:
+            raise PluginError(f"zip 文件超过大小限制（{size} > {MAX_ZIP_SIZE}）")
         with tempfile.TemporaryDirectory(prefix="desktop-plugin-") as tmp:
             tmp_root = Path(tmp)
             try:
@@ -122,32 +151,132 @@ class PluginManager:
             except OSError as exc:
                 raise PluginError(f"zip 读取失败: {exc}") from exc
             plugin_src = _normalize_plugin_root(tmp_root)
-            root_manifest = (tmp_root / "manifest.json").is_file()
+            manifest_at_root = (tmp_root / "manifest.json").is_file()
             manifest, error = PluginRegistry.load_manifest(
-                plugin_src, require_dir_match=not root_manifest
+                plugin_src, require_dir_match=not manifest_at_root
             )
             if manifest is None:
                 raise PluginError(error or "manifest 校验失败")
-            if any(p.id == manifest.id for p in self.list_plugins()):
-                raise PluginExistsError(f"插件已存在: {manifest.id}")
+            yield manifest, plugin_src, manifest_at_root
+
+    @staticmethod
+    def _move_plugin_tree(plugin_src: Path, dest: Path, *, manifest_at_root: bool) -> None:
+        """把临时目录里的插件内容移动到 dest（同盘时优先走原子 rename）。"""
+        if manifest_at_root:
+            # manifest 位于 zip 根：以 manifest.id 建目录后整体落入
+            dest.mkdir()
+            for item in plugin_src.iterdir():
+                shutil.move(str(item), str(dest))
+        else:
+            # 临时目录与用户插件目录通常同盘，shutil.move 优先走原子 rename
+            shutil.move(str(plugin_src), str(dest))
+
+    @property
+    def backups_dir(self) -> Path:
+        """旧版本备份根目录：跟随 user_dir 定位，测试传临时目录时天然隔离。"""
+        return self.user_dir.parent / "plugin-backups"
+
+    def upgrade_zip(
+        self,
+        zip_path: Path,
+        *,
+        expected_id: str | None = None,
+        expected_version: str | None = None,
+    ) -> PluginInfo:
+        """升级已安装插件：备份旧目录 → 原子替换，失败回滚并写 update_failed 日志。"""
+        try:
+            plugin = self._upgrade_zip(
+                zip_path, expected_id=expected_id, expected_version=expected_version
+            )
+        except PluginError as exc:
+            self.log.append(UNKNOWN_PLUGIN, "update_failed", str(exc))
+            raise
+        except Exception as exc:  # 落盘异常等非业务错误同样留痕后再抛
+            self.log.append(UNKNOWN_PLUGIN, "update_failed", f"{type(exc).__name__}: {exc}")
+            raise
+        self.log.append(plugin.id, "update_ok", version=plugin.version)
+        return plugin
+
+    def _upgrade_zip(
+        self,
+        zip_path: Path,
+        *,
+        expected_id: str | None,
+        expected_version: str | None,
+    ) -> PluginInfo:
+        """升级的核心流程；只在 ``upgrade_zip`` 里，便于统一记账失败事件。"""
+        with self._stage_zip(zip_path) as (manifest, plugin_src, manifest_at_root):
+            if expected_id and manifest.id != expected_id:
+                raise PluginError(f"插件包 id（{manifest.id}）与索引（{expected_id}）不一致")
+            if expected_version and manifest.version != expected_version:
+                raise PluginError(
+                    f"插件包版本（{manifest.version}）与索引（{expected_version}）不一致"
+                )
+            current = self.get(manifest.id)
+            if current.builtin:
+                raise PluginError("内置插件随宿主一起更新，不支持单独升级")
+            if current.type == "remote":
+                raise PluginError("URL 壳插件由宿主生成 manifest，不支持市场升级")
+            if not version_greater(manifest.version, current.version):
+                raise PluginError(
+                    f"新版本 {manifest.version} 不高于已安装版本 {current.version}，无需升级"
+                )
             dest = self.user_dir / manifest.id
-            if dest.exists():
-                raise PluginExistsError(f"插件目录已存在: {dest}")
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            if plugin_src == tmp_root:
-                # manifest 位于 zip 根：以 manifest.id 建目录后整体落入
-                dest.mkdir()
-                for item in plugin_src.iterdir():
-                    shutil.move(str(item), str(dest))
-            else:
-                # 临时目录与用户插件目录通常同盘，shutil.move 优先走原子 rename
-                shutil.move(str(plugin_src), str(dest))
-            self._state.setdefault("plugins", {})[manifest.id] = {
-                "enabled": True,
-                "installedAt": datetime.now(timezone.utc).isoformat(),
-            }
+            if not dest.is_dir():
+                raise PluginError(f"已安装插件目录不存在：{dest}")
+            # 先把旧目录 rename 进备份区：既是备份，也保证 dest 在替换前是空位
+            backup = self._backup_plugin_dir(manifest.id, current.version, dest)
+            staging = self.user_dir / f".{manifest.id}.upgrading"
+            shutil.rmtree(staging, ignore_errors=True)
+            try:
+                self._move_plugin_tree(plugin_src, staging, manifest_at_root=manifest_at_root)
+                staging.rename(dest)
+            except OSError as exc:
+                shutil.rmtree(staging, ignore_errors=True)
+                if backup is not None and backup.is_dir() and not dest.exists():
+                    shutil.move(str(backup), str(dest))
+                raise PluginError(f"升级失败，已回滚到 {current.version}：{exc}") from exc
+            now = datetime.now(timezone.utc).isoformat()
+            state = self._state.setdefault("plugins", {}).setdefault(manifest.id, {})
+            # 升级只换代码：启停状态与安装时间原样保留，另记升级时间与来源版本
+            state["enabled"] = current.enabled
+            state["installedAt"] = current.installed_at or now
+            state["updatedAt"] = now
+            state["previousVersion"] = current.version
             self._save_state()
         return self.get(manifest.id)
+
+    def _backup_plugin_dir(self, plugin_id: str, version: str, dest: Path) -> Path | None:
+        """把旧版本目录整体移动到备份目录（同盘 rename）。
+
+        备份失败返回 None 且不阻断升级：此时 dest 仍在原位，后续替换失败也不会
+        丢旧版本；正常路径下备份一定存在，用户可据此手动回滚。
+        """
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+        safe_version = re.sub(r"[^0-9A-Za-z._-]", "_", version) or "unknown"
+        backup_root = self.backups_dir / plugin_id
+        try:
+            backup_root.mkdir(parents=True, exist_ok=True)
+            backup = backup_root / f"{safe_version}-{stamp}"
+            dest.rename(backup)
+        except OSError:
+            return None
+        self._prune_backups(backup_root)
+        return backup
+
+    @staticmethod
+    def _prune_backups(backup_root: Path) -> None:
+        """只保留最近 MAX_PLUGIN_BACKUPS 份备份（目录名含版本与时间戳，倒序取新）。"""
+        try:
+            backups = sorted(
+                (path for path in backup_root.iterdir() if path.is_dir()),
+                key=lambda path: path.name,
+                reverse=True,
+            )
+        except OSError:
+            return
+        for stale in backups[MAX_PLUGIN_BACKUPS:]:
+            shutil.rmtree(stale, ignore_errors=True)
 
     def uninstall(self, plugin_id: str) -> None:
         """卸载用户插件；内置插件禁止卸载。"""

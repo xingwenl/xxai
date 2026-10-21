@@ -47,6 +47,10 @@ export interface DesktopSettings {
   devReload: boolean
   /** 插件市场索引地址；市场关闭时为空串 */
   marketUrl: string
+  /** 宿主更新清单地址；更新检查关闭时为空串 */
+  appUpdateUrl: string
+  /** 宿主更新检查是否启用（DESKTOP_APP_UPDATE=0 时为 false） */
+  appUpdateEnabled: boolean
 }
 
 /** 插件树指纹：开发热重载靠比较 revision 判断「插件目录有没有变」。 */
@@ -114,6 +118,12 @@ export interface MarketEntry {
   /** 插件包字节数；索引里可选，出现时宿主会校大小 */
   size: number | null
   permissions: string[]
+  /** 下载镜像：主下载地址不可用时宿主按顺序回退（例如 Gitee raw） */
+  mirrors: string[]
+  /** 本机已安装版本；未安装为空串 */
+  installedVersion: string
+  /** 索引版本是否高于本机版本（版本比较只在宿主侧做） */
+  hasUpdate: boolean
 }
 
 /** 市场列表：索引条目 + 本机已安装版本（id → version）。 */
@@ -136,6 +146,62 @@ export function installMarketPlugin(id: string): Promise<{ plugin: Plugin }> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id }),
   })
+}
+
+/** 把已安装插件升级到市场版本；宿主会备份旧目录并在失败时回滚。 */
+export function updateMarketPlugin(id: string): Promise<{ plugin: Plugin }> {
+  return request('/api/desktop/plugin-market/update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  })
+}
+
+/** 当前平台的发布资产（对应 releases/latest.json 的 platforms[platform]）。 */
+export interface AppUpdateAsset {
+  platform: string
+  name: string
+  url: string
+  sha256: string
+  size: number
+  mirrors: string[]
+}
+
+/** 宿主更新状态：检查失败时 error 有中文原因，不要把失败当成「已是最新」。 */
+export interface AppUpdateInfo {
+  enabled: boolean
+  current: string
+  latest: string
+  hasUpdate: boolean
+  platform: string
+  publishedAt: string
+  notes: string
+  releaseUrl: string
+  asset: AppUpdateAsset | null
+  /** 已下载到本机的完整路径；未下载为空串 */
+  downloadedPath: string
+  source: string
+  error: string
+}
+
+/** 检查宿主更新；refresh=true 跳过宿主侧 10 分钟清单缓存。 */
+export function getAppUpdate(refresh = false): Promise<AppUpdateInfo> {
+  return request(`/api/desktop/app-update${refresh ? '?refresh=1' : ''}`)
+}
+
+/** 下载并校验当前平台更新包到本机更新目录（宿主不会替换自身）。 */
+export function downloadAppUpdate(): Promise<{
+  version: string
+  path: string
+  size: number
+  sha256: string
+}> {
+  return request('/api/desktop/app-update/download', { method: 'POST' })
+}
+
+/** 在系统文件管理器里打开更新目录，交给用户手动安装。 */
+export function revealAppUpdates(): Promise<{ path: string }> {
+  return request('/api/desktop/app-update/reveal', { method: 'POST' })
 }
 
 /** 获取最近一次整理的书签快照；尚无快照时后端返回 404（调用方需区分处理）。 */

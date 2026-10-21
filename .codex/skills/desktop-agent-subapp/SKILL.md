@@ -43,6 +43,7 @@ description: Use when building a new sub-app under `apps/<name>` for the desktop
 - 想让宿主首页「概览」区显示业务数字时，声明 `dashboard` 权限，并在 `desktop-ready` 之后调用 `desktop.dashboard.publish({ title, metrics: [{label, value}], recent: [{text, hint}], emptyText })`；卡片是展示层，宿主会把超长字段截断（标题 ≤40、指标 ≤4 条、最近 ≤5 条），详情仍放在子应用里；什么都不推就不显示。声明 `dashboard` 的子应用会在宿主启动时静默挂载（隐藏 iframe），所以卡片一进首页就有，但启动脚本要轻；可参考 `apps/desktop/plugins/hello-world`。
 - 在根 `pnpm-workspace.yaml` 追加 `- 'apps/<name>'`。
 - 提供 `scripts/install-to-desktop.mjs`：把 `dist/` 复制到 `~/.desktop-app/plugins/<id>`，支持 `--target`（最终插件目录）与 `--json`。
+- **发新版本只要改索引里的 version，宿主会自己认出「可升级」**：设置页在市场条目上显示「更新到 vX」，点一下就走「下载 → 校 sha256/大小 → 校包内 manifest id/version → 备份旧目录到 `~/.desktop-app/plugin-backups/<id>/`（保留最近 3 份）→ 同盘 rename 原子替换 → 失败自动回滚」，`plugin-data/` 与 `plugin-config/` 不动、启用状态沿用。因此：manifest 的 `id` 必须长期稳定（换 id 等于换插件，旧数据不会跟过去）、`version` 每次必须真的变大（宿主按 `desktop_app/version.py::version_greater` 逐段比较：`1` 与 `1.0.0` 相等、`-beta` 视为比正式版旧、降级会被拒绝）、升级后要能读旧的 `plugin-data`（不兼容就自己在子应用里做迁移）。内置插件与 `type=remote` 壳插件不参与市场升级。
 - 想让用户免 zip 安装，就把包上架到插件市场：`apps/desktop/scripts/make_plugin_zip.py` 会打印 sha256 / size 和可直接粘贴的索引条目；zip 放 `apps/desktop/market/packages/`，条目追加到 `apps/desktop/market/index.json`，`download` 填本仓库 raw 地址。宿主安装时会校 sha256、校包内 `manifest.json` 的 id/version，再走既有安装流程（校验失败不落文件）。本地联调用 `DESKTOP_PLUGIN_MARKET_URL=file:///abs/path/index.json`，关闭市场用 `DESKTOP_PLUGIN_MARKET=0`；CLI 用 `scripts/plugin_market.py list|install|entry|verify`。
 
 **完成判据**：`pnpm --dir apps/<name> build` 产出 `dist/manifest.json`，`node scripts/install-to-desktop.mjs` 后宿主插件列表能看到它（重启应用）。
@@ -111,6 +112,8 @@ description: Use when building a new sub-app under `apps/<name>` for the desktop
 | 设置页没有「配置」入口 / 保存返回 400 | manifest 是否声明 `settings[]`（`type=remote` 不支持）；400 的 `detail` 是中文原因（候选值、min/max、未声明键） |
 | 首页没有「概览」区 / 概览卡不显示 | manifest 是否声明 `dashboard`；`publish` 是否在 `desktop-ready` 之后；插件是否已启用；`metrics`/`recent` 是否为空数组 |
 | 改了插件目录里的文件没生效 | 开发态需用 `DESKTOP_DEV_RELOAD=1` 启动宿主（默认关闭）；`react` 类型子应用不走热重载，要 `pnpm build` 后重启 |
+| 市场里显示「已安装」但没有「更新到 vX」 | 索引条目的 `version` 是否真的大于本机 manifest `version`（`version_greater`：`1.0.0` 等于 `1`、`-beta` 比正式版旧、降级被拒）；本机是内置插件或 `type=remote` 壳插件时本就不参与升级；改完索引记得刷新（条目有 5 分钟缓存，点「刷新」或重启宿主） |
+| 插件升级后打不开 / 数据像丢了 | 升级只换程序目录，`plugin-data/<id>` 与 `plugin-config/<id>.json` 仍在；旧版本在 `~/.desktop-app/plugin-backups/<id>/`，可手工拷回 `plugins/<id>` 回滚；`manifest.version` 未递增时升级会被拒绝 |
 | 插件市场里没有自己的插件 / 装不上 | 索引 `plugins[]` 是否有该 id；`download` 是否为 https（回环 http / file 只给本机开发）；sha256 是否按打包后的 zip 现算；包内 manifest 的 id/version 是否与索引一致；内置插件已在 `plugins/`，装同名会 409 |
 | 从市场安装返回 400 | `detail` 是中文原因（sha256 校验失败 / 大小不一致 / manifest id 不一致 / 索引版本不支持）；400 不会落任何文件；502 是索引或包下载失败，检查网络与 `DESKTOP_PLUGIN_MARKET_URL` |
 | `agent-token` 返回 400/502 | 设置页配置是否完整、origin 是否精确匹配 `allowed_origins`、后端是否可达 |
@@ -120,9 +123,9 @@ description: Use when building a new sub-app under `apps/<name>` for the desktop
 
 - 完整范例：`apps/ledger/`（`tools.json`、`src/lib/{desktop,store,tools}.ts`、`scripts/install-to-desktop.mjs`）
 - 宿主桥：`apps/desktop/front/src/lib/{desktop-sdk,tool-bridge,dashboard-bridge,assistant}.ts`
-- 宿主后端：`apps/desktop/desktop_app/{plugin_data,plugin_config,plugin_log,dev_reload,market,agent_config,dev_agent,server}.py`
-- 市场与打包：`apps/desktop/market/index.json`、`apps/desktop/scripts/{plugin_market,make_plugin_zip}.py`
+- 宿主后端：`apps/desktop/desktop_app/{plugin_data,plugin_config,plugin_log,dev_reload,market,agent_config,dev_agent,server}.py`；更新相关 `apps/desktop/desktop_app/{version,transfer,app_update}.py`（版本比较 / 限字节下载与镜像回退 / 宿主自更新清单）
+- 市场与打包：`apps/desktop/market/index.json`、`apps/desktop/scripts/{plugin_market,make_plugin_zip}.py`、`apps/desktop/scripts/make_release.py`（宿主安装包打包 + `releases/latest.json` 发布清单）
 - 精确契约与代码骨架：`reference/contracts.md`
 - 模型侧配置脚本：`apps/desktop/scripts/configure_ai_base.py`
-- 契约文档：`apps/desktop/README.md`（宿主 SDK / plugin-data / 全局助手 / 插件市场 / 记账子应用）
-- 端到端脚本：`tools/harness/verify/2026-10-20-ledger-app.sh`、`tools/harness/verify/2026-10-21-desktop-plugin-dev-reload-dashboard.sh`（首页概览卡 + 插件目录热重载）、`tools/harness/verify/2026-10-21-desktop-plugin-market.sh`（市场索引 + sha256 安装 + CLI）
+- 契约文档：`apps/desktop/README.md`（宿主 SDK / plugin-data / 全局助手 / 插件市场与插件升级 / 宿主应用更新 / 发布桌面版本 / 记账子应用）
+- 端到端脚本：`tools/harness/verify/2026-10-20-ledger-app.sh`、`tools/harness/verify/2026-10-21-desktop-plugin-dev-reload-dashboard.sh`（首页概览卡 + 插件目录热重载）、`tools/harness/verify/2026-10-21-desktop-plugin-market.sh`（市场索引 + sha256 安装 + CLI）、`tools/harness/verify/2026-10-21-desktop-app-and-plugin-update.sh`（插件升级回滚 + 宿主更新镜像回退 + 发版脚本）

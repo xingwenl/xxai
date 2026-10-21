@@ -20,6 +20,7 @@ from conftest import make_zip, seed_plugin
 from desktop_app import market
 from desktop_app.manager import PluginManager
 from desktop_app.plugin_config import PluginConfigStore
+from desktop_app.plugin_data import PluginDataStore
 from desktop_app.server import create_app
 
 
@@ -29,7 +30,12 @@ def _write_index(index_path: Path, plugins: list[dict]) -> Path:
     return index_path
 
 
-def _plugin_zip(tmp_path: Path, plugin_id: str = "market-demo", version: str = "0.1.0") -> Path:
+def _plugin_zip(
+    tmp_path: Path,
+    plugin_id: str = "market-demo",
+    version: str = "0.1.0",
+    permissions: list[str] | None = None,
+) -> Path:
     """构造一个合法插件包（根目录 manifest.json + index.html）。"""
     manifest = {
         "id": plugin_id,
@@ -37,11 +43,15 @@ def _plugin_zip(tmp_path: Path, plugin_id: str = "market-demo", version: str = "
         "version": version,
         "description": "从市场安装的演示插件",
         "entry": "index.html",
-        "permissions": ["settings"],
+        "permissions": permissions if permissions is not None else ["settings"],
     }
     return make_zip(
         tmp_path / f"{plugin_id}-{version}.zip",
-        {"manifest.json": json.dumps(manifest, ensure_ascii=False), "index.html": "<h1>market</h1>"},
+        {
+            "manifest.json": json.dumps(manifest, ensure_ascii=False),
+            # v1/v2 的 index.html 不同：升级后可以直接断言目录内容真的换了
+            "index.html": f"<h1>market {version}</h1>",
+        },
     )
 
 
@@ -326,3 +336,151 @@ def test_seed_plugin_is_listed_as_installed(plugin_env: dict) -> None:
     )
     body = _client(plugin_env).get("/api/desktop/plugin-market").json()
     assert body["installed"]["market-demo"] == "0.1.0"
+
+
+# ---------- 5. 插件升级（hasUpdate / update 端点） ----------
+
+
+def _manifest_version(plugin_dir: Path) -> str:
+    payload = json.loads((plugin_dir / "manifest.json").read_text(encoding="utf-8"))
+    return str(payload["version"])
+
+
+def test_market_endpoint_marks_has_update(plugin_env: dict, tmp_path: Path) -> None:
+    index_path = tmp_path / "index.json"
+    v1 = _plugin_zip(tmp_path, version="0.1.0")
+    _write_index(index_path, [_entry(v1)])
+    client = _client(plugin_env)
+    assert client.post("/api/desktop/plugin-market/install", json={"id": "market-demo"}).status_code == 200
+
+    v2 = _plugin_zip(tmp_path, version="0.2.0")
+    _write_index(index_path, [_entry(v2, version="0.2.0")])
+    item = client.get("/api/desktop/plugin-market", params={"refresh": 1}).json()["plugins"][0]
+    assert item["installedVersion"] == "0.1.0"
+    assert item["hasUpdate"] is True
+    # 未安装的插件不能标成「有更新」
+    other = _plugin_zip(tmp_path, plugin_id="other-demo", version="0.1.0")
+    _write_index(index_path, [_entry(v2, version="0.2.0"), _entry(other, plugin_id="other-demo")])
+    items = {item["id"]: item for item in client.get("/api/desktop/plugin-market", params={"refresh": 1}).json()["plugins"]}
+    assert items["other-demo"]["installedVersion"] == ""
+    assert items["other-demo"]["hasUpdate"] is False
+
+
+def test_market_update_replaces_plugin_and_keeps_state(plugin_env: dict, tmp_path: Path) -> None:
+    manager = PluginManager(
+        builtin_dir=plugin_env["builtin"],
+        user_dir=plugin_env["user"],
+        state_file=plugin_env["state"],
+    )
+    config = PluginConfigStore(plugin_env["state"].parent / "plugin-config")
+    data = PluginDataStore(plugin_env["state"].parent / "plugin-data")
+    client = TestClient(
+        create_app(manager, dev_agent_enabled=False, plugin_config=config, plugin_data=data)
+    )
+    index_path = tmp_path / "index.json"
+    v1 = _plugin_zip(tmp_path, version="0.1.0", permissions=["settings", "storage"])
+    _write_index(index_path, [_entry(v1)])
+    assert client.post("/api/desktop/plugin-market/install", json={"id": "market-demo"}).status_code == 200
+    # 升级前写一份插件数据与配置，并停用插件
+    assert client.put("/api/desktop/plugin-data/market-demo/ledger", json={"total": 42}).status_code == 200
+    config_path = plugin_env["state"].parent / "plugin-config" / "market-demo.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text('{"theme": "dark"}', encoding="utf-8")
+    assert client.patch("/api/desktop/plugins/market-demo", json={"enabled": False}).status_code == 200
+
+    v2 = _plugin_zip(tmp_path, version="0.2.0", permissions=["settings", "storage"])
+    _write_index(index_path, [_entry(v2, version="0.2.0")])
+    response = client.post("/api/desktop/plugin-market/update", json={"id": "market-demo"})
+    assert response.status_code == 200, response.text
+    assert response.json()["plugin"]["version"] == "0.2.0"
+
+    plugin_dir = plugin_env["user"] / "market-demo"
+    assert _manifest_version(plugin_dir) == "0.2.0"
+    assert (plugin_dir / "index.html").read_text(encoding="utf-8") == "<h1>market 0.2.0</h1>"
+    # 数据、配置、启停状态都不受目录替换影响（插件已停用，直接看落盘文件）
+    ledger = plugin_env["state"].parent / "plugin-data" / "market-demo" / "ledger.json"
+    assert json.loads(ledger.read_text(encoding="utf-8")) == {"total": 42}
+    assert config_path.read_text(encoding="utf-8") == '{"theme": "dark"}'
+    plugins = {item["id"]: item for item in client.get("/api/desktop/plugins").json()["items"]}
+    assert plugins["market-demo"]["enabled"] is False
+    # 旧版本被备份到 plugin-backups/<id>/，内容仍是 v1
+    backups = list((plugin_env["user"].parent / "plugin-backups" / "market-demo").iterdir())
+    assert len(backups) == 1
+    assert _manifest_version(backups[0]) == "0.1.0"
+
+
+def test_market_update_rejects_same_and_lower_version(plugin_env: dict, tmp_path: Path) -> None:
+    index_path = tmp_path / "index.json"
+    v1 = _plugin_zip(tmp_path, version="0.1.0")
+    _write_index(index_path, [_entry(v1)])
+    client = _client(plugin_env)
+    client.post("/api/desktop/plugin-market/install", json={"id": "market-demo"})
+
+    same = client.post("/api/desktop/plugin-market/update", json={"id": "market-demo"})
+    assert same.status_code == 400
+    assert "不高于" in same.json()["detail"]
+
+    older_zip = _plugin_zip(tmp_path, version="0.0.9")
+    _write_index(index_path, [_entry(older_zip, version="0.0.9")])
+    older = client.post("/api/desktop/plugin-market/update", json={"id": "market-demo"})
+    assert older.status_code == 400
+    assert "不高于" in older.json()["detail"]
+    assert _manifest_version(plugin_env["user"] / "market-demo") == "0.1.0"
+
+
+def test_market_update_rolls_back_when_sha_mismatch(plugin_env: dict, tmp_path: Path) -> None:
+    index_path = tmp_path / "index.json"
+    v1 = _plugin_zip(tmp_path, version="0.1.0")
+    _write_index(index_path, [_entry(v1)])
+    client = _client(plugin_env)
+    client.post("/api/desktop/plugin-market/install", json={"id": "market-demo"})
+
+    v2 = _plugin_zip(tmp_path, version="0.2.0")
+    _write_index(index_path, [_entry(v2, version="0.2.0", sha256="0" * 64)])
+    response = client.post("/api/desktop/plugin-market/update", json={"id": "market-demo"})
+    assert response.status_code == 400
+    assert "sha256 校验失败" in response.json()["detail"]
+    # 目录仍是 v1，且没有留下「升级中」的半成品或状态字段
+    assert _manifest_version(plugin_env["user"] / "market-demo") == "0.1.0"
+    assert not (plugin_env["user"] / ".market-demo.upgrading").exists()
+    state = json.loads(plugin_env["state"].read_text(encoding="utf-8"))
+    assert "updatedAt" not in state["plugins"]["market-demo"]
+
+
+def test_market_update_rejects_unknown_and_builtin(plugin_env: dict) -> None:
+    client = _client(plugin_env)
+    unknown = client.post("/api/desktop/plugin-market/update", json={"id": "nope"})
+    assert unknown.status_code == 404
+    assert "未安装" in unknown.json()["detail"]
+    builtin = client.post("/api/desktop/plugin-market/update", json={"id": "hello-world"})
+    assert builtin.status_code == 400
+    assert "内置插件" in builtin.json()["detail"]
+
+
+# ---------- 6. 镜像回退 ----------
+
+
+def test_market_entry_mirrors_fallback(plugin_env: dict, tmp_path: Path) -> None:
+    """主下载地址不可用时，按条目 mirrors 回退（例如 Gitee 镜像）。"""
+    index_path = tmp_path / "index.json"
+    zip_path = _plugin_zip(tmp_path)
+    entry = _entry(zip_path, download=f"file://{tmp_path / 'missing.zip'}")
+    entry["mirrors"] = [f"file://{zip_path}"]
+    _write_index(index_path, [entry])
+    response = _client(plugin_env).post("/api/desktop/plugin-market/install", json={"id": "market-demo"})
+    assert response.status_code == 200, response.text
+    assert _manifest_version(plugin_env["user"] / "market-demo") == "0.1.0"
+
+
+def test_index_mirrors_fallback(
+    plugin_env: dict, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolated_market: Path
+) -> None:
+    """主索引地址不可用时，按 DESKTOP_PLUGIN_MARKET_MIRRORS 回退。"""
+    mirror = tmp_path / "mirror-index.json"
+    zip_path = _plugin_zip(tmp_path)
+    _write_index(mirror, [_entry(zip_path)])
+    monkeypatch.setenv(market.MARKET_MIRRORS_ENV, f"file://{mirror}")
+    body = _client(plugin_env).get("/api/desktop/plugin-market").json()
+    assert [item["id"] for item in body["plugins"]] == ["market-demo"]
+    # source 仍报主源，方便用户知道「实际主源没通、走的是镜像」
+    assert body["source"] == f"file://{isolated_market}"

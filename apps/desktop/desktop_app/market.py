@@ -18,18 +18,20 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
-from urllib.parse import unquote, urlparse
-from urllib.request import Request, urlopen
 
+from desktop_app import transfer
 from desktop_app.manager import PluginManager
 from desktop_app.protocol import KNOWN_PERMISSIONS, PLUGIN_ID_PATTERN
 from desktop_app.registry import PluginInfo
 from desktop_app.security import MAX_ZIP_SIZE, validate_zip_entry_name
+from desktop_app.version import version_greater
 
 logger = logging.getLogger(__name__)
 
 # 索引地址（可指向 file:// 或本机 http://，便于本地开发与端到端验证）
 MARKET_ENV = "DESKTOP_PLUGIN_MARKET_URL"
+# 索引镜像（逗号分隔）：主源取不到时按顺序回退，例如 Gitee raw
+MARKET_MIRRORS_ENV = "DESKTOP_PLUGIN_MARKET_MIRRORS"
 # 置 0/false/no/off 可整体关闭市场（前端显示「未启用」）
 MARKET_DISABLE_ENV = "DESKTOP_PLUGIN_MARKET"
 DEFAULT_MARKET_URL = (
@@ -41,7 +43,6 @@ MAX_MARKET_PLUGINS = 200
 CACHE_TTL_SECONDS = 300
 FETCH_TIMEOUT_SECONDS = 10
 USER_AGENT = "WW-Desktop-PluginMarket/1.0"
-_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 _ID_KEYS = ("id", "name", "version", "download", "sha256")
 
 
@@ -69,6 +70,8 @@ class MarketEntry:
     description: str = ""
     size: int | None = None
     permissions: tuple[str, ...] = field(default_factory=tuple)
+    # 下载镜像：主源（download）取不到时按顺序回退，例如 Gitee raw
+    mirrors: tuple[str, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict[str, Any]:
         """返回给前端的 camelCase 结构。"""
@@ -81,6 +84,7 @@ class MarketEntry:
             "sha256": self.sha256,
             "size": self.size,
             "permissions": list(self.permissions),
+            "mirrors": list(self.mirrors),
         }
 
 
@@ -97,39 +101,29 @@ def index_url() -> str:
     return os.environ.get(MARKET_ENV, "").strip() or DEFAULT_MARKET_URL
 
 
+def index_mirrors() -> tuple[str, ...]:
+    """索引镜像地址（逗号分隔）：主源取不到时按顺序回退。"""
+    raw = os.environ.get(MARKET_MIRRORS_ENV, "")
+    return tuple(item.strip() for item in raw.split(",") if item.strip())
+
+
 def _validate_url(url: str, *, what: str) -> str:
     """校验下载地址：生产只接受 https，本机开发额外允许 file:// 与回环 http://。"""
-    parsed = urlparse(url)
-    scheme = parsed.scheme
-    if scheme == "https" and parsed.netloc:
-        return url
-    if scheme == "http" and (parsed.hostname or "") in _LOOPBACK_HOSTS:
-        return url
-    if scheme == "file" and parsed.path:
-        return url
-    raise MarketValidationError(
-        f"{what} 只支持 https:// 地址（本机开发可用 127.0.0.1 的 http:// 或 file://）：{url}"
-    )
-
-
-def _read_url(url: str, limit: int, *, what: str) -> bytes:
-    """读取 URL 内容并限制字节数；超限、网络异常统一转成中文错误。"""
-    parsed = urlparse(url)
     try:
-        if parsed.scheme == "file":
-            data = Path(unquote(parsed.path)).read_bytes()
-            if len(data) > limit:
-                raise MarketDownloadError(f"{what}超过大小限制（{len(data)} > {limit} 字节）")
-            return data
-        request = Request(url, headers={"User-Agent": USER_AGENT})
-        with urlopen(request, timeout=FETCH_TIMEOUT_SECONDS) as response:  # noqa: S310 - 地址已校验
-            data = response.read(limit + 1)
-    except MarketError:
-        raise
-    except OSError as exc:  # URLError / HTTPError / 文件不存在都落在这里
-        raise MarketDownloadError(f"下载{what}失败：{exc}") from exc
-    if len(data) > limit:
-        raise MarketDownloadError(f"{what}超过大小限制（{len(data)} > {limit} 字节）")
+        return transfer.validate_url(url, what=what)
+    except transfer.TransferValidationError as exc:
+        raise MarketValidationError(str(exc)) from exc
+
+
+def _read_entry_bytes(entry: MarketEntry) -> bytes:
+    """按「download → mirrors」顺序取插件包，全部失败才报错。"""
+    _, data = transfer.read_first(
+        entry.download,
+        entry.mirrors,
+        MAX_ZIP_SIZE,
+        what=f"插件 {entry.id} 的安装包",
+        user_agent=USER_AGENT,
+    )
     return data
 
 
@@ -164,6 +158,12 @@ def _parse_entry(raw: Any, position: int) -> MarketEntry:
     if unknown:
         # 未知权限只影响插件自身的运行态，不阻断上架
         logger.warning("插件 %s 声明了未知权限：%s", plugin_id, "、".join(unknown))
+    mirrors_raw = raw.get("mirrors") or []
+    if not isinstance(mirrors_raw, list) or not all(isinstance(item, str) for item in mirrors_raw):
+        raise MarketValidationError(f"插件 {plugin_id} 的 mirrors 必须是字符串数组")
+    mirrors = tuple(
+        _validate_url(item, what=f"插件 {plugin_id} 的下载镜像") for item in mirrors_raw if item
+    )
     return MarketEntry(
         id=plugin_id,
         name=raw["name"],
@@ -173,6 +173,7 @@ def _parse_entry(raw: Any, position: int) -> MarketEntry:
         description=str(raw.get("description") or ""),
         size=size,
         permissions=tuple(permissions_raw),
+        mirrors=mirrors,
     )
 
 
@@ -214,14 +215,29 @@ def clear_cache() -> None:
 
 
 def fetch_index(url: str | None = None, *, refresh: bool = False) -> list[MarketEntry]:
-    """获取索引条目；默认走 5 分钟内存缓存，refresh=True 强制重取。"""
+    """获取索引条目；默认走 5 分钟内存缓存，refresh=True 强制重取。
+
+    主源取不到时按 ``DESKTOP_PLUGIN_MARKET_MIRRORS`` 顺序回退（例如 Gitee raw），
+    这样 GitHub 被墙时市场仍然可用。
+    """
     target = url or index_url()
     _validate_url(target, what="索引地址")
     now = time.monotonic()
     cached = _index_cache.get(target)
     if cached and not refresh and now - cached[0] < CACHE_TTL_SECONDS:
         return cached[1]
-    data = _read_url(target, MAX_INDEX_BYTES, what="插件索引")
+    try:
+        _, data = transfer.read_first(
+            target,
+            index_mirrors(),
+            MAX_INDEX_BYTES,
+            what="插件索引",
+            user_agent=USER_AGENT,
+        )
+    except transfer.TransferValidationError as exc:
+        raise MarketValidationError(str(exc)) from exc
+    except transfer.TransferDownloadError as exc:
+        raise MarketDownloadError(str(exc)) from exc
     entries = parse_index(data)
     _index_cache[target] = (now, entries)
     return entries
@@ -260,9 +276,9 @@ def read_archive_manifest(data: bytes) -> dict[str, Any]:
     return manifest
 
 
-def install_entry(manager: PluginManager, entry: MarketEntry) -> PluginInfo:
-    """下载并安装一条市场记录：校验 sha256 与包内 manifest 后交给 manager 落盘。"""
-    data = _read_url(entry.download, MAX_ZIP_SIZE, what=f"插件 {entry.id} 的安装包")
+def _download_verified(entry: MarketEntry) -> bytes:
+    """下载插件包并校验大小、sha256、包内 manifest 的 id 与版本，返回 zip 字节。"""
+    data = _read_entry_bytes(entry)
     if entry.size is not None and len(data) != entry.size:
         raise MarketValidationError(
             f"插件 {entry.id} 的安装包大小与索引不一致（索引 {entry.size}，实际 {len(data)}）"
@@ -283,10 +299,43 @@ def install_entry(manager: PluginManager, entry: MarketEntry) -> PluginInfo:
         raise MarketValidationError(
             f"插件包版本（{manifest_version or '缺失'}）与索引（{entry.version}）不一致"
         )
+    return data
+
+
+def install_entry(manager: PluginManager, entry: MarketEntry) -> PluginInfo:
+    """下载并安装一条市场记录：校验 sha256 与包内 manifest 后交给 manager 落盘。"""
+    data = _download_verified(entry)
     with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as handle:
         handle.write(data)
         tmp_path = Path(handle.name)
     try:
         return manager.install_zip(tmp_path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+def upgrade_entry(manager: PluginManager, entry: MarketEntry) -> PluginInfo:
+    """把已安装插件升级到索引里的版本：校验之后交给 manager 备份替换。
+
+    只允许「索引版本严格高于本机版本」；内置插件与 remote 壳插件由宿主自己更新，
+    这里直接拒绝，避免前端出现一个点了必然失败的按钮。
+    """
+    plugin = manager.get(entry.id)
+    if plugin.builtin:
+        raise MarketValidationError(f"内置插件 {entry.id} 随宿主一起更新，不支持市场升级")
+    if plugin.type == "remote":
+        raise MarketValidationError(f"URL 壳插件 {entry.id} 不支持市场升级")
+    if not version_greater(entry.version, plugin.version):
+        raise MarketValidationError(
+            f"市场版本 {entry.version} 不高于已安装版本 {plugin.version}，无需升级"
+        )
+    data = _download_verified(entry)
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as handle:
+        handle.write(data)
+        tmp_path = Path(handle.name)
+    try:
+        return manager.upgrade_zip(
+            tmp_path, expected_id=entry.id, expected_version=entry.version
+        )
     finally:
         tmp_path.unlink(missing_ok=True)

@@ -31,6 +31,8 @@ EVENT_NAMES = frozenset(
         "uninstall",
         "enable",
         "disable",
+        "update_ok",
+        "update_failed",
         "iframe_load",
         "sdk_injected",
         "sdk_inject_failed",

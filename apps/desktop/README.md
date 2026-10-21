@@ -21,7 +21,10 @@ apps/desktop/
     plugin_data.py        # 子应用本地数据存储（plugin-data，JSON 文件原子写）
     dev_agent.py          # 本地 mock 智能体网关（DESKTOP_DEV_AGENT=1 时启用）
     dev_reload.py         # 开发态插件目录指纹（DESKTOP_DEV_RELOAD=1 时启用）
-    market.py             # 插件市场：索引解析、下载、sha256 校验、交给 manager 安装
+    market.py             # 插件市场：索引解析、下载、sha256 校验、安装与升级
+    transfer.py           # 主源 + 镜像回退的下载 / 落盘 / sha256 校验
+    app_update.py         # 宿主更新清单解析、平台资产匹配、下载与校验
+    version.py            # 版本号比较（0.10.0 > 0.9.0、正式版 > 预发布）
     plugin_config.py      # 插件宿主配置存储（plugin-config，JSON 原子写）
     plugin_log.py         # 插件生命周期事件日志（plugin.log，JSONL）
     agent_config.py       # 真实 AI Base 配置与短期 token 换发
@@ -36,7 +39,8 @@ apps/desktop/
   plugins/hello-world/    # 内置示例插件
   market/index.json       # 插件市场索引（静态 JSON，随仓库分发）
   market/packages/        # 上架包（示例包，下载地址指向本仓库 raw）
-  scripts/                # make_plugin_zip.py、plugin_market.py、make_icons.py、build_css.mjs
+  releases/latest.json    # 宿主更新清单（由 scripts/make_release.py 生成/合并）
+  scripts/                # make_plugin_zip.py、plugin_market.py、make_release.py、make_icons.py、build_css.mjs
   build/desktop.spec      # PyInstaller 打包配置（onedir）
   build/build.py          # 跨平台打包脚本
   tests/                  # 服务层与插件体系测试
@@ -374,7 +378,8 @@ https://raw.githubusercontent.com/xingwenl/xxai/main/apps/desktop/market/index.j
       "download": "https://example.com/hello-world-0.1.0.zip",
       "sha256": "64 位十六进制",
       "size": 4104,
-      "permissions": ["notify", "settings"]
+      "permissions": ["notify", "settings"],
+      "mirrors": ["https://gitee.com/xingwenl/xxai/raw/main/apps/desktop/market/packages/hello-world-0.1.0.zip"]
     }
   ]
 }
@@ -383,6 +388,7 @@ https://raw.githubusercontent.com/xingwenl/xxai/main/apps/desktop/market/index.j
 - `version` 目前只能是 `1`；`plugins` 最多 200 条，`id` 不可重复且须匹配插件 id 规则。
 - `download` 只接受 https（回环 http / file 仅用于开发）；`sha256` 必填且为 64 位小写十六进制。
 - `size`（可选）出现时宿主会额外校验包体字节数；`permissions`（可选）只用于展示与未知权限告警，真正的权限仍以包内 `manifest.json` 为准。
+- `mirrors`（可选）：下载主地址不可达时的备用地址数组（同一份包、同一 sha256）。索引本身也可用 `DESKTOP_PLUGIN_MARKET_MIRRORS` 配逗号分隔的镜像，主源失败自动回退。
 
 安装链路（`POST /api/desktop/plugin-market/install`，请求体 `{"id": "..."}`）：
 
@@ -412,6 +418,89 @@ cd apps/desktop && .venv/bin/python scripts/make_plugin_zip.py
 ```
 
 > 内置插件随宿主分发（`plugins/`，不可卸载），因此从市场安装同名插件会返回 409；示例索引里的 `hello-world` 条目主要用于演示格式。
+
+### 插件升级（保留旧版本、失败回滚）
+
+市场不只用于首次安装：当索引版本高于本机版本时，条目右侧按钮变成「更新到 vX」，点一下即可原地升级。`GET /api/desktop/plugin-market` 的每条插件除了索引字段，还附带 `installedVersion`（本机已装版本，未装为空串）与 `hasUpdate`（布尔），前端不再自己比版本。
+
+升级链路（`POST /api/desktop/plugin-market/update`，请求体 `{"id": "..."}`）：
+
+1. 下载包并校 `size` / `sha256`，读包内 `manifest.json` 校 `id` / `version` 与索引一致（与安装完全同一套校验）；
+2. 旧目录**改名备份**到 `~/.desktop-app/plugin-backups/<id>/<version>-<时间戳>/`，每个插件只保留最近 3 份；
+3. 新包先解到 `plugins/.<id>.upgrading`，再同盘 `rename` 覆盖 `plugins/<id>`（原子替换，不会出现半个插件）；
+4. 任一步失败：删掉临时目录，把备份改回 `plugins/<id>`，返回 400 说明原因——**本机仍是旧版本，可正常使用**；
+5. 成功：`state.json` 保留原 `enabled` 与 `installedAt`，追加 `updatedAt` 与 `previousVersion`；事件日志记 `update_ok` / `update_failed`。
+
+数据不迁移：`plugin-data/<id>/` 与 `plugin-config/<id>.json` 按插件 id 存放，升级不触碰，所以账本、配置、登录态都在。想回滚就把备份目录拷回 `plugins/<id>`（备份目录不参与插件扫描，不会重复出现）。
+
+错误语义：内置插件 / `type=remote` 壳插件 / 新版本不高于已装版本 / 校验失败 → 400；插件未装或索引里没有该 id → 404；下载失败 → 502。
+
+升级对「来源」没有要求：手动 zip 装过的插件，只要市场索引里有同 id 且版本更高，也能直接升级。
+
+### 宿主应用更新（只检查 / 下载 / 校验，安装由用户手动完成）
+
+设置页「应用更新」区块可以检查宿主自身的新版本，但**不会自动替换自己**：下载并校验通过后，由用户退出应用手动覆盖安装。这样避开三件难做对的事——macOS 未签名包被 Gatekeeper 拦、Windows 下替换运行中的 exe、升级中途崩溃留下半个应用。
+
+- `DESKTOP_APP_UPDATE_URL`：覆盖清单地址（https，本机开发接受 `127.0.0.1` 的 http 与 `file://`）。
+- `DESKTOP_APP_UPDATE_MIRRORS`：逗号分隔的镜像地址，主源失败自动回退；默认已内置 Gitee raw 镜像，GitHub 不可达时仍能检查更新。
+- `DESKTOP_APP_UPDATE=0`（或 `false` / `no` / `off`）：关闭应用更新检查，设置页显示「已关闭」，前端不发请求。
+- 清单 600 秒内存缓存；点「检查更新」带 `refresh=1` 强制重取。
+
+清单 `apps/desktop/releases/latest.json`：
+
+```json
+{
+  "version": 1,
+  "latest": "0.2.1",
+  "publishedAt": "2026-10-21T08:00:00Z",
+  "notes": "修复插件升级后的窗口残留",
+  "releaseUrl": "https://github.com/xingwenl/xxai/releases/tag/desktop-v0.2.1",
+  "platforms": {
+    "macos-arm64": {
+      "name": "WW-0.2.1-macos-arm64.zip",
+      "url": "https://github.com/xingwenl/xxai/releases/download/desktop-v0.2.1/WW-0.2.1-macos-arm64.zip",
+      "mirrors": ["https://gitee.com/xingwenl/xxai/releases/download/desktop-v0.2.1/WW-0.2.1-macos-arm64.zip"],
+      "sha256": "64 位十六进制",
+      "size": 123456789
+    }
+  }
+}
+```
+
+- `version` 目前只能是 `1`；`platforms` 的键固定为 `macos-arm64` / `macos-x64` / `windows-x64` / `linux-arm64` / `linux-x64`，未知平台键忽略。
+- **当前平台匹配不到就不更新**（设置页显示「当前平台不在发布清单支持范围」），绝不回退到别的架构——装错架构的包能替换成功但启动即崩，比不更新更糟。
+- 资产 `name` 必须是纯文件名（不允许带路径）；只接受 https（本机开发同市场规则）。
+
+端点：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/desktop/app-update` | 检查更新，`?refresh=1` 跳过缓存；永远 200，失败原因在 `error` 字段（不把「检查失败」伪装成「已是最新」） |
+| POST | `/api/desktop/app-update/download` | 下载当前平台资产并校 `size` / `sha256`，落 `~/.desktop-app/updates/<version>/<文件名>`；校验失败 400 并删掉残缺文件 |
+| POST | `/api/desktop/app-update/reveal` | 在文件管理器里打开更新目录（只打开固定目录，不接受外部路径） |
+
+### 发布桌面版本（GitHub + Gitee）
+
+版本号有三处，必须先统一，`make_release.py --check-only` 会拦住漂移：`desktop_app/app_config.py` 的 `APP_VERSION`、`pyproject.toml` 的 `[project] version`、`front/package.json` 的 `version`。
+
+```bash
+cd apps/desktop
+# 1. 改三处版本号后先自检
+.venv/bin/python scripts/make_release.py --check-only
+
+# 2. 构建前端 + PyInstaller 产物
+pnpm --dir front build
+.venv/bin/python build/build.py
+
+# 3. 打平台 zip、算 hash、合并进 releases/latest.json
+.venv/bin/python scripts/make_release.py --notes "本次更新了什么"
+
+# 4. 把 dist/releases/WW-<version>-<platform>.zip 上传到 GitHub Release（tag：desktop-v<version>）
+#    并把同一份 zip 同步到 Gitee Release（宿主会回退到 Gitee 镜像）
+# 5. 提交 releases/latest.json 与三处版本号，推送 main（raw 地址指向 main，推上去即生效）
+```
+
+脚本会把清单里的 `url` 写成 GitHub Release 下载地址、`mirrors` 写成 Gitee 同 tag 地址；多平台发版时在每个平台各跑一次（默认只更新当前平台的条目，`--reset` 可清掉其他平台的旧条目）。`--asset <zip>` 可跳过重新打包、直接登记已有产物；`--platform` / `--github-repo` / `--gitee-repo` 可覆盖默认值。
 
 ### 开发一个插件
 

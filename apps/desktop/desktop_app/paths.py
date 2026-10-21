@@ -66,3 +66,17 @@ def plugin_config_dir() -> Path:
 def plugin_log_file() -> Path:
     """返回插件事件日志文件（JSONL，超过上限轮转为 plugin.log.1）。"""
     return user_data_dir() / "plugin.log"
+
+
+def plugin_backups_dir() -> Path:
+    """返回插件升级前的旧版本备份根目录（每个插件一个子目录，保留最近若干份）。
+
+    放在用户数据目录而不是插件目录里：备份不参与插件扫描，也不会被当成插件加载；
+    出问题时用户可以直接把备份目录拷回 ``plugins/<id>`` 手动回滚。
+    """
+    return user_data_dir() / "plugin-backups"
+
+
+def updates_dir() -> Path:
+    """返回宿主应用更新包的落地目录（``updates/<version>/``）。"""
+    return user_data_dir() / "updates"

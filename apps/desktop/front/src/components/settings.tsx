@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   clearAgentConfig,
+  downloadAppUpdate,
   getAgentConfig,
+  getAppUpdate,
   getDesktopSettings,
   getPlugins,
   getPluginMarket,
@@ -12,11 +14,14 @@ import {
   installMarketPlugin,
   issueAgentToken,
   refreshMetadata,
+  revealAppUpdates,
   saveAgentConfig,
   setPluginEnabled,
   uninstallPlugin,
+  updateMarketPlugin,
   updatePluginMetadata,
   type AgentConfig,
+  type AppUpdateInfo,
   type DesktopSettings,
   type Plugin,
   type PluginMarket,
@@ -71,6 +76,10 @@ export default function Settings({
   const [marketError, setMarketError] = useState('')
   const [marketBusy, setMarketBusy] = useState(false)
   const [installingId, setInstallingId] = useState('')
+  // 宿主应用更新：只在用户点「检查更新」时拉清单，避免设置页一打开就联网
+  const [appUpdate, setAppUpdate] = useState<AppUpdateInfo | null>(null)
+  const [appUpdateError, setAppUpdateError] = useState('')
+  const [appUpdateBusy, setAppUpdateBusy] = useState<'check' | 'download' | ''>('')
   // 插件宿主配置（manifest.settings[]）：表单、校验与保存都在 PluginConfigDialog 弹窗里
   const [configPlugin, setConfigPlugin] = useState<Plugin | null>(null)
   // 运行态变化只用于触发重渲染，具体状态在渲染时用 getRuntimeStatus 读取
@@ -119,19 +128,66 @@ export default function Settings({
     }
   }
 
-  const installFromMarket = async (id: string) => {
+  /** 市场条目动作：已装且有更新走升级（宿主备份旧目录，失败回滚），否则走安装。 */
+  const applyFromMarket = async (id: string, isUpdate: boolean) => {
     setInstallingId(id)
     try {
-      const { plugin } = await installMarketPlugin(id)
-      toast('已安装', `${plugin.name} v${plugin.version}`, 'success')
+      const { plugin } = isUpdate ? await updateMarketPlugin(id) : await installMarketPlugin(id)
+      toast(isUpdate ? '已更新' : '已安装', `${plugin.name} v${plugin.version}`, 'success')
       load()
-      // installed 映射由宿主按本机插件目录现算，安装后重拉一次让按钮变「已安装」
+      // installed 映射由宿主按本机插件目录现算，装/升级后重拉一次刷新按钮状态
       setMarket(await getPluginMarket().catch(() => market))
     } catch (e) {
-      toast('安装失败', String((e as Error).message || e), 'error')
+      toast(isUpdate ? '更新失败' : '安装失败', String((e as Error).message || e), 'error')
     } finally {
       setInstallingId('')
     }
+  }
+
+  /** 检查宿主更新；refresh=true 跳过宿主侧 10 分钟清单缓存。 */
+  const checkAppUpdate = async (refresh = false) => {
+    setAppUpdateBusy('check')
+    setAppUpdateError('')
+    try {
+      setAppUpdate(await getAppUpdate(refresh))
+    } catch (e) {
+      setAppUpdateError(String((e as Error).message || e))
+    } finally {
+      setAppUpdateBusy('')
+    }
+  }
+
+  /** 下载并校验当前平台安装包；宿主只负责落盘校验，不替换自身。 */
+  const downloadAppUpdatePack = async () => {
+    setAppUpdateBusy('download')
+    try {
+      const result = await downloadAppUpdate()
+      toast('下载完成', `v${result.version} 已校验，请手动安装`, 'success')
+      setAppUpdate(await getAppUpdate().catch(() => appUpdate))
+    } catch (e) {
+      toast('下载失败', String((e as Error).message || e), 'error')
+    } finally {
+      setAppUpdateBusy('')
+    }
+  }
+
+  const revealUpdates = async () => {
+    try {
+      const { path } = await revealAppUpdates()
+      toast('已打开更新目录', path, 'success')
+    } catch (e) {
+      toast('打开目录失败', String((e as Error).message || e), 'error')
+    }
+  }
+
+  const openReleasePage = (url: string) => {
+    if (!url) return
+    // 宿主壳内用 pywebview 打开系统浏览器；纯浏览器预览时退回 window.open
+    if (window.pywebview?.api?.open_urls) {
+      window.pywebview.api.open_urls([url])
+      return
+    }
+    window.open(url, '_blank', 'noopener')
   }
 
   const handleInstall = async (file: File) => {
@@ -579,7 +635,7 @@ export default function Settings({
           </div>
         </div>
         <p className="text-[12px] mb-3" style={{ color: 'var(--color-mid)' }}>
-          安装包会先校验 sha256 与包内 manifest，再交给本地安装流程；已安装的插件不会重复覆盖。
+          安装包会先校验 sha256 与包内 manifest；已安装插件有新版本时可直接升级，宿主会先备份旧目录，失败自动回滚。
         </p>
 
         {marketError ? (
@@ -604,7 +660,10 @@ export default function Settings({
         ) : (
           <div className="space-y-2">
             {market.plugins.map((entry) => {
+              // 宿主已下发 hasUpdate（版本比较不在前端做），这里只决定按钮文案与可点性
               const installedVersion = market.installed[entry.id]
+              const installed = Boolean(installedVersion)
+              const canUpdate = installed && entry.hasUpdate
               const installing = installingId === entry.id
               return (
                 <div
@@ -624,9 +683,12 @@ export default function Settings({
                       {installedVersion && (
                         <span
                           className="text-[11px] px-1.5 py-0.5 rounded-md"
-                          style={{ background: 'rgba(16, 185, 129, 0.12)', color: '#10b981' }}
+                          style={{
+                            background: entry.hasUpdate ? 'rgba(245, 158, 11, 0.14)' : 'rgba(16, 185, 129, 0.12)',
+                            color: entry.hasUpdate ? '#f59e0b' : '#10b981',
+                          }}
                         >
-                          已安装{installedVersion === entry.version ? '' : ` v${installedVersion}`}
+                          已安装 v{installedVersion}
                         </span>
                       )}
                     </div>
@@ -639,12 +701,20 @@ export default function Settings({
                     </div>
                   </div>
                   <button
-                    disabled={Boolean(installedVersion) || installing}
-                    onClick={() => installFromMarket(entry.id)}
+                    disabled={installing || (installed && !canUpdate)}
+                    onClick={() => applyFromMarket(entry.id, canUpdate)}
                     className="shrink-0 px-3 py-1.5 rounded-lg text-[12px] font-600 disabled:opacity-50"
                     style={{ background: 'var(--fill-gradient)', color: 'var(--primary-foreground)' }}
                   >
-                    {installedVersion ? '已安装' : installing ? '安装中…' : '安装'}
+                    {installing
+                      ? canUpdate
+                        ? '更新中…'
+                        : '安装中…'
+                      : canUpdate
+                        ? `更新到 v${entry.version}`
+                        : installed
+                          ? '已是最新'
+                          : '安装'}
                   </button>
                 </div>
               )
@@ -763,6 +833,122 @@ export default function Settings({
         </div>
       </section>
 
+      {/* 应用更新：只检查 / 下载 / 校验，安装动作交给用户手动完成 */}
+      <section style={glass} className="p-5 mt-4">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div className="min-w-0">
+            <h2 className="font-600 text-[15px]" style={{ color: 'var(--foreground)' }}>应用更新</h2>
+            <p className="text-[12px] mt-1 truncate" style={{ color: 'var(--color-mid)' }} title={info?.appUpdateUrl || ''}>
+              当前版本 v{info?.version || '—'} · 更新源 {info?.appUpdateUrl || '未配置'}
+            </p>
+          </div>
+          <button
+            disabled={appUpdateBusy !== '' || info?.appUpdateEnabled === false}
+            onClick={() => checkAppUpdate(true)}
+            className="shrink-0 px-3 py-1.5 rounded-lg text-[12px] font-500 transition disabled:opacity-50"
+            style={{ background: 'rgba(var(--primary-ink-rgb) / 0.10)', color: 'var(--primary-ink)' }}
+          >
+            {appUpdateBusy === 'check' ? '检查中…' : '检查更新'}
+          </button>
+        </div>
+        {info?.appUpdateEnabled === false ? (
+          <div className="text-[12px]" style={{ color: 'var(--color-mid)' }}>
+            应用更新已关闭（去掉 DESKTOP_APP_UPDATE=0 后重启宿主可恢复）。
+          </div>
+        ) : appUpdateError ? (
+          <div
+            className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-[12px]"
+            style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444' }}
+          >
+            <span className="truncate" title={appUpdateError}>检查失败：{appUpdateError}</span>
+            <button className="shrink-0 font-500" onClick={() => checkAppUpdate(true)}>重试</button>
+          </div>
+        ) : !appUpdate ? (
+          <div className="text-[12px]" style={{ color: 'var(--color-mid)' }}>
+            点击「检查更新」从发布清单读取最新版本；宿主不会自动改动自身，下载后由你手动安装。
+          </div>
+        ) : appUpdate.error ? (
+          <div
+            className="px-3 py-2.5 rounded-xl text-[12px] break-all"
+            style={{ background: 'rgba(245,158,11,0.10)', color: '#f59e0b' }}
+          >
+            {appUpdate.error}
+            {appUpdate.releaseUrl ? (
+              <button className="ml-2 font-500 underline" onClick={() => openReleasePage(appUpdate.releaseUrl)}>
+                打开发布页
+              </button>
+            ) : null}
+          </div>
+        ) : !appUpdate.hasUpdate ? (
+          <div
+            className="px-3 py-2.5 rounded-xl text-[12px]"
+            style={{ background: 'rgba(16,185,129,0.10)', color: '#10b981' }}
+          >
+            已是最新版本（v{appUpdate.latest || appUpdate.current}）。
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2 flex-wrap text-[13px]">
+              <span className="font-600" style={{ color: 'var(--foreground)' }}>新版本 v{appUpdate.latest}</span>
+              <span
+                className="px-1.5 py-0.5 rounded-md text-[11px] font-mono"
+                style={{ background: 'rgba(245,158,11,0.14)', color: '#f59e0b' }}
+              >
+                {appUpdate.platform || '未知平台'}
+              </span>
+              {appUpdate.publishedAt ? (
+                <span className="text-[11px]" style={{ color: 'var(--color-mid)' }}>{appUpdate.publishedAt}</span>
+              ) : null}
+            </div>
+            {appUpdate.notes ? (
+              <div
+                className="px-3 py-2.5 rounded-xl text-[12px] whitespace-pre-wrap break-words"
+                style={{ background: 'rgba(var(--surface-rgb) / 0.6)', color: 'var(--color-mid)' }}
+              >
+                {appUpdate.notes}
+              </div>
+            ) : null}
+            {appUpdate.asset ? (
+              <div className="text-[11px] font-mono break-all" style={{ color: 'var(--color-mid)' }}>
+                {appUpdate.asset.name} · {formatSize(appUpdate.asset.size)}
+              </div>
+            ) : null}
+            <div className="flex items-center gap-2 flex-wrap">
+              {appUpdate.downloadedPath ? (
+                <>
+                  <span
+                    className="px-2 py-1 rounded-lg text-[11px]"
+                    style={{ background: 'rgba(16,185,129,0.12)', color: '#10b981' }}
+                  >
+                    已下载并校验通过
+                  </span>
+                  <button className="px-3 py-1.5 rounded-lg text-[12px] font-500" style={{ background: 'var(--fill-gradient)', color: 'var(--primary-foreground)' }} onClick={revealUpdates}>
+                    打开所在文件夹
+                  </button>
+                </>
+              ) : (
+                <button
+                  disabled={appUpdateBusy !== '' || !appUpdate.asset}
+                  onClick={downloadAppUpdatePack}
+                  className="px-3 py-1.5 rounded-lg text-[12px] font-500 disabled:opacity-50"
+                  style={{ background: 'var(--fill-gradient)', color: 'var(--primary-foreground)' }}
+                >
+                  {appUpdateBusy === 'download' ? '下载校验中…' : '下载并校验'}
+                </button>
+              )}
+              {appUpdate.releaseUrl ? (
+                <button className="px-3 py-1.5 rounded-lg text-[12px] font-500" style={{ background: 'rgba(var(--primary-ink-rgb) / 0.10)', color: 'var(--primary-ink)' }} onClick={() => openReleasePage(appUpdate.releaseUrl)}>
+                  查看发布页
+                </button>
+              ) : null}
+            </div>
+            <p className="text-[11px]" style={{ color: 'var(--color-mid)' }}>
+              下载完成后请退出宿主，用新包覆盖安装；升级不会自动搬运插件数据，插件目录与用户数据目录保持不变。
+            </p>
+          </div>
+        )}
+      </section>
+
       {/* 框架信息 */}
       <section style={glass} className="p-5 mt-4">
         <h2 className="font-600 text-[15px] mb-3" style={{ color: 'var(--foreground)' }}>框架信息</h2>
@@ -775,6 +961,7 @@ export default function Settings({
               ['用户数据目录', info.userDataDir],
               ['插件配置目录', info.pluginConfigDir],
               ['插件日志文件', info.pluginLogFile],
+              ['应用更新源', info.appUpdateUrl || '未配置'],
             ].map(([k, v]) => (
               <div key={k} className="flex items-center justify-between gap-4 text-[13px]">
                 <span style={{ color: 'var(--color-mid)' }}>{k}</span>

@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from desktop_app import agent_config
 from desktop_app import bookmarks
 from desktop_app import dev_agent
+from desktop_app import app_update
 from desktop_app import dev_reload
 from desktop_app import market
 from desktop_app import metadata
@@ -32,6 +33,7 @@ from desktop_app.plugin_config import PluginConfigError, PluginConfigStore, merg
 from desktop_app.plugin_data import MAX_VALUE_BYTES, PluginDataError, PluginDataStore, PluginDataTooLarge
 from desktop_app.registry import PluginInfo
 from desktop_app.security import MAX_ZIP_SIZE
+from desktop_app.version import version_greater
 
 
 class ProxyRequest(BaseModel):
@@ -185,7 +187,11 @@ def create_app(
 
     @app.get("/api/desktop/plugin-market")
     def plugin_market(refresh: bool = False) -> dict:
-        """返回市场索引条目与本机已安装版本；取不到索引时返回 502。"""
+        """返回市场索引条目与本机已安装版本；取不到索引时返回 502。
+
+        每条插件额外带 ``installedVersion``/``hasUpdate``：版本比较只在宿主侧做，
+        前端直接按 ``hasUpdate`` 显示「更新到 vX」，避免各语言各写一套比较规则。
+        """
         installed = {plugin.id: plugin.version for plugin in manager.list_plugins()}
         if not market.is_enabled():
             return {"enabled": False, "source": "", "plugins": [], "installed": installed}
@@ -196,10 +202,19 @@ def create_app(
             raise HTTPException(502, str(exc)) from exc
         except market.MarketError as exc:
             raise HTTPException(400, str(exc)) from exc
+        plugins = []
+        for entry in entries:
+            item = entry.to_dict()
+            installed_version = installed.get(entry.id, "")
+            item["installedVersion"] = installed_version
+            item["hasUpdate"] = bool(installed_version) and version_greater(
+                entry.version, installed_version
+            )
+            plugins.append(item)
         return {
             "enabled": True,
             "source": source,
-            "plugins": [entry.to_dict() for entry in entries],
+            "plugins": plugins,
             "installed": installed,
         }
 
@@ -209,7 +224,9 @@ def create_app(
         if not market.is_enabled():
             raise HTTPException(400, "插件市场未启用")
         try:
-            entries = market.fetch_index()
+            # 安装/升级是「用户刚点的动作」，强制刷新索引：否则缓存里的旧版本会让
+            # 刚发布的包被判成「已是最新」
+            entries = market.fetch_index(refresh=True)
         except market.MarketDownloadError as exc:
             raise HTTPException(502, f"获取插件索引失败：{exc}") from exc
         except market.MarketError as exc:
@@ -226,6 +243,73 @@ def create_app(
         except (market.MarketError, PluginError) as exc:
             raise HTTPException(400, str(exc)) from exc
         return {"plugin": plugin.to_dict()}
+
+    @app.post("/api/desktop/plugin-market/update")
+    def update_from_market(req: MarketInstallRequest) -> dict:
+        """把已安装插件升级到市场版本：校验后备份旧目录、原子替换，失败自动回滚。"""
+        if not market.is_enabled():
+            raise HTTPException(400, "插件市场未启用")
+        try:
+            plugin = manager.get(req.id)
+        except PluginNotFoundError as exc:
+            raise HTTPException(404, f"插件未安装：{req.id}") from exc
+        if plugin.builtin:
+            raise HTTPException(400, f"内置插件随宿主一起更新：{req.id}")
+        if plugin.type == "remote":
+            raise HTTPException(400, f"URL 壳插件不支持市场升级：{req.id}")
+        try:
+            entries = market.fetch_index(refresh=True)
+        except market.MarketDownloadError as exc:
+            raise HTTPException(502, f"获取插件索引失败：{exc}") from exc
+        except market.MarketError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        entry = next((item for item in entries if item.id == req.id), None)
+        if entry is None:
+            raise HTTPException(404, f"市场里没有插件：{req.id}")
+        try:
+            updated = market.upgrade_entry(manager, entry)
+        except market.MarketDownloadError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        except (market.MarketError, PluginError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"plugin": updated.to_dict()}
+
+    # ---------- 宿主应用更新接口（静态发布清单 + 手动安装） ----------
+
+    @app.get("/api/desktop/app-update")
+    def app_update_info(refresh: bool = False) -> dict:
+        """检查宿主更新：返回当前/最新版本、平台资产与已下载状态。
+
+        清单取不到时仍然返回 200 + ``error``：前端要把「检查失败」和「已是最新」
+        分开显示，不能把网络错误说成最新。
+        """
+        return app_update.get_update_info(APP_VERSION, refresh=refresh).to_dict()
+
+    @app.post("/api/desktop/app-update/download")
+    def app_update_download() -> dict:
+        """下载当前平台更新包到 ``~/.desktop-app/updates/<version>/`` 并校验 sha256/size。"""
+        info = app_update.get_update_info(APP_VERSION)
+        try:
+            target, size, digest = app_update.download_asset(info)
+        except app_update.AppUpdateDownloadError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        except app_update.AppUpdateError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {
+            "version": info.latest,
+            "path": str(target),
+            "size": size,
+            "sha256": digest,
+        }
+
+    @app.post("/api/desktop/app-update/reveal")
+    def app_update_reveal() -> dict:
+        """打开更新目录，交给用户手动安装（宿主不替换自身）。"""
+        try:
+            target = app_update.reveal_updates_dir()
+        except app_update.AppUpdateError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"path": str(target)}
 
     @app.post("/api/desktop/plugins/install-from-url")
     def install_from_url(req: InstallFromUrlRequest) -> dict:
@@ -304,6 +388,8 @@ def create_app(
             "pluginLogFile": str(paths.plugin_log_file()),
             "devReload": dev_reload.is_enabled(),
             "marketUrl": market.index_url() if market.is_enabled() else "",
+            "appUpdateUrl": app_update.manifest_url() if app_update.is_enabled() else "",
+            "appUpdateEnabled": app_update.is_enabled(),
         }
 
     # ---------- 子应用本地数据接口（plugin-data） ----------

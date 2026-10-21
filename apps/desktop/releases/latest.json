@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "latest": "",
+  "publishedAt": "",
+  "notes": "首次发版后由 apps/desktop/scripts/make_release.py 自动写入",
+  "releaseUrl": "",
+  "platforms": {}
+}
