@@ -22,23 +22,12 @@ import {
 // 第三档在浏览器里必然失败：SDK 产物把说明符放在变量里（构建期 @vite-ignore），
 // 浏览器无法解析裸模块名，只会抛 TypeError: Failed to resolve module specifier 'echarts'，
 // 被 SDK 的 catch 吞掉后围栏降级成代码块——这就是「装了 echarts 却显示不出来」的原因。
-// 宿主用字面量动态 import 让 Vite 切出独立 chunk，再显式注入：引擎按需加载，不进首屏主包。
-let diagramEnginesReady: Promise<void> | null = null;
-
-function loadDiagramEngines(): Promise<void> {
-  diagramEnginesReady ??= Promise.all([import('mermaid'), import('echarts')])
-    .then(([mermaid, echarts]) => {
-      configureMarkdownDiagrams({
-        mermaid: mermaid.default ?? mermaid,
-        echarts,
-      });
-    })
-    .catch((err) => {
-      // 加载失败保持 SDK 默认降级（显示源码），不能影响助手挂载
-      console.warn('[assistant] 图表引擎加载失败，图表将降级为代码块', err);
-    });
-  return diagramEnginesReady;
-}
+// 字面量 import 必须写在宿主源码里，Vite 才能在构建期切出独立 chunk；加载时机（首个图表出现
+// 才下载）、并发去重与失败重试都由 SDK 接管，宿主只需注册一次 loader。
+configureMarkdownDiagrams({
+  mermaid: () => import('mermaid'),
+  echarts: () => import('echarts'),
+});
 
 let client: AgentClient | null = null;
 let unsubscribeBridge: (() => void) | null = null;
@@ -85,9 +74,6 @@ export function mountAssistant(): Promise<void> {
       );
       return;
     }
-    // 助手确认启用后再拉引擎 chunk，与换 token / 建连并行：避免首条带图消息在引擎就绪前
-    // 渲染成代码块（SDK 的降级结果不会自动重试），也避免未启用助手的宿主白下载重引擎。
-    const diagramEngines = loadDiagramEngines();
     // remote 模式：先换一张短期 token 拿到真实 WS 地址与平台标识；后续 SDK 刷新 token 也走宿主，
     // 这样 client_secret 只存在于宿主进程，渲染层拿到的永远是短期凭证。
     let endpoint = config.endpoint;
@@ -123,8 +109,6 @@ export function mountAssistant(): Promise<void> {
       const devToken = config.token || '';
       getToken = async () => devToken;
     }
-    // 等引擎注入完成再创建客户端，保证首条消息里的 mermaid / echarts 围栏能直接出图
-    await diagramEngines;
     const agent: AgentClient = createAgentClient({
       endpoint: resolveEndpoint(String(endpoint)),
       ...(baseUrl ? { baseUrl } : {}),

@@ -20,12 +20,29 @@ export interface EChartsLike {
   init(element: HTMLElement, theme?: string): EChartsInstanceLike
 }
 
-let injectedEngine: EChartsLike | null | undefined
+/**
+ * 引擎加载器：由宿主提供，形如 `() => import('echarts')`。
+ * 动态 import 的字面量必须写在宿主源码里，打包器才能在构建期切出独立 chunk；
+ * SDK 只负责"何时调用、调用几次、失败后如何重试"这些加载策略。
+ */
+export type EChartsEngineLoader = () => Promise<
+  EChartsLike | { default?: EChartsLike } | null | undefined
+>
+
+/** 可注入的引擎形态：实例 / loader / `null`（明确禁用） */
+export type EChartsEngineInput = EChartsLike | null | EChartsEngineLoader
+
+let injectedEngine: EChartsEngineInput | undefined
+let injectedEnginePromise: Promise<EChartsLike | null> | null = null
 let enginePromise: Promise<EChartsLike | null> | null = null
 
-/** 显式注入引擎实例；传 `null` 表示明确禁用，`undefined` 表示恢复自动解析 */
-export function setEChartsEngine(engine: EChartsLike | null | undefined): void {
+/**
+ * 显式注入引擎；可传实例、loader（如 `() => import('echarts')`）。
+ * 传 `null` 表示明确禁用，`undefined` 表示恢复自动解析（全局变量 → 动态 import）。
+ */
+export function setEChartsEngine(engine: EChartsEngineInput | undefined): void {
   injectedEngine = engine
+  injectedEnginePromise = null
   enginePromise = null
 }
 
@@ -116,8 +133,37 @@ function tryParseJson(text: string): unknown {
   }
 }
 
+/** 把 loader 的返回值归一化为引擎实例；模块命名空间走 `default` 兜底 */
+function normalizeEChartsModule(
+  module: EChartsLike | { default?: EChartsLike } | null | undefined
+): EChartsLike | null {
+  const candidate = (module as { default?: EChartsLike } | null)?.default ?? (module as EChartsLike | null)
+  return candidate && typeof candidate.init === 'function' ? candidate : null
+}
+
+/**
+ * 解析宿主注入的引擎。
+ * 实例直接返回；loader 在首个图表挂载时才调用，并发挂载共用同一个 promise，
+ * 失败后清空 promise，保证宿主稍后补齐依赖时后续图表仍能重试成功。
+ */
+async function resolveInjectedECharts(): Promise<EChartsLike | null> {
+  if (!injectedEngine) return null
+  if (typeof injectedEngine !== 'function') return injectedEngine
+
+  if (!injectedEnginePromise) {
+    const loader = injectedEngine
+    injectedEnginePromise = Promise.resolve()
+      .then(() => loader())
+      .then((module) => normalizeEChartsModule(module))
+      .catch(() => null)
+  }
+  const resolved = await injectedEnginePromise
+  if (!resolved) injectedEnginePromise = null
+  return resolved
+}
+
 async function resolveECharts(): Promise<EChartsLike | null> {
-  if (injectedEngine !== undefined) return injectedEngine
+  if (injectedEngine !== undefined) return resolveInjectedECharts()
 
   const globalEngine = (globalThis as { echarts?: EChartsLike }).echarts
   if (globalEngine && typeof globalEngine.init === 'function') {

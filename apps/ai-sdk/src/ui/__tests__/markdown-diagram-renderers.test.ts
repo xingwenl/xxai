@@ -244,3 +244,87 @@ describe('ECharts 渲染器', () => {
     })).rejects.toThrow()
   })
 })
+
+describe('引擎 loader 注入', () => {
+  function fakeEchartsEngine() {
+    const instance = { setOption: vi.fn(), resize: vi.fn(), dispose: vi.fn() }
+    const init = vi.fn((_element: HTMLElement, _theme?: string) => instance)
+    return { engine: { init } as EChartsLike, init, instance }
+  }
+
+  it('loader 在首个图表挂载时才调用，注册阶段不触发加载', async () => {
+    const { engine } = fakeMermaid()
+    const loader = vi.fn(async () => engine)
+    setMermaidEngine(loader)
+
+    expect(loader).not.toHaveBeenCalled()
+    await renderMermaidToSvg('graph TD\nA --> B', 'light')
+    expect(loader).toHaveBeenCalledTimes(1)
+  })
+
+  it('并发挂载共用同一次 loader 调用', async () => {
+    const { engine } = fakeMermaid()
+    const loader = vi.fn(async () => engine)
+    setMermaidEngine(loader)
+
+    await Promise.all([
+      renderMermaidToSvg('graph TD\nA --> B', 'light'),
+      renderMermaidToSvg('graph TD\nA --> C', 'light')
+    ])
+
+    expect(loader).toHaveBeenCalledTimes(1)
+  })
+
+  it('loader 失败时降级，下一张图仍能重试成功', async () => {
+    const { engine } = fakeMermaid()
+    let attempts = 0
+    setMermaidEngine(async () => {
+      attempts += 1
+      if (attempts === 1) throw new Error('chunk load failed')
+      return engine
+    })
+
+    await expect(renderMermaidToSvg('graph TD\nA --> B', 'light')).resolves.toBeNull()
+    await expect(renderMermaidToSvg('graph TD\nA --> B', 'light')).resolves.toContain('<svg')
+    expect(attempts).toBe(2)
+  })
+
+  it('loader 返回模块命名空间时走 default 兜底', async () => {
+    const { engine } = fakeMermaid()
+    setMermaidEngine(async () => ({ default: engine }))
+
+    await expect(renderMermaidToSvg('graph TD\nA --> B', 'light')).resolves.toContain('<svg')
+  })
+
+  it('实例注入会覆盖先前注册的 loader', async () => {
+    const { engine: lazyEngine } = fakeMermaid()
+    const loader = vi.fn(async () => lazyEngine)
+    setMermaidEngine(loader)
+
+    const { engine } = fakeMermaid()
+    setMermaidEngine(engine)
+    await renderMermaidToSvg('graph TD\nA --> B', 'light')
+
+    expect(loader).not.toHaveBeenCalled()
+  })
+
+  it('ECharts loader 同样懒加载，模块命名空间可兜底', async () => {
+    const { engine, init } = fakeEchartsEngine()
+    const loader = vi.fn(async () => ({ default: engine }))
+    setEChartsEngine(loader)
+
+    expect(loader).not.toHaveBeenCalled()
+    await echartsFenceRenderer.mount(fakeElement(), '{"series": []}', { theme: 'light', language: 'echarts' })
+
+    expect(loader).toHaveBeenCalledTimes(1)
+    expect(init).toHaveBeenCalledTimes(1)
+  })
+
+  it('loader 返回的对象不是引擎时按引擎缺失降级', async () => {
+    setEChartsEngine(async () => ({ nope: true }) as unknown as EChartsLike)
+
+    await expect(
+      echartsFenceRenderer.mount(fakeElement(), '{"series": []}', { theme: 'light', language: 'echarts' })
+    ).rejects.toSatisfy((error) => getMarkdownFenceErrorCode(error) === 'engine-missing')
+  })
+})

@@ -260,6 +260,8 @@ describe('WebSocketTransport', () => {
   })
 
   it('binds native timer methods to the global receiver during reconnect', async () => {
+    // @types/node 的 typeof setTimeout 额外要求 __promisify__，这里只需要"绑定 global 接收者"这一行为，
+    // 用断言跳过该属性，避免为测试补一个永远用不到的成员。
     const nativeSetTimeout = function (
       this: typeof globalThis,
       callback: TimerHandler,
@@ -267,7 +269,7 @@ describe('WebSocketTransport', () => {
     ) {
       if (this !== globalThis) throw new TypeError('Illegal invocation')
       return globalThis.setTimeout(callback, delay)
-    }
+    } as unknown as typeof setTimeout
     const socket = new FakeWebSocket('wss://agent.test/ws')
     const transport = new WebSocketTransport({
       endpoint: socket.url,

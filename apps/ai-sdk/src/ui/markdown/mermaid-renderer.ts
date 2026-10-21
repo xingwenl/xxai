@@ -16,6 +16,18 @@ export interface MermaidLike {
   render(id: string, code: string): { svg: string } | Promise<{ svg: string }>
 }
 
+/**
+ * 引擎加载器：由宿主提供，形如 `() => import('mermaid')`。
+ * 动态 import 的字面量必须写在宿主源码里，打包器才能在构建期切出独立 chunk；
+ * SDK 只负责"何时调用、调用几次、失败后如何重试"这些加载策略。
+ */
+export type MermaidEngineLoader = () => Promise<
+  MermaidLike | { default?: MermaidLike } | null | undefined
+>
+
+/** 可注入的引擎形态：实例 / loader / `null`（明确禁用） */
+export type MermaidEngineInput = MermaidLike | null | MermaidEngineLoader
+
 /** 可以覆盖 Mermaid 配置或生成 JS 链接的指令，来自未受信模型输出时必须剔除 */
 const DISALLOWED_LINE_PREFIXES = ['%%{', 'click ']
 
@@ -47,15 +59,20 @@ const DIAGRAM_KEYWORDS = [
 
 const MAX_SVG_CACHE_ENTRIES = 50
 
-let injectedEngine: MermaidLike | null | undefined
+let injectedEngine: MermaidEngineInput | undefined
+let injectedEnginePromise: Promise<MermaidLike | null> | null = null
 let enginePromise: Promise<MermaidLike | null> | null = null
 let initializedConfigKey = ''
 let renderSequence = 0
 const svgCache = new Map<string, string>()
 
-/** 显式注入引擎实例；传 `null` 表示明确禁用，`undefined` 表示恢复自动解析 */
-export function setMermaidEngine(engine: MermaidLike | null | undefined): void {
+/**
+ * 显式注入引擎；可传实例、loader（如 `() => import('mermaid')`）。
+ * 传 `null` 表示明确禁用，`undefined` 表示恢复自动解析（全局变量 → 动态 import）。
+ */
+export function setMermaidEngine(engine: MermaidEngineInput | undefined): void {
   injectedEngine = engine
+  injectedEnginePromise = null
   enginePromise = null
   initializedConfigKey = ''
   // 引擎可能换成不同版本或不同主题实现，缓存必须一起失效
@@ -100,8 +117,37 @@ function mermaidConfig(theme: 'light' | 'dark'): Record<string, unknown> {
   }
 }
 
+/** 把 loader 的返回值归一化为引擎实例；模块命名空间走 `default` 兜底 */
+function normalizeMermaidModule(
+  module: MermaidLike | { default?: MermaidLike } | null | undefined
+): MermaidLike | null {
+  const candidate = (module as { default?: MermaidLike } | null)?.default ?? (module as MermaidLike | null)
+  return candidate && typeof candidate.render === 'function' ? candidate : null
+}
+
+/**
+ * 解析宿主注入的引擎。
+ * 实例直接返回；loader 在首个图表挂载时才调用，并发挂载共用同一个 promise，
+ * 失败后清空 promise，保证宿主稍后补齐依赖时后续图表仍能重试成功。
+ */
+async function resolveInjectedMermaid(): Promise<MermaidLike | null> {
+  if (!injectedEngine) return null
+  if (typeof injectedEngine !== 'function') return injectedEngine
+
+  if (!injectedEnginePromise) {
+    const loader = injectedEngine
+    injectedEnginePromise = Promise.resolve()
+      .then(() => loader())
+      .then((module) => normalizeMermaidModule(module))
+      .catch(() => null)
+  }
+  const resolved = await injectedEnginePromise
+  if (!resolved) injectedEnginePromise = null
+  return resolved
+}
+
 async function resolveMermaid(): Promise<MermaidLike | null> {
-  if (injectedEngine !== undefined) return injectedEngine
+  if (injectedEngine !== undefined) return resolveInjectedMermaid()
 
   const globalEngine = (globalThis as { mermaid?: MermaidLike }).mermaid
   if (globalEngine && typeof globalEngine.render === 'function') {

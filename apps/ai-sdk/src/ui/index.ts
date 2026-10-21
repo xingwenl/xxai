@@ -15,6 +15,8 @@ export {
   resolveDiagramTheme,
   sanitizeMermaidSource,
   unregisterMarkdownFenceRenderer,
+  type EChartsEngineInput,
+  type EChartsEngineLoader,
   type EChartsInstanceLike,
   type EChartsLike,
   type MarkdownDiagramOptions,
@@ -22,6 +24,8 @@ export {
   type MarkdownFenceContext,
   type MarkdownFenceRenderer,
   type MarkdownFenceRendererInput,
+  type MermaidEngineInput,
+  type MermaidEngineLoader,
   type MermaidLike
 } from './markdown'
 

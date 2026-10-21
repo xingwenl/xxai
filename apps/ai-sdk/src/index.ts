@@ -78,11 +78,15 @@ export type { ContextRingState } from './ui/context-ring'
 export { configureMarkdownDiagrams, registerCustomComponent, registerMarkdownFenceRenderer }
 
 export type {
+  EChartsEngineInput,
+  EChartsEngineLoader,
   EChartsLike,
   MarkdownDiagramOptions,
   MarkdownFenceContext,
   MarkdownFenceRenderer,
   MarkdownFenceRendererInput,
+  MermaidEngineInput,
+  MermaidEngineLoader,
   MermaidLike
 } from './ui'
 

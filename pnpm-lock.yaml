@@ -62,6 +62,12 @@ importers:
 
   apps/desktop/front:
     dependencies:
+      echarts:
+        specifier: ^6.1.0
+        version: 6.1.0
+      mermaid:
+        specifier: ^12.0.0
+        version: 12.2.0
       react:
         specifier: ^19.0.0
         version: 19.3.1

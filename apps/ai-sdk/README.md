@@ -716,9 +716,21 @@ defineProps<{
 SDK 不把图表引擎打进产物（mermaid 单文件约 2.8M、echarts 约 1.0M），引擎按「显式注入 → 全局变量 → 动态 `import()`」的顺序解析，都拿不到时降级为代码块。三种启用方式任选其一：
 
 ```bash
-# 方式一：接入项目安装引擎，打包器会自动解析动态 import
+# 推荐方式的前提：接入项目安装引擎
 npm install mermaid echarts
 ```
+
+```ts
+// 方式一（推荐）：注册 loader，首个图表出现时才加载引擎
+import { configureMarkdownDiagrams } from 'xxai-agent'
+
+configureMarkdownDiagrams({
+  mermaid: () => import('mermaid'),
+  echarts: () => import('echarts')
+})
+```
+
+loader 里的 `import()` 必须写**字面量**。只有字面量才能被 Vite / Rollup 在构建期切出独立 chunk；写成 `import(name)` 这类变量说明符不会被打包器处理，浏览器会抛 `TypeError: Failed to resolve module specifier 'mermaid'`。SDK 在首个对应语言的图表挂载时才调用 loader，并发挂载只调用一次；加载失败会降级为代码块，下一张图仍会重试。SDK 本身不依赖 mermaid / echarts，也不引用它们的类型声明。
 
 ```html
 <!-- 方式二：全局脚本（适合直接用 dist/xxai-agent.umd.cjs 或浏览器直连 ESM 的场景） -->
@@ -727,7 +739,7 @@ npm install mermaid echarts
 ```
 
 ```ts
-// 方式三：显式注入，适合需要固定引擎版本或按需加载的场景
+// 方式三：显式注入引擎实例，适合需要固定版本、提前加载或自定义按需加载策略的场景
 import { configureMarkdownDiagrams } from 'xxai-agent'
 import mermaid from 'mermaid'
 import * as echarts from 'echarts'
@@ -780,7 +792,7 @@ ECharts 只接受 `JSON.parse` 得到的对象，不会执行围栏里的 JS 表
 
 | 提示 | 含义 | 处理 |
 | --- | --- | --- |
-| 未检测到 Mermaid / ECharts 引擎 | 引擎既没有注入，也没有出现在全局变量中，动态 `import()` 也失败 | 按 10.1 引入引擎；宿主打包器无法解析动态 `import()` 时用显式注入或全局脚本 |
+| 未检测到 Mermaid / ECharts 引擎 | 既没有注入 loader 或引擎实例，也没有出现在全局变量中，动态 `import()` 也失败 | 按 10.1 方式一注册 loader（`import()` 必须是字面量），或改用全局脚本 / 实例注入 |
 | 图表配置不是合法的 JSON 对象 | ECharts 围栏内容不是 JSON 对象（例如写了 `echarts.init(...)`、单引号、无引号键名） | 让模型输出纯 JSON；注释与尾随逗号已被容忍 |
 | 图表定义尚未完整 | Mermaid 源码为空、超长，或还没形成图定义（流式输出中途） | 等消息输出完成；确认首行是 `graph TD` 之类的图类型声明 |
 

@@ -5,8 +5,8 @@ import {
   registerMarkdownFenceRenderer,
   unregisterMarkdownFenceRenderer
 } from './fence-registry'
-import { mermaidFenceRenderer, setMermaidEngine, type MermaidLike } from './mermaid-renderer'
-import { echartsFenceRenderer, setEChartsEngine, type EChartsLike } from './echarts-renderer'
+import { mermaidFenceRenderer, setMermaidEngine, type MermaidEngineInput } from './mermaid-renderer'
+import { echartsFenceRenderer, setEChartsEngine, type EChartsEngineInput } from './echarts-renderer'
 
 export {
   MAX_DIAGRAM_SOURCE_LENGTH,
@@ -23,14 +23,32 @@ export {
   type MarkdownFenceRenderer,
   type MarkdownFenceRendererInput
 } from './fence-registry'
-export { sanitizeMermaidSource, isMermaidSourceReady, type MermaidLike } from './mermaid-renderer'
-export { parseEChartsOption, type EChartsInstanceLike, type EChartsLike } from './echarts-renderer'
+export {
+  sanitizeMermaidSource,
+  isMermaidSourceReady,
+  type MermaidEngineInput,
+  type MermaidEngineLoader,
+  type MermaidLike
+} from './mermaid-renderer'
+export {
+  parseEChartsOption,
+  type EChartsEngineInput,
+  type EChartsEngineLoader,
+  type EChartsInstanceLike,
+  type EChartsLike
+} from './echarts-renderer'
 
 export interface MarkdownDiagramOptions {
-  /** 显式注入 Mermaid 引擎；`null` 表示禁用 Mermaid 渲染 */
-  mermaid?: MermaidLike | null
-  /** 显式注入 ECharts 引擎；`null` 表示禁用 ECharts 渲染 */
-  echarts?: EChartsLike | null
+  /**
+   * Mermaid 引擎：可直接传实例，也可传 loader（如 `() => import('mermaid')`）。
+   * loader 会在首个 mermaid 图表挂载时才被调用；`null` 表示禁用 Mermaid 渲染。
+   */
+  mermaid?: MermaidEngineInput
+  /**
+   * ECharts 引擎：可直接传实例，也可传 loader（如 `() => import('echarts')`）。
+   * loader 会在首个 echarts 图表挂载时才被调用；`null` 表示禁用 ECharts 渲染。
+   */
+  echarts?: EChartsEngineInput
   /** 是否启用内置渲染器，默认启用；设为 `false` 后围栏回到代码块展示 */
   enabled?: boolean
   /** 图表主题，默认 `auto`（跟随最近的 `.dark` 容器与系统偏好） */
