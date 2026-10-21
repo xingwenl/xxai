@@ -1,7 +1,7 @@
 {
   "name": "desktop-front",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.2",
   "description": "Desktop 宿主壳前端（React + Vite + Tailwind），构建产物由内嵌 FastAPI 托管",
   "type": "module",
   "scripts": {

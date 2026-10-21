@@ -1,8 +1,18 @@
 {
   "version": 1,
-  "latest": "",
-  "publishedAt": "",
-  "notes": "首次发版后由 apps/desktop/scripts/make_release.py 自动写入",
-  "releaseUrl": "",
-  "platforms": {}
+  "latest": "0.2.2",
+  "publishedAt": "2026-10-21T09:59:41Z",
+  "notes": "第一版",
+  "releaseUrl": "https://github.com/xingwenl/xxai/releases/tag/desktop-v0.2.2",
+  "platforms": {
+    "macos-arm64": {
+      "name": "WW-0.2.2-macos-arm64.zip",
+      "url": "https://github.com/xingwenl/xxai/releases/download/desktop-v0.2.2/WW-0.2.2-macos-arm64.zip",
+      "mirrors": [
+        "https://gitee.com/xingwenl/xxai/releases/download/desktop-v0.2.2/WW-0.2.2-macos-arm64.zip"
+      ],
+      "sha256": "3a4ce9be19ba3de2865132d9ea1b8eb33e11102b92ed5d6c502472df6aa710ff",
+      "size": 24227290
+    }
+  }
 }
