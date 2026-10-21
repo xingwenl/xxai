@@ -215,6 +215,7 @@ SDK 不生成、不拼接、不通过 WebSocket 发送 `external_user_id`。接�
 | `systemPrompt` | `string` | 否 | 随每次消息发送给后端并作为调用方补充系统提示词参与回答 |
 | `messages` | `Message[]` | 否 | 初始消息列表 |
 | `storageKey` | `string` | 否 | 本地消息和会话 ID 的存储键；默认按平台、Agent 和用户隔离 |
+| `agentSwitching` | `AgentSwitchingOptions` | 否 | 智能体切换候选列表，见 [17. 智能体切换](#17-智能体切换平台开关--宿主候选列表)；只在后台为该 Embed Client 打开「允许切换智能体」后生效 |
 | `callbacks` | `AgentCallbacks` | 否 | 回调配置 |
 | `transport` | `'websocket'` | 否 | 默认使用 WebSocket |
 | `pageTools` | `PageToolsOptions` | 否 | 页面自动发现工具，默认关闭 |
@@ -1087,6 +1088,76 @@ app.mount(document.getElementById('conversation-list')!)
 ```
 
 样式已并入既有单一样式文件，只需 `import 'xxai-agent/style.css'`；这些页面位于白色背景时组件内部会局部覆盖少量 `--agent-*` 变量，不会影响聊天窗口。
+
+## 17. 智能体切换（平台开关 + 宿主候选列表）
+
+终端用户可以在聊天窗口标题处切换后台已配置好的智能体。能力由两端共同决定：
+
+- **后台开关**：`platform_embed_clients.allow_agent_switching`。关闭时 SDK 不渲染切换入口，程序化调用 `switchAgent()` 也会被拒绝。
+- **宿主候选列表**：SDK 不查询「有哪些智能体」，候选由接入方传入。列表接口需要后台登录态，只能由宿主拉取。
+
+开关状态随 WebSocket `session_ready` 的 `client.allowAgentSwitching` 下发，接入方无需额外请求。
+
+### 17.1 接入方式
+
+```ts
+const agent = createAgentClient({
+  endpoint: `${protocol}//${location.host}/api/v1/ws/agents/${agentId}`,
+  platformId,
+  agentId,
+  getToken: (ctx) => fetchToken(ctx.agentId),
+  agentSwitching: {
+    agents: [
+      { agentId: '1', name: '售后助手', description: '退换货与物流' },
+      { agentId: '2', name: '数据分析', description: '看板与报表' },
+    ],
+  },
+})
+```
+
+`getToken` 会收到目标 `agentId`，接入方据此换取对应 token（服务端仍会校验该智能体是否已绑定给当前 Embed Client）。
+
+| `AgentSwitchingOptions` 字段 | 说明 |
+| --- | --- |
+| `agents` | 候选列表；`agentId`、`name` 必填，`description`、`slug` 可选。少于 2 个候选时不展示切换入口 |
+| `enabled` | 本地总开关，默认 `true`；设为 `false` 可强制关闭，即使后台已打开 |
+
+### 17.2 程序化接口
+
+```ts
+agent.availableAgents    // 生效的候选列表（后台关闭时为空数组）
+agent.currentAgentId     // 当前 agent id
+agent.canSwitchAgent     // 现在能否切换（后台开启 + 候选 >1 + 非忙碌 + 非切换中）
+await agent.switchAgent('2') // true=已切换；false=被拒绝或失败
+```
+
+事件与回调：
+
+```ts
+agent.on('agent_switched', (event) => {
+  // event: { agentId, previousAgentId, agent, conversationId, restored }
+})
+agent.on('agent_switch_failed', (event) => {
+  // event.reason: 'not_allowed' | 'not_supported' | 'busy'
+  //             | 'not_bound' | 'quota' | 'network' | 'connection_failed'
+})
+
+createAgentClient({
+  // ...
+  callbacks: {
+    onAgentSwitched: (event) => {},
+    onAgentSwitchFailed: (event) => {},
+  },
+})
+```
+
+### 17.3 行为约定
+
+- **按 agent 恢复会话**：每个 agent 的本地消息与会话 ID 独立保存，切换回某个 agent 会恢复它上次的会话；`storageKey` 不需要手动改。
+- **记忆上次选择**：选中结果存在 `xxai-agent:selected-agent:{platformId}:{userId}`；下次建连优先连记忆中的 agent。后台关闭开关后，SDK 会清除记忆并回退到初始化参数里的 `agentId`。
+- **忙碌时不允许切换**：生成中、等待工具确认或等待提问回答时切换会以 `busy` 失败，避免丢失事件与流式 token。
+- **失败不破坏现状**：切换分两阶段，先为目标 agent 预签 token，成功后才断旧连。token 失败（`not_bound` / `quota` / `network`）时原 agent 的连接、消息与缓存保持不变。
+- **自定义 `endpoint` 的限制**：切换依赖 `endpoint` 中的 `/ws/agents/{agentId}` 片段来推导目标地址；完全自定义的地址会以 `not_supported` 失败，需要宿主自行管理多连接。
 
 ## License
 

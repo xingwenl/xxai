@@ -4,9 +4,12 @@ import { useNavigate } from '@tanstack/react-router'
 import {
   createAgentClient,
   type AgentClient,
+  type AgentSwitchOption,
   type ToolDefinition,
 } from 'xxai-agent'
 import 'xxai-agent/style.css'
+import { listAgents } from '@/api/agent'
+import { listEmbedClientAgents } from '@/api/embed-clients'
 import { useAuthStore } from '@/stores/auth-store'
 import { http, type AuthResetOptOut } from '@/lib/http'
 import { resolveInternalRoute } from './routes'
@@ -29,13 +32,17 @@ function getWebSocketEndpoint(agentId: string): string {
 }
 
 async function requestAgentToken(
-  displayName: string
+  displayName: string,
+  agentId?: string
 ): Promise<AgentTokenResponse> {
   const config: AxiosRequestConfig & AuthResetOptOut = {
     params: {
       display_name: displayName,
       origin: location.origin,
       host_tool_names: 'navigate_to_page',
+      // 切换智能体后 SDK 会用目标 agentId 重新换 token；服务端仍按 Client 绑定校验，
+      // 这里只负责把目标 id 透传过去。
+      agent_id: agentId,
     },
     // 悬浮 Agent 是可选能力：Embed Client 来源白名单没覆盖当前后台地址时这里会 401，
     // 但用户的后台登录态仍然有效，不能因为旁路能力失败把人踢回登录页。
@@ -46,6 +53,51 @@ async function requestAgentToken(
     config
   )
   return data
+}
+
+/**
+ * 拉取「后台已启用且当前 Embed Client 已绑定」的智能体，作为 SDK 切换候选。
+ *
+ * 列表接口需要后台登录态，因此由宿主（而不是 SDK）拉取并传入；没配置
+ * `VITE_AGENT_CLIENT_ID` 时无法判断可见范围，直接关闭切换入口（fail closed），
+ * 不影响悬浮助手本身的挂载。设计见 docs/adr/0014-host-provided-agent-switching.md。
+ */
+async function loadAgentSwitchOptions(
+  platformId: string
+): Promise<AgentSwitchOption[] | undefined> {
+  const clientId = import.meta.env.VITE_AGENT_CLIENT_ID as string | undefined
+  if (!clientId) {
+    if (import.meta.env.DEV) {
+      console.warn(
+        '[agent-navigation] VITE_AGENT_CLIENT_ID 未配置，已关闭悬浮助手的智能体切换'
+      )
+    }
+    return undefined
+  }
+  try {
+    const [agents, bindings] = await Promise.all([
+      listAgents(Number(platformId), { page: 1, pageSize: 100 }),
+      listEmbedClientAgents(Number(platformId), clientId),
+    ])
+    const boundIds = new Set(bindings.map((binding) => binding.agent_id))
+    const options = agents.items
+      .filter((agent) => agent.is_active && boundIds.has(agent.id))
+      .map((agent) => ({
+        agentId: String(agent.id),
+        name: agent.name,
+        slug: agent.slug,
+        description: agent.description ?? null,
+      }))
+    // 只有一个候选时展示切换器没有意义，交给 SDK 的空列表退化逻辑。
+    return options.length > 1 ? options : undefined
+  } catch (error) {
+    // 拉列表失败不能让整个悬浮助手不可用：降级为不展示切换入口。
+    console.warn(
+      '[agent-navigation] 加载可切换智能体失败，已关闭切换入口',
+      error
+    )
+    return undefined
+  }
 }
 
 export function AgentNavigationBridge() {
@@ -93,37 +145,51 @@ export function AgentNavigationBridge() {
       },
     }
 
-    agent = createAgentClient({
-      endpoint: getWebSocketEndpoint(agentId),
-      platformId,
-      agentId,
-      getToken: async () => {
-        const token = await requestAgentToken(user.name)
-        return token.access_token
-      },
-      ui: {
-        mode: 'floating',
-        position: 'right',
-        theme: 'auto',
-        locale: 'zh-CN',
-      },
-      systemPrompt:
-        '你是后台管理助手。根据用户意图使用当前 Agent 已授权的工具；涉及页面导航时使用 navigate_to_page 和页面中文名称，不要编造工具结果。',
-      callbacks: {
-        onError: (error) => {
-          // SDK errors should not prevent the authenticated shell from rendering.
-          // eslint-disable-next-line no-console
-          if (import.meta.env.DEV) console.warn('[agent-navigation]', error)
+    void (async () => {
+      const switchOptions = await loadAgentSwitchOptions(platformId)
+      if (!active) return
+
+      agent = createAgentClient({
+        endpoint: getWebSocketEndpoint(agentId),
+        platformId,
+        agentId,
+        agentSwitching: switchOptions ? { agents: switchOptions } : undefined,
+        getToken: async (ctx) => {
+          const token = await requestAgentToken(user.name, ctx.agentId)
+          return token.access_token
         },
-      },
-      pageTools: {
-        enabled: true,
-        confirmationKeywords: ['提交', '删除', '支付'],
-        maxCalls: 500000,
-        maxDurationMs: 60_000,
-      },
-    })
-    agent.registerTool(navigationTool)
+        ui: {
+          mode: 'floating',
+          position: 'right',
+          theme: 'auto',
+          locale: 'zh-CN',
+          layout: 'desktop',
+          showAgentSteps: true,
+        },
+        systemPrompt:
+          '你是后台管理助手。根据用户意图使用当前 Agent 已授权的工具；涉及页面导航时使用 navigate_to_page 和页面中文名称，不要编造工具结果。',
+        callbacks: {
+          onError: (error) => {
+            // SDK errors should not prevent the authenticated shell from rendering.
+            // eslint-disable-next-line no-console
+            if (import.meta.env.DEV) console.warn('[agent-navigation]', error)
+          },
+        },
+        thinking: true,
+        pageTools: {
+          enabled: true,
+          confirmationKeywords: ['提交', '删除', '支付'],
+          maxCalls: 500000,
+          maxDurationMs: 600_000,
+        },
+      })
+      if (!active) {
+        agent.destroy()
+        agent = null
+        return
+      }
+      agent.registerTool(navigationTool)
+    })()
 
     return () => {
       active = false

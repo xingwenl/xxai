@@ -115,3 +115,48 @@ def test_demo_agent_token_ignores_external_user_id_override_in_production():
 def test_demo_agent_token_falls_back_to_current_user_without_override():
     captured = _call_demo_token_route(app_env="development", external_user_id=None)
     assert captured["external_user_id"] == "7"
+
+
+def _call_authenticated_token_route(*, agent_id):
+    """直接调用路由函数，检查 agent_id 是否原样透传给 service。"""
+    import asyncio
+    from types import SimpleNamespace
+
+    from app.modules.embed import router as embed_router
+
+    captured = {}
+
+    async def fake_issue_configured_agent_token(session, **kwargs):
+        captured.update(kwargs)
+        return "fake-token"
+
+    original_issue = embed_router.issue_configured_agent_token
+    embed_router.issue_configured_agent_token = fake_issue_configured_agent_token
+    try:
+        response = asyncio.run(
+            embed_router.get_authenticated_agent_token_endpoint(
+                display_name=None,
+                origin=None,
+                host_tool_names=[],
+                agent_id=agent_id,
+                current_user=SimpleNamespace(id=7, name="张三"),
+                session=_FakeSession(),
+            )
+        )
+    finally:
+        embed_router.issue_configured_agent_token = original_issue
+    return captured, response
+
+
+def test_authenticated_agent_token_passes_explicit_agent_id_through():
+    """切换智能体后 SDK 会带 agent_id 重新换 token；路由只负责透传。"""
+    captured, response = _call_authenticated_token_route(agent_id=11)
+
+    assert captured["agent_id"] == 11
+    assert response.data == "fake-token"
+
+
+def test_authenticated_agent_token_omits_agent_id_when_not_provided():
+    captured, _ = _call_authenticated_token_route(agent_id=None)
+
+    assert captured["agent_id"] is None

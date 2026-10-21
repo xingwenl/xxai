@@ -65,6 +65,7 @@ type ClientForm = {
   max_tokens_per_minute: string
   max_connections: string
   allow_temporary_tools: boolean
+  allow_agent_switching: boolean
   is_active: boolean
 }
 
@@ -75,6 +76,7 @@ const defaultForm: ClientForm = {
   max_tokens_per_minute: '',
   max_connections: '',
   allow_temporary_tools: false,
+  allow_agent_switching: false,
   is_active: true,
 }
 
@@ -141,6 +143,7 @@ export function EmbedClientsPage() {
         max_tokens_per_minute: client.max_tokens_per_minute,
         max_connections: client.max_connections,
         allow_temporary_tools: client.allow_temporary_tools,
+        allow_agent_switching: client.allow_agent_switching,
         is_active,
       }),
     onSuccess: async () => {
@@ -268,7 +271,8 @@ export function EmbedClientsPage() {
                           连接 {client.max_connections ?? '默认'}
                         </div>
                         <div className='text-xs text-muted-foreground'>
-                          临时工具 {client.allow_temporary_tools ? '允许' : '关闭'}
+                          临时工具{' '}
+                          {client.allow_temporary_tools ? '允许' : '关闭'}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -381,6 +385,7 @@ function ClientDialog({
           max_tokens_per_minute: client.max_tokens_per_minute?.toString() ?? '',
           max_connections: client.max_connections?.toString() ?? '',
           allow_temporary_tools: client.allow_temporary_tools,
+          allow_agent_switching: client.allow_agent_switching,
           is_active: client.is_active,
         }
       : defaultForm
@@ -457,6 +462,22 @@ function ClientDialog({
                 }
               />
             </Field>
+          </div>
+          <div className='flex items-center justify-between rounded-md border p-3'>
+            <div>
+              <Label>允许切换智能体</Label>
+              <p className='text-xs text-muted-foreground'>
+                开启后，接入该 Client 的 SDK
+                可在终端用户侧切换后台已绑定的智能体； 关闭时 SDK
+                不展示切换入口，程序化切换也会被拒绝。
+              </p>
+            </div>
+            <Switch
+              checked={form.allow_agent_switching}
+              onCheckedChange={(allow_agent_switching) =>
+                update({ allow_agent_switching })
+              }
+            />
           </div>
           <div className='flex items-center justify-between rounded-md border p-3'>
             <div>
@@ -731,6 +752,7 @@ function toClientInput(form: ClientForm): EmbedClientInput {
     max_tokens_per_minute: optionalNumber(form.max_tokens_per_minute),
     max_connections: optionalNumber(form.max_connections),
     allow_temporary_tools: form.allow_temporary_tools,
+    allow_agent_switching: form.allow_agent_switching,
   }
 }
 

@@ -840,6 +840,9 @@ async def build_session_info(
                     "tokenTtlSeconds": client.token_ttl_seconds,
                     "maxTokensPerMinute": client.max_tokens_per_minute,
                     "maxConnections": client.max_connections,
+                    # 终端用户能否切换智能体属于平台策略，随每次建连刷新；
+                    # 不放进 token claim 是因为 token 会按 exp 缓存复用。
+                    "allowAgentSwitching": client.allow_agent_switching,
                 }
             if agent is not None:
                 info["agent"] = {

@@ -678,6 +678,7 @@
 
 .xxai-header-info {
   min-width: 0;
+  position: relative;
   display: flex;
   flex-direction: column;
 }
@@ -691,6 +692,166 @@
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+ * 可切换时标题整行是一个按钮：视觉上仍像标题，但补上可点击的 hover/focus
+ * 反馈，否则用户不会意识到「这里能点开智能体列表」。
+ */
+.xxai-header-name--switchable {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  margin: 0;
+  padding: 1px 4px;
+  border: 0;
+  border-radius: var(--agent-radius-sm);
+  background: transparent;
+  color: var(--agent-foreground);
+  font: inherit;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.xxai-header-name--switchable:hover {
+  background: rgba(14, 165, 233, 0.1);
+  color: var(--agent-primary);
+}
+
+.xxai-header-name--switchable:focus-visible {
+  outline: 2px solid var(--agent-primary);
+  outline-offset: 1px;
+}
+
+.xxai-header-name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.xxai-agent-switch-chevron {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  opacity: 0.6;
+  transition: transform 0.15s ease;
+}
+
+.xxai-header-name--switchable[aria-expanded='true'] .xxai-agent-switch-chevron {
+  transform: rotate(180deg);
+}
+
+/* 候选下拉：贴着标题行下方展开，滚动承载较多 agent，不撑高头部。 */
+.xxai-agent-switcher {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  min-width: 200px;
+  max-width: 280px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: var(--agent-radius-md);
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: var(--agent-shadow-medium);
+  backdrop-filter: blur(12px);
+  scrollbar-width: thin;
+}
+
+.xxai-agent-switcher-hint {
+  margin: 2px 4px 6px;
+  padding: 6px 8px;
+  border-radius: var(--agent-radius-sm);
+  background: rgba(254, 243, 199, 0.85);
+  color: #92400e;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.xxai-agent-switch-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px;
+  border: 0;
+  border-radius: var(--agent-radius-sm);
+  background: transparent;
+  color: var(--agent-foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.xxai-agent-switch-option:hover:not(:disabled) {
+  background: rgba(14, 165, 233, 0.09);
+}
+
+.xxai-agent-switch-option.is-active {
+  background: rgba(14, 165, 233, 0.12);
+}
+
+.xxai-agent-switch-option:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.xxai-agent-switch-option-text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.xxai-agent-switch-option-name {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.xxai-agent-switch-option-desc {
+  overflow: hidden;
+  color: var(--agent-muted-foreground);
+  font-size: 11px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.xxai-agent-switch-check {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  color: var(--agent-primary);
+}
+
+/* 切换中的选项显示转圈，避免用户以为点击没生效而重复点。 */
+.xxai-agent-switch-spinner {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 13px;
+  border: 2px solid rgba(148, 163, 184, 0.3);
+  border-top-color: var(--agent-primary);
+  border-radius: 50%;
+  animation: xxai-switch-spin 0.7s linear infinite;
+}
+
+@keyframes xxai-switch-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .xxai-header-status {

@@ -190,6 +190,7 @@ async def get_authenticated_agent_token_endpoint(
     display_name: str | None = Query(default=None, max_length=120),
     origin: str | None = Query(default=None, max_length=500),
     host_tool_names: list[str] = Query(default=[]),
+    agent_id: int | None = Query(default=None, ge=1),
     current_user=Depends(require_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ):
@@ -199,6 +200,9 @@ async def get_authenticated_agent_token_endpoint(
         display_name=display_name or current_user.name,
         origin=origin,
         host_tool_names=host_tool_names,
+        # 显式 agent 用于 SDK 切换智能体后重新换 token；服务端仍按 Embed Client
+        # 的绑定关系校验，未绑定的 agent 会被拒绝，不是越权入口。
+        agent_id=agent_id,
     )
     await session.commit()
     return success_response(data=token, message="agent token issued")

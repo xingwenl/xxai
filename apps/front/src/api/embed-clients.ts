@@ -11,6 +11,8 @@ export type EmbedClient = {
   max_tokens_per_minute?: number | null
   max_connections?: number | null
   allow_temporary_tools: boolean
+  /** 是否允许该 Client 接入的 SDK 由终端用户切换智能体（后台策略开关）。 */
+  allow_agent_switching: boolean
 }
 
 export type EmbedClientInput = {
@@ -20,6 +22,7 @@ export type EmbedClientInput = {
   max_tokens_per_minute?: number | null
   max_connections?: number | null
   allow_temporary_tools?: boolean
+  allow_agent_switching?: boolean
 }
 
 export type EmbedClientUpdateInput = Partial<EmbedClientInput> & {

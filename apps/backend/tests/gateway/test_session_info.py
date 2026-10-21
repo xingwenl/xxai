@@ -39,6 +39,7 @@ class FakeClient:
     token_ttl_seconds: int = 600
     max_tokens_per_minute: int | None = 120
     max_connections: int | None = 50
+    allow_agent_switching: bool = True
 
 
 @dataclass
@@ -158,6 +159,7 @@ def test_session_info_includes_client_agent_and_quota_snapshot():
         "tokenTtlSeconds": 600,
         "maxTokensPerMinute": 120,
         "maxConnections": 50,
+        "allowAgentSwitching": True,
     }
     assert info["agent"] == {
         "agentId": 11,

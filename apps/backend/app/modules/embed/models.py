@@ -54,6 +54,16 @@ class PlatformEmbedClient(BaseModel, TimeModel):
         server_default="false",
         comment="是否允许当前 Embed Client 注册仅存在于连接内存的临时工具",
     )
+    allow_agent_switching: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        comment=(
+            "是否允许该 Embed Client 接入的 SDK 由终端用户切换智能体；"
+            "关闭时 SDK 不展示切换入口，程序化切换也会被拒绝"
+        ),
+    )
 
     platform: Mapped["Platform"] = relationship(
         "Platform", back_populates="embed_clients"

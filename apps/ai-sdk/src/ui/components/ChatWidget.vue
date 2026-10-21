@@ -60,11 +60,73 @@
           </button>
           <div class="xxai-agent-avatar" aria-hidden="true">✦</div>
           <div class="xxai-header-info">
-            <div class="xxai-header-name">{{ headerName }}</div>
+            <!-- 标题行：后台开启切换且宿主给了多个候选时，整行变成下拉入口。 -->
+            <button
+              v-if="agentSwitcherVisible"
+              class="xxai-header-name xxai-header-name--switchable"
+              type="button"
+              aria-haspopup="listbox"
+              :aria-expanded="switcherOpen"
+              :aria-label="`当前智能体：${agentName}，点击切换`"
+              :title="agentSwitcherTitle"
+              @click.stop="toggleAgentSwitcher"
+            >
+              <span class="xxai-header-name-text">{{ agentName }}</span>
+              <svg class="xxai-agent-switch-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
+            <div v-else class="xxai-header-name">{{ headerName }}</div>
             <!-- role=status：连接状态变化对屏幕阅读器可感知（polite 播报）。 -->
             <div class="xxai-header-status" :class="`is-${connectionState}`" role="status">
               <span class="xxai-status-dot"></span>
               <span>{{ statusText }}</span>
+            </div>
+            <!-- 候选列表：绝对定位浮在聊天区上方，不挤压头部布局。 -->
+            <div
+              v-if="switcherOpen"
+              class="xxai-agent-switcher"
+              role="listbox"
+              aria-label="选择智能体"
+              @pointerdown.stop
+            >
+              <div v-if="switcherHint" class="xxai-agent-switcher-hint" role="status">
+                {{ switcherHint }}
+              </div>
+              <button
+                v-for="option in agentSwitchOptions"
+                :key="option.agentId"
+                class="xxai-agent-switch-option"
+                :class="{ 'is-active': String(option.agentId) === agent.currentAgentId }"
+                type="button"
+                role="option"
+                :aria-selected="String(option.agentId) === agent.currentAgentId"
+                :disabled="switcherBusy"
+                @click.stop="selectAgent(option)"
+              >
+                <span class="xxai-agent-switch-option-text">
+                  <span class="xxai-agent-switch-option-name">{{ option.name }}</span>
+                  <span v-if="option.description" class="xxai-agent-switch-option-desc">{{ option.description }}</span>
+                </span>
+                <svg
+                  v-if="String(option.agentId) === agent.currentAgentId"
+                  class="xxai-agent-switch-check"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m5 13 4 4L19 7" />
+                </svg>
+                <span
+                  v-else-if="switchingAgentId === String(option.agentId)"
+                  class="xxai-agent-switch-spinner"
+                  aria-hidden="true"
+                />
+              </button>
             </div>
           </div>
           <!-- 上下文占用环：与连接状态同排，让用户一眼看到当前会话离窗口上限多远。
@@ -169,6 +231,9 @@ import type {
   AgentClient,
   AgentInfo,
   AgentQuestion,
+  AgentSwitchFailedEvent,
+  AgentSwitchOption,
+  AgentSwitchedEvent,
   AssistantTimelineEntry,
   ConnectionState,
   ContextUsage,
@@ -343,6 +408,124 @@ const headerName = computed(() => resolveHeaderName(clientInfo.value?.name, prop
 const messageQuota = computed(() => quota.value?.resources?.message)
 const agentName = computed(() => agentInfo.value?.name || props.title)
 const agentDescription = computed(() => agentInfo.value?.description || undefined)
+
+// ---------------------------------------------------------------------------
+// 智能体切换：开关由后台 embed client 经 session_ready 下发，候选由宿主传入。
+// 只有「后台开启 + 本地未禁用 + 候选超过 1 个」才渲染入口，见 ADR 0014。
+// ---------------------------------------------------------------------------
+/** 下拉候选面板是否展开。 */
+const switcherOpen = ref(false)
+/** 正在切换的目标 agent id（字符串），用于选项上的 loading 态与防重复点击。 */
+const switchingAgentId = ref<string | null>(null)
+/** 失败/忙碌的内联提示；5 秒后自动消失，避免长期占用头部空间。 */
+const switcherHint = ref('')
+let switcherHintTimer: ReturnType<typeof setTimeout> | null = null
+
+const agentSwitchOptions = computed<AgentSwitchOption[]>(() => agent.availableAgents)
+const agentSwitcherVisible = computed(
+  () =>
+    clientInfo.value?.allowAgentSwitching === true &&
+    agentSwitchOptions.value.length > 1
+)
+/** 忙碌判定与 client 内部一致：生成中、待确认、待回答都不能重建连接。 */
+const switcherBusy = computed(
+  () =>
+    isSending.value ||
+    Boolean(pendingConfirmation.value) ||
+    Boolean(pendingQuestion.value) ||
+    switchingAgentId.value !== null
+)
+const agentSwitcherTitle = computed(() => {
+  if (switchingAgentId.value) return '正在切换智能体…'
+  if (switcherBusy.value) return '正在生成回答，请稍后再切换'
+  return `切换智能体（当前：${agentName.value}）`
+})
+
+function clearSwitcherHint() {
+  switcherHint.value = ''
+  if (switcherHintTimer) {
+    clearTimeout(switcherHintTimer)
+    switcherHintTimer = null
+  }
+}
+
+function showSwitcherHint(message: string) {
+  switcherHint.value = message
+  if (switcherHintTimer) clearTimeout(switcherHintTimer)
+  switcherHintTimer = setTimeout(() => {
+    switcherHint.value = ''
+    switcherHintTimer = null
+  }, 5000)
+}
+
+function toggleAgentSwitcher() {
+  if (!agentSwitcherVisible.value) return
+  switcherOpen.value = !switcherOpen.value
+  if (!switcherOpen.value) clearSwitcherHint()
+}
+
+/**
+ * 切换入口：成功由 `agent_switched` 收尾（关闭面板、刷新标题与会话），
+ * 失败由 `agent_switch_failed` 收尾（保留面板与提示），这里只维护进行态。
+ */
+function selectAgent(option: AgentSwitchOption) {
+  if (switcherBusy.value) return
+  if (String(option.agentId) === agent.currentAgentId) {
+    switcherOpen.value = false
+    clearSwitcherHint()
+    return
+  }
+  clearSwitcherHint()
+  switchingAgentId.value = String(option.agentId)
+  void agent
+    .switchAgent(option.agentId)
+    .then((ok) => {
+      if (!ok && !switcherHint.value) {
+        showSwitcherHint('切换智能体失败，请稍后重试')
+      }
+    })
+    .finally(() => {
+      switchingAgentId.value = null
+    })
+}
+
+function handleAgentSwitched(event: AgentSwitchedEvent) {
+  switchingAgentId.value = null
+  switcherOpen.value = false
+  clearSwitcherHint()
+  // client 会清空并恢复目标 agent 的本地会话，这里同步 UI 侧快照。
+  pendingMessage.value = null
+  pendingLoop.value = null
+  isSending.value = false
+  if (event.agent) agentInfo.value = event.agent
+  messages.value = agent.getMessages()
+  activeConversationId.value = agent.currentConversationId
+  void loadConversations()
+}
+
+function handleAgentSwitchFailed(event: AgentSwitchFailedEvent) {
+  switchingAgentId.value = null
+  showSwitcherHint(event.message)
+  // 预签失败时 client 什么都没改，但同步一次可避免半途状态残留到 UI。
+  messages.value = agent.getMessages()
+  activeConversationId.value = agent.currentConversationId
+}
+
+/** 点击面板外部收起；在 rootRef 内点击交给各按钮自己的处理。 */
+function handleDocumentPointerDown(event: PointerEvent) {
+  if (!switcherOpen.value) return
+  const target = event.target as Node | null
+  if (target && rootRef.value?.contains(target)) return
+  switcherOpen.value = false
+  clearSwitcherHint()
+}
+
+function handleDocumentKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && switcherOpen.value) {
+    switcherOpen.value = false
+    clearSwitcherHint()
+  }
+}
 
 /** 上下文占用快照：同样在事件里同步，确保 header 的环随推送刷新。 */
 const contextUsage = ref<ContextUsage | null>(agent.contextUsage)
@@ -784,6 +967,12 @@ onMounted(() => {
   agent.on('client_info', handleClientInfo)
   agent.on('context_usage', handleContextUsage)
   agent.on('context_compacted', handleContextCompacted)
+  agent.on('agent_switched', handleAgentSwitched)
+  agent.on('agent_switch_failed', handleAgentSwitchFailed)
+  // 智能体下拉的「点外部/按 Esc 收起」挂在 document 上：面板是绝对定位浮层，
+  // 点聊天区其它位置时也要能收起。
+  document.addEventListener('pointerdown', handleDocumentPointerDown)
+  document.addEventListener('keydown', handleDocumentKeydown)
   agent.on('ui_open', open)
   agent.on('ui_close', close)
   agent.on('ui_toggle', () => {
@@ -818,6 +1007,14 @@ onUnmounted(() => {
   agent.off('client_info', handleClientInfo)
   agent.off('context_usage', handleContextUsage)
   agent.off('context_compacted', handleContextCompacted)
+  agent.off('agent_switched', handleAgentSwitched)
+  agent.off('agent_switch_failed', handleAgentSwitchFailed)
+  document.removeEventListener('pointerdown', handleDocumentPointerDown)
+  document.removeEventListener('keydown', handleDocumentKeydown)
+  if (switcherHintTimer) {
+    clearTimeout(switcherHintTimer)
+    switcherHintTimer = null
+  }
   pendingConfirmation.value = null
   pendingQuestion.value = null
   agent.disconnect()

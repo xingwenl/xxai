@@ -45,6 +45,7 @@ async def create_embed_client(
         token_ttl_seconds=payload.token_ttl_seconds,
         max_tokens_per_minute=payload.max_tokens_per_minute,
         max_connections=payload.max_connections,
+        allow_agent_switching=payload.allow_agent_switching,
     )
     return PlatformEmbedClientCreated(client=client, client_secret=client_secret)
 

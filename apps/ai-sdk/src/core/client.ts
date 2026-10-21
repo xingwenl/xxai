@@ -3,6 +3,10 @@ import type {
   AgentCallbacks,
   AgentClientOptions,
   AgentInfo,
+  AgentSwitchFailedEvent,
+  AgentSwitchFailureReason,
+  AgentSwitchOption,
+  AgentSwitchedEvent,
   ConnectionState,
   ContextCompacted,
   ContextCompactResult,
@@ -23,6 +27,18 @@ import type {
   WebSocketMessage
 } from './types'
 import { agentError, agentErrorFromResponse, type AgentError } from './errors'
+import {
+  buildSelectionStorageKey,
+  classifyTokenFailure,
+  clearSelectedAgent,
+  deriveAgentEndpoint,
+  findAgentOption,
+  formatAgentSwitchError,
+  normalizeAgentId,
+  readSelectedAgent,
+  resolveAgentSwitchingOptions,
+  writeSelectedAgent
+} from './agent-switching'
 import { EventEmitter } from './event-emitter'
 import { MessageStore } from './message-store'
 import { ToolRegistry } from './tool-registry'
@@ -154,7 +170,38 @@ export class AgentClient {
   private _tokenExpiresAt = 0
   /** 正在进行的换取请求；并发调用共用它，避免同一时刻打多次签发接口。 */
   private _tokenPromise: Promise<string> | null = null
-  readonly storageKey: string
+  /**
+   * 当前生效的 agent id。
+   *
+   * 与 `options.agentId` 分开：切换智能体后 token、WS 路径、本地消息存储都
+   * 跟随「当前选中的 agent」，而 `options.agentId` 始终是宿主配置的缺省值
+   * （后台关闭切换能力时回退到它）。
+   */
+  private _activeAgentId: string
+  /** 切换进行中：拦截并发点击，避免同一时刻预签两枚 token、重建两次连接。 */
+  private _isSwitching = false
+
+  /**
+   * 本地消息与会话 id 的存储键。
+   *
+   * 按「当前生效的 agent」派生：每个 agent 的本地历史天然隔离，切换回去时
+   * 能从同一个 key 恢复上次会话。对外的字符串形态与改造前一致（构造后首次
+   * 读取仍是同一字符串）。
+   */
+  get storageKey(): string {
+    return (
+      this.options.storageKey ||
+      `xxai-agent:${this.options.platformId}:${this._activeAgentId}:${this.options.user?.id || 'anonymous'}`
+    )
+  }
+
+  /** 「上次选中的 agent」的存储键；按平台 + 终端用户隔离。 */
+  private get _selectionStorageKey(): string {
+    return buildSelectionStorageKey(
+      this.options.platformId,
+      this.options.user?.id
+    )
+  }
 
   /** 干净的 HTTP API 根路径，优先使用 baseUrl，否则从 WS endpoint 推导。 */
   private get _httpBaseUrl(): string {
@@ -188,7 +235,9 @@ export class AgentClient {
     }
 
     this._systemPrompt = options.systemPrompt
-    this.storageKey = options.storageKey || `xxai-agent:${options.platformId}:${options.agentId}:${options.user?.id || 'anonymous'}`
+    // 先决定首连 agent，再读本地存储：记忆命中时直接连上次选中的 agent，
+    // 避免「先连缺省 agent、再切走」产生一次多余连接（ADR 0014 决策 8）。
+    this._activeAgentId = this._resolveInitialAgentId()
     this.eventEmitter = new EventEmitter()
     const persisted = this.readPersistedState()
     this.conversationId = persisted?.conversationId
@@ -196,16 +245,7 @@ export class AgentClient {
     this.toolRegistry = new ToolRegistry()
     this._callbacks = options.callbacks || {}
 
-    this.transport = new WebSocketTransport({
-      endpoint: this.options.endpoint,
-      // 传输层只关心「拿一枚当前可用的 token」；缓存与刷新策略统一在 _getToken 里。
-      getToken: () => this._getToken(),
-      platformId: this.options.platformId,
-      agentId: this.options.agentId,
-      user: this.options.user,
-      reconnect: this.options.reconnect,
-      conversationId: this.conversationId
-    })
+    this.transport = this._createTransport()
 
     if (options.pageTools?.enabled) {
       this.registerTools(createPageTools(options.pageTools))
@@ -244,7 +284,7 @@ export class AgentClient {
     if (!provider) return ''
     const token = await provider({
       platformId: this.options.platformId,
-      agentId: this.options.agentId,
+      agentId: this._activeAgentId,
       user: this.options.user
     })
     this._token = token
@@ -296,12 +336,18 @@ export class AgentClient {
     return URL.createObjectURL(await response.blob())
   }
 
-  private setupTransportListeners(): void {
-    if (this.transport instanceof WebSocketTransport) {
+  /**
+   * 绑定传输层事件。
+   *
+   * 接收 transport 参数而不是直接读 `this.transport`：切换智能体会重建传输层，
+   * 同一套监听逻辑复用到新实例上，避免监听遗漏导致新连接的事件没人消费。
+   */
+  private setupTransportListeners(transport: Transport = this.transport): void {
+    if (transport instanceof WebSocketTransport) {
       // 兼容性失败在传输层是「先 compatibility_error、再 error」成对发出的。
       // 这里消费前者拿到结构化错误码，并把紧随其后的 error 标记为已处理，
       // 避免同一次失败让调用方收到两条错误。
-      this.transport.on('compatibility_error', (error: AgentError) => {
+      transport.on('compatibility_error', (error: AgentError) => {
         this._handledTransportError = error
         this.handleRequestError({
           code: error.code ?? 'agent_connection_failed',
@@ -310,24 +356,24 @@ export class AgentClient {
           details: error.details
         })
       })
-      this.transport.on('state', (state: ConnectionState) => {
+      transport.on('state', (state: ConnectionState) => {
         this.handleConnectionStateChange(state)
       })
     }
 
-    this.transport.on('open', () => {
+    transport.on('open', () => {
       console.log('Connection opened')
     })
 
-    this.transport.on('message', (msg: WebSocketMessage) => {
+    transport.on('message', (msg: WebSocketMessage) => {
       this.handleTransportMessage(msg)
     })
 
-    this.transport.on('close', () => {
+    transport.on('close', () => {
       console.log('Connection closed')
     })
 
-    this.transport.on('error', (error: Error) => {
+    transport.on('error', (error: Error) => {
       console.error('Connection error:', error)
       if (error === this._handledTransportError) {
         this._handledTransportError = undefined
@@ -391,6 +437,8 @@ export class AgentClient {
           agent: this._agentInfo,
           quota: this._quota
         })
+        // 建连后按真实策略校准切换能力：后台关闭时清记忆并回退缺省 agent。
+        this._reconcileAgentSwitchingPolicy()
         break
       case 'message_started':
         // 重连 replay 可能再次包含同一个请求的 message_started。此时不能
@@ -812,6 +860,276 @@ export class AgentClient {
       this.uiContainer = null
       this.uiMounted = false
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 智能体切换（平台开关 + 宿主提供候选列表，见 ADR 0014）
+  // ---------------------------------------------------------------------------
+
+  /** 宿主传入的候选智能体；后台开关关闭或本地隐藏时为空数组。 */
+  get availableAgents(): AgentSwitchOption[] {
+    if (!this._agentSwitchingAllowed()) return []
+    return resolveAgentSwitchingOptions(this.options.agentSwitching).agents
+  }
+
+  /** 当前生效的 agent id（字符串，与 token / WS 路径一致）。 */
+  get currentAgentId(): string {
+    return this._activeAgentId
+  }
+
+  /** 是否正在切换（UI 可据此显示忙碌态并拦截重复点击）。 */
+  get isSwitching(): boolean {
+    return this._isSwitching
+  }
+
+  /** UI 是否应展示切换入口：能力已开启且候选超过 1 个。 */
+  get showAgentSwitcher(): boolean {
+    return this.availableAgents.length > 1
+  }
+
+  /** 当前是否允许切换：能力、候选数量、忙碌、并发四个条件同时满足。 */
+  get canSwitchAgent(): boolean {
+    return this.showAgentSwitcher && !this._isSwitching && !this._isBusy()
+  }
+
+  /**
+   * 切换到指定智能体（headless / 自绘 UI 入口）。
+   *
+   * 返回 `true` 表示已切到目标 agent（传输层已重建；原本已连接时也已重连）。
+   * 返回 `false` 表示被拒绝或失败：token 预签失败时原 agent 的连接、消息与
+   * token 缓存保持不变；连接重建后的连接失败会保留「已切换但未连上」状态，
+   * 调用方可再次 `connect()` 重试。
+   */
+  async switchAgent(agentId: number | string): Promise<boolean> {
+    return this._performAgentSwitch(agentId)
+  }
+
+  /** 平台策略与本地配置是否同时允许切换。 */
+  private _agentSwitchingAllowed(): boolean {
+    const { enabled } = resolveAgentSwitchingOptions(this.options.agentSwitching)
+    return enabled && this._clientInfo?.allowAgentSwitching === true
+  }
+
+  /** 生成中、等待工具确认或等待提问回答时，重建连接会丢事件与 token 流。 */
+  private _isBusy(): boolean {
+    return (
+      this.activeRequestId !== undefined ||
+      this.pendingConfirmations.size > 0 ||
+      this.pendingQuestions.size > 0
+    )
+  }
+
+  /** 首连目标：宿主给了候选且本地有有效记忆时，直接连上次选中的 agent。 */
+  private _resolveInitialAgentId(): string {
+    const fallback = normalizeAgentId(this.options.agentId)
+    const { agents } = resolveAgentSwitchingOptions(this.options.agentSwitching)
+    if (agents.length === 0) return fallback
+    const remembered = readSelectedAgent(
+      buildSelectionStorageKey(this.options.platformId, this.options.user?.id)
+    )
+    if (remembered && findAgentOption(agents, remembered)) return remembered
+    return fallback
+  }
+
+  /** 按当前 agent 构造传输层：首连与切换后共用同一套参数。 */
+  private _createTransport(): Transport {
+    // 自定义 endpoint（不含 /ws/agents/{id}）无法推导目标地址时回退原值，
+    // 保证首连行为不变；切换会被 _performAgentSwitch 显式拒绝。
+    const endpoint =
+      deriveAgentEndpoint(this.options.endpoint, this._activeAgentId) ||
+      this.options.endpoint
+    return new WebSocketTransport({
+      endpoint,
+      // 传输层只关心「拿一枚当前可用的 token」；缓存与刷新策略统一在 _getToken 里。
+      getToken: () => this._getToken(),
+      platformId: this.options.platformId,
+      agentId: this._activeAgentId,
+      user: this.options.user,
+      reconnect: this.options.reconnect,
+      conversationId: this.conversationId
+    })
+  }
+
+  /**
+   * 建连后校准切换能力。
+   *
+   * 后台开关关闭时：清除本地记忆，并把「记忆命中而误连的 agent」回退到缺省
+   * agent，保证「管理员关掉 = 记忆自动失效」（ADR 0014 决策 8）。
+   */
+  private _reconcileAgentSwitchingPolicy(): void {
+    if (this._clientInfo?.allowAgentSwitching === true) return
+    const fallback = normalizeAgentId(this.options.agentId)
+    clearSelectedAgent(this._selectionStorageKey)
+    if (this._activeAgentId === fallback) return
+    // force：这是策略回退，不受「后台未开启切换」的前置判断拦截。
+    // 回退不是「用户在选」，不写记忆；否则下次首连又会命中已被策略关掉的 agent。
+    void this._performAgentSwitch(fallback, { force: true, remember: false })
+  }
+
+  /**
+   * 两阶段切换：先为目标 agent 预签 token，成功后才断旧连、恢复本地会话并
+   * 重建传输层。token 是唯一可能因「未绑定 / 无权限 / 配额」失败的外部依赖，
+   * 先预签把失败前置到「什么都没动」的时刻。
+   */
+  private async _performAgentSwitch(
+    agentId: number | string,
+    options: { force?: boolean; remember?: boolean } = {}
+  ): Promise<boolean> {
+    const target = normalizeAgentId(agentId)
+    const previous = this._activeAgentId
+    if (target === previous) return false
+
+    if (!options.force) {
+      if (!this._agentSwitchingAllowed()) {
+        this._emitAgentSwitchFailed(target, previous, 'not_allowed')
+        return false
+      }
+      if (this._isSwitching) return false
+      if (this._isBusy()) {
+        this._emitAgentSwitchFailed(target, previous, 'busy')
+        return false
+      }
+      const { agents } = resolveAgentSwitchingOptions(this.options.agentSwitching)
+      if (!findAgentOption(agents, target)) {
+        this._emitAgentSwitchFailed(target, previous, 'not_allowed')
+        return false
+      }
+    }
+
+    const endpoint = deriveAgentEndpoint(this.options.endpoint, target)
+    if (!endpoint) {
+      this._emitAgentSwitchFailed(target, previous, 'not_supported')
+      return false
+    }
+
+    this._isSwitching = true
+
+    // 第一阶段：预签目标 agent 的 token。成功前不修改任何本地状态。
+    this._activeAgentId = target
+    try {
+      this._invalidateToken()
+      await this._getToken(true)
+    } catch (error) {
+      this._activeAgentId = previous
+      this._invalidateToken()
+      this._isSwitching = false
+      this._emitAgentSwitchFailed(
+        target,
+        previous,
+        classifyTokenFailure(error),
+        error
+      )
+      return false
+    }
+
+    // 第二阶段：断旧连、恢复目标 agent 的本地会话、重建传输层。
+    // 旧连接的待确认/待回答属于旧 agent 的会话，跨连接转发会串会话，必须清空。
+    const wasConnected = this.connectionState !== 'disconnected'
+    try {
+      this.transport.disconnect()
+    } catch {
+      // 旧连接已损坏时 disconnect 可能抛错，这里只关心「不再使用它」。
+    }
+    this.clearPendingConfirmations()
+    this.clearPendingQuestions()
+    this._resetConversationState()
+    this.conversationId = undefined
+
+    const persisted = this.readPersistedState()
+    this.conversationId = persisted?.conversationId
+    this.messageStore = new MessageStore(persisted?.messages || [])
+    this._agentInfo = undefined
+    this._quota = undefined
+
+    this.transport = this._createTransport()
+    this.setupTransportListeners()
+    this._reRegisterHostTools()
+    this.persistState()
+    if (options.remember !== false) {
+      writeSelectedAgent(this._selectionStorageKey, target)
+    }
+
+    const event: AgentSwitchedEvent = {
+      agentId: target,
+      previousAgentId: previous,
+      agent: null,
+      conversationId: this.conversationId ?? null,
+      restored: Boolean(persisted?.conversationId)
+    }
+    this.eventEmitter.emit('history_cleared')
+    this.eventEmitter.emit('agent_switched', event)
+    this._callbacks.onAgentSwitched?.(event)
+
+    let connectError: unknown
+    if (wasConnected) {
+      try {
+        await this.transport.connect()
+      } catch (error) {
+        connectError = error
+      }
+    }
+    this._isSwitching = false
+
+    if (connectError) {
+      // 传输层已指向新 agent，重连失败属于「已切换但未连上」，UI 可重试 connect()。
+      this._emitAgentSwitchFailed(
+        target,
+        previous,
+        'connection_failed',
+        connectError
+      )
+      return false
+    }
+    return true
+  }
+
+  /** 把宿主工具注册清单重放到新传输层（旧实例的注册状态随实例销毁）。 */
+  private _reRegisterHostTools(): void {
+    const tools = this.toolRegistry.getTools()
+    if (tools.length > 0) this.registerTools(tools)
+  }
+
+  /** 统一上报切换失败：事件 + callbacks.onError，文案区分权限与临时失败。 */
+  private _emitAgentSwitchFailed(
+    agentId: string,
+    previousAgentId: string,
+    reason: AgentSwitchFailureReason,
+    error?: unknown
+  ): void {
+    const message = formatAgentSwitchError(reason)
+    const failure: AgentError =
+      error instanceof Error && (error as AgentError).name === 'AgentError'
+        ? (error as AgentError)
+        : agentError({
+            code: 'agent_switch_failed',
+            message,
+            retryable:
+              reason === 'network' ||
+              reason === 'quota' ||
+              reason === 'connection_failed',
+            details: {
+              reason,
+              targetAgentId: agentId,
+              originalMessage:
+                error instanceof Error ? error.message : undefined
+            }
+          })
+    const event: AgentSwitchFailedEvent = {
+      agentId,
+      previousAgentId,
+      reason,
+      error: failure,
+      message
+    }
+    console.warn('[xxai-agent][agent-switching] switch failed', {
+      agentId,
+      previousAgentId,
+      reason
+    })
+    this.eventEmitter.emit('agent_switch_failed', event)
+    this._callbacks.onAgentSwitchFailed?.(event)
+    this._callbacks.onError?.(failure)
+    this.eventEmitter.emit('error', failure)
   }
 
   async sendMessage(text: string, options?: SendMessageOptions): Promise<void> {

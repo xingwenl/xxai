@@ -23,6 +23,7 @@ class FakeClient:
     max_tokens_per_minute: int | None = None
     max_connections: int | None = None
     allow_temporary_tools: bool = False
+    allow_agent_switching: bool = False
 
 
 @dataclass
@@ -119,6 +120,34 @@ def test_create_client_returns_secret_once_and_stores_only_hash():
         assert result.client_secret
         assert repo.client.secret_hash != result.client_secret
         assert repo.client.secret_hash.startswith("scrypt$")
+
+    asyncio.run(run())
+
+
+def test_create_client_persists_agent_switching_toggle():
+    """智能体切换开关是平台策略：创建时必须落库，缺省值为关闭。"""
+
+    async def run() -> None:
+        repo = FakeEmbedRepository()
+        default_client = await create_embed_client(
+            repo,
+            platform_id=7,
+            payload=PlatformEmbedClientCreate(
+                name="Acme Web", allowed_origins=["https://app.acme.test"]
+            ),
+        )
+        assert default_client.client.allow_agent_switching is False
+
+        enabled_client = await create_embed_client(
+            repo,
+            platform_id=7,
+            payload=PlatformEmbedClientCreate(
+                name="Acme Web",
+                allowed_origins=["https://app.acme.test"],
+                allow_agent_switching=True,
+            ),
+        )
+        assert enabled_client.client.allow_agent_switching is True
 
     asyncio.run(run())
 

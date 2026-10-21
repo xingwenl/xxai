@@ -285,6 +285,19 @@ export interface AgentCallbacks {
    * 推送的压缩结果，`ok === false` 时 `reason` 说明失败原因。
    */
   onContextCompacted?: (result: ContextCompacted) => void
+  /**
+   * 切换智能体成功。
+   *
+   * 与 `agent.on('agent_switched', handler)` 等价；此时 transport 已指向新
+   * agent，`agent.getMessages()` 是该 agent 上次会话恢复后的消息。
+   */
+  onAgentSwitched?: (event: AgentSwitchedEvent) => void
+  /**
+   * 切换智能体失败（未绑定/无权限/忙碌/网络等）。
+   *
+   * 失败时原 agent 的连接与消息保持不变，UI 只需回退选择器与轻提示。
+   */
+  onAgentSwitchFailed?: (event: AgentSwitchFailedEvent) => void
 }
 
 export type HostToolStatus =
@@ -339,6 +352,13 @@ export interface EmbedClientInfo {
   tokenTtlSeconds?: number
   maxTokensPerMinute?: number | null
   maxConnections?: number | null
+  /**
+   * 后台 embed client 是否允许终端用户切换智能体。
+   *
+   * 这是平台策略，由 `session_ready` 快照下发；SDK 必须同时拿到 `true` 和
+   * 宿主传入的候选列表才展示切换入口。旧网关未下发时按 `false` 处理。
+   */
+  allowAgentSwitching?: boolean
 }
 
 /** agent 基本信息，由网关在 session_ready 事件中下发。 */
@@ -347,6 +367,71 @@ export interface AgentInfo {
   name?: string
   slug?: string
   description?: string | null
+}
+
+/**
+ * 宿主传给 SDK 的候选智能体。
+ *
+ * SDK 不自行拉取列表：embed 接入是「平台管理员配置 client → 第三方宿主页面
+ * 嵌入」，只有宿主知道要暴露哪些 agent 给终端用户；越权由换 token 时服务端的
+ * 绑定校验兜底。
+ */
+export interface AgentSwitchOption {
+  /** 与后台 Agent id 一致，同时用于换 token 与 WS 路径。 */
+  agentId: number | string
+  name: string
+  slug?: string
+  description?: string | null
+}
+
+/** 智能体切换的接入配置（能力开关本身仍以后台 embed client 策略为准）。 */
+export interface AgentSwitchingOptions {
+  /**
+   * 候选智能体。为空或缺省时不渲染切换入口；宿主应只传「后台已启用且当前
+   * client 已绑定」的 agent，避免展示必然失败的选项。
+   */
+  agents?: AgentSwitchOption[]
+  /**
+   * 本地强制隐藏入口（默认 `true`）。只能收窄、不能绕过后台开关：
+   * 后台关闭时即使传 `true` 也不会启用。
+   */
+  enabled?: boolean
+}
+
+/** 切换成功后的快照，供 UI 刷新标题/头像与会话列表。 */
+export interface AgentSwitchedEvent {
+  /** 切换后的 agent id（字符串，与 token/WS 路径一致）。 */
+  agentId: string
+  /** 切换前的 agent id。 */
+  previousAgentId: string
+  /** 新 agent 的基本信息；连接完成后由 `session_ready` 补充。 */
+  agent?: AgentInfo | null
+  /** 恢复到的本地会话 id；没有历史时为 null。 */
+  conversationId?: string | null
+  /** 是否从本地存储恢复了该 agent 上次的会话。 */
+  restored: boolean
+}
+
+/** 切换失败的分类，供宿主区分「未绑定/无权限」与「网络/配额」。 */
+export type AgentSwitchFailureReason =
+  | 'not_allowed'
+  | 'not_supported'
+  | 'busy'
+  | 'not_bound'
+  | 'quota'
+  | 'network'
+  | 'connection_failed'
+
+/** 切换失败事件；失败时原 agent 的连接、消息与 token 缓存保持不变。 */
+export interface AgentSwitchFailedEvent {
+  /** 本次想切到的目标 agent id。 */
+  agentId: string
+  /** 当前仍是其连接与消息所属的原 agent id。 */
+  previousAgentId: string
+  reason: AgentSwitchFailureReason
+  error?: AgentError
+  /** 面向终端的中文文案，UI 可直接展示。 */
+  message: string
 }
 
 /** 单个配额资源当前时间窗口的限额与用量快照。 */
@@ -443,6 +528,13 @@ export interface AgentClientOptions {
   messages?: Message[]
   /** 本地消息和会话 ID 的存储键；未提供时按平台、Agent 和用户隔离。 */
   storageKey?: string
+  /**
+   * 智能体切换的候选列表与本地开关。
+   *
+   * 是否真正允许切换仍以后台 embed client 的 `allowAgentSwitching` 为准；
+   * 本选项只提供候选与「本地隐藏」能力，不能把后台关闭的能力打开。
+   */
+  agentSwitching?: AgentSwitchingOptions
   callbacks?: AgentCallbacks
   transport?: 'websocket'
   reconnect?: {

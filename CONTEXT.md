@@ -223,3 +223,15 @@ _Avoid_: 日志、记录、事件流、时间线条目
 **记忆索引（Memory Index Line）**:
 每次请求注入系统提示的、关于用户记忆的元信息行，只含条数（事实 x / 经历 y）与使用规则，不含任何事实值。它存在的唯一目的是让模型知道「有记忆可查」，而不是把记忆内容塞进上下文。
 _Avoid_: 记忆摘要、档案预览、注入块
+
+**智能体切换（Agent Switching）**:
+终端用户在 SDK 聊天窗内把自己正在对话的智能体换成另一个已绑定智能体的操作。它与「新建会话」「换接入方」不同：平台主体、接入 client、token 签发方都不变，只换 agent 作用域与本地会话。
+_Avoid_: 换模型、换 Agent 类型、切租户、多开
+
+**可用智能体（Available Agent）**:
+当前 embed client 已绑定、且由宿主通过 `agentSwitching.agents` 显式传入 SDK 的那批智能体。它是切换候选的唯一来源；是否允许展示由后台的「智能体切换开关」决定。
+_Avoid_: 智能体列表、候选模型、agent 商场
+
+**智能体切换开关（Agent Switching Toggle）**:
+后台 embed client 上的布尔配置 `allow_agent_switching`，决定该 client 接入的 SDK 是否允许终端用户切换智能体。它属于平台策略而不是 SDK 配置项，经 `session_ready` 的 client 快照下发。
+_Avoid_: 功能开关、feature flag、SDK 开关
