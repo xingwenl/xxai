@@ -6,8 +6,10 @@ import {
   getAgentConfig,
   getDesktopSettings,
   getPlugins,
+  getPluginMarket,
   installPlugin,
   installFromUrl,
+  installMarketPlugin,
   issueAgentToken,
   refreshMetadata,
   saveAgentConfig,
@@ -17,6 +19,7 @@ import {
   type AgentConfig,
   type DesktopSettings,
   type Plugin,
+  type PluginMarket,
 } from '../lib/api'
 import { toast } from '../lib/toast'
 import { getRuntimeStatus, subscribeRuntimeStatus } from '../lib/runtime-status'
@@ -28,6 +31,11 @@ interface ThemeLike {
   gradient: [string, string]
   mid: string
   faint: string
+}
+
+function formatSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`
 }
 
 export default function Settings({
@@ -58,6 +66,11 @@ export default function Settings({
   const [agentId, setAgentId] = useState('1')
   const [agentToolNames, setAgentToolNames] = useState('')
   const [agentBusy, setAgentBusy] = useState(false)
+  // 插件市场：索引列表、来源地址与错误，安装动作单独记 busy id
+  const [market, setMarket] = useState<PluginMarket | null>(null)
+  const [marketError, setMarketError] = useState('')
+  const [marketBusy, setMarketBusy] = useState(false)
+  const [installingId, setInstallingId] = useState('')
   // 插件宿主配置（manifest.settings[]）：表单、校验与保存都在 PluginConfigDialog 弹窗里
   const [configPlugin, setConfigPlugin] = useState<Plugin | null>(null)
   // 运行态变化只用于触发重渲染，具体状态在渲染时用 getRuntimeStatus 读取
@@ -72,6 +85,12 @@ export default function Settings({
     getDesktopSettings()
       .then(setInfo)
       .catch(() => undefined)
+    getPluginMarket()
+      .then((data) => {
+        setMarket(data)
+        setMarketError('')
+      })
+      .catch((e) => setMarketError(String((e as Error).message || e)))
     getAgentConfig()
       .then((config) => {
         setAgentConfig(config)
@@ -86,6 +105,34 @@ export default function Settings({
   }, [])
 
   useEffect(load, [load])
+
+  const refreshMarket = async () => {
+    setMarketBusy(true)
+    try {
+      const data = await getPluginMarket(true)
+      setMarket(data)
+      setMarketError('')
+    } catch (e) {
+      setMarketError(String((e as Error).message || e))
+    } finally {
+      setMarketBusy(false)
+    }
+  }
+
+  const installFromMarket = async (id: string) => {
+    setInstallingId(id)
+    try {
+      const { plugin } = await installMarketPlugin(id)
+      toast('已安装', `${plugin.name} v${plugin.version}`, 'success')
+      load()
+      // installed 映射由宿主按本机插件目录现算，安装后重拉一次让按钮变「已安装」
+      setMarket(await getPluginMarket().catch(() => market))
+    } catch (e) {
+      toast('安装失败', String((e as Error).message || e), 'error')
+    } finally {
+      setInstallingId('')
+    }
+  }
 
   const handleInstall = async (file: File) => {
     setBusy(true)
@@ -507,6 +554,103 @@ export default function Settings({
             </div>
           )}
         </div>
+      </section>
+
+      {/* 插件市场：索引是 GitHub raw 上的静态 JSON，安装时宿主校 sha256 再走本地安装流程 */}
+      <section style={glass} className="p-5 mt-4">
+        <div className="flex items-center justify-between gap-3 mb-1">
+          <h2 className="font-600 text-[15px]" style={{ color: 'var(--foreground)' }}>插件市场</h2>
+          <div className="flex items-center gap-2 min-w-0">
+            <span
+              className="text-[11px] font-mono truncate max-w-[340px]"
+              style={{ color: 'var(--color-mid)' }}
+              title={market?.source || info?.marketUrl || ''}
+            >
+              {market?.source || info?.marketUrl || '未配置索引地址'}
+            </span>
+            <button
+              disabled={marketBusy || !market?.enabled}
+              onClick={refreshMarket}
+              className="shrink-0 px-3 py-1.5 rounded-lg text-[12px] font-500 disabled:opacity-50"
+              style={{ background: 'rgba(var(--primary-ink-rgb) / 0.10)', color: 'var(--primary-ink)' }}
+            >
+              {marketBusy ? '刷新中…' : '刷新'}
+            </button>
+          </div>
+        </div>
+        <p className="text-[12px] mb-3" style={{ color: 'var(--color-mid)' }}>
+          安装包会先校验 sha256 与包内 manifest，再交给本地安装流程；已安装的插件不会重复覆盖。
+        </p>
+
+        {marketError ? (
+          <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl" style={{ background: 'rgba(239, 68, 68, 0.08)', color: '#ef4444' }}>
+            <span className="text-[12px] break-all">获取市场索引失败：{marketError}</span>
+            <button
+              onClick={refreshMarket}
+              className="shrink-0 px-3 py-1.5 rounded-lg text-[12px] font-500"
+              style={{ background: 'rgba(239, 68, 68, 0.12)' }}
+            >
+              重试
+            </button>
+          </div>
+        ) : !market ? (
+          <div className="text-[13px] py-4 text-center" style={{ color: 'var(--color-mid)' }}>读取中…</div>
+        ) : !market.enabled ? (
+          <div className="text-[13px] py-4 text-center" style={{ color: 'var(--color-mid)' }}>
+            市场已关闭（启动宿主时未设置 DESKTOP_PLUGIN_MARKET_URL，或设置了 DESKTOP_PLUGIN_MARKET=0）
+          </div>
+        ) : market.plugins.length === 0 ? (
+          <div className="text-[13px] py-4 text-center" style={{ color: 'var(--color-mid)' }}>索引里还没有插件</div>
+        ) : (
+          <div className="space-y-2">
+            {market.plugins.map((entry) => {
+              const installedVersion = market.installed[entry.id]
+              const installing = installingId === entry.id
+              return (
+                <div
+                  key={entry.id}
+                  className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl"
+                  style={{ background: 'rgba(var(--surface-rgb) / 0.6)', border: '1px solid rgba(var(--hairline-rgb) / 0.10)' }}
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[13px] font-600 truncate" style={{ color: 'var(--foreground)' }}>{entry.name}</span>
+                      <span
+                        className="text-[11px] px-1.5 py-0.5 rounded-md font-mono"
+                        style={{ background: 'rgba(var(--hairline-rgb) / 0.10)', color: 'var(--color-mid)' }}
+                      >
+                        v{entry.version}
+                      </span>
+                      {installedVersion && (
+                        <span
+                          className="text-[11px] px-1.5 py-0.5 rounded-md"
+                          style={{ background: 'rgba(16, 185, 129, 0.12)', color: '#10b981' }}
+                        >
+                          已安装{installedVersion === entry.version ? '' : ` v${installedVersion}`}
+                        </span>
+                      )}
+                    </div>
+                    {entry.description && (
+                      <div className="text-[12px] mt-0.5" style={{ color: 'var(--color-mid)' }}>{entry.description}</div>
+                    )}
+                    <div className="text-[11px] mt-1 font-mono" style={{ color: 'var(--color-mid)' }}>
+                      {entry.permissions.length ? `权限：${entry.permissions.join('、')}` : '无需权限'}
+                      {entry.size ? ` · ${formatSize(entry.size)}` : ''}
+                    </div>
+                  </div>
+                  <button
+                    disabled={Boolean(installedVersion) || installing}
+                    onClick={() => installFromMarket(entry.id)}
+                    className="shrink-0 px-3 py-1.5 rounded-lg text-[12px] font-600 disabled:opacity-50"
+                    style={{ background: 'var(--fill-gradient)', color: 'var(--primary-foreground)' }}
+                  >
+                    {installedVersion ? '已安装' : installing ? '安装中…' : '安装'}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </section>
 
       {/* 智能体后端：桌面助手（ai-sdk 悬浮窗）连接哪里、能用哪些方法 */}

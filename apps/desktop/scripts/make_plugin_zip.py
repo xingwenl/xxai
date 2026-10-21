@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import zipfile
@@ -21,7 +22,28 @@ def main() -> None:
         for file_path in sorted(plugin_dir.rglob("*")):
             if file_path.is_file():
                 zf.write(file_path, file_path.relative_to(plugin_dir.parent))
+    data = out_path.read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
     print(f"已生成: {out_path}")
+    print(f"sha256: {digest}")
+    print(f"size:   {len(data)}")
+    print("索引条目（把 download 换成上传后的地址）：")
+    print(
+        json.dumps(
+            {
+                "id": manifest["id"],
+                "name": manifest["name"],
+                "version": manifest["version"],
+                "description": manifest.get("description", ""),
+                "download": "<上传后的下载地址>",
+                "sha256": digest,
+                "size": len(data),
+                "permissions": manifest.get("permissions", []),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

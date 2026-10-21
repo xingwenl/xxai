@@ -21,6 +21,7 @@ from desktop_app import agent_config
 from desktop_app import bookmarks
 from desktop_app import dev_agent
 from desktop_app import dev_reload
+from desktop_app import market
 from desktop_app import metadata
 from desktop_app import paths
 from desktop_app.agent_config import AgentBackendConfig, AgentConfigError, AgentConfigNotConfigured, AgentConfigStore
@@ -49,6 +50,12 @@ class PluginPatchRequest(BaseModel):
     name: str | None = None
     description: str | None = None
     iconUrl: str | None = None
+
+
+class MarketInstallRequest(BaseModel):
+    """从插件市场安装的请求体：只需要索引里的插件 id。"""
+
+    id: str = Field(description="插件 id（market/index.json 里的 id）")
 
 
 class InstallFromUrlRequest(BaseModel):
@@ -174,6 +181,52 @@ def create_app(
         finally:
             tmp_path.unlink(missing_ok=True)
 
+    # ---------- 插件市场接口（市场索引 + sha256 校验安装） ----------
+
+    @app.get("/api/desktop/plugin-market")
+    def plugin_market(refresh: bool = False) -> dict:
+        """返回市场索引条目与本机已安装版本；取不到索引时返回 502。"""
+        installed = {plugin.id: plugin.version for plugin in manager.list_plugins()}
+        if not market.is_enabled():
+            return {"enabled": False, "source": "", "plugins": [], "installed": installed}
+        source = market.index_url()
+        try:
+            entries = market.fetch_index(source, refresh=refresh)
+        except market.MarketDownloadError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        except market.MarketError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {
+            "enabled": True,
+            "source": source,
+            "plugins": [entry.to_dict() for entry in entries],
+            "installed": installed,
+        }
+
+    @app.post("/api/desktop/plugin-market/install")
+    def install_from_market(req: MarketInstallRequest) -> dict:
+        """按索引安装插件：下载 → 校 sha256 → 校包内 manifest → 交给 PluginManager。"""
+        if not market.is_enabled():
+            raise HTTPException(400, "插件市场未启用")
+        try:
+            entries = market.fetch_index()
+        except market.MarketDownloadError as exc:
+            raise HTTPException(502, f"获取插件索引失败：{exc}") from exc
+        except market.MarketError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        entry = next((item for item in entries if item.id == req.id), None)
+        if entry is None:
+            raise HTTPException(404, f"市场里没有插件：{req.id}")
+        try:
+            plugin = market.install_entry(manager, entry)
+        except PluginExistsError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except market.MarketDownloadError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        except (market.MarketError, PluginError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"plugin": plugin.to_dict()}
+
     @app.post("/api/desktop/plugins/install-from-url")
     def install_from_url(req: InstallFromUrlRequest) -> dict:
         """从公网 URL 安装远程壳插件：自动抓取元数据并落盘，返回插件与可嵌入性预检。"""
@@ -250,6 +303,7 @@ def create_app(
             "pluginConfigDir": str(paths.plugin_config_dir()),
             "pluginLogFile": str(paths.plugin_log_file()),
             "devReload": dev_reload.is_enabled(),
+            "marketUrl": market.index_url() if market.is_enabled() else "",
         }
 
     # ---------- 子应用本地数据接口（plugin-data） ----------

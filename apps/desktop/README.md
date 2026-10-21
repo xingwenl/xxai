@@ -20,6 +20,10 @@ apps/desktop/
     server.py             # FastAPI 应用工厂（/api/desktop/* + /apps + 前端托管）
     plugin_data.py        # 子应用本地数据存储（plugin-data，JSON 文件原子写）
     dev_agent.py          # 本地 mock 智能体网关（DESKTOP_DEV_AGENT=1 时启用）
+    dev_reload.py         # 开发态插件目录指纹（DESKTOP_DEV_RELOAD=1 时启用）
+    market.py             # 插件市场：索引解析、下载、sha256 校验、交给 manager 安装
+    plugin_config.py      # 插件宿主配置存储（plugin-config，JSON 原子写）
+    plugin_log.py         # 插件生命周期事件日志（plugin.log，JSONL）
     agent_config.py       # 真实 AI Base 配置与短期 token 换发
     registry.py           # 插件扫描（内置 + 用户）
     manager.py            # 插件安装/卸载/启停与状态持久化
@@ -30,7 +34,9 @@ apps/desktop/
   assets/                 # 品牌资源（icon.png 源图 + 生成的 icns/ico）
   static/css/tailwind.css # 插件共享样式（编译产物）
   plugins/hello-world/    # 内置示例插件
-  scripts/                # make_plugin_zip.py、make_icons.py、build_css.mjs
+  market/index.json       # 插件市场索引（静态 JSON，随仓库分发）
+  market/packages/        # 上架包（示例包，下载地址指向本仓库 raw）
+  scripts/                # make_plugin_zip.py、plugin_market.py、make_icons.py、build_css.mjs
   build/desktop.spec      # PyInstaller 打包配置（onedir）
   build/build.py          # 跨平台打包脚本
   tests/                  # 服务层与插件体系测试
@@ -342,6 +348,71 @@ ai-sdk 的 HTTP 接口（附件上传、会话列表、资源下载）由宿主*
 - `permissions` 支持：`notify` / `settings` / `storage` / `tools` / `events` / `http` / `platform` / `log` / `dashboard`；未声明的能力被调用时抛「权限不足」。
 - zip 包结构：根为插件目录，或根下仅一个含 `manifest.json` 的目录（自动归一化）。
 
+### 插件市场（market/index.json + sha256）
+
+设置页的「插件市场」区块让用户不用管 zip：选一个插件点「安装」，宿主下载、校验、落盘一条龙。索引是一份静态 JSON，默认托管在本仓库：
+
+```text
+https://raw.githubusercontent.com/xingwenl/xxai/main/apps/desktop/market/index.json
+```
+
+- `DESKTOP_PLUGIN_MARKET_URL`：覆盖索引地址（https，本机开发也接受 `127.0.0.1` 的 http 与 `file://`，便于离线与 CI）。
+- `DESKTOP_PLUGIN_MARKET=0`（或 `false` / `no` / `off`）：整体关闭市场，设置页显示「市场已关闭」。
+- 索引 300 秒内存缓存，设置页「刷新」会带 `refresh=1` 强制重取。
+
+索引格式：
+
+```json
+{
+  "version": 1,
+  "plugins": [
+    {
+      "id": "hello-world",
+      "name": "你好世界",
+      "version": "0.1.0",
+      "description": "示例应用",
+      "download": "https://example.com/hello-world-0.1.0.zip",
+      "sha256": "64 位十六进制",
+      "size": 4104,
+      "permissions": ["notify", "settings"]
+    }
+  ]
+}
+```
+
+- `version` 目前只能是 `1`；`plugins` 最多 200 条，`id` 不可重复且须匹配插件 id 规则。
+- `download` 只接受 https（回环 http / file 仅用于开发）；`sha256` 必填且为 64 位小写十六进制。
+- `size`（可选）出现时宿主会额外校验包体字节数；`permissions`（可选）只用于展示与未知权限告警，真正的权限仍以包内 `manifest.json` 为准。
+
+安装链路（`POST /api/desktop/plugin-market/install`，请求体 `{"id": "..."}`）：
+
+1. 从索引取条目；2. 下载包（>20 MiB 拒绝）；3. 有 `size` 就校大小；4. 校 `sha256`；5. 读包内 `manifest.json` 并校 `id` / `version` 与索引一致；6. 交给既有安装流程（安全解压 + 目录归一化 + 冲突检测 + 原子落盘 + 事件日志）。
+
+错误语义：索引/包内容不合法或校验失败 → 400（`detail` 是中文原因）；下载或取索引失败 → 502；索引里没有该 id → 404；同名插件已安装 → 409。**校验失败不会落任何文件。**
+
+上架自己的插件：
+
+```bash
+# 1. 打包（会打印 sha256 / size 和可直接粘贴的索引条目）
+cd apps/desktop && .venv/bin/python scripts/make_plugin_zip.py
+
+# 2. 把 zip 放进 market/packages/，下载地址填本仓库 raw 地址
+#    https://raw.githubusercontent.com/xingwenl/xxai/main/apps/desktop/market/packages/<文件名>.zip
+
+# 3. 把条目追加到 market/index.json 并提交
+```
+
+也可以用 CLI 生成/校验条目（与宿主共用 `desktop_app/market.py`，校验口径完全一致）：
+
+```bash
+.venv/bin/python scripts/plugin_market.py list                 # 列出索引（--json / --refresh）
+.venv/bin/python scripts/plugin_market.py install hello-world  # 按 id 安装（等价于界面点「安装」）
+.venv/bin/python scripts/plugin_market.py entry dist/x.zip --download https://example.com/x.zip
+.venv/bin/python scripts/plugin_market.py verify dist/x.zip --sha256 <64 位十六进制>
+```
+
+> 内置插件随宿主分发（`plugins/`，不可卸载），因此从市场安装同名插件会返回 409；示例索引里的 `hello-world` 条目主要用于演示格式。
+
 ### 开发一个插件
 
 1. 在 `plugins/<id>/` 创建 `manifest.json` 与入口页面。
@@ -360,7 +431,7 @@ ai-sdk 的 HTTP 接口（附件上传、会话列表、资源下载）由宿主*
 </script>
 ```
 
-3. 启动应用后在设置页上传打包的 zip，或直接放入用户插件目录。
+3. 启动应用后在设置页上传打包的 zip、从「插件市场」安装，或直接放入用户插件目录。
 4. 需要用户可调参数时，在 `manifest.json` 声明 `settings[]`，插件页用 `desktop.settings.getConfig()` 读取、`onChanged` 订阅变更（示例见内置 `plugins/hello-world`）。
 5. 想在首页露数字时，声明 `dashboard` 权限并在 `desktop-ready` 后调 `dashboard.publish(...)`（同样见 `hello-world`；它把通知、存储、方法注册、宿主配置、概览卡五件事演示在一起）。
 
@@ -416,6 +487,7 @@ cd apps/ledger && node scripts/install-to-desktop.mjs   # 装到 ~/.desktop-app/
 - **首页没有「概览」区 / 概览卡不显示**：确认 manifest 声明了 `dashboard` 权限、`publish` 写在 `desktop-ready` 之后；卡片数据是内存态，插件重新挂载后要重新 `publish`；插件停用/卸载后卡片不再展示；`metrics` / `recent` 里空的条目会被丢弃，全空时只显示 `emptyText`。
 - **改完配置运行中的应用没反应**：插件页必须用 `desktop.settings.getConfig()` 读取、`desktop.settings.onChanged()` 订阅；旧的 `settings.get/set` 存在宿主 localStorage，与宿主配置是两套数据。
 - **插件白屏或显示「运行失败」**：看 `~/.desktop-app/plugin.log`（JSONL）：有 `iframe_load` 但无 `sdk_injected` 说明入口页没等到 SDK 或脚本报错，`sdk_inject_failed` 的 `detail` 带具体原因。
+- **插件市场报错 / 安装失败**：400 说明索引或包内容不合法（`detail` 是中文原因，例如 sha256 校验失败、包内 manifest id 与索引不一致、超过 20 MiB），此时不会落任何文件；502 说明索引或包下载失败（检查网络与 `DESKTOP_PLUGIN_MARKET_URL`）；409 说明同名插件已安装。设置页「刷新」可跳过 5 分钟索引缓存。
 - **开发时怎么打开控制台**：浏览器模式直接按 `Cmd+Option+I`；pywebview 窗口用 `DESKTOP_DEBUG=1` 启动后右键 → 检查元素。
 - **主题 / 星标重启后丢失**：确认以本仓库代码启动（已关闭 pywebview 隐私模式）；旧版本安装的应用不受影响。
 - **窗口无法启动**：pywebview 依赖系统 WebView，macOS 需 macOS 10.13+，Linux 需安装 GTK 与 WebKit2 相关库。

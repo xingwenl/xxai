@@ -45,6 +45,8 @@ export interface DesktopSettings {
   pluginLogFile: string
   /** 开发热重载是否开启（宿主以 DESKTOP_DEV_RELOAD=1 启动时为 true） */
   devReload: boolean
+  /** 插件市场索引地址；市场关闭时为空串 */
+  marketUrl: string
 }
 
 /** 插件树指纹：开发热重载靠比较 revision 判断「插件目录有没有变」。 */
@@ -97,6 +99,43 @@ export function getDesktopSettings(): Promise<DesktopSettings> {
 /** 取插件树指纹（开发热重载）；未开启时返回 enabled=false，不产生磁盘遍历。 */
 export function getPluginRevision(): Promise<PluginRevision> {
   return request('/api/desktop/plugin-revision')
+}
+
+/** 市场索引里的一条插件记录（与 apps/desktop/market/index.json 的字段一一对应）。 */
+export interface MarketEntry {
+  id: string
+  name: string
+  version: string
+  description: string
+  /** 插件包下载地址（https，本机开发可为回环 http / file） */
+  download: string
+  /** 插件包的 sha256（64 位十六进制），宿主下载后逐字节校验 */
+  sha256: string
+  /** 插件包字节数；索引里可选，出现时宿主会校大小 */
+  size: number | null
+  permissions: string[]
+}
+
+/** 市场列表：索引条目 + 本机已安装版本（id → version）。 */
+export interface PluginMarket {
+  enabled: boolean
+  source: string
+  plugins: MarketEntry[]
+  installed: Record<string, string>
+}
+
+/** 拉取市场索引；refresh=true 跳过宿主侧 5 分钟缓存。 */
+export function getPluginMarket(refresh = false): Promise<PluginMarket> {
+  return request(`/api/desktop/plugin-market${refresh ? '?refresh=1' : ''}`)
+}
+
+/** 按市场 id 安装插件：宿主负责下载、校 sha256 与包内 manifest，再交给安装流程。 */
+export function installMarketPlugin(id: string): Promise<{ plugin: Plugin }> {
+  return request('/api/desktop/plugin-market/install', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  })
 }
 
 /** 获取最近一次整理的书签快照；尚无快照时后端返回 404（调用方需区分处理）。 */

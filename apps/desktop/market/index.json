@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "plugins": [
+    {
+      "id": "hello-world",
+      "name": "你好世界",
+      "version": "0.1.0",
+      "description": "示例应用：演示宿主 SDK 的全部基础能力（通知 / 配置 / 存储 / 事件 / HTTP / 平台信息 / 日志 / 概览卡）",
+      "download": "https://raw.githubusercontent.com/xingwenl/xxai/main/apps/desktop/market/packages/hello-world-0.1.0.zip",
+      "sha256": "79fdaab9d61b4b3211c5ec480b83a0674965e912438937c21f85426ab37f15aa",
+      "size": 4104,
+      "permissions": [
+        "notify",
+        "settings",
+        "storage",
+        "events",
+        "http",
+        "platform",
+        "log",
+        "dashboard"
+      ]
+    }
+  ]
+}
