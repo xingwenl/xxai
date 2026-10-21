@@ -1,7 +1,7 @@
 ---
 source: script
 request: 2026-10-21-desktop-app-and-plugin-update
-ranAt: "2026-10-21 18:07:52 CST"
+ranAt: "2026-10-21 18:55:00 CST"
 exitCode: 0
 ---
 
@@ -35,7 +35,7 @@ exitCode: 0
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-362 passed, 1 warning in 2.32s
+362 passed, 1 warning in 2.49s
 结果：通过
 
 ### 插件升级端到端（临时 HOME + file:// 索引）
@@ -44,7 +44,7 @@ exitCode: 0
 plugin_upgrade_probe
 ```
 
-/var/folders/lr/0c65dm215n36_2_m8nt6fpnm0000gn/T/tmp.APW2yZY2Oc/plugin-market
+/var/folders/lr/0c65dm215n36_2_m8nt6fpnm0000gn/T/tmp.ZWFwHZwdTP/plugin-market
 ✓ 升级成功：版本/内容换新、数据与状态保留、旧版本备份、无临时残留
 ✓ 错误语义：同版本 400、未安装 404、坏包 400 且本机版本不变
 结果：通过
@@ -55,7 +55,7 @@ plugin_upgrade_probe
 # 主源指向不可达路径、镜像指向 file:// 清单，验证回退与下载校验
 ```
 
-/var/folders/lr/0c65dm215n36_2_m8nt6fpnm0000gn/T/tmp.APW2yZY2Oc/app-update
+/var/folders/lr/0c65dm215n36_2_m8nt6fpnm0000gn/T/tmp.ZWFwHZwdTP/app-update
 ✓ GET /api/desktop/app-update 走镜像回退拿到清单： 9.9.9
 ✓ 下载校验落盘、downloadedPath 回填、reveal 打开固定目录
 ✓ 坏 sha 返回 400 且不残留文件
@@ -72,8 +72,8 @@ make_release_probe
 ⚠ 清单文件还不存在，首次发版会创建
 ✓ 三处版本号一致：1.2.3
 ▶ 打包 WW → dist/releases/WW-1.2.3-macos-arm64.zip
-✓ 产物：/private/var/folders/lr/0c65dm215n36_2_m8nt6fpnm0000gn/T/tmp.APW2yZY2Oc/fakeproj/dist/releases/WW-1.2.3-macos-arm64.zip
-  sha256: 74efd8a72e9ca7459e5dc4ce3ea8dc56064797b202f45a2b08bfbf0fe9f2284c
+✓ 产物：/private/var/folders/lr/0c65dm215n36_2_m8nt6fpnm0000gn/T/tmp.ZWFwHZwdTP/fakeproj/dist/releases/WW-1.2.3-macos-arm64.zip
+  sha256: b8a9ccecc5417227d1605c3738f5d598cffeef3a7ba792b0d1113d540b6c8fce
   size:   136
 ✓ 清单已更新：releases/latest.json（latest=1.2.3）
 
@@ -84,6 +84,7 @@ make_release_probe
      可改用 --publish github|gitee|all 自动上传（令牌用 --set-github-token / --set-gitee-token 保存一次即可）
   3. 清单 url 指向 GitHub Release、mirrors 指向 Gitee 同 tag，推送 main 后宿主即可检查到 v1.2.3
 ✓ 打包出 WW-1.2.3-macos-arm64.zip，清单 sha256/size/url/mirrors 一致、可执行位保留
+✓ .app 用 ditto 打包，解压后目录符号链接仍在（双击不再无反应）
 ✓ 版本号漂移被 --check-only 拦截
 ✓ --bump patch 同步三处版本号与清单 latest
 ✓ --dry-run 只打印计划、不写文件
@@ -122,9 +123,9 @@ token_probe
 ( cd /Users/lixingwen/xw/study/ai-base/apps/desktop && /Users/lixingwen/xw/study/ai-base/apps/desktop/.venv/bin/python scripts/make_release.py --check-only )
 ```
 
-✓ 三处版本号一致：0.2.2
+✓ 三处版本号一致：0.2.3
 清单文件: releases/latest.json
-清单版本号: 0.2.2
+清单版本号: 0.2.3
 平台资产:   macos-arm64
 ✓ 清单校验通过
 结果：通过
@@ -150,7 +151,7 @@ manifest: apps/desktop/plugins/hello-world/manifest.json
 ```
 
 
-> desktop-front@0.2.2 build /Users/lixingwen/xw/study/ai-base/apps/desktop/front
+> desktop-front@0.2.3 build /Users/lixingwen/xw/study/ai-base/apps/desktop/front
 > vite build
 
 (!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
@@ -262,7 +263,7 @@ dist/assets/chunk-NGNAAXSQ-C2Wy9Xmz.js                  629.04 kB │ gzip: 127.
 dist/assets/echarts-CNcUJtm3.js                       1,124.20 kB │ gzip: 373.58 kB
 dist/assets/elk-QONTBCTQ-CKk4yOJ8.js                  1,462.89 kB │ gzip: 455.85 kB
 
-✓ built in 848ms
+✓ built in 1.13s
 [plugin builtin:vite-reporter] 
 (!) Some chunks are larger than 500 kB after minification. Consider:
 - Using dynamic import() to code-split the application

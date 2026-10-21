@@ -521,6 +521,10 @@ cd apps/desktop
 
 脚本会把清单里的 `url` 写成 GitHub Release 下载地址、`mirrors` 写成 Gitee 同 tag 地址；多平台发版时在每个平台各跑一次（默认只更新当前平台的条目，`--reset` 可清掉其他平台的旧条目）。推送 `main` 后宿主即可检查到新版本（raw 地址指向 main）。
 
+打包 .app 时脚本用 macOS 自带的 `ditto`：PyInstaller 的 `.app` 里用目录符号链接省体积（`Contents/Frameworks/python3.12 -> python3__dot__12`），用普通 zip 库逐文件写会把这些链接丢掉，用户解压后双击只会闪一下或完全没反应（启动日志里是 `ModuleNotFoundError: No module named '_struct'`）。另外 `build/build.py` 打包完会自动启动应用观察 3 秒做冒烟，进程立刻退出就打印启动日志并以非零码失败；没有图形会话的环境（CI）可用 `DESKTOP_SKIP_SMOKE=1` 跳过。自测发布包时建议「解压 → 双击」走一遍，或直接 `unzip -q WW-*.zip && ./WW.app/Contents/MacOS/WW` 看终端报错。
+
+> 用户侧排障：从浏览器下载的包首次打开可能被 Gatekeeper 拦成「无法验证开发者」，右键应用选「打开」一次即可；如果提示「已损坏」，先试 `xattr -dr com.apple.quarantine /Applications/WW.app`，仍然打不开再用最新脚本重打（多半是包里的符号链接丢了）。
+
 > 宿主侧只做「检查 → 下载 → 校验 sha256 → 引导手动安装」，不会自动替换自己；发布令牌只存在于发版机器上，绝不写进客户端。
 
 ### 开发一个插件

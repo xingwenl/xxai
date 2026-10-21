@@ -194,10 +194,30 @@ def find_bundle() -> tuple[Path, bool]:
 
 
 def zip_bundle(src: Path, out_path: Path) -> None:
-    """把 .app 或 onedir 目录打成 zip，保留可执行位，解压后顶层就是 WW.app / WW/。"""
+    """把 .app 或 onedir 目录打成 zip，解压后顶层就是 WW.app / WW/。
+
+    macOS 的 .app 里 PyInstaller 会用符号链接省体积（`Contents/Frameworks/python3.12 ->
+    python3__dot__12`、Frameworks 与 Resources 互相指向）。用 zipfile 逐文件写会**丢掉
+    目录符号链接**，解压后应用一启动就报 `ModuleNotFoundError: No module named '_struct'`
+    （双击表现为闪退或没反应）。所以 .app 一律交给 macOS 自带的 ditto，它能原样保留
+    符号链接与扩展属性；onedir（Windows/Linux）没有这类链接，继续用 zipfile。
+    """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if out_path.exists():
         out_path.unlink()
+    if src.name.endswith(".app"):
+        ditto = shutil.which("ditto")
+        if ditto is None:
+            _fail("打包 .app 需要 macOS 自带的 ditto 命令（用来保留包里的符号链接）")
+        result = subprocess.run(
+            [ditto, "-c", "-k", "--sequesterRsrc", "--keepParent", str(src), str(out_path)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip()
+            _fail(f"ditto 打包 .app 失败：{detail or result.returncode}")
+        return
     with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for path in sorted(src.rglob("*")):
             if path.is_dir():

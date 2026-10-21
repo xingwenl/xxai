@@ -550,6 +550,35 @@ PY
   local rc=$?
   [[ $rc -eq 0 ]] || return 1
 
+  # macOS .app：PyInstaller 的包里用目录符号链接（Frameworks/python3.12 -> python3__dot__12），
+  # 用 zipfile 逐文件写会把链接丢掉，解压后启动直接报 ModuleNotFoundError: No module named '_struct'。
+  # 这里造一个带目录符号链接的假 .app，验证脚本改用 ditto 打包后链接仍在。
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    local app="${proj}/dist/WW.app"
+    rm -rf "${app}" "${proj}/dist/WW"
+    mkdir -p "${app}/Contents/MacOS" "${app}/Contents/Frameworks/python3__dot__12/lib-dynload"
+    printf '#!/bin/sh\necho hi\n' > "${app}/Contents/MacOS/WW"
+    chmod +x "${app}/Contents/MacOS/WW"
+    printf 'placeholder\n' > "${app}/Contents/Frameworks/python3__dot__12/lib-dynload/_struct.cpython-312-darwin.so"
+    ln -s python3__dot__12 "${app}/Contents/Frameworks/python3.12"
+    "$PY" "${proj}/scripts/make_release.py" --notes "app 包" >"${PROBE_DIR}/app.out" 2>&1 || {
+      cat "${PROBE_DIR}/app.out"
+      return 1
+    }
+    local app_zip="${proj}/dist/releases/WW-1.2.3-macos-arm64.zip"
+    [[ -f "${app_zip}" ]] || { echo "✗ 未生成 .app 的 zip：${app_zip}"; return 1; }
+    rm -rf "${PROBE_DIR}/app-unzip"
+    mkdir -p "${PROBE_DIR}/app-unzip"
+    ( cd "${PROBE_DIR}/app-unzip" && unzip -q "${app_zip}" )
+    [[ -L "${PROBE_DIR}/app-unzip/WW.app/Contents/Frameworks/python3.12" ]] || {
+      echo "✗ .app 的 zip 丢了目录符号链接（解压后启动会报 _struct 缺失）"
+      return 1
+    }
+    echo "✓ .app 用 ditto 打包，解压后目录符号链接仍在（双击不再无反应）"
+  else
+    skip_step ".app 目录符号链接打包（ditto）" "非 macOS 平台"
+  fi
+
   # 版本漂移必须被拦截
   printf '{"name": "desktop-front", "version": "9.9.9"}\n' > "${proj}/front/package.json"
   if "$PY" "${proj}/scripts/make_release.py" --check-only >"${PROBE_DIR}/drift.out" 2>&1; then
@@ -600,8 +629,14 @@ PYEOF
   grep -q "改写三处版本号" "${PROBE_DIR}/dryrun.out" || { echo "✗ --dry-run 计划不完整"; return 1; }
   echo "✓ --dry-run 只打印计划、不写文件"
 
-  # 缺 token 时上传必须明确报错（不是静默成功）
-  if env -u GITHUB_TOKEN -u GH_TOKEN -u GITEE_TOKEN "$PY" "${proj}/scripts/make_release.py" --publish github >"${PROBE_DIR}/notoken.out" 2>&1; then
+  # 缺 token 时上传必须明确报错（不是静默成功）。
+  # 注意：必须隔离 HOME——发版机器上 ~/.desktop-app/release-tokens.json 可能存着真令牌，
+  # 否则这一步会真的往 --github-repo 指向的仓库建 Release（探针绝不允许碰真实远端）。
+  local nohome="${PROBE_DIR}/nohome"
+  rm -rf "$nohome"
+  mkdir -p "$nohome"
+  if env -u GITHUB_TOKEN -u GH_TOKEN -u GITEE_TOKEN HOME="$nohome" "$PY" "${proj}/scripts/make_release.py" \
+    --publish github --github-repo verify-probe/nonexistent >"${PROBE_DIR}/notoken.out" 2>&1; then
     echo "✗ 缺 token 时 --publish github 竟然成功"
     return 1
   fi

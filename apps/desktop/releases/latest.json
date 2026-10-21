@@ -1,8 +1,8 @@
 {
   "version": 1,
   "latest": "0.2.3",
-  "publishedAt": "2026-10-21T10:15:54Z",
-  "notes": "第一版",
+  "publishedAt": "2026-10-21T10:55:12Z",
+  "notes": "首个可运行版本：修复 macOS 安装包丢失符号链接导致双击无反应的问题",
   "releaseUrl": "https://github.com/xingwenl/xxai/releases/tag/desktop-v0.2.3",
   "platforms": {
     "macos-arm64": {
@@ -11,8 +11,8 @@
       "mirrors": [
         "https://gitee.com/xingwenl/xxai/releases/download/desktop-v0.2.3/WW-0.2.3-macos-arm64.zip"
       ],
-      "sha256": "78dc0ed8d1dd4f9e1ad716aead4a12bdc664b0f0f67e34803d590e783d3284ff",
-      "size": 24224538
+      "sha256": "e0dbcc1f3911c51b4eb9deb477367493bd9b0bb2302077b7d9f8e5da801d9c9b",
+      "size": 19480910
     }
   }
 }
