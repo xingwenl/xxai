@@ -5,5 +5,6 @@
 """
 
 from app.modules.tools.shop.data import order_query  # noqa: F401  导入即注册
+from app.modules.tools.shop.data import product_query  # noqa: F401  导入即注册
 from app.modules.tools.shop.data import store_ops_query  # noqa: F401  导入即注册
 from app.modules.tools.shop.ui import show_shop_list  # noqa: F401  导入即注册

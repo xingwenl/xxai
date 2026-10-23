@@ -71,6 +71,25 @@ ORDER_FIELDS = (
 # 订单商品条目白名单：避免 poster/upc 等无关或易膨胀字段进入上下文。
 ORDER_GOODS_FIELDS = ("product_name", "quantity", "price")
 
+# 总商品池字段白名单：字段名与 hua8 `product/lib/all-pool/list` 响应保持一致。
+# 主图 URL 可能很长，但仍保留——模型回答“长什么样”时需要它。
+PRODUCT_FIELDS = (
+    "spuId",
+    "libraryId",
+    "libraryName",
+    "name",
+    "mainImage",
+    "categoryName",
+    "price",
+    "stock",
+    "monthSales",
+    "updatedAt",
+)
+
+# 商品列表支持的排序字段（实测 hua8 只对月售与价格生效，其它值会被服务端忽略）。
+PRODUCT_SORT_KEYS = ("monthSales", "price")
+PRODUCT_SORT_DIRECTIONS = ("asc", "desc")
+
 # 店铺列表接口支持的筛选参数（与 hua8 `shop/platform/list` 入参一致，camelCase）。
 # 分页单独用 page/page_size，不在此列。
 SHOP_LIST_FILTER_KEYS = (
@@ -97,14 +116,31 @@ SHOP_LIST_FILTER_KEYS = (
 _SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 
 
+def _is_success_code(code: object, ok_codes: tuple[int, ...]) -> bool:
+    """按数值比较响应码：hua8 的 product 服务把 code 序列化成字符串 "0"。
+
+    不能直接用 `in`——`"0" != 0`，会把成功响应误判成错误。
+    """
+    try:
+        return int(code) in ok_codes
+    except (TypeError, ValueError):
+        return False
+
+
 async def _request(
     ctx: BusinessToolContext,
     *,
     path: str,
     params: dict | None = None,
     json_body: dict | None = None,
+    ok_codes: tuple[int, ...] = (200,),
 ) -> dict:
-    """带店铺 token 请求 hua8 并校验响应；错误按店铺系统原样透传。"""
+    """带店铺 token 请求 hua8 并校验响应；错误按店铺系统原样透传。
+
+    hua8 各服务的成功码不统一：shop/order 用 `code: 200`，product 用 `code: 0`
+    （且是字符串 "0"），因此成功码由调用方通过 ok_codes 指定，
+    避免把正常响应当成错误。
+    """
     settings = get_settings()
     if not settings.store_ops_base_url:
         raise BusinessToolError(
@@ -134,8 +170,12 @@ async def _request(
         body = response.json()
     except ValueError:
         body = None
-    msg = body.get("msg") if isinstance(body, dict) else None
-    if status != 200 or not isinstance(body, dict) or body.get("code") != 200:
+    msg = body.get("msg") or body.get("message") if isinstance(body, dict) else None
+    if (
+        status != 200
+        or not isinstance(body, dict)
+        or not _is_success_code(body.get("code"), ok_codes)
+    ):
         raise BusinessToolError(
             "store_ops_api_error",
             message=f"店铺系统接口返回错误（HTTP {status}）：{msg or '未知错误'}",
@@ -249,6 +289,54 @@ async def fetch_orders(
         if isinstance(goods, list):
             order["goods"] = _clean_items(goods, ORDER_GOODS_FIELDS)
         cleaned.append(order)
+    try:
+        total = int(data.get("total") or len(cleaned))
+    except (TypeError, ValueError):
+        total = len(cleaned)
+    return cleaned, total
+
+
+async def fetch_products(
+    ctx: BusinessToolContext,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    keyword: str | None = None,
+    sort_by: str = "monthSales",
+    sort_direction: str = "desc",
+) -> tuple[list[dict], int]:
+    """查询总商品池（product/lib/all-pool）商品，返回 (裁剪后的商品列表, 总数)。
+
+    hua8 该接口只支持 keyword 模糊搜索与排序（月售/价格），没有类目、库、价格
+    区间的服务端过滤——传其它参数会被静默忽略，因此这里也不暴露这些入参。
+    """
+    if sort_by not in PRODUCT_SORT_KEYS:
+        raise BusinessToolError(
+            "store_ops_invalid_sort",
+            message=f"不支持的排序字段：{sort_by}，可选 {'/'.join(PRODUCT_SORT_KEYS)}",
+        )
+    if sort_direction not in PRODUCT_SORT_DIRECTIONS:
+        raise BusinessToolError(
+            "store_ops_invalid_sort",
+            message=f"不支持的排序方向：{sort_direction}，可选 asc/desc",
+        )
+    params: dict[str, object] = {
+        "page": page,
+        "page_size": page_size,
+        "sortBy": sort_by,
+        "sortDirection": sort_direction,
+    }
+    if keyword:
+        params["keyword"] = keyword
+    body = await _request(
+        ctx,
+        path="/hua8-api/product/lib/all-pool/list",
+        params=params,
+        # product 服务成功码是 0（不是 shop/order 的 200）。
+        ok_codes=(0,),
+    )
+    data = body.get("data") or {}
+    cleaned = _clean_items(data.get("list") or [], PRODUCT_FIELDS)
     try:
         total = int(data.get("total") or len(cleaned))
     except (TypeError, ValueError):
