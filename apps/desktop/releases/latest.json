@@ -1,18 +1,18 @@
 {
   "version": 1,
-  "latest": "0.2.5",
-  "publishedAt": "2026-10-25T12:25:22Z",
-  "notes": "桌面主包 0.2.5：新增子应用资产存储（念记可粘贴/拖拽图片），并修复 macOS 打开外部链接卡 5 秒",
-  "releaseUrl": "https://github.com/xingwenl/xxai/releases/tag/desktop-v0.2.5",
+  "latest": "0.2.6",
+  "publishedAt": "2026-10-25T13:49:54Z",
+  "notes": "修复打包后 ai-sdk 助手不显示：内嵌服务正式/打包态固定监听 8765，避免页面来源不在 AI Base allowed_origins 里导致助手静默不挂载",
+  "releaseUrl": "https://github.com/xingwenl/xxai/releases/tag/desktop-v0.2.6",
   "platforms": {
     "macos-arm64": {
-      "name": "WW-0.2.5-macos-arm64.zip",
-      "url": "https://github.com/xingwenl/xxai/releases/download/desktop-v0.2.5/WW-0.2.5-macos-arm64.zip",
+      "name": "WW-0.2.6-macos-arm64.zip",
+      "url": "https://github.com/xingwenl/xxai/releases/download/desktop-v0.2.6/WW-0.2.6-macos-arm64.zip",
       "mirrors": [
-        "https://gitee.com/xingwenl/xxai/releases/download/desktop-v0.2.5/WW-0.2.5-macos-arm64.zip"
+        "https://gitee.com/xingwenl/xxai/releases/download/desktop-v0.2.6/WW-0.2.6-macos-arm64.zip"
       ],
-      "sha256": "0a82139fc986ea37c67c1b643f6834f793d07b9a80e5d33a627ab9f025b3af19",
-      "size": 19493656
+      "sha256": "2e3dbd5c76f0731d8a1fc776e099849b5b518b4e926a2693853131b7d7c15302",
+      "size": 19496400
     }
   }
 }
