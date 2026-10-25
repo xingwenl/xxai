@@ -26,18 +26,19 @@
     {
       "id": "note",
       "name": "念记",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "description": "笔记子应用：记录、阅读并按分类整理笔记，并向桌面助手提供 note_* 方法",
-      "download": "https://raw.githubusercontent.com/xingwenl/xxai/main/apps/desktop/market/packages/note-0.1.1.zip",
-      "sha256": "a05bcca720765aff5a3a2a95379c53315c621df7423bd1a63ccfa238693f231e",
-      "size": 129577,
+      "download": "https://raw.githubusercontent.com/xingwenl/xxai/main/apps/desktop/market/packages/note-0.1.2.zip",
+      "sha256": "a524508d0dfe91af696e149500755d2c1166e61fc3555519b759663f87dd12b5",
+      "size": 132089,
       "permissions": [
         "storage",
         "tools",
+        "assets",
         "notify"
       ],
       "mirrors": [
-        "https://gitee.com/xingwenl/xxai/raw/main/apps/desktop/market/packages/note-0.1.1.zip"
+        "https://gitee.com/xingwenl/xxai/raw/main/apps/desktop/market/packages/note-0.1.2.zip"
       ]
     }
   ]
