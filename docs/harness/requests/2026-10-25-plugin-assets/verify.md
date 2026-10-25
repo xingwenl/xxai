@@ -1,7 +1,7 @@
 ---
 source: script
 request: 2026-10-25-plugin-assets
-ranAt: "2026-10-25 20:20:54 CST"
+ranAt: "2026-10-25 20:27:57 CST"
 exitCode: 0
 ---
 
@@ -21,7 +21,7 @@ cd apps/desktop && .venv/bin/python -m pytest tests/test_plugin_assets.py tests/
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-75 passed, 1 warning in 0.86s
+75 passed, 1 warning in 0.71s
 结果：通过
 
 ### 后端风格检查（ruff check 改动文件）
@@ -48,7 +48,7 @@ cd apps/desktop/front && pnpm build
 ```
 
 
-> desktop-front@0.2.4 build /Users/lixingwen/xw/study/ai-base/apps/desktop/front
+> desktop-front@0.2.5 build /Users/lixingwen/xw/study/ai-base/apps/desktop/front
 > vite build
 
 (!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
@@ -160,12 +160,12 @@ dist/assets/index-CfqGubFf.js                           629.61 kB │ gzip: 206.
 dist/assets/echarts-BZiwUTvX.js                       1,124.20 kB │ gzip: 373.58 kB
 dist/assets/elk-QONTBCTQ-DjkxhK0O.js                  1,462.89 kB │ gzip: 455.85 kB
 
-✓ built in 748ms
 [plugin builtin:vite-reporter] 
 (!) Some chunks are larger than 500 kB after minification. Consider:
 - Using dynamic import() to code-split the application
 - Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
 - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 757ms
 结果：通过
 
 ### 念记构建（tsc --noEmit + vite build）
@@ -187,7 +187,7 @@ dist/index.html                   0.39 kB │ gzip:   0.27 kB
 dist/assets/index-2809qO6N.css   14.23 kB │ gzip:   4.00 kB
 dist/assets/index-CgOFOmuM.js   413.29 kB │ gzip: 128.08 kB
 
-✓ built in 98ms
+✓ built in 97ms
 结果：通过
 
 ### 产物与契约断言（manifest 权限、bundle 里的资产端点与提示语、tools.json 与两份 README）
@@ -259,7 +259,7 @@ dist/assets/index-CgOFOmuM.js   413.29 kB │ gzip: 128.08 kB
   fi
   
   echo "manifest/assets/bundle/文档 断言全部命中"
-  # 执行：bash /var/folders/lr/0c65dm215n36_2_m8nt6fpnm0000gn/T/tmp.zJDfTuAvlS/dist_probe.sh
+  # 执行：bash /var/folders/lr/0c65dm215n36_2_m8nt6fpnm0000gn/T/tmp.GyVjZd0oIj/dist_probe.sh
 ```
 
 manifest/assets/bundle/文档 断言全部命中
@@ -846,7 +846,7 @@ manifest/assets/bundle/文档 断言全部命中
   # 执行：node tools/harness/verify/2026-10-25-plugin-assets.browser.mjs
 ```
 
-宿主服务已就绪：WW 0.2.4（HOME=/var/folders/lr/0c65dm215n36_2_m8nt6fpnm0000gn/T/note-assets-probe-xYyAS7/home）
+宿主服务已就绪：WW 0.2.5（HOME=/var/folders/lr/0c65dm215n36_2_m8nt6fpnm0000gn/T/note-assets-probe-s5xsHW/home）
   ✓ 宿主把念记识别为已启用的子应用
   ✓ 念记 iframe 里能看到注入的 window.desktop
   ✓ iframe 里加载的是念记页面
