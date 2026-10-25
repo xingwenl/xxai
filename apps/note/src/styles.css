@@ -567,6 +567,110 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   transform: translateX(-50%);
 }
 
+/* ---------- 正文显示方式切换（编辑 / 预览） ---------- */
+.view-switch {
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 7px;
+  background: #f4f4ef;
+}
+.view-switch button {
+  padding: 4px 10px;
+  border-radius: 5px;
+  color: #9a9a94;
+  font-size: 10px;
+  letter-spacing: .2px;
+  transition: color .15s ease, background .15s ease;
+}
+.view-switch button:hover { color: #55564f; }
+.view-switch button.is-active {
+  background: #fff;
+  color: var(--green);
+  font-weight: 500;
+  box-shadow: 0 1px 2px rgb(41 70 59 / 12%);
+}
+
+/* ---------- Markdown 预览排版：衬线正文，标题沿用深绿 ---------- */
+.markdown-view {
+  color: #555650;
+  font-family: var(--serif);
+  font-size: 13.5px;
+  line-height: 2;
+  overflow-wrap: anywhere;
+}
+.markdown-view > :first-child { margin-top: 0; }
+.markdown-view > :last-child { margin-bottom: 0; }
+.markdown-view p { margin: 0 0 14px; }
+.markdown-view h1,
+.markdown-view h2,
+.markdown-view h3,
+.markdown-view h4,
+.markdown-view h5,
+.markdown-view h6 {
+  margin: 26px 0 12px;
+  color: #272824;
+  font-weight: 600;
+  letter-spacing: -.3px;
+  line-height: 1.45;
+}
+.markdown-view h1 { font-size: 22px; }
+.markdown-view h2 { font-size: 18px; }
+.markdown-view h3 { font-size: 15.5px; }
+.markdown-view h4,
+.markdown-view h5,
+.markdown-view h6 { color: #3a3c36; font-size: 14px; }
+.markdown-view strong { color: #33342f; font-weight: 600; }
+.markdown-view del { color: #9b9c95; }
+.markdown-view a { color: #3d6b58; text-decoration: underline; text-underline-offset: 2px; }
+.markdown-view a:hover { color: var(--green); }
+.markdown-view ul,
+.markdown-view ol { margin: 0 0 14px; padding-left: 20px; }
+.markdown-view li { margin: 2px 0; }
+.markdown-view li::marker { color: #b3b8ae; }
+.markdown-view blockquote {
+  margin: 18px 0;
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid #dbe3d6;
+  color: #6d776f;
+}
+.markdown-view blockquote p { margin: 6px 0; }
+.markdown-view code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #f2f2ed;
+  color: #4a5a4f;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.markdown-view pre {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  border: 1px solid #ecece5;
+  border-radius: 8px;
+  background: #f6f6f1;
+}
+.markdown-view pre code {
+  padding: 0;
+  background: transparent;
+  color: #40473f;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.markdown-view hr { margin: 22px 0; border: 0; border-top: 1px solid #e7e7e1; }
+.markdown-view table { width: 100%; margin: 0 0 16px; border-collapse: collapse; font-size: 12.5px; }
+.markdown-view th,
+.markdown-view td { padding: 6px 10px; border: 1px solid #e7e7e1; text-align: left; }
+.markdown-view th { background: #f6f6f1; color: #3a3c36; font-weight: 600; }
+.markdown-view input[type='checkbox'] { margin-right: 6px; accent-color: #4e6f5c; }
+/* GFM 任务列表本来就带复选框，再去掉列表圆点，否则「圆点 + 方框」重影 */
+.markdown-view li:has(> input[type='checkbox']) { list-style: none; }
+.markdown-view .md-image { color: #a1a19a; font-size: 12px; }
+.markdown-view .md-empty { color: #b9bab3; }
+/* 废纸篓里的只读预览复用同一套排版，但不再按源码换行 */
+.markdown-view.trash-preview { white-space: normal; font-size: 13.5px; }
+
 /* ---------- 响应式：980px 收窄列宽，760px 侧栏收为图标列 ---------- */
 @media (max-width: 980px) {
   .app-shell { grid-template-columns: 190px 310px minmax(400px, 1fr); }

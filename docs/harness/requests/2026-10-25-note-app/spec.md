@@ -59,6 +59,8 @@ approval:
 - `apps/note/src/lib/store.ts`：串行写队列 + `mutate` 读-改-写 + `useSyncExternalStore` 快照 + localStorage→宿主迁移（照 ledger 模式）。
 - `apps/note/src/lib/tools.ts`：`onHostAttach` 一次性注册 7 个方法，入参宽松解析，非法值抛中文错误。
 - 新增 `tools/harness/verify/2026-10-25-note-app.sh`：`pnpm --dir apps/note build`、dist 断言（manifest 字段、bundle 内含 7 个方法名）、`tools.json`↔README 方法表↔`tools.ts` 三处一致性、安装脚本探针（`--target` 临时目录 `--json`）、无头浏览器加载探针。
+- 新增 `tools/harness/verify/2026-10-25-note-markdown.browser.mjs`（verify 脚本第 7 步）：真实 Chrome + CDP 断言 Markdown 渲染结构、编辑/预览切换、废纸篓预览与 760px 无溢出，并留截图。
+- `apps/note/package.json`：新增 `react-markdown@^10` + `remark-gfm@^4`（与 `apps/front` 同版本）；`src/components/markdown-view.tsx` 用它们把正文渲染成 React 元素；`App.tsx` 增加「编辑 / 预览」切换（⌘E、`localStorage['note:editor-mode']`），废纸篓只读预览复用同一组件，图片降级为占位文本、外链 `noopener`。
 - `docs/CHANGELOG.md`：新增当日条目。
 
 ## 验收标准

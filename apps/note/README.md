@@ -5,9 +5,11 @@
 能直接落成条目并出现在界面上。
 
 - 技术栈：React 19 + TypeScript + Vite，无路由、无 UI 框架（样式是一份 `styles.css`）
+- Markdown 渲染：`react-markdown` + `remark-gfm`（与 `apps/front` 同版本，产出 React 元素，不用 `dangerouslySetInnerHTML`）
 - 数据：宿主 `storage`（落到磁盘 JSON 快照）；脱离宿主直接打开时回退浏览器 `localStorage`
 - 对外：注册 7 个 `note_*` 工具，写操作声明 `sideEffect: 'write'`，读操作 `'none'`
-- 正文：**纯文本 Markdown**，不是 HTML 富文本（`textarea` + 工具栏插入 Markdown 记号）
+- 正文：**纯文本 Markdown 存储**，界面提供「编辑 / 预览」两种视图：编辑态是 `textarea` +
+  工具栏插入记号，预览态用 `react-markdown` 渲染排版（⌘E / Ctrl+E 切换，选择记在 `localStorage`）
 
 ## 目录
 
@@ -20,6 +22,7 @@ apps/note
 └── src
     ├── main.tsx           入口
     ├── App.tsx            三栏界面（分类 / 列表 / 编辑器）
+    ├── components/markdown-view.tsx  react-markdown 渲染封装（图片降级为占位文本）
     ├── styles.css         设计语言（深绿 #29463b、衬线标题、米白底）
     ├── lib/desktop.ts     window.desktop 适配与就绪等待
     ├── lib/store.ts       数据仓库：串行写入队列 + 订阅 + localStorage→宿主迁移
@@ -70,6 +73,10 @@ node apps/note/scripts/install-to-desktop.mjs [--zip] [--target <目录>] [--jso
 - **废纸篓**：删除是**软删除**（列表默认不含），可恢复或彻底删除；彻底删除才会从 JSON 里移除。
 - **自动保存**：编辑器内容变更后自动落盘（串行写队列，读-改-写），不需要「保存」按钮；
   数据同时被界面与工具调用共享，任一侧修改都会立刻反映到另一侧。
+- **正文 Markdown 预览**：右栏顶部「编辑 / 预览」切换（⌘E / Ctrl+E，选择记在
+  `localStorage['note:editor-mode']`）。预览用 `react-markdown` + `remark-gfm` 渲染标题、列表、
+  引用、代码块、表格、删除线、任务列表；为不把阅读记录发给图床，图片降级成「图片：alt」占位文本，
+  外链一律 `target="_blank" rel="noopener"`。存储里始终只有 Markdown 源码，没有 HTML。
 
 980px 以下侧栏收窄，760px 以下收为图标列，保证窄窗口不横向溢出。
 

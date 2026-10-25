@@ -3,7 +3,8 @@
 #
 # 覆盖范围：apps/note（「念记」）能否作为 desktop iframe 插件独立构建、7 个 note_* 方法是否
 # 同时存在于契约文件 / README 方法表 / 构建产物三处、安装脚本能否把 dist 同步到插件目录且不
-# 动别的插件，以及数据模型的纯函数（空快照默认值、长度上限）是否可用。
+# 动别的插件、数据模型的纯函数（空快照默认值、长度上限）是否可用，以及正文是否真的按 Markdown
+# 渲染（无头 Chrome 打开构建产物逐条断言）。
 #
 # 退出码：0 全通过 / 1 有失败 / 3 有未执行项 / 2 脚本自身错误。
 #
@@ -18,6 +19,7 @@ FAIL=0
 UNEXECUTED=0
 LAST_STATUS=0
 PURE_PROBE_SKIPPED=0
+MARKDOWN_PROBE_SKIPPED=0
 PROBE_DIR="$(mktemp -d)"
 export PROBE_DIR
 trap 'rm -rf "$PROBE_DIR"' EXIT
@@ -396,14 +398,27 @@ if [[ $LAST_STATUS -eq 3 ]]; then
   PURE_PROBE_SKIPPED=1
 fi
 
+# 7. Markdown 预览：正文不是 textarea 里的源码，而是用 react-markdown 渲染出来的 DOM。
+#    这一步真起一个 vite preview 托管 dist，再用无头 Chrome（CDP）逐条断言渲染结果、
+#    编辑/预览切换、废纸篓预览与 760px 窄宽溢出，并留三张截图。
+verify_step_probe "Markdown 预览渲染（无头 Chrome + CDP：react-markdown 产物、编辑/预览切换、废纸篓、760px）" \
+  "tools/harness/verify/2026-10-25-note-markdown.browser.mjs" node
+if [[ $LAST_STATUS -eq 3 ]]; then
+  MARKDOWN_PROBE_SKIPPED=1
+fi
+
 echo "## 未执行项与原因"
 echo
 echo "- 真实桌面宿主点击安装（需 GUI，本机无自动化）：安装脚本只被验证到「能把 dist 同步到目标插件目录、--json 输出正确、不清理其他插件」；在 pywebview 窗口里打开「念记」卡片、新建/编辑/搜索/删除到废纸篓、重启应用后数据仍在 \`~/.desktop-app/plugin-data/note/note.json\`，都需要 macOS 图形会话与人工目视，脚本不能替代。"
 echo "- 全局助手真实模型调用（需后台 Embed Client/Agent 绑定与凭证）：7 个方法是否被真实模型选中、后台 HostToolPolicy 与 schema 指纹是否一致，取决于 AI Base 后台数据与本机凭证；脚本不伪造模型会话、也不写入后台策略（避免污染），只在第 3/4 步证明方法名确实进了产物与契约文件。"
-echo "- 760px 窄宽视觉检查（需人工/浏览器截图）：侧栏收成图标列、三栏不横向溢出、无控制台报错、无远程请求，属于视觉与运行时断言，脚本无法替代截图与目视。"
+echo "- 界面观感（需人工目视）：760px 下无横向溢出、预览态 DOM 结构、切换链路已由第 7 步无头 Chrome 断言并留下截图（\`/tmp/note-markdown-1280.png\`、\`note-markdown-760.png\`、\`note-markdown-trash.png\`）；但字体是否可用、留白与封面渐变的观感、真实点按手感仍需人在宿主窗口里看。"
 echo "- 宿主内 iframe 常驻与「不打开念记也能用方法」的最终体感：依赖宿主 \`tools\` 权限预挂载机制，本次不在本脚本里拉起桌面宿主（该链路已由 \`tools/harness/verify/2026-10-20-ledger-app.sh\` 用同一宿主机制覆盖）。"
+echo "- 宿主内 iframe 里的 Markdown 渲染：第 7 步在纯浏览器里验证了渲染链路，但 pywebview 窗口里 iframe 的字体回退、滚动与选区行为仍需在真实宿主里看。"
 if [[ $PURE_PROBE_SKIPPED -ne 0 ]]; then
   echo "- 纯函数自检：本机 node 不支持类型擦除（或 \`src/lib/types.ts\` 的导入形态无法被 node 直接解析），已跳过，未计入通过。"
+fi
+if [[ $MARKDOWN_PROBE_SKIPPED -ne 0 ]]; then
+  echo "- Markdown 预览渲染：本机没找到 Chrome（或 preview 服务起不来），第 7 步已跳过，未计入通过。"
 fi
 echo "- 平台：本机只有 macOS，未在 Windows / Linux 上执行。"
 UNEXECUTED=$((UNEXECUTED + 4))
@@ -412,6 +427,7 @@ echo
 echo "## 验收结论"
 echo
 echo "- 已由脚本证明：\`apps/note\` 能独立构建出合法 iframe 插件（\`manifest\` 的 id/name/version/type/entry/permissions 逐字段断言通过），\`dist\` 含 \`index.html\`/\`manifest.json\`/\`icon.svg\`/\`assets/*.js\`，7 个 \`note_*\` 方法名逐个在 bundle 中命中并打印了所在文件名；\`apps/note/tools.json\`、README 方法表与构建产物三方方法集合完全一致（不一致时会打印差异方法名）；安装脚本能把 \`dist/\` 同步到任意 \`--target\` 目录、\`--json\` 只输出 \`{installedTo, zip}\`、且不会清理 plugins 下的其他插件。"
+echo "- 已由第 7 步证明：正文用 react-markdown 渲染成真实 DOM（h2/h3/有序无序列表/引用/代码块/表格/加粗/删除线/任务列表逐项命中，源码记号 \`## \`、\`**\` 不再出现在渲染结果里），不产生 \`<img>\` 与 script/iframe（图片降级为占位文本、外链带 noopener），编辑/预览按钮与 ⌘E 都能切换并记住偏好，废纸篓只读预览同样渲染，760px 下无横向溢出。"
 echo "- 部分证明：数据模型的空快照默认值与长度上限由纯函数自检覆盖（node 类型擦除直跑，无新增依赖）；跨模式迁移、串行写队列等 store 行为不在本脚本内（依赖 \`window.desktop\`，见未执行项）。"
 echo "- 尚未证明：真实宿主窗口里的界面交互与视觉、真实模型是否选中方法、窄宽布局。因此只要存在未执行项，本脚本退出码为 3，不能视为已通过人工联调。"
 echo "- 剩余风险：\`note_*\` 方法名进 bundle 只能说明「页面会注册它们」，说明不了宿主侧后台策略与绑定是否就绪；真实模型对工具的选择受提示与模型版本影响，本脚本不覆盖模型绕开工具的分支。"

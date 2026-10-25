@@ -26,6 +26,7 @@ import {
 import type { NoteQuery, NoteListResult, CreateNoteInput, UpdateNoteInput } from './lib/store'
 import type { CategoryCount, Note, NoteView } from './lib/types'
 import { excerptOf, fallbackTitle, formatNoteDate, formatLongDate } from './lib/format'
+import { MarkdownView } from './components/markdown-view'
 
 /** 侧栏两个特殊视图：全部笔记与废纸篓；其余取值都是分类名。 */
 const ALL = '__all__'
@@ -40,6 +41,19 @@ const PLACEHOLDER_TITLE = fallbackTitle('', '')
 const isPlaceholderTitle = (title: string) => title === PLACEHOLDER_TITLE
 
 type SaveState = 'saved' | 'saving' | 'error'
+
+/** 正文显示方式：编辑（Markdown 源码）/ 预览（排版后的正文）。 */
+type EditorMode = 'edit' | 'preview'
+const EDITOR_MODE_KEY = 'note:editor-mode'
+
+/** 默认「预览」：笔记正文多是 Markdown，先看到排版；切到编辑后记住选择。 */
+function readEditorMode(): EditorMode {
+  try {
+    return window.localStorage.getItem(EDITOR_MODE_KEY) === 'edit' ? 'edit' : 'preview'
+  } catch {
+    return 'preview'
+  }
+}
 
 /** 内置分类各一组柔和渐变；封面不给用户传图，只靠分类确定性取色。 */
 const COVER_GRADIENTS: Record<string, string> = {
@@ -127,6 +141,7 @@ export default function App() {
   const [categoryDraft, setCategoryDraft] = useState('')
   const [categoryError, setCategoryError] = useState('')
   const [confirmPurge, setConfirmPurge] = useState(false)
+  const [mode, setMode] = useState<EditorMode>(readEditorMode)
 
   const titleRef = useRef<HTMLInputElement | null>(null)
   const contentRef = useRef<HTMLTextAreaElement | null>(null)
@@ -142,6 +157,36 @@ export default function App() {
     if (!activeId) return null
     return getNote(activeId) ?? data.notes.find((note) => note.id === activeId) ?? null
   }, [activeId, data])
+
+  /** 切换正文显示方式，并记住到 localStorage；隐私模式下存不了也不影响本次使用。 */
+  const changeMode = useCallback((next: EditorMode) => {
+    setMode(next)
+    try {
+      window.localStorage.setItem(EDITOR_MODE_KEY, next)
+    } catch {
+      // 忽略：只是记不住偏好，不影响编辑
+    }
+  }, [])
+
+  // ⌘/Ctrl+E 在「编辑 / 预览」之间切换：两种视图共用同一份正文，随时可以切回源码改。
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'e') return
+      if (!activeNote || isTrash) return
+      event.preventDefault()
+      setMode((current) => {
+        const next: EditorMode = current === 'edit' ? 'preview' : 'edit'
+        try {
+          window.localStorage.setItem(EDITOR_MODE_KEY, next)
+        } catch {
+          // 同上
+        }
+        return next
+      })
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [activeNote, isTrash])
 
   /** 分类下拉：内置 + 自定义分类，外加当前笔记可能存在的历史分类。 */
   const categoryNames = useMemo(() => {
@@ -216,12 +261,14 @@ export default function App() {
   }, [activeId, activeNote])
 
   // textarea 随内容长高，滚动交给编辑器容器，避免内层出现第二条滚动条。
+  // 预览态没有 textarea（contentRef 为空），这里直接跳过。
   useEffect(() => {
+    if (mode !== 'edit') return
     const element = contentRef.current
     if (!element) return
     element.style.height = 'auto'
     element.style.height = `${element.scrollHeight}px`
-  }, [activeId, contentDraft, isTrash])
+  }, [activeId, contentDraft, isTrash, mode])
 
   useEffect(() => () => {
     if (toastTimer.current !== null) window.clearTimeout(toastTimer.current)
@@ -280,7 +327,8 @@ export default function App() {
       if (isTrash) setView(ALL)
       setSearch('')
       setActiveId(note.id)
-      // 新建后直接聚焦标题，少点一次
+      // 新建的是一张白纸：直接进编辑态，标题先聚焦，少点一次
+      changeMode('edit')
       window.requestAnimationFrame(() => titleRef.current?.focus())
     } catch {
       showToast('新建失败，请稍后重试')
@@ -576,6 +624,26 @@ export default function App() {
                 <small>{saveState === 'saving' ? '保存中' : saveState === 'error' ? '保存失败' : '已保存'}</small>
               </div>
               <div className="editor-actions">
+                <div className="view-switch" role="group" aria-label="正文显示方式">
+                  <button
+                    type="button"
+                    className={mode === 'edit' ? 'is-active' : ''}
+                    aria-pressed={mode === 'edit'}
+                    title="编辑 Markdown 源码（⌘E）"
+                    onClick={() => changeMode('edit')}
+                  >
+                    编辑
+                  </button>
+                  <button
+                    type="button"
+                    className={mode === 'preview' ? 'is-active' : ''}
+                    aria-pressed={mode === 'preview'}
+                    title="预览排版后的正文（⌘E）"
+                    onClick={() => changeMode('preview')}
+                  >
+                    预览
+                  </button>
+                </div>
                 <div className="menu-wrap" ref={menuRef}>
                   <button
                     type="button"
@@ -638,38 +706,44 @@ export default function App() {
 
               <div className="cover" style={coverStyle(activeNote.category)} aria-hidden="true" />
 
-              <textarea
-                ref={contentRef}
-                className="content-input"
-                value={contentDraft}
-                placeholder="从这里开始书写。支持 Markdown 记号，工具栏可以把记号插到光标处。"
-                aria-label="笔记正文"
-                spellCheck={false}
-                onChange={(event) => handleContentChange(event.target.value)}
-              />
+              {mode === 'edit' ? (
+                <textarea
+                  ref={contentRef}
+                  className="content-input"
+                  value={contentDraft}
+                  placeholder="从这里开始书写。支持 Markdown 记号，工具栏可以把记号插到光标处。"
+                  aria-label="笔记正文"
+                  spellCheck={false}
+                  onChange={(event) => handleContentChange(event.target.value)}
+                />
+              ) : (
+                <MarkdownView content={contentDraft} />
+              )}
             </div>
 
-            <div className="toolbar" role="toolbar" aria-label="插入 Markdown 记号">
-              <button type="button" onClick={() => prefixLine('## ')} aria-label="插入二级标题">
-                <strong>H2</strong>
-              </button>
-              <button type="button" onClick={() => wrapSelection('**', '**', '加粗文字')} aria-label="插入加粗">
-                <strong>B</strong>
-              </button>
-              <button type="button" onClick={() => wrapSelection('*', '*', '斜体文字')} aria-label="插入斜体">
-                <i>I</i>
-              </button>
-              <span className="tool-divider" aria-hidden="true" />
-              <button type="button" onClick={() => wrapSelection('[', '](url)', '链接文字')} aria-label="插入链接">
-                <Icon name="link" />
-              </button>
-              <button type="button" onClick={() => prefixLine('- ')} aria-label="插入无序列表">
-                <span aria-hidden="true">–</span>
-              </button>
-              <button type="button" onClick={() => prefixLine('> ')} aria-label="插入引用">
-                <span aria-hidden="true">&gt;</span>
-              </button>
-            </div>
+            {mode === 'edit' ? (
+              <div className="toolbar" role="toolbar" aria-label="插入 Markdown 记号">
+                <button type="button" onClick={() => prefixLine('## ')} aria-label="插入二级标题">
+                  <strong>H2</strong>
+                </button>
+                <button type="button" onClick={() => wrapSelection('**', '**', '加粗文字')} aria-label="插入加粗">
+                  <strong>B</strong>
+                </button>
+                <button type="button" onClick={() => wrapSelection('*', '*', '斜体文字')} aria-label="插入斜体">
+                  <i>I</i>
+                </button>
+                <span className="tool-divider" aria-hidden="true" />
+                <button type="button" onClick={() => wrapSelection('[', '](url)', '链接文字')} aria-label="插入链接">
+                  <Icon name="link" />
+                </button>
+                <button type="button" onClick={() => prefixLine('- ')} aria-label="插入无序列表">
+                  <span aria-hidden="true">–</span>
+                </button>
+                <button type="button" onClick={() => prefixLine('> ')} aria-label="插入引用">
+                  <span aria-hidden="true">&gt;</span>
+                </button>
+              </div>
+            ) : null}
           </>
         ) : isTrash ? (
           <>
@@ -688,7 +762,11 @@ export default function App() {
                   <h2 className={`trash-title ${isPlaceholderTitle(activeNote.title) ? 'is-placeholder' : ''}`}>
                     {activeNote.title || PLACEHOLDER_TITLE}
                   </h2>
-                  <pre className="trash-preview">{activeNote.content || '这篇笔记没有正文。'}</pre>
+                  <MarkdownView
+                    content={activeNote.content}
+                    className="trash-preview"
+                    emptyText="这篇笔记没有正文。"
+                  />
                   <div className="trash-actions">
                     <button type="button" className="primary-btn" onClick={() => void handleRestore(activeNote.id)}>
                       恢复
