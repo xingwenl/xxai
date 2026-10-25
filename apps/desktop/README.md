@@ -398,6 +398,20 @@ https://raw.githubusercontent.com/xingwenl/xxai/main/apps/desktop/market/index.j
 
 上架 / 发布子应用（一条命令：确定性打包 + 更新索引 + 打印提交推送命令）：
 
+日常在仓库根目录用封装脚本最省事（改版本 → 构建 → 打包 → 更新索引 → 提交 → 推送 main 一条龙）：
+
+```bash
+pnpm publish:plugin note                # patch +1 后发布 note（apps/note）
+pnpm publish:plugin note --bump minor   # 升次版本
+pnpm publish:plugin note --version 0.3.0
+pnpm publish:plugin note --dry-run      # 只看会做什么，不落盘
+pnpm publish:plugin note --no-push      # 只本地提交，不推送
+```
+
+封装脚本在 `scripts/publish-plugin.mjs`，底层调用的仍是下面的 `make_plugin_release.py`（自动把 `dist` 摆成 `<id>/` 目录、校验构建产物版本、暂存区非空时拒绝发版）。发布推送后，已装旧版的机器在「设置 → 插件市场」点刷新即可看到「更新到 vX」。
+
+需要直接控制底层参数时：
+
 ```bash
 cd apps/desktop
 
@@ -496,6 +510,23 @@ cd apps/desktop
 ### 发布桌面版本（GitHub + Gitee）
 
 版本号有三处，必须先统一，`make_release.py --check-only` 会拦住漂移：`desktop_app/app_config.py` 的 `APP_VERSION`、`pyproject.toml` 的 `[project] version`、`front/package.json` 的 `version`。
+
+仓库根目录的封装脚本把「递增版本 → 构建 → 打包 → 写清单 → 提交打 tag → 上传 Release → 推送 main 和 tag」合成一条命令，上传目标按已保存的令牌自动选择：
+
+```bash
+pnpm publish:desktop                        # patch +1，构建 + 上传 + 推送全做
+pnpm publish:desktop --bump minor           # 升次版本
+pnpm publish:desktop --version 0.2.6 --notes "本次更新了什么"
+pnpm publish:desktop --dry-run              # 只预演
+pnpm publish:desktop --no-push              # 只本地提交打 tag，不推送
+pnpm publish:desktop --no-publish           # 不传 Release，只出包 + 提交
+pnpm publish:desktop --no-build             # 复用已有 dist 产物
+pnpm publish:desktop --check-only           # 只校验三处版本号与清单自洽
+```
+
+封装脚本在 `scripts/publish-desktop.mjs`；它只提交版本文件，且要求暂存区为空，避免把你的其他改动带进发版提交。如果 GitHub 在推送前就自动建了 tag，推送被拒时会自动 force 更新到本次提交。
+
+需要直接控制底层参数时：
 
 ```bash
 cd apps/desktop

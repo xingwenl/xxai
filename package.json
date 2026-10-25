@@ -10,6 +10,8 @@
     "dev:ledger": "pnpm --filter ledger-web dev",
     "build:ledger": "pnpm --filter ledger-web build",
     "dev:note": "pnpm --filter note-web dev",
-    "build:note": "pnpm --filter note-web build"
+    "build:note": "pnpm --filter note-web build",
+    "publish:desktop": "node scripts/publish-desktop.mjs",
+    "publish:plugin": "node scripts/publish-plugin.mjs"
   }
 }
