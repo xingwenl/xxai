@@ -8,6 +8,8 @@
     "dev:front": "pnpm --filter shadcn-admin dev",
     "dev:shop": "pnpm --filter shop-agent-web dev",
     "dev:ledger": "pnpm --filter ledger-web dev",
-    "build:ledger": "pnpm --filter ledger-web build"
+    "build:ledger": "pnpm --filter ledger-web build",
+    "dev:note": "pnpm --filter note-web dev",
+    "build:note": "pnpm --filter note-web build"
   }
 }

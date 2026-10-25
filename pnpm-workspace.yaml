@@ -4,3 +4,4 @@ packages:
   - 'apps/shop'
   - 'apps/desktop/front'
   - 'apps/ledger'
+  - 'apps/note'

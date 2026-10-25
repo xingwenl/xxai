@@ -1,0 +1,94 @@
+[
+  {
+    "name": "note_create_note",
+    "description": "记录一条新笔记。content 必填，为笔记正文，纯文本或 Markdown（不要传 HTML）；title 可选，省略时取正文首句自动生成；category 可选，缺省为「思考」，分类名不存在时会自动登记为新分类；tags 可选，字符串数组，最多 8 个。返回新增笔记的 note（含 id、title、category、tags、created_at）与当前分类列表 categories。",
+    "sideEffect": "write",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "content": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["content"]
+    }
+  },
+  {
+    "name": "note_list_notes",
+    "description": "按条件浏览笔记，结果按更新时间倒序。query 可选，会在标题、正文、标签中做不区分大小写的关键词匹配；category 可选，按分类名精确匹配；limit 可选，返回条数上限，缺省 20、最大 200。返回 items（列表项数组，每项含 id、title、category、excerpt 摘要、tags、created_at、updated_at）与 total（符合条件、未受 limit 限制的总数）。需要正文全文时再调用 note_get_note。",
+    "sideEffect": "none",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": { "type": "string" },
+        "category": { "type": "string" },
+        "limit": { "type": "number" }
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "note_get_note",
+    "description": "读取单条笔记的完整内容。id 必填，来自 note_list_notes 或 note_create_note 的返回。返回 note 对象，含 id、title、content 正文、category、tags、created_at、updated_at；id 不存在时报错「笔记不存在」。",
+    "sideEffect": "none",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" }
+      },
+      "required": ["id"]
+    }
+  },
+  {
+    "name": "note_update_note",
+    "description": "修改一条已有笔记，只更新显式传入的字段，其余保持不变。id 必填；title、content、category、tags 均可选，其中 tags 为整体替换（传空数组表示清空标签），category 传不存在的分类名会自动登记。返回更新后的 note。正文是纯文本 Markdown，不要把 HTML 写进 content。",
+    "sideEffect": "write",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "category": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id"]
+    }
+  },
+  {
+    "name": "note_set_category",
+    "description": "把一条笔记归类到指定分类。id 与 category 均必填；category 不在已有分类里时会自动登记为新分类再归类。返回更新后的 note 与最新 categories 列表。批量归类请逐条调用。",
+    "sideEffect": "write",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "category": { "type": "string" }
+      },
+      "required": ["id", "category"]
+    }
+  },
+  {
+    "name": "note_list_categories",
+    "description": "列出全部笔记分类及各自的笔记数量，按数量倒序。返回 categories（每项含 name、count，不含废纸篓中的笔记）与 total（分类个数），并提供 categories[].count 便于判断哪类笔记最多。归类前可先调用它确认分类名。",
+    "sideEffect": "none",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "name": "note_delete_note",
+    "description": "把一条笔记移入废纸篓（软删除，可在界面里恢复），不会物理删除数据。id 必填，记录不存在时报错「笔记不存在」。返回 { ok: true, id, deleted_at }。调用前请先用 note_list_notes 或 note_get_note 确认 id。",
+    "sideEffect": "write",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" }
+      },
+      "required": ["id"]
+    }
+  }
+]

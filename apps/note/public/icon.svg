@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40" role="img" aria-label="念记">
+  <!-- 深绿圆角底：与宿主应用卡片、设计稿的 #29463b 主色一致 -->
+  <rect width="40" height="40" rx="10" fill="#29463b"/>
+  <!-- 纸页：白描边 + 极淡白底，深色底上不靠纯白块抢眼 -->
+  <path d="M13 7.5h10.5L30 14v17.5a2 2 0 0 1-2 2H13a2 2 0 0 1-2-2v-22a2 2 0 0 1 2-2z"
+        fill="#ffffff" fill-opacity="0.10" stroke="#ffffff" stroke-width="1.6" stroke-linejoin="round"/>
+  <!-- 折角 -->
+  <path d="M23.5 7.5 30 14h-4.5a2 2 0 0 1-2-2V7.5z"
+        fill="#ffffff" fill-opacity="0.22" stroke="#ffffff" stroke-width="1.4" stroke-linejoin="round"/>
+  <!-- 白色笔记线条：三行，末行短一截，暗示「未写完的一页」 -->
+  <g stroke="#ffffff" stroke-width="1.8" stroke-linecap="round">
+    <path d="M15.5 19h11"/>
+    <path d="M15.5 23.5h11"/>
+    <path d="M15.5 28h6.5"/>
+  </g>
+</svg>
