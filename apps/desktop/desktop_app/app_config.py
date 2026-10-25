@@ -12,7 +12,7 @@ from pathlib import Path
 APP_NAME = "WW"
 
 # 应用版本（设置页「框架信息」、/api/health、macOS Info.plist 均使用）
-APP_VERSION = "0.2.4"
+APP_VERSION = "0.2.5"
 
 # macOS .app 的 bundle identifier（发布前建议替换为自己的域名反写）
 APP_BUNDLE_ID = "com.ww.desktop"
