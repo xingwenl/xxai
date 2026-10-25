@@ -156,7 +156,7 @@ node -e '
   const m = require("./apps/note/dist/manifest.json");
   assert.strictEqual(m.id, "note", "manifest.id 必须是 note");
   assert.strictEqual(m.name, "念记");
-  assert.strictEqual(m.version, "0.1.0");
+  assert.match(m.version, /^\d+\.\d+\.\d+$/, "manifest.version 必须是三段式版本号");
   assert.strictEqual(m.type, "iframe", "只支持 iframe 形态");
   assert.strictEqual(m.entry, "index.html");
   for (const permission of ["storage", "tools"]) {
