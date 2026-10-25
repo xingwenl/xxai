@@ -17,6 +17,7 @@ import {
   subscribeBridgeTools,
   toAgentTool,
 } from './tool-bridge';
+import { toast } from './toast';
 
 // SDK 的图表引擎解析顺序是「显式注入 → globalThis → 运行时 import(变量说明符)」。
 // 第三档在浏览器里必然失败：SDK 产物把说明符放在变量里（构建期 @vite-ignore），
@@ -96,6 +97,14 @@ export function mountAssistant(): Promise<void> {
         console.warn(
           '[assistant] 换发 AI Base token 失败，请检查设置页的智能体后端配置',
           err,
+        );
+        // 以前这里只打一行 warn：窗口里助手就是不出现，用户完全无从判断原因。
+        // 最常见的原因是页面 origin 不在该 Client 的 allowed_origins 里（端口被改成
+        // 随机端口、或用 localhost / 局域网 IP 打开），所以直接把后端原话抛给用户。
+        toast(
+          '桌面助手未连接',
+          `${err instanceof Error ? err.message : String(err)}｜请确认本窗口地址 ${window.location.origin} 已加入 AI Base 该客户端的允许来源`,
+          'error',
         );
         return;
       }

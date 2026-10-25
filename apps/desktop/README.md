@@ -157,8 +157,13 @@ DESKTOP_DEV_RELOAD=1 poetry run python -m desktop_app
 - 正式启动（不带 `DESKTOP_DEV_FRONT` 的 `poetry run python -m desktop_app`，加载 `front/dist`）。
 - 打包前（`poetry run python build/build.py`）。
 
-> 端口可用环境变量覆盖：`DESKTOP_API_PORT`（开发 API 端口，默认 8765，Vite 代理同步读取）；
+> 端口可用环境变量覆盖：`DESKTOP_API_PORT`（API 端口，默认 8765，开发态由 Vite 代理同步读取）；
 > Vite dev server 固定 8443。
+>
+> 正式启动与打包态也固定监听 8765（逻辑在 `desktop_app/api_port.py`）：AI Base 的 Embed Client
+> 按 `allowed_origins` 精确匹配页面来源，端口一旦漂到随机值，助手换 token 会被拒
+> （`401 origin is not allowed`）而静默不显示。只有 8765 已被别的进程占用时才退回系统随机端口，
+> 此时宿主日志会有告警、窗口内也会弹出「桌面助手未连接」——关掉占用端口的进程再重启即可恢复。
 
 ## 测试
 
@@ -333,7 +338,7 @@ window.desktop.dashboard.publish({
 3. 宿主设置页 →「智能体后端」填入 AI Base 地址、Client ID、Client Secret、Agent ID、允许的方法名 → 保存 →「测试连接」。secret 仅写入宿主进程的 `~/.desktop-app/agent.json`（0600），渲染层只拿短期 token。
 4. 助手连接流程：前端 `POST /api/desktop/agent-token`（带 `window.location.origin`）→ 宿主用保存的凭证调 AI Base `POST /api/v1/embed/tokens`（带 `host_tool_names`）→ 返回短期 token 与 ws 端点 → ai-sdk 连接；token 到期由 SDK 提前 30 秒经同一接口刷新。`GET /api/desktop/agent-config` 返回 `mode: "remote"`，且**不包含** secret。
 5. 一次性批量配置（推荐）：`python apps/desktop/scripts/configure_ai_base.py --client-id <id> --agent-id <id> --dry-run` 先看计划，再去掉 `--dry-run` 执行；脚本会把桌面来源并入 `allowed_origins`、按 `apps/ledger/tools.json` upsert 5 条策略并完成两处绑定（需要管理员账号）。
-6. 排障：`mode: "remote"` 但助手连不上时看宿主日志中 token 接口的 HTTP 错误；工具调用返回 `host_tool_not_registered` 说明 token 的 `host_tools` 为空（检查 Client 绑定 + `host_tool_names`），`Host tool registration rejected` 说明 schema 指纹不一致。
+6. 排障：`mode: "remote"` 但窗口里没有助手时，先看是否弹了「桌面助手未连接」提示——最常见原因是页面来源（`http://127.0.0.1:8765`）没加进该 Client 的 `allowed_origins`，或本机已有一个宿主占着 8765 导致本次用了随机端口；然后再看宿主日志中 token 接口的 HTTP 错误；工具调用返回 `host_tool_not_registered` 说明 token 的 `host_tools` 为空（检查 Client 绑定 + `host_tool_names`），`Host tool registration rejected` 说明 schema 指纹不一致。
 
 #### 附件上传与 HTTP 调用（同源转发）
 
