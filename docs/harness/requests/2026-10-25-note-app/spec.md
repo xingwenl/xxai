@@ -36,7 +36,7 @@ approval:
 
 - **在 `apps/desktop-note` 设计稿上直接改造**：Figma Make 工程含 `.figma/` 脚本与插件、Google Fonts/Unsplash 远程资源、无 manifest 与 tools.json，改造成本高于照骨架重建；设计稿只作视觉参照，原样保留不改。
 - **引入 Tailwind CSS v4 + shadcn/ui**：设计稿样式全是自定义语义类（`.app-shell`/`.note-card`/`.editor-body` 等），Tailwind 只增加依赖、构建插件与类名噪音；界面用一份独立 `styles.css`。
-- **保留 Google Fonts（DM Sans / Noto Serif SC）与 Unsplash 封面图**：桌面应用常在离线或内网环境，远程资源导致字体闪烁、封面空白；改用系统字体栈（`'Songti SC'`/`'Noto Serif SC'`/serif、`-apple-system`/`'PingFang SC'`）与本地 CSS 渐变封面色带。
+- **保留 Google Fonts（DM Sans / Noto Serif SC）与 Unsplash 封面图**：桌面应用常在离线或内网环境，远程资源导致字体闪烁、封面空白；改用系统字体栈（`'Songti SC'`/`'Noto Serif SC'`/serif、`-apple-system`/`'PingFang SC'`）与本地 CSS 分类色条（最终二轮调整为卡片顶部 6px 色条、编辑区不放色块）。
 - **contentEditable 富文本并存放 HTML**：需要 HTML 消毒、HTML↔纯文本互转、自定义撤销栈，工具入参 `content` 会变成 HTML 片段；改为纯文本 Markdown + `textarea`，工具栏只插入 Markdown 记号。
 - **把笔记存储或工具实现放进宿主 Python 侧**：业务逻辑与文件格式漏进宿主，后续每个子应用都要改宿主；沿用「数据在宿主通用能力、业务在子应用」的边界。
 - **把 ledger 的 `store/tools` 抽成公共 workspace 包复用**：两者各约 200 行且会各自演进，抽包新增一个包并耦合发布节奏；本轮复制后各自演进。

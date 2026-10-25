@@ -55,26 +55,24 @@ function readEditorMode(): EditorMode {
   }
 }
 
-/** 内置分类各一组柔和渐变；封面不给用户传图，只靠分类确定性取色。 */
-const COVER_GRADIENTS: Record<string, string> = {
-  思考: 'linear-gradient(135deg, #e8efe6 0%, #cfdfd2 100%)',
-  灵感: 'linear-gradient(135deg, #f1eae2 0%, #e3d5c8 100%)',
-  阅读: 'linear-gradient(135deg, #e8ecf2 0%, #d6dee9 100%)',
-  旅行: 'linear-gradient(135deg, #e9efe9 0%, #d6e4dc 100%)',
-  工作: 'linear-gradient(135deg, #e9e7d9 0%, #d8d5c3 100%)',
+/** 内置分类各一个柔和主色，只作卡片顶部 6px 色条，用来快速分辨分类。 */
+const CATEGORY_COLORS: Record<string, string> = {
+  思考: '#c7d8c9',
+  灵感: '#e3d3c4',
+  阅读: '#cbd6e3',
+  旅行: '#c9ded3',
+  工作: '#d5d1bc',
 }
 
-/** 分类 → 封面渐变：同一分类颜色恒定，自定义分类用名称哈希在色相环上取色。 */
-function coverStyle(category: string): CSSProperties {
-  const preset = COVER_GRADIENTS[category]
-  if (preset) return { backgroundImage: preset }
+/** 分类 → 色条颜色：内置分类恒定，自定义分类用名称哈希在色相环上取色。 */
+function accentStyle(category: string): CSSProperties {
+  const preset = CATEGORY_COLORS[category]
+  if (preset) return { backgroundColor: preset }
   let hue = 0
   for (let index = 0; index < category.length; index += 1) {
     hue = (hue * 31 + category.charCodeAt(index)) % 360
   }
-  return {
-    backgroundImage: `linear-gradient(135deg, hsl(${hue} 22% 91%) 0%, hsl(${(hue + 26) % 360} 20% 83%) 100%)`,
-  }
+  return { backgroundColor: `hsl(${hue} 24% 82%)` }
 }
 
 /** 设计稿同款线条图标（stroke-width 1.7 由 styles.css 统一控制）。 */
@@ -589,7 +587,7 @@ export default function App() {
                 aria-current={selected ? 'true' : undefined}
                 onClick={() => selectNote(note.id)}
               >
-                <span className="card-cover" style={coverStyle(note.category)} aria-hidden="true" />
+                <span className="card-cover" style={accentStyle(note.category)} aria-hidden="true" />
                 <span className="card-content">
                   <span className="card-meta">
                     <span className="card-tag">{note.category}</span>
@@ -703,8 +701,6 @@ export default function App() {
                   }
                 }}
               />
-
-              <div className="cover" style={coverStyle(activeNote.category)} aria-hidden="true" />
 
               {mode === 'edit' ? (
                 <textarea
