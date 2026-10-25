@@ -205,6 +205,7 @@ poetry run python build/build.py
 | 通知 | `notify` | `notify({title, body})` 或 `notify(title, body)`（宿主 toast） |
 | 设置 | `settings` | `settings.get(key, default?)` / `settings.set(key, value)`（**同步**，存宿主 localStorage）；`settings.getConfig()` / `settings.onChanged(handler)` 读取 manifest 声明的宿主配置（**只读**，见「插件宿主配置」） |
 | 存储 | `storage` | `storage.get(key, default?)` / `set(key, value)` / `delete(key)` / `keys()`（**全异步**，落 `~/.desktop-app/plugin-data/<pluginId>/<key>.json`） |
+| 资产 | `assets` | `assets.put(source, {mime?})` / `assets.list()` / `assets.delete(key)` / `assets.usage()`（图片等二进制落 `~/.desktop-app/plugin-assets/<pluginId>/`，单文件 2 MiB、单插件 64 MiB / 500 个，见「子应用资产（plugin-assets）」） |
 | 概览卡 | `dashboard` | `dashboard.publish(card)` / `dashboard.clear()`（把关键指标推到宿主首页「概览」区，见「首页概览卡」） |
 | 方法注册 | `tools` | `tools.register(defs, handlers)` / `tools.unregister(names)`（把子应用能力交给全局助手调用） |
 | 事件总线 | `events` | `events.on(event, handler)` / `events.emit(event, payload)`（宿主跨插件转发） |
@@ -297,6 +298,25 @@ window.desktop.dashboard.publish({
 
 接口只对已启用且 manifest 声明了 `storage` 的插件开放；`key` 需匹配 `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`。数据目录不随插件卸载自动清理，避免误删用户账本等真实数据。
 
+### 子应用资产（plugin-assets）
+
+`assets` 背后是宿主的二进制存储：图片落 `~/.desktop-app/plugin-assets/<pluginId>/`，正文里只留站内路径引用（`<img src>` 直接可渲染）。与 `storage` 的 256 KiB JSON 键值分家，是为了不让 1~3 MB 的截图按 base64 膨胀后撑爆配额，也避免每次自动保存都重写全部图片字节。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/desktop/plugin-assets/{plugin_id}` | 返回 `{"assets":[{"key","url","bytes","mime","createdAt"}], "usage":{"bytes","count","limitBytes","limitCount","limitFileBytes"}}` |
+| POST | `/api/desktop/plugin-assets/{plugin_id}` | body 为**原始字节**（不是 JSON，也不是 base64），`Content-Type` 须为 `image/png`/`jpeg`/`webp`/`gif`；返回 `{"asset":{...},"usage":{...},"created":bool}`，`created=false` 表示命中已有同内容资产（去重） |
+| GET | `/api/desktop/plugin-assets/{plugin_id}/{key}` | 返回原始字节，带 `Cache-Control: public, max-age=31536000, immutable` 与 `X-Content-Type-Options: nosniff` |
+| DELETE | `/api/desktop/plugin-assets/{plugin_id}/{key}` | 删除（幂等，204） |
+
+- key 由服务端按内容生成：`sha256(字节)[:16]` + 由 MIME 决定的扩展名，客户端不参与命名——因此没有路径穿越、没有重名、同图重复粘贴天然去重；key 与内容绑定，所以可以放心长缓存。
+- 类型白名单只有 `image/png` / `image/jpeg` / `image/webp` / `image/gif`，且**校验文件魔数**而不是只信 `Content-Type`：声明与实际不符返回 415；明确不收 svg（同源 svg 能携带脚本，打开即等于给宿主开 XSS 口子）。
+- 配额写死在存储层：单文件 2 MiB、单插件 64 MiB 与 500 个文件；超限返回 413，`detail` 给中文原因。正常路径应先在客户端把截图压到长边 ≤1600 的 WebP（约 200~400 KB），2 MiB 是「有人塞了张原图」的兜底。
+- 引用形式是站内绝对路径 `/api/desktop/plugin-assets/<pluginId>/<key>`，不要存 `http://127.0.0.1:8765/...`：换端口/换机器不会断链，也不把本地地址写进用户正文。`assets.list()` 返回的 `url` 已是可直接用的形式。
+- 读写权限不同：**写入/列表/删除**要求「插件已启用 且 manifest 声明 `assets`」，**读取**（GET）只要求插件已知——`<img src>` 无法自定义鉴权头，读也绑权限会让「停用插件 → 历史图片全 404」成为常态；代价是知道 key 的本地进程能读到图片（与 plugin-data 一致的信任模型）。
+- 孤儿回收责任在子应用，不在宿主：宿主只提供 `list` / `delete`，删笔记、清空废纸篓时由子应用按剩余正文引用回收。上传成功但正文插入失败会留一个孤儿文件，也由这条路径兜底。
+- 资产目录不随插件卸载自动清理（与 `plugin-data` 同口径）；本地 REST 无令牌鉴权（同 `plugin-data` 的现状）。
+
 ### 全局助手与子应用方法（ai-sdk）
 
 宿主壳层挂着一个全局 AI 助手（`front/src/lib/assistant.ts`，单例、ai-sdk 自带悬浮窗），整个宿主只有一份，**不随子应用打开/关闭重复创建**。子应用通过 `tools.register` 提供方法后，`front/src/lib/tool-bridge.ts` 把方法集合同步给助手；子应用关闭或卸载时自动注销。
@@ -349,7 +369,7 @@ ai-sdk 的 HTTP 接口（附件上传、会话列表、资源下载）由宿主*
   - `window`：打开一个新的原生窗口，窗口里仍是宿主壳（深链 `#/app/<id>`），SDK 与权限白名单不变；同一插件重复打开只会聚焦已有窗口。
   - `type=remote` 的插件在 `browser` / `window` 下打开它自己的 `url`，且**不会**注入宿主桥；写错的 `open_mode` 会回退为 `inline`（仅记录警告，不影响插件加载）。
 - `settings`（可选）：声明式宿主配置项，见上文「插件宿主配置（settings[]）」；`type=remote` 的插件不允许声明。
-- `permissions` 支持：`notify` / `settings` / `storage` / `tools` / `events` / `http` / `platform` / `log` / `dashboard`；未声明的能力被调用时抛「权限不足」。
+- `permissions` 支持：`notify` / `settings` / `storage` / `assets` / `tools` / `events` / `http` / `platform` / `log` / `dashboard`；未声明的能力被调用时抛「权限不足」。
 - zip 包结构：根为插件目录，或根下仅一个含 `manifest.json` 的目录（自动归一化）。
 
 ### 插件市场（market/index.json + sha256）
@@ -624,7 +644,8 @@ cd apps/ledger && node scripts/install-to-desktop.mjs   # 装到 ~/.desktop-app/
 
 - **启动后显示「宿主前端未构建」**：先执行 `pnpm --dir apps/desktop/front build` 生成 `front/dist`。
 - **打包后页面 404**：确认 `build/desktop.spec` 的 `datas` 包含 `(front/dist, "front_dist")`、`(static, "static")` 与 `(plugins, "plugins")`，且 `paths.py` 在打包模式下指向 `sys._MEIPASS` 对应目录。
-- **插件页报「权限不足」**：检查插件 `manifest.json` 的 `permissions` 是否声明了对应能力（notify/settings/storage/tools/events/http/platform/log）。
+- **插件页报「权限不足」**：检查插件 `manifest.json` 的 `permissions` 是否声明了对应能力（notify/settings/storage/assets/tools/events/http/platform/log）。
+- **粘贴图片不进去 / 正文图片 404**：先看子应用 `manifest.json` 的 `permissions` 里有没有 `assets`（没有时 `desktop.assets` 是 `denied('assets')`，一调就抛「权限不足」）；再确认宿主版本 ≥ 0.2.5（更低版本没有 plugin-assets 端点，上传会 404）。用到具体错误码时：415 是类型不在白名单（svg 被明确拒绝，也包含声明与魔数不符），413 是单文件 2 MiB 或单插件 64 MiB / 500 个配额用满，`detail` 都是中文原因；`assets.usage()` 可先看剩余额度。
 - **助手悬浮球不出现 / 子应用方法助手看不到**：先确认宿主能从 `GET /api/desktop/agent-config` 拿到 `enabled: true`（本地调试用 `DESKTOP_DEV_AGENT=1` 启动）；再确认子应用 manifest 声明了 `tools`（宿主启动时会静默预挂载这类子应用，无需点开）；若刚改过前端，需要重启桌面应用让新的 `front/dist` 生效。
 - **插件页拿不到 `window.desktop`**：插件必须在 `desktop-ready` 事件后再使用 SDK，参考上文示例写法。
 - **设置页没有「配置」按钮 / 保存配置报 400**：按钮只在插件声明了 `settings[]` 且 manifest 无错时出现，点击后在弹窗里改；400 会显示在弹窗底部且 `detail` 是中文原因（例如取值不在候选项、超出 min/max、键未声明），修正后重试即可，非法提交不会落盘、弹窗保持打开。

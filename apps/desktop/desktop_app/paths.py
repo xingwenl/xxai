@@ -54,6 +54,15 @@ def plugin_data_dir() -> Path:
     return user_data_dir() / "plugin-data"
 
 
+def plugin_assets_dir() -> Path:
+    """返回插件资产根目录（每个插件在其下拥有独立子目录，存放图片等二进制文件）。
+
+    与 plugin-data 分开：plugin-data 是「每键一个 JSON、单值 256 KiB」的小数据底座，
+    截图一张就 1~3 MB，混在一起既撑爆 JSON 上限也让人工排查分不清文件归属。
+    """
+    return user_data_dir() / "plugin-assets"
+
+
 def plugin_config_dir() -> Path:
     """返回宿主维护的插件配置根目录（每个插件一个 <id>.json）。
 

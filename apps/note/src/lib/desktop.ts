@@ -31,12 +31,45 @@ export interface DesktopTools {
   unregister?(names: string[]): Promise<void>
 }
 
+/**
+ * 插件资产：二进制（图片）独立于 plugin-data 落盘，key 由服务端按内容哈希生成。
+ * 只有 manifest.permissions 声明 `assets` 的插件才会拿到这份能力。
+ */
+export interface DesktopPluginAsset {
+  key: string
+  url: string
+  bytes: number
+  mime: string
+  createdAt: string
+}
+
+/** 单插件资产用量；上限由宿主编译期常量决定（单文件 2 MiB、总量 64 MiB / 500 个）。 */
+export interface DesktopAssetUsage {
+  bytes: number
+  count: number
+  limitBytes: number
+  limitCount: number
+  limitFileBytes: number
+}
+
+/** 宿主 assets 能力：上传 / 列表 / 删除 / 用量。 */
+export interface DesktopAssets {
+  put(
+    source: Blob | ArrayBuffer | Uint8Array,
+    options?: { mime?: string },
+  ): Promise<DesktopPluginAsset>
+  list(): Promise<DesktopPluginAsset[]>
+  delete(key: string): Promise<void>
+  usage(): Promise<DesktopAssetUsage>
+}
+
 /** 宿主注入的完整 SDK 形状（能力按 manifest.permissions 可能缺失）。 */
 export interface DesktopBridge {
   ready?: Promise<boolean | null>
   pluginId?: string
   storage?: DesktopStorage
   tools?: DesktopTools
+  assets?: DesktopAssets
   notify?(title: string, body?: string): void
 }
 
@@ -65,6 +98,30 @@ export function isStorageUsable(
     typeof bridge.storage.get === 'function' &&
     typeof bridge.storage.set === 'function'
   )
+}
+
+/**
+ * 判断图片资产能力是否可用：老宿主没有 assets、或方法不完整时按不可用处理。
+ * 调用方据此给出中文降级提示，而不是直接崩溃或静默丢弃粘贴的图片。
+ *
+ * 注意 try/catch：manifest 没声明 assets 时，宿主注入的是一访问属性就抛「权限不足」的
+ * 代理对象（不是 undefined），所以这里不能假设读属性是安全的。
+ */
+export function isAssetsUsable(
+  bridge: DesktopBridge | null,
+): bridge is DesktopBridge & { assets: DesktopAssets } {
+  if (!bridge) return false
+  try {
+    const assets = bridge.assets
+    return (
+      !!assets &&
+      typeof assets.put === 'function' &&
+      typeof assets.list === 'function' &&
+      typeof assets.delete === 'function'
+    )
+  } catch {
+    return false
+  }
 }
 
 /** 等 ready 信号，超时视为未就绪；老版本宿主没有 ready 时直接认为可用。 */

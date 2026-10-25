@@ -251,3 +251,11 @@ _Avoid_: 记忆所有者、账号、用户主体、principal 类型
 **端用户记忆（End-User Memory）**:
 归属嵌入终端用户而非后台用户的记忆。它由公开入口（`POST /embed/tokens`）签发的会话读写，按 Client 隔离——同一个 `external_user_id` 在两个 Client 下是两个人；不进管理台，只在会话内可查。
 _Avoid_: 访客记忆、匿名记忆、Client 记忆
+
+**插件资产（Plugin Asset）**:
+子应用托付给宿主保管的二进制文件（本轮只有 png/jpeg/webp/gif 位图），落 `~/.desktop-app/plugin-assets/<pluginId>/`，与 256 KiB 的 plugin-data 键值存储分家。正文里以站内路径 `/api/desktop/plugin-assets/<pluginId>/<key>` 引用，同源可直接给 `<img>`。
+_Avoid_: 插件文件、附件、图床、blob 存储、plugin-files
+
+**资产 key（Asset Key）**:
+插件资产的文件名，由宿主按内容生成：`sha256(内容)[:16]` + 由 MIME 决定的扩展名（如 `a1b2c3d4e5f60718.webp`）。客户端不参与命名，因此天然去重、无重名与路径穿越，也可放心长缓存。
+_Avoid_: 文件名、resource id、hash 路径

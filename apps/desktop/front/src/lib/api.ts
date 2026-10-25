@@ -83,12 +83,15 @@ export interface BookmarkSummary {
   groups: BookmarkGroup[]
 }
 
+/** 把后端错误体 {"detail": 中文} 转成中文 Error；所有 REST 客户端的统一错误出口。 */
+async function toApiError(resp: Response): Promise<Error> {
+  const body = await resp.json().catch(() => null)
+  return new Error((body && (body.detail || body.message)) || resp.statusText)
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(path, init)
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => null)
-    throw new Error((body && (body.detail || body.message)) || resp.statusText)
-  }
+  if (!resp.ok) throw await toApiError(resp)
   return resp.status === 204 ? (null as T) : resp.json()
 }
 
@@ -395,6 +398,82 @@ export function deletePluginData(pluginId: string, key: string): Promise<null> {
 
 export function listPluginDataKeys(pluginId: string): Promise<{ keys: string[] }> {
   return request(`/api/desktop/plugin-data/${encodeURIComponent(pluginId)}`)
+}
+
+// ── 插件资产（plugin-assets） ────────────────────────────────────────────────
+// 二进制文件由宿主落盘到 ~/.desktop-app/plugin-assets/<pluginId>/，与 plugin-data
+// （JSON 键值、单值 256 KiB）分家；key 由服务端按内容 sha256 生成，客户端不参与命名，
+// 因此同图重复上传天然去重，key 也可以放心长缓存。
+
+/** 一个插件资产（图片等位图）；key 由宿主按内容生成，同图重复上传得到同一个 key。 */
+export interface PluginAsset {
+  key: string
+  /** 站内绝对路径 /api/desktop/plugin-assets/<pluginId>/<key>，可直接放进 <img src> */
+  url: string
+  bytes: number
+  mime: string
+  createdAt: string
+}
+
+/** 该插件的资产用量与配额；上传前可先看剩余额度，避免撞 413。 */
+export interface PluginAssetUsage {
+  bytes: number
+  count: number
+  limitBytes: number
+  limitCount: number
+  limitFileBytes: number
+}
+
+function pluginAssetsPath(pluginId: string): string {
+  return `/api/desktop/plugin-assets/${encodeURIComponent(pluginId)}`
+}
+
+/** 拼资产站内路径；纯函数，不校验资产是否存在（用于正文引用与 <img src>）。 */
+export function pluginAssetUrl(pluginId: string, key: string): string {
+  return `${pluginAssetsPath(pluginId)}/${encodeURIComponent(key)}`
+}
+
+/**
+ * 列出插件已有资产与当前用量。
+ *
+ * 与「读单个资产文件」不同：列表、上传、删除都要求插件已启用且声明了 assets 权限（否则宿主 403）；
+ * 只有 GET 单文件那一条对「插件已知」放开，好让停用插件的历史笔记图片不 404。
+ */
+export function listPluginAssets(
+  pluginId: string,
+): Promise<{ assets: PluginAsset[]; usage: PluginAssetUsage }> {
+  return request(pluginAssetsPath(pluginId))
+}
+
+/**
+ * 上传原始字节（不是 JSON，也不做 base64）：Content-Type 必须是 png/jpeg/webp/gif，
+ * 否则宿主返回 415；超出单文件或插件配额返回 413，错因在中文 detail 里。
+ */
+export function uploadPluginAsset(
+  pluginId: string,
+  data: Blob | ArrayBuffer | Uint8Array,
+  mime?: string,
+): Promise<{ asset: PluginAsset; usage: PluginAssetUsage; created: boolean }> {
+  return request(pluginAssetsPath(pluginId), {
+    method: 'POST',
+    headers: { 'Content-Type': resolveAssetMime(data, mime) },
+    body: data as BodyInit,
+  })
+}
+
+/** 删除资产（幂等，204）：只删文件，不校验是否还有正文引用它。 */
+export function deletePluginAsset(pluginId: string, key: string): Promise<null> {
+  return request(pluginAssetUrl(pluginId, key), { method: 'DELETE' })
+}
+
+/**
+ * 决定上传用的 Content-Type：显式 mime > Blob 自带的 type > image/png。
+ * 用鸭子类型而不是 instanceof Blob —— 子应用 iframe 与宿主不是同一个 realm，
+ * 跨 realm 的 Blob 过不了宿主侧的原型判断（其 type 却是真实可读的）。
+ */
+function resolveAssetMime(data: Blob | ArrayBuffer | Uint8Array, mime?: string): string {
+  const blobType = typeof (data as Blob).type === 'string' ? (data as Blob).type : ''
+  return mime || blobType || 'image/png'
 }
 
 // ── 插件宿主配置（manifest.settings[]） ───────────────────────────────────────

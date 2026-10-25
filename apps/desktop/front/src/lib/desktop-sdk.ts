@@ -2,15 +2,20 @@
 // 契约与静态版一致：宿主在 iframe load 后注入并触发 desktop-ready 事件
 
 import {
+  deletePluginAsset,
   deletePluginData,
   getDesktopSettings,
   getPluginConfig,
   getPluginData,
   getPlugins,
+  listPluginAssets,
   listPluginDataKeys,
   proxyFetch,
   setPluginData,
+  uploadPluginAsset,
   type Plugin,
+  type PluginAsset,
+  type PluginAssetUsage,
 } from './api'
 import { registerPluginTools, unregisterPluginTools, type HostToolDefinition, type HostToolHandler } from './tool-bridge'
 import { clearDashboardCard, publishDashboardCard } from './dashboard-bridge'
@@ -42,6 +47,17 @@ export interface DesktopSdk {
     set(key: string, value: unknown): Promise<void>
     delete(key: string): Promise<void>
     keys(): Promise<string[]>
+  }
+  /** 插件资产：图片等二进制由宿主落盘（plugin-assets），key 由宿主按内容生成。 */
+  assets?: {
+    /** 上传原始字节，返回落盘后的资产（key / 同源 url / bytes / mime / createdAt）。 */
+    put(source: Blob | ArrayBuffer | Uint8Array, options?: { mime?: string }): Promise<PluginAsset>
+    /** 列出本插件已有资产（url 已是站内路径，可直接放进 <img src>）。 */
+    list(): Promise<PluginAsset[]>
+    /** 删除资产（幂等）；删除只删文件，不检查正文是否还在引用它。 */
+    delete(key: string): Promise<void>
+    /** 当前用量与配额（单文件 2 MiB、单插件 64 MiB / 500 个）。 */
+    usage(): Promise<PluginAssetUsage>
   }
   /** 向全局助手注册可调用方法（manifest.permissions 需声明 tools）。 */
   tools?: {
@@ -180,6 +196,29 @@ export function createPluginSdk(plugin: Plugin): DesktopSdk {
     }
   } else {
     sdk.storage = denied('storage')
+  }
+
+  if (perms.has('assets')) {
+    // 资产落 ~/.desktop-app/plugin-assets/<pluginId>/：与 plugin-data（JSON 键值、单值 256 KiB）
+    // 分家，图片直接存文件；key 由宿主按内容 sha256 生成，客户端拿不到命名权，
+    // 因此同图重复粘贴天然去重，key 也能当长缓存标识用（url 是站内绝对路径）。
+    sdk.assets = {
+      async put(source, options) {
+        const { asset } = await uploadPluginAsset(plugin.id, source, options?.mime)
+        return asset
+      },
+      async list() {
+        return (await listPluginAssets(plugin.id)).assets
+      },
+      async delete(key) {
+        await deletePluginAsset(plugin.id, key)
+      },
+      async usage() {
+        return (await listPluginAssets(plugin.id)).usage
+      },
+    }
+  } else {
+    sdk.assets = denied('assets')
   }
 
   if (perms.has('tools')) {

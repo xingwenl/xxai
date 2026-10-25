@@ -9,6 +9,7 @@
   "permissions": [
     "storage",
     "tools",
+    "assets",
     "notify"
   ]
 }

@@ -19,7 +19,8 @@ PLUGIN_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 KNOWN_PERMISSIONS = frozenset(
     # tools：允许子应用向全局助手注册可调用的方法（宿主工具桥）
     # dashboard：允许子应用往宿主首页「概览」区推送概览卡（dashboard_card）
-    {"notify", "settings", "storage", "events", "http", "platform", "log", "tools", "dashboard"}
+    # assets：允许子应用读写插件资产（图片等二进制落 ~/.desktop-app/plugin-assets/<id>/）
+    {"notify", "settings", "storage", "events", "http", "platform", "log", "tools", "dashboard", "assets"}
 )
 
 # 子应用默认打开方式：inline=宿主壳内展开、browser=系统浏览器、window=新的原生窗口

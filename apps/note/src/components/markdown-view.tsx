@@ -9,6 +9,7 @@
 import Markdown from 'react-markdown'
 import type { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { ASSET_PREFIX } from '../lib/image-asset'
 
 /** 插件数组放到组件外，避免每次渲染都创建新数组导致整棵 Markdown 重解析。 */
 const REMARK_PLUGINS = [remarkGfm]
@@ -22,8 +23,21 @@ const COMPONENTS: Components = {
       </a>
     )
   },
-  // 不加载任何远程图片：离线/内网下图片只会是空白格子，还会把阅读记录发给图床
-  img({ alt }) {
+  // 只渲染宿主内的本站资产图片；其余一律降级为占位文字：
+  // 离线/内网下远程图只会是空白格子，还会把阅读记录发给图床。
+  img({ src, alt }) {
+    const source = typeof src === 'string' ? src : ''
+    if (source.startsWith(ASSET_PREFIX)) {
+      return (
+        <img
+          className="md-img"
+          src={source}
+          alt={alt?.trim() || '图片'}
+          loading="lazy"
+          decoding="async"
+        />
+      )
+    }
     const label = alt?.trim() || '未命名'
     return (
       <span className="md-image" role="img" aria-label={`图片：${label}`}>

@@ -10,6 +10,8 @@
 - 对外：注册 7 个 `note_*` 工具，写操作声明 `sideEffect: 'write'`，读操作 `'none'`
 - 正文：**纯文本 Markdown 存储**，界面提供「编辑 / 预览」两种视图：编辑态是 `textarea` +
   工具栏插入记号，预览态用 `react-markdown` 渲染排版（⌘E / Ctrl+E 切换，选择记在 `localStorage`）
+- 图片：粘贴或拖进来即可，压缩后存进宿主的插件资产目录，正文里只留一行 Markdown 引用
+  （见「图片」一节；需要宿主 0.2.5 及以上）
 
 ## 目录
 
@@ -22,9 +24,10 @@ apps/note
 └── src
     ├── main.tsx           入口
     ├── App.tsx            三栏界面（分类 / 列表 / 编辑器）
-    ├── components/markdown-view.tsx  react-markdown 渲染封装（图片降级为占位文本）
+    ├── components/markdown-view.tsx  react-markdown 渲染封装（本站资产图片直接渲染，其余降级为占位文本）
     ├── styles.css         设计语言（深绿 #29463b、衬线标题、米白底）
     ├── lib/desktop.ts     window.desktop 适配与就绪等待
+    ├── lib/image-asset.ts 图片压缩、上传与孤儿资产回收（纯函数，可单测）
     ├── lib/store.ts       数据仓库：串行写入队列 + 订阅 + localStorage→宿主迁移
     ├── lib/tools.ts       note_* 工具注册
     ├── lib/format.ts      日期与摘要格式化
@@ -75,10 +78,36 @@ node apps/note/scripts/install-to-desktop.mjs [--zip] [--target <目录>] [--jso
   数据同时被界面与工具调用共享，任一侧修改都会立刻反映到另一侧。
 - **正文 Markdown 预览**：右栏顶部「编辑 / 预览」切换（⌘E / Ctrl+E，选择记在
   `localStorage['note:editor-mode']`）。预览用 `react-markdown` + `remark-gfm` 渲染标题、列表、
-  引用、代码块、表格、删除线、任务列表；为不把阅读记录发给图床，图片降级成「图片：alt」占位文本，
+  引用、代码块、表格、删除线、任务列表；正文里的图片若是**本站资产路径**就直接显示，
+  其余图片（远程 URL、data URI）仍降级成「图片：alt」占位文本，保证阅读记录不会被发给图床，
   外链一律 `target="_blank" rel="noopener"`。存储里始终只有 Markdown 源码，没有 HTML。
 
 980px 以下侧栏收窄，760px 以下收为图标列，保证窄窗口不横向溢出。
+
+## 图片
+
+图片不是附件系统，就是正文里的一行 Markdown：
+
+```markdown
+![图片](/api/desktop/plugin-assets/note/6f1e3c9a4b2d8e70.webp)
+```
+
+- **怎么进来**：编辑态下直接 **⌘V / Ctrl+V 粘贴**剪贴板里的图，或把图片文件**拖进正文区**
+  （拖入时正文区出现「松开即可插入图片」虚框）。
+- **压缩**：长边超过 1600px 等比缩小，编码成 WebP（质量 0.8，浏览器不支持时退回 JPEG）；
+  结果仍超过宿主单文件 2 MiB 上限就降到质量 0.6 再试一次，还超则提示裁剪后重试。
+  GIF（保动画）与不在 png / jpeg / webp / gif 白名单里的格式原样上传，由宿主校验魔数。
+- **入库**：逐张调宿主 `assets.put`，拿回 `{ key, url }` 后在**光标处**插入 Markdown；
+  上传期间右栏顶部显示「正在保存图片…」，同一时刻只处理一批，不会重复插入。
+- **失败提示**：宿主没有 `assets` 能力（老版本）、权限不足、超出单文件上限或插件配额，
+  都在右栏顶部用中文状态条提示，不会静默丢图。
+- **回收**：图片被「彻底删除」的笔记独占时才删。删除后拿**剩余所有笔记（含废纸篓）的正文**
+  与宿主资产列表比对，删掉没人引用的 key——软删进废纸篓的笔记，图还在。
+- **不进 JSON**：图片字节存宿主插件资产目录，`note.json` 里只有那一行引用，不占
+  plugin-data 的 256 KiB 上限。发给 AI 的 `note_*` 结果里图片是路径字符串，模型看不到像素。
+
+需要宿主 **0.2.5 及以上**（`assets` 能力与 `assets` 权限）。老版本里 manifest 声明了
+`assets` 也不会崩溃：检测不到能力时粘贴/拖拽直接给出升级提示，其余编辑功能照常。
 
 ## AI 方法
 
@@ -98,17 +127,19 @@ node apps/note/scripts/install-to-desktop.mjs [--zip] [--target <目录>] [--jso
 
 列表接口只返回 `excerpt` 摘要，需要正文全文时再调用 `note_get_note`——避免一次工具返回把
 几十条正文塞进上下文。默认分类为「思考、灵感、阅读、旅行、工作」，自定义分类追加到
-`categories` 尾部并去重。
+`categories` 尾部并去重。正文里的图片在工具返回中是资产路径，模型读不到图片像素。
 
 ## manifest 与权限
 
 ```json
 { "id": "note", "name": "念记", "type": "iframe", "entry": "index.html",
-  "permissions": ["storage", "tools", "notify"] }
+  "permissions": ["storage", "tools", "assets", "notify"] }
 ```
 
 - `storage`：读写宿主持久化数据（必需，缺了读写会被宿主拒绝）
 - `tools`：把 `note_*` 方法注册给全局助手（缺了助手看不到任何笔记能力）
+- `assets`：读写插件资产目录（正文图片的字节存这里；缺失时宿主不注入 `sdk.assets`，
+  粘贴 / 拖拽会提示升级宿主，其余功能不受影响）
 - `notify`：保存 / 删除成功后的轻提示（缺失时静默，不报错）
 
 构建时 `base: './'`，所有资源都是相对路径，宿主可以任意前缀托管（`/apps/note/`、`file://`
@@ -120,9 +151,10 @@ node apps/note/scripts/install-to-desktop.mjs [--zip] [--target <目录>] [--jso
 | --- | --- |
 | 桌面宿主 | `~/.desktop-app/plugin-data/note/note.json`（`storage` key `note`） |
 | 浏览器直接打开 | `localStorage['note:data']` |
+| 图片资产（桌面宿主） | `~/.desktop-app/plugin-assets/note/<16 位 key>.<png\|jpg\|webp\|gif>` |
 
 整份数据是**单个 JSON 快照**（宿主 plugin-data 的单值上限 256 KiB，超限写入会被宿主拒绝，
-因此正文有 20000 字符上限、标签最多 8 个）：
+因此正文有 20000 字符上限、标签最多 8 个；图片不在这份 JSON 里，走独立的资产目录）：
 
 ```json
 {

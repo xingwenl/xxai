@@ -309,12 +309,37 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   border-bottom: 1px solid #f0f0ec;
 }
 
+.editor-status { display: flex; align-items: center; gap: 12px; min-width: 0; }
+
 .save-state { display: flex; align-items: center; gap: 7px; color: #9a9a94; }
 .save-state small { font-size: 9px; letter-spacing: .2px; }
 .save-dot { width: 6px; height: 6px; border-radius: 50%; background: #698778; }
 .save-state.saving .save-dot { background: #c6a968; }
 .save-state.error .save-dot { background: #b9564d; }
 .save-state.error small { color: #b9564d; }
+
+/* 图片上传提示：和保存状态并排，互不覆盖；呼吸点提示「还在忙」 */
+.upload-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #8b9a90;
+  font-size: 9px;
+  letter-spacing: .2px;
+  white-space: nowrap;
+}
+.upload-hint::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #c6a968;
+  animation: upload-pulse 1.1s ease-in-out infinite;
+}
+@keyframes upload-pulse {
+  0%, 100% { opacity: .3; }
+  50% { opacity: 1; }
+}
 
 .readonly-badge { color: #a1a19a; font-size: 10px; letter-spacing: .5px; }
 
@@ -407,6 +432,24 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   color: #555650;
 }
 .content-input::placeholder { color: #b9bab3; }
+
+/* 正文容器：拖拽图片时的虚线高亮与「松开即可插入图片」浮层都落在这里 */
+.content-zone { position: relative; min-height: 300px; border-radius: 11px; }
+.content-zone.is-dragging .content-input { color: #8e9a90; }
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  border: 1.5px dashed #b9cbbb;
+  border-radius: 11px;
+  background: #eaf0e9d9;
+  color: #526d61;
+  font-size: 11px;
+  letter-spacing: .4px;
+  pointer-events: none;
+}
 
 .toolbar {
   position: absolute;
@@ -664,6 +707,16 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 /* GFM 任务列表本来就带复选框，再去掉列表圆点，否则「圆点 + 方框」重影 */
 .markdown-view li:has(> input[type='checkbox']) { list-style: none; }
 .markdown-view .md-image { color: #a1a19a; font-size: 12px; }
+/* 首页图片：只用宿主内的本站资产，绝不请求远程图；窄窗口里等比收缩不撑版心 */
+.markdown-view .md-img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 0 16px;
+  border: 1px solid #e7e7e1;
+  border-radius: 8px;
+  background: #f6f6f1;
+}
 .markdown-view .md-empty { color: #b9bab3; }
 /* 废纸篓里的只读预览复用同一套排版，但不再按源码换行 */
 .markdown-view.trash-preview { white-space: normal; font-size: 13.5px; }

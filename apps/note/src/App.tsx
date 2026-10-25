@@ -6,7 +6,11 @@
  * （不用 contentEditable），工具栏只负责在光标处插入 Markdown 记号。
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import type { CSSProperties } from 'react'
+import type {
+  CSSProperties,
+  ClipboardEvent as ReactClipboardEvent,
+  DragEvent as ReactDragEvent,
+} from 'react'
 import {
   subscribe,
   getData,
@@ -27,6 +31,8 @@ import type { NoteQuery, NoteListResult, CreateNoteInput, UpdateNoteInput } from
 import type { CategoryCount, Note, NoteView } from './lib/types'
 import { excerptOf, fallbackTitle, formatNoteDate, formatLongDate } from './lib/format'
 import { MarkdownView } from './components/markdown-view'
+import { readDesktopBridge, isAssetsUsable } from './lib/desktop'
+import { gcAssets, uploadImageFile } from './lib/image-asset'
 
 /** 侧栏两个特殊视图：全部笔记与废纸篓；其余取值都是分类名。 */
 const ALL = '__all__'
@@ -112,6 +118,14 @@ const ICON_PATHS = {
 
 type IconName = keyof typeof ICON_PATHS
 
+/**
+ * 拖进来的到底是不是文件：拖动选中的文字/链接时 dataTransfer 里没有 'Files'，
+ * 那种情况要保留浏览器默认行为（把文字拖进 textarea），只对文件启用落图交互。
+ */
+function isFileDrag(transfer: DataTransfer | null): boolean {
+  return !!transfer && Array.isArray(transfer.types) && transfer.types.includes('Files')
+}
+
 function Icon({ name }: { name: IconName }) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -140,6 +154,10 @@ export default function App() {
   const [categoryError, setCategoryError] = useState('')
   const [confirmPurge, setConfirmPurge] = useState(false)
   const [mode, setMode] = useState<EditorMode>(readEditorMode)
+  /** 图片上传中：只在保存状态点旁多一句提示，不覆盖自动保存的 saved/saving/error。 */
+  const [imageBusy, setImageBusy] = useState(false)
+  /** 拖拽悬停高亮：只在编辑态正文容器上生效。 */
+  const [dragActive, setDragActive] = useState(false)
 
   const titleRef = useRef<HTMLInputElement | null>(null)
   const contentRef = useRef<HTMLTextAreaElement | null>(null)
@@ -147,6 +165,13 @@ export default function App() {
   const saveTimer = useRef<number | null>(null)
   const toastTimer = useRef<number | null>(null)
   const pendingPatch = useRef<UpdateNoteInput | null>(null)
+  /** 上传是异步的，事件回调里必须读到「最新」的正文与当前笔记，闭包里的 state 会过期。 */
+  const contentDraftRef = useRef('')
+  const activeNoteRef = useRef<Note | null>(null)
+  /** 上传互斥：连按两次粘贴 / 拖入多批文件时只跑一条上传链。 */
+  const imageBusyRef = useRef(false)
+  /** dragenter/dragleave 会在子元素间反复触发，用计数避免浮层闪烁。 */
+  const dragDepth = useRef(0)
 
   const isTrash = view === TRASH
 
@@ -257,6 +282,14 @@ export default function App() {
     setTitleDraft(activeNote?.title ?? '')
     setContentDraft(activeNote?.content ?? '')
   }, [activeId, activeNote])
+
+  // 供异步图片上传回调读取最新值：上传期间用户仍可能继续打字或切换笔记。
+  useEffect(() => {
+    contentDraftRef.current = contentDraft
+  }, [contentDraft])
+  useEffect(() => {
+    activeNoteRef.current = activeNote
+  }, [activeNote])
 
   // textarea 随内容长高，滚动交给编辑器容器，避免内层出现第二条滚动条。
   // 预览态没有 textarea（contentRef 为空），这里直接跳过。
@@ -377,6 +410,22 @@ export default function App() {
     showToast('已恢复到笔记列表')
   }
 
+  /**
+   * 回收孤儿图片资产：拿「剩余所有笔记（含废纸篓）的正文」与宿主资产列表比对，
+   * 删掉已经没人引用的。彻底删除之后调用，不阻塞界面——回收失败不能挡住删除本身。
+   */
+  const reclaimImages = useCallback(() => {
+    const bridge = readDesktopBridge()
+    if (!isAssetsUsable(bridge)) return
+    const remaining = getData().notes.map((note) => note.content)
+    void gcAssets(bridge, remaining).then(
+      (removed) => {
+        if (removed > 0) console.info(`[note] 已回收 ${removed} 个未被引用的图片资产`)
+      },
+      (error) => console.warn('[note] 回收图片资产失败', error),
+    )
+  }, [])
+
   const handlePurge = async (id: string) => {
     // 彻底删除不可撤销，第一次点击只进入确认态
     if (!confirmPurge) {
@@ -387,6 +436,8 @@ export default function App() {
     setConfirmPurge(false)
     setActiveId(null)
     showToast('笔记已彻底删除')
+    // 笔记已经不在 JSON 里了，它引用的图片这时才真正成为孤儿
+    reclaimImages()
   }
 
   const submitCategory = async () => {
@@ -447,6 +498,126 @@ export default function App() {
       element.focus()
       element.setSelectionRange(start + prefix.length, end + prefix.length)
     })
+  }
+
+  /** 在光标处插入 Markdown 片段；上传是异步的，插入时再读 textarea 的实时选区。 */
+  const insertImageMarkdown = useCallback((block: string, noteId: string) => {
+    const element = contentRef.current
+    const current = contentDraftRef.current
+    const start = Math.min(element?.selectionStart ?? current.length, current.length)
+    const end = Math.min(element?.selectionEnd ?? start, current.length)
+    const next = `${current.slice(0, start)}${block}${current.slice(end)}`
+    contentDraftRef.current = next
+    setContentDraft(next)
+    scheduleSave({ id: noteId, content: next })
+    // 光标落到片段末尾，接着打字不会跑到图片前面去
+    const caret = start + block.length
+    window.requestAnimationFrame(() => {
+      const target = contentRef.current
+      if (!target) return
+      target.focus()
+      target.setSelectionRange(caret, caret)
+    })
+  }, [scheduleSave])
+
+  /**
+   * 图片入库的唯一入口（粘贴与拖拽共用）：逐张压缩上传，按原始顺序拼成一段插入正文。
+   * 上传期间 busy 标志挡住重复触发；失败与老宿主都走状态条提示，不弹窗。
+   */
+  const handleImageFiles = useCallback(async (files: File[]) => {
+    const note = activeNoteRef.current
+    if (!note) return
+    const images = files.filter((file) => (file.type || '').startsWith('image/'))
+    if (images.length === 0) return
+    if (imageBusyRef.current) {
+      showToast('图片正在上传，请稍候')
+      return
+    }
+
+    const bridge = readDesktopBridge()
+    if (!isAssetsUsable(bridge)) {
+      showToast('当前桌面端不支持图片，请升级到 0.2.5 及以上版本')
+      return
+    }
+
+    const noteId = note.id
+    imageBusyRef.current = true
+    setImageBusy(true)
+    const fragments: string[] = []
+    let failure = ''
+    try {
+      for (const file of images) {
+        try {
+          fragments.push(await uploadImageFile(file, bridge))
+        } catch (error) {
+          failure = error instanceof Error ? error.message : '图片处理失败，请稍后重试'
+        }
+      }
+    } finally {
+      imageBusyRef.current = false
+      setImageBusy(false)
+    }
+
+    if (fragments.length > 0) {
+      if (activeNoteRef.current?.id === noteId) {
+        insertImageMarkdown(fragments.join('\n\n'), noteId)
+      } else {
+        // 上传期间切走了笔记：宁可不插，也不要把图塞进别人的正文
+        failure = '笔记已切换，图片没有插入'
+      }
+    }
+
+    if (failure) showToast(failure)
+    else if (fragments.length > 0) {
+      showToast(fragments.length > 1 ? `已插入 ${fragments.length} 张图片` : '已插入图片')
+    }
+  }, [insertImageMarkdown, showToast])
+
+  /** 粘贴图片：拦掉浏览器「插入文件名」的默认行为，取第一张走资产上传。 */
+  const handleContentPaste = (event: ReactClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(event.clipboardData?.files ?? [])
+    const images = files.filter((file) => (file.type || '').startsWith('image/'))
+    if (images.length === 0) return
+    event.preventDefault()
+    void handleImageFiles([images[0]])
+  }
+
+  const handleDragEnter = (event: ReactDragEvent<HTMLDivElement>) => {
+    if (!isFileDrag(event.dataTransfer)) return
+    event.preventDefault()
+    dragDepth.current += 1
+    setDragActive(true)
+  }
+
+  const handleDragOver = (event: ReactDragEvent<HTMLDivElement>) => {
+    if (!isFileDrag(event.dataTransfer)) return
+    // 不 preventDefault 浏览器就不允许 drop，textarea 还会把文件路径当文本插进来
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+    setDragActive(true)
+  }
+
+  const handleDragLeave = () => {
+    // dragleave 时 types 已经可能清空了，这里不能再拿 isFileDrag 判，否则计数停在 1、浮层不消失
+    if (dragDepth.current === 0) return
+    dragDepth.current = Math.max(0, dragDepth.current - 1)
+    if (dragDepth.current === 0) setDragActive(false)
+  }
+
+  const handleDrop = (event: ReactDragEvent<HTMLDivElement>) => {
+    dragDepth.current = 0
+    setDragActive(false)
+    const files = Array.from(event.dataTransfer?.files ?? [])
+    // 拖进来的不是文件（选中的文字等）就交还给浏览器默认行为
+    if (files.length === 0) return
+    // 文件必须 preventDefault，否则 textarea 会把「file:///…」当文本插进正文
+    event.preventDefault()
+    const images = files.filter((file) => (file.type || '').startsWith('image/'))
+    if (images.length === 0) {
+      showToast('正文里只能插入图片')
+      return
+    }
+    void handleImageFiles(images)
   }
 
   const listTitle = isTrash ? '废纸篓' : view === ALL ? '全部笔记' : view
@@ -617,9 +788,12 @@ export default function App() {
         {!isTrash && activeNote ? (
           <>
             <header className="editor-top">
-              <div className={`save-state ${saveState}`}>
-                <span className="save-dot" aria-hidden="true" />
-                <small>{saveState === 'saving' ? '保存中' : saveState === 'error' ? '保存失败' : '已保存'}</small>
+              <div className="editor-status">
+                <div className={`save-state ${saveState}`}>
+                  <span className="save-dot" aria-hidden="true" />
+                  <small>{saveState === 'saving' ? '保存中' : saveState === 'error' ? '保存失败' : '已保存'}</small>
+                </div>
+                {imageBusy && <span className="upload-hint" role="status">正在保存图片…</span>}
               </div>
               <div className="editor-actions">
                 <div className="view-switch" role="group" aria-label="正文显示方式">
@@ -703,15 +877,25 @@ export default function App() {
               />
 
               {mode === 'edit' ? (
-                <textarea
-                  ref={contentRef}
-                  className="content-input"
-                  value={contentDraft}
-                  placeholder="从这里开始书写。支持 Markdown 记号，工具栏可以把记号插到光标处。"
-                  aria-label="笔记正文"
-                  spellCheck={false}
-                  onChange={(event) => handleContentChange(event.target.value)}
-                />
+                <div
+                  className={`content-zone ${dragActive ? 'is-dragging' : ''}`}
+                  onDragEnter={handleDragEnter}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
+                  <textarea
+                    ref={contentRef}
+                    className="content-input"
+                    value={contentDraft}
+                    placeholder="从这里开始书写。支持 Markdown 记号，工具栏可以把记号插到光标处；图片可直接粘贴或拖进来。"
+                    aria-label="笔记正文"
+                    spellCheck={false}
+                    onChange={(event) => handleContentChange(event.target.value)}
+                    onPaste={handleContentPaste}
+                  />
+                  {dragActive && <div className="drop-overlay">松开即可插入图片</div>}
+                </div>
               ) : (
                 <MarkdownView content={contentDraft} />
               )}

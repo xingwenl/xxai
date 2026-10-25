@@ -29,6 +29,15 @@ from desktop_app.agent_config import AgentBackendConfig, AgentConfigError, Agent
 from desktop_app.app_config import APP_NAME, APP_VERSION
 from desktop_app.bookmarks import MAX_BOOKMARKS_PER_REPORT, BookmarkItem
 from desktop_app.manager import PluginError, PluginExistsError, PluginManager, PluginNotFoundError
+from desktop_app.plugin_assets import (
+    MAX_FILE_BYTES as MAX_ASSET_FILE_BYTES,
+    AssetQuotaExceeded,
+    AssetTooLarge,
+    InvalidPluginAssetKey,
+    PluginAssetError,
+    PluginAssetStore,
+    UnsupportedAssetType,
+)
 from desktop_app.plugin_config import PluginConfigError, PluginConfigStore, merge_defaults, validate_values
 from desktop_app.plugin_data import MAX_VALUE_BYTES, PluginDataError, PluginDataStore, PluginDataTooLarge
 from desktop_app.registry import PluginInfo
@@ -114,6 +123,7 @@ def create_app(
     agent_config_store: AgentConfigStore | None = None,
     agent_token_issuer: Callable[[AgentConfigStore, str], dict] | None = None,
     plugin_config: PluginConfigStore | None = None,
+    plugin_assets: PluginAssetStore | None = None,
 ) -> FastAPI:
     """构建内嵌 FastAPI 应用。
 
@@ -124,10 +134,12 @@ def create_app(
     - agent_config_store：AI Base 后端配置存储（默认 ~/.desktop-app/agent.json）
     - agent_token_issuer：换 token 的可注入实现（默认走真实 AI Base；测试用它打桩）
     - plugin_config：插件宿主配置存储（默认用户数据目录；事件日志复用 manager.log）
+    - plugin_assets：插件资产（图片等二进制）存储（默认 ~/.desktop-app/plugin-assets）
     """
     manager = manager or PluginManager()
     snapshot_path = bookmarks_snapshot_path or bookmarks.snapshot_path()
     data_store = plugin_data or PluginDataStore()
+    asset_store = plugin_assets or PluginAssetStore()
     config_store = agent_config_store or AgentConfigStore()
     plugin_config_store = plugin_config or PluginConfigStore()
     plugin_log = manager.log
@@ -443,6 +455,86 @@ def create_app(
         try:
             data_store.delete(plugin_id, key)
         except PluginDataError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return Response(status_code=204)
+
+    # ---------- 子应用资产接口（plugin-assets） ----------
+
+    @app.get("/api/desktop/plugin-assets/{plugin_id}")
+    def list_plugin_assets(plugin_id: str) -> dict:
+        """列出插件已有资产与当前用量（要求已启用且声明 assets 能力）。"""
+        _require_enabled_plugin(manager, plugin_id, ability="assets")
+        try:
+            return {
+                "assets": [item.to_dict(plugin_id) for item in asset_store.list(plugin_id)],
+                "usage": asset_store.usage(plugin_id),
+            }
+        except PluginAssetError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/desktop/plugin-assets/{plugin_id}")
+    async def upload_plugin_asset(plugin_id: str, request: Request) -> dict:
+        """上传资产：请求体是图片原始字节（不是 JSON、不做 base64）。
+
+        Content-Type 决定扩展名并参与白名单校验，但真正落盘与否还看魔数；
+        同内容重复上传直接返回已有资产（``created=false``），不重写、不重复占配额。
+        """
+        _require_enabled_plugin(manager, plugin_id, ability="assets")
+        # 先用 Content-Length 挡掉明显超限的请求体：避免把一个超大上传整份读进内存
+        declared_length = request.headers.get("content-length", "")
+        if declared_length.isdigit() and int(declared_length) > MAX_ASSET_FILE_BYTES:
+            raise HTTPException(
+                413, f"资产超过单文件上限（{declared_length} > {MAX_ASSET_FILE_BYTES} 字节）"
+            )
+        body = await request.body()
+        try:
+            info = asset_store.put(plugin_id, body, request.headers.get("content-type", ""))
+        except UnsupportedAssetType as exc:
+            raise HTTPException(415, str(exc)) from exc
+        except (AssetTooLarge, AssetQuotaExceeded) as exc:
+            raise HTTPException(413, str(exc)) from exc
+        except InvalidPluginAssetKey as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except PluginAssetError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"asset": info.to_dict(plugin_id), "usage": asset_store.usage(plugin_id), "created": info.created}
+
+    @app.get("/api/desktop/plugin-assets/{plugin_id}/{key}")
+    def download_plugin_asset(plugin_id: str, key: str) -> Response:
+        """读取资产原始字节。
+
+        只校验插件已知（不校验启用状态与 assets 权限）：``<img src>`` 无法自定义鉴权头，
+        把读取也绑到权限上会让「停用插件 → 历史图片全 404」变成常态（ADR 0017 Decision 5）。
+        代价是知道 key 的本地进程能读到图片，与 plugin-data 一致的本地信任模型。
+        """
+        _require_plugin(manager, plugin_id)
+        try:
+            payload = asset_store.read(plugin_id, key)
+        except InvalidPluginAssetKey as exc:
+            # 非法 key 与不存在的 key 一样按「没有这个资产」处理，不额外暴露校验细节
+            raise HTTPException(404, f"资产不存在: {key}") from exc
+        except PluginAssetError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if payload is None:
+            raise HTTPException(404, f"资产不存在: {key}")
+        content, mime = payload
+        # key 与内容一一对应 → 可以 immutable 长缓存；nosniff 让声明的图片类型真正生效
+        return Response(
+            content=content,
+            media_type=mime,
+            headers={
+                "Cache-Control": "public, max-age=31536000, immutable",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
+    @app.delete("/api/desktop/plugin-assets/{plugin_id}/{key}")
+    def delete_plugin_asset(plugin_id: str, key: str) -> Response:
+        """删除资产（不存在时同样返回 204，保持幂等）；只删文件，不检查正文引用。"""
+        _require_enabled_plugin(manager, plugin_id, ability="assets")
+        try:
+            asset_store.delete(plugin_id, key)
+        except PluginAssetError as exc:
             raise HTTPException(400, str(exc)) from exc
         return Response(status_code=204)
 
