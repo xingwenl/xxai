@@ -1,18 +1,18 @@
 {
   "version": 1,
-  "latest": "0.2.6",
-  "publishedAt": "2026-10-25T13:49:54Z",
-  "notes": "修复打包后 ai-sdk 助手不显示：内嵌服务正式/打包态固定监听 8765，避免页面来源不在 AI Base allowed_origins 里导致助手静默不挂载",
-  "releaseUrl": "https://github.com/xingwenl/xxai/releases/tag/desktop-v0.2.6",
+  "latest": "0.2.7",
+  "publishedAt": "2026-10-25T14:15:24Z",
+  "notes": "桌面宿主支持一键自动安装更新：设置页「应用更新」新增「立即安装并重启」，下载校验后由脱离进程的脚本替换 .app、失败自动回滚，无需再手动解压覆盖；同时修复打包态内嵌服务端口漂移导致 ai-sdk 助手不显示。",
+  "releaseUrl": "https://github.com/xingwenl/xxai/releases/tag/desktop-v0.2.7",
   "platforms": {
     "macos-arm64": {
-      "name": "WW-0.2.6-macos-arm64.zip",
-      "url": "https://github.com/xingwenl/xxai/releases/download/desktop-v0.2.6/WW-0.2.6-macos-arm64.zip",
+      "name": "WW-0.2.7-macos-arm64.zip",
+      "url": "https://github.com/xingwenl/xxai/releases/download/desktop-v0.2.7/WW-0.2.7-macos-arm64.zip",
       "mirrors": [
-        "https://gitee.com/xingwenl/xxai/releases/download/desktop-v0.2.6/WW-0.2.6-macos-arm64.zip"
+        "https://gitee.com/xingwenl/xxai/releases/download/desktop-v0.2.7/WW-0.2.7-macos-arm64.zip"
       ],
-      "sha256": "2e3dbd5c76f0731d8a1fc776e099849b5b518b4e926a2693853131b7d7c15302",
-      "size": 19496400
+      "sha256": "b4802a5d037937ff7b5b0f6ee494c37761ad4629dec1235bc804b44d2b19b45f",
+      "size": 19504748
     }
   }
 }
