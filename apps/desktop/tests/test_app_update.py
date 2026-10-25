@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from desktop_app import app_update
+from desktop_app import app_install, app_update
 from desktop_app.app_config import APP_VERSION
 from desktop_app.manager import PluginManager
 from desktop_app.server import create_app
@@ -342,3 +342,56 @@ def test_settings_expose_app_update_source(plugin_env: dict, tmp_path: Path) -> 
     assert settings["appUpdateEnabled"] is True
     assert settings["appUpdateUrl"].startswith("file://")
     assert settings["version"] == APP_VERSION
+
+
+# ---------- 6. 自动安装接口 ----------
+
+
+def test_app_update_install_requires_newer_version(plugin_env: dict, tmp_path: Path) -> None:
+    """清单等于当前版本时不允许重复安装。"""
+    _write_manifest(tmp_path, latest=APP_VERSION)
+    client = _client(plugin_env)
+    response = client.post("/api/desktop/app-update/install")
+    assert response.status_code == 400
+    assert "无需安装" in response.json()["detail"]
+
+
+def test_app_update_install_passes_verified_asset(
+    plugin_env: dict, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """接口把清单里的 sha256/size 传给安装器，不让安装器自己猜。"""
+    _write_manifest(tmp_path)
+    calls: list[dict] = []
+
+    def fake_install(package: Path, version: str, **kwargs) -> dict[str, str]:
+        calls.append({"package": package, "version": version, **kwargs})
+        return {"bundle": "/Applications/WW.app", "script": "/tmp/install.sh", "log": "/tmp/install.log"}
+
+    monkeypatch.setattr(app_install, "install_package", fake_install)
+    client = _client(plugin_env)
+    response = client.post("/api/desktop/app-update/install")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["version"] == UPDATE_VERSION
+    assert body["script"] == "/tmp/install.sh"
+    assert calls and calls[0]["version"] == UPDATE_VERSION
+    assert calls[0]["expected_sha256"] == app_update.get_update_info(APP_VERSION).asset.sha256
+    assert calls[0]["expected_size"] == app_update.get_update_info(APP_VERSION).asset.size
+
+
+def test_app_update_install_reports_missing_package(
+    plugin_env: dict, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """没下载就点安装：给出「请先下载」的中文错误，而不是起脚本去替换。"""
+    _write_manifest(tmp_path)
+    bundle = tmp_path / "WW.app"
+    (bundle / "Contents" / "MacOS").mkdir(parents=True)
+    monkeypatch.setattr(app_install, "bundle_path", lambda: bundle)
+    spawned: list[Path] = []
+    monkeypatch.setattr(app_install, "_default_spawn", spawned.append)
+    client = _client(plugin_env)
+    response = client.post("/api/desktop/app-update/install")
+    assert response.status_code == 400
+    assert "请先下载" in response.json()["detail"]
+    assert spawned == []
+

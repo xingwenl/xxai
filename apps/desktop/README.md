@@ -490,14 +490,24 @@ cd apps/desktop
 
 升级对「来源」没有要求：手动 zip 装过的插件，只要市场索引里有同 id 且版本更高，也能直接升级。
 
-### 宿主应用更新（只检查 / 下载 / 校验，安装由用户手动完成）
+### 宿主应用更新（检查 / 下载校验 / 一键安装并重启）
 
-设置页「应用更新」区块可以检查宿主自身的新版本，但**不会自动替换自己**：下载并校验通过后，由用户退出应用手动覆盖安装。这样避开三件难做对的事——macOS 未签名包被 Gatekeeper 拦、Windows 下替换运行中的 exe、升级中途崩溃留下半个应用。
+设置页「应用更新」区块可以检查宿主自身的新版本：下载并校验通过后点「立即安装并重启」，宿主会用安装脚本替换自己的 `.app` 并在几秒内重新打开，用户不用再手动解压、拖拽覆盖。
+
+早先的取舍是「只下载、不替换自己」，理由是避开三件难做对的事——macOS 未签名包被 Gatekeeper 拦、Windows 下替换运行中的 exe、升级中途崩溃留下半个应用。现在这三件事分别这样处理：
+
+- **Gatekeeper**：自更新下载的包本来就没有 quarantine 属性，脚本替换后再 `xattr -dr com.apple.quarantine` 兜一次；仍未签名/未公证，首次安装包分发到别人机器上该点的「仍要打开」还是要点。
+- **替换运行中的应用**：替换动作交给 `~/.desktop-app/updates/install-<version>.sh`，它用 `start_new_session` 脱离宿主进程，先让宿主退出（SIGTERM，超时 SIGKILL）再 `mv` 换包——macOS 允许重命名运行中的 app，但等进程退出更稳。
+- **半截升级**：旧包先备份成 `<app>.ww-old`，新包起不来（`open` 失败）立即回滚并重新打开旧版本，成功重启后才删备份。
+- 只支持 macOS：其他平台点安装会直接返回中文错误，仍走手动覆盖安装。
+
+其它约定不变：
 
 - `DESKTOP_APP_UPDATE_URL`：覆盖清单地址（https，本机开发接受 `127.0.0.1` 的 http 与 `file://`）。
 - `DESKTOP_APP_UPDATE_MIRRORS`：逗号分隔的镜像地址，主源失败自动回退；默认已内置 Gitee raw 镜像，GitHub 不可达时仍能检查更新。
 - `DESKTOP_APP_UPDATE=0`（或 `false` / `no` / `off`）：关闭应用更新检查，设置页显示「已关闭」，前端不发请求。
 - 清单 600 秒内存缓存；点「检查更新」带 `refresh=1` 强制重取。
+- 安装日志落在 `~/.desktop-app/updates/install-<version>.log`，替换失败时先看这里。
 
 清单 `apps/desktop/releases/latest.json`：
 
@@ -530,7 +540,9 @@ cd apps/desktop
 | --- | --- | --- |
 | GET | `/api/desktop/app-update` | 检查更新，`?refresh=1` 跳过缓存；永远 200，失败原因在 `error` 字段（不把「检查失败」伪装成「已是最新」） |
 | POST | `/api/desktop/app-update/download` | 下载当前平台资产并校 `size` / `sha256`，落 `~/.desktop-app/updates/<version>/<文件名>`；校验失败 400 并删掉残缺文件 |
+| POST | `/api/desktop/app-update/install` | 自动安装已下载的更新包：落盘后**再校一次** `size` / `sha256`，`ditto` 解包到同名目录，起安装脚本替换 `.app` 并重启；包不存在 / 版本不比当前高 / 平台非 macOS / 目录不可写 → 400 |
 | POST | `/api/desktop/app-update/reveal` | 在文件管理器里打开更新目录（只打开固定目录，不接受外部路径） |
+
 
 ### 发布桌面版本（GitHub + Gitee）
 

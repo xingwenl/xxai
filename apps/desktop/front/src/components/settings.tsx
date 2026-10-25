@@ -10,6 +10,7 @@ import {
   getPlugins,
   getPluginMarket,
   installPlugin,
+  installAppUpdate,
   installFromUrl,
   installMarketPlugin,
   issueAgentToken,
@@ -79,7 +80,7 @@ export default function Settings({
   // 宿主应用更新：只在用户点「检查更新」时拉清单，避免设置页一打开就联网
   const [appUpdate, setAppUpdate] = useState<AppUpdateInfo | null>(null)
   const [appUpdateError, setAppUpdateError] = useState('')
-  const [appUpdateBusy, setAppUpdateBusy] = useState<'check' | 'download' | ''>('')
+  const [appUpdateBusy, setAppUpdateBusy] = useState<'check' | 'download' | 'install' | ''>('')
   // 插件宿主配置（manifest.settings[]）：表单、校验与保存都在 PluginConfigDialog 弹窗里
   const [configPlugin, setConfigPlugin] = useState<Plugin | null>(null)
   // 运行态变化只用于触发重渲染，具体状态在渲染时用 getRuntimeStatus 读取
@@ -157,16 +158,31 @@ export default function Settings({
     }
   }
 
-  /** 下载并校验当前平台安装包；宿主只负责落盘校验，不替换自身。 */
+  /** 下载并校验当前平台安装包；宿主只负责落盘校验，安装由下一步完成。 */
   const downloadAppUpdatePack = async () => {
     setAppUpdateBusy('download')
     try {
       const result = await downloadAppUpdate()
-      toast('下载完成', `v${result.version} 已校验，请手动安装`, 'success')
+      toast('下载完成', `v${result.version} 已校验，可以立即安装`, 'success')
       setAppUpdate(await getAppUpdate().catch(() => appUpdate))
     } catch (e) {
       toast('下载失败', String((e as Error).message || e), 'error')
     } finally {
+      setAppUpdateBusy('')
+    }
+  }
+
+  /**
+   * 自动安装：宿主起一个脱离进程的安装脚本，替换 .app 后自动重启。
+   * 成功时宿主会在 2 秒内退出，所以这里不清 busy——应用正要重启，界面无需再变。
+   */
+  const installAppUpdatePack = async () => {
+    setAppUpdateBusy('install')
+    try {
+      const result = await installAppUpdate()
+      toast('正在安装', `v${result.version} 替换完成后应用会自动重启`, 'success')
+    } catch (e) {
+      toast('安装失败', String((e as Error).message || e), 'error')
       setAppUpdateBusy('')
     }
   }
@@ -833,7 +849,7 @@ export default function Settings({
         </div>
       </section>
 
-      {/* 应用更新：只检查 / 下载 / 校验，安装动作交给用户手动完成 */}
+      {/* 应用更新：检查 → 下载校验 → 自动替换 .app 并重启（失败由安装脚本回滚） */}
       <section style={glass} className="p-5 mt-4">
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className="min-w-0">
@@ -865,7 +881,7 @@ export default function Settings({
           </div>
         ) : !appUpdate ? (
           <div className="text-[12px]" style={{ color: 'var(--color-mid)' }}>
-            点击「检查更新」从发布清单读取最新版本；宿主不会自动改动自身，下载后由你手动安装。
+            点击「检查更新」从发布清单读取最新版本；下载校验通过后可一键安装，应用会自动重启。
           </div>
         ) : appUpdate.error ? (
           <div
@@ -922,7 +938,20 @@ export default function Settings({
                   >
                     已下载并校验通过
                   </span>
-                  <button className="px-3 py-1.5 rounded-lg text-[12px] font-500" style={{ background: 'var(--fill-gradient)', color: 'var(--primary-foreground)' }} onClick={revealUpdates}>
+                  <button
+                    disabled={appUpdateBusy !== ''}
+                    onClick={installAppUpdatePack}
+                    className="px-3 py-1.5 rounded-lg text-[12px] font-500 disabled:opacity-50"
+                    style={{ background: 'var(--fill-gradient)', color: 'var(--primary-foreground)' }}
+                  >
+                    {appUpdateBusy === 'install' ? '正在安装…' : '立即安装并重启'}
+                  </button>
+                  <button
+                    disabled={appUpdateBusy !== ''}
+                    className="px-3 py-1.5 rounded-lg text-[12px] font-500 disabled:opacity-50"
+                    style={{ background: 'rgba(var(--primary-ink-rgb) / 0.10)', color: 'var(--primary-ink)' }}
+                    onClick={revealUpdates}
+                  >
                     打开所在文件夹
                   </button>
                 </>
@@ -943,7 +972,7 @@ export default function Settings({
               ) : null}
             </div>
             <p className="text-[11px]" style={{ color: 'var(--color-mid)' }}>
-              下载完成后请退出宿主，用新包覆盖安装；升级不会自动搬运插件数据，插件目录与用户数据目录保持不变。
+              安装由脱离进程的脚本完成：替换失败或新版本起不来会自动回滚到旧版本，日志在 ~/.desktop-app/updates/。升级不搬运数据，插件目录与用户数据目录保持不变。
             </p>
           </div>
         )}

@@ -192,7 +192,7 @@ export function getAppUpdate(refresh = false): Promise<AppUpdateInfo> {
   return request(`/api/desktop/app-update${refresh ? '?refresh=1' : ''}`)
 }
 
-/** 下载并校验当前平台更新包到本机更新目录（宿主不会替换自身）。 */
+/** 下载并校验当前平台更新包到本机更新目录（只落盘，不替换宿主）。 */
 export function downloadAppUpdate(): Promise<{
   version: string
   path: string
@@ -202,7 +202,20 @@ export function downloadAppUpdate(): Promise<{
   return request('/api/desktop/app-update/download', { method: 'POST' })
 }
 
-/** 在系统文件管理器里打开更新目录，交给用户手动安装。 */
+/**
+ * 自动安装已下载的更新包：宿主会起一个脱离进程的安装脚本替换 .app 并重启。
+ * 接口返回后宿主会在 2 秒内退出，调用方不要依赖它返回后再更新界面。
+ */
+export function installAppUpdate(): Promise<{
+  version: string
+  bundle: string
+  script: string
+  log: string
+}> {
+  return request('/api/desktop/app-update/install', { method: 'POST' })
+}
+
+/** 在系统文件管理器里打开更新目录（自动安装不可用时手动兜底）。 */
 export function revealAppUpdates(): Promise<{ path: string }> {
   return request('/api/desktop/app-update/reveal', { method: 'POST' })
 }

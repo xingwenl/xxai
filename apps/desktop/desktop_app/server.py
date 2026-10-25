@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from desktop_app import agent_config
+from desktop_app import app_install
 from desktop_app import bookmarks
 from desktop_app import dev_agent
 from desktop_app import app_update
@@ -286,7 +287,7 @@ def create_app(
             raise HTTPException(400, str(exc)) from exc
         return {"plugin": updated.to_dict()}
 
-    # ---------- 宿主应用更新接口（静态发布清单 + 手动安装） ----------
+    # ---------- 宿主应用更新接口（静态发布清单 + 下载校验 + 自动安装） ----------
 
     @app.get("/api/desktop/app-update")
     def app_update_info(refresh: bool = False) -> dict:
@@ -314,9 +315,35 @@ def create_app(
             "sha256": digest,
         }
 
+    @app.post("/api/desktop/app-update/install")
+    def app_update_install() -> dict:
+        """自动安装已下载的更新包：替换当前 .app 并重启，失败由安装脚本回滚。
+
+        接口**先把结果返回给前端，再由安装脚本结束宿主进程**：脚本脱离进程运行，
+        ``EXIT_GRACE_SECONDS`` 秒后才发 SIGTERM，前端来得及显示「正在安装」。
+        """
+        info = app_update.get_update_info(APP_VERSION)
+        if not info.enabled:
+            raise HTTPException(400, "宿主更新检查未启用")
+        if info.asset is None:
+            raise HTTPException(400, "发布清单里没有当前平台可下载的资产")
+        if not version_greater(info.latest, APP_VERSION):
+            raise HTTPException(400, f"当前已是 v{APP_VERSION}，无需安装")
+        package = app_update.asset_path(info.latest, info.asset)
+        try:
+            result = app_install.install_package(
+                package,
+                info.latest,
+                expected_sha256=info.asset.sha256,
+                expected_size=info.asset.size,
+            )
+        except app_install.AppInstallError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"version": info.latest, **result}
+
     @app.post("/api/desktop/app-update/reveal")
     def app_update_reveal() -> dict:
-        """打开更新目录，交给用户手动安装（宿主不替换自身）。"""
+        """打开更新目录（自动安装不可用时的手动兜底入口）。"""
         try:
             target = app_update.reveal_updates_dir()
         except app_update.AppUpdateError as exc:
