@@ -20,33 +20,60 @@ from desktop_app.windows import AppWindowManager, child_url, deep_link
 logger = logging.getLogger(__name__)
 
 
-def _macos_open(target: str, timeout: float = 5.0) -> bool | None:
-    """macOS 上直接用系统自带的 open 命令打开 URL。
+def _appkit_open(target: str) -> bool | None:
+    """进程内用 NSWorkspace 打开 URL（等价于系统 open，但同步返回真实结果）。
 
-    返回 None 表示当前平台不适用（交给 webbrowser）；返回 False 表示确实尝试过但失败。
-    不用标准库 webbrowser 的 osascript 实现：它走 `os.popen("osascript")`，一旦进程没有
-    「控制其它应用」的自动化权限就静默失败（只把 False 藏在返回值里），而且即便
-    AppleScript 执行成功也只代表事件发出去了，无法判断浏览器到底有没有起来。
-    open 命令的退出码来自 LaunchServices，能真实反映是否找到可打开该 URL 的应用。
+    返回 None 表示 pyobjc 不可用或调用异常，调用方应改用子进程兜底。
+    pywebview 的 macOS 后端本身依赖 pyobjc，所以这条路径在实际运行环境里总是可用。
     """
     if sys.platform != "darwin":
         return None
+    try:
+        from AppKit import NSWorkspace
+        from Foundation import NSURL
+    except Exception:
+        return None
+    try:
+        return bool(NSWorkspace.sharedWorkspace().openURL_(NSURL.URLWithString_(target)))
+    except Exception:
+        logger.exception("NSWorkspace 打开 %s 失败", target)
+        return None
+
+
+def _macos_open(target: str, timeout: float = 5.0) -> bool | None:
+    """macOS 上打开 URL。
+
+    返回 None 表示当前平台不适用（交给 webbrowser）；返回 False 表示确实尝试过但失败。
+
+    优先走进程内的 NSWorkspace，理由有两条：
+    - 标准库 webbrowser 的 osascript 实现没有「控制其它应用」自动化权限时**静默失败**，
+      而且 AppleScript 执行成功也不代表浏览器真的起来了，无法据此回执；
+    - `/usr/bin/open` 子进程在 GUI 应用里会卡在前台激活握手上（实测 5 秒超时），
+      进程内调用则 0.01 秒级返回 LaunchServices 的真实结果。
+    子进程只作为 pyobjc 不可用时的兜底；兜底里超时也不再算失败——那通常只是 open
+    自己不退出，URL 早已交给系统了。
+    """
+    if sys.platform != "darwin":
+        return None
+    launched = _appkit_open(target)
+    if launched is not None:
+        return launched
     opener = shutil.which("open") or "/usr/bin/open"
     try:
-        done = subprocess.run(  # noqa: S603
+        proc = subprocess.Popen(  # noqa: S603
             [opener, target],
-            check=False,
-            timeout=timeout,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            start_new_session=True,
         )
-    except (OSError, subprocess.SubprocessError) as exc:
+    except OSError as exc:
         logger.warning("调用 %s 打开 %s 失败：%s", opener, target, exc)
         return False
-    if done.returncode == 0:
+    try:
+        return proc.wait(timeout=timeout) == 0
+    except subprocess.TimeoutExpired:
+        logger.info("%s 未在 %.1f 秒内退出，按已交给系统处理：%s", opener, timeout, target)
         return True
-    logger.warning("%s 打开 %s 返回码 %s", opener, target, done.returncode)
-    return False
 
 
 class HostApi:

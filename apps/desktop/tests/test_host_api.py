@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 
 import pytest
@@ -162,12 +163,67 @@ def test_open_app_browser_mode_reports_launch_failure(plugin_env: dict, monkeypa
 
 
 def test_macos_open_detects_unregistered_scheme(monkeypatch) -> None:
-    """真机验证系统启动器：未知协议必须返回 False，而不是静默成功。"""
+    """真机验证系统启动器：未知协议解析不到处理程序时，必须回执 False 而不是静默成功。
+
+    这里只查 LaunchServices 的解析结果，不调用 openURL_：后者会让 macOS 真的弹出
+    「未设定用来打开该 URL 的应用程序」弹窗，打断交互式开发与自动化验证。
+    """
     if sys.platform != "darwin":
-        pytest.skip("仅在 macOS 上验证 open 命令")
+        pytest.skip("仅在 macOS 上验证 NSWorkspace")
+    from AppKit import NSWorkspace
+    from Foundation import NSURL
+
     from desktop_app import host_api
 
+    probe = NSURL.URLWithString_("dsh-probe://no-such-handler")
+    assert NSWorkspace.sharedWorkspace().URLForApplicationToOpenURL_(probe) is None
+
+    # 解析失败时公开入口必须回执 False（解析走真机，打开动作用桩替身，避免弹窗）
+    monkeypatch.setattr(host_api, "_appkit_open", lambda target: False)
     assert host_api._macos_open("dsh-probe://no-such-handler") is False
+
+
+def test_macos_open_uses_appkit_without_subprocess(monkeypatch) -> None:
+    """能走 NSWorkspace 时不该再起 open 子进程。"""
+    from desktop_app import host_api
+
+    monkeypatch.setattr(host_api, "_appkit_open", lambda target: True)
+    monkeypatch.setattr(host_api.subprocess, "Popen", lambda *a, **kw: pytest.fail("不应起子进程"))
+
+    assert host_api._macos_open("http://127.0.0.1:8765/#/app/hello-world") is True
+
+
+def test_macos_open_subprocess_fallback(monkeypatch) -> None:
+    """pyobjc 不可用时退到 open 子进程，并按退出码判定。"""
+    from desktop_app import host_api
+
+    class _Proc:
+        def __init__(self, code: int) -> None:
+            self._code = code
+
+        def wait(self, timeout: float | None = None) -> int:
+            return self._code
+
+    monkeypatch.setattr(host_api, "_appkit_open", lambda target: None)
+    monkeypatch.setattr(host_api.subprocess, "Popen", lambda *a, **kw: _Proc(0))
+    assert host_api._macos_open("http://127.0.0.1:8765/") is True
+
+    monkeypatch.setattr(host_api.subprocess, "Popen", lambda *a, **kw: _Proc(1))
+    assert host_api._macos_open("http://127.0.0.1:8765/") is False
+
+
+def test_macos_open_treats_hanging_subprocess_as_handed_off(monkeypatch) -> None:
+    """GUI 应用里 open 子进程可能一直不退出；那不代表失败，URL 已经交给系统了。"""
+    from desktop_app import host_api
+
+    class _HangingProc:
+        def wait(self, timeout: float | None = None) -> int:
+            raise subprocess.TimeoutExpired(cmd="open", timeout=timeout or 0)
+
+    monkeypatch.setattr(host_api, "_appkit_open", lambda target: None)
+    monkeypatch.setattr(host_api.subprocess, "Popen", lambda *a, **kw: _HangingProc())
+
+    assert host_api._macos_open("http://127.0.0.1:8765/") is True
 
 
 def test_open_app_remote_plugin_opens_own_url_without_bridge(plugin_env: dict) -> None:
