@@ -20,9 +20,9 @@ router = APIRouter(tags=["shop-agent"])
 # 本项目固定使用的 Embed Client：凭证只留在服务端，桌面端与浏览器都拿不到 client_secret。
 # 留空则回退到 EMBED_CLIENT_* / EMBED_AGENT_ID / EMBED_ORIGIN 环境配置。
 # 接入新项目时新增一组同名前缀的常量与独立接口方法，避免项目之间互相影响。
-PROJECT_EMBED_CLIENT_ID = "client_g5Zx9Ve_BToae18GwfMNoA-d"
-PROJECT_EMBED_CLIENT_SECRET = "Q3xAAewyC332jix04kMPmyhawr4heYoec-OW5Uw_cow"
-PROJECT_EMBED_AGENT_ID = 5
+PROJECT_EMBED_CLIENT_ID = "client_5dG0kbQ0HoyrxrbRdsnP_GNr"
+PROJECT_EMBED_CLIENT_SECRET = "lIi_fNg-RC635z-uBu1D3djvYojkMMkh4XYhGQ5YHBg"
+PROJECT_EMBED_AGENT_ID = 35
 PROJECT_EMBED_ORIGIN = "http://127.0.0.1:5390"
 
 

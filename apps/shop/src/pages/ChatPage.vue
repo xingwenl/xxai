@@ -12,7 +12,7 @@ const chatRoot = ref<HTMLElement | null>(null)
 const statusText = ref('连接中…')
 const displayName = ref(session?.displayName ?? session?.shopUserId ?? '')
 
-const agentId = import.meta.env.VITE_AGENT_ID ?? '1'
+const agentId = import.meta.env.VITE_AGENT_ID ?? '35'
 const platformId = import.meta.env.VITE_PLATFORM_ID ?? '1'
 
 let agent: AgentClient | null = null
@@ -48,7 +48,7 @@ onMounted(async () => {
       }
       return body.data.access_token as string
     },
-    ui: { mode: 'embedded', container: chatRoot.value ?? undefined, theme: 'auto' },
+    ui: { mode: 'embedded', container: chatRoot.value ?? undefined, theme: 'auto', showAgentSteps: true },
   })
 
   agent.on('connection_state', (state) => {
