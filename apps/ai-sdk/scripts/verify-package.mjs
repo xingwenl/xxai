@@ -35,15 +35,43 @@ for (const exportName of ['createAgentClient', 'AgentClient', 'configureMarkdown
   }
 }
 
-// 图表引擎必须保持外置：内联会让产物从约 0.44M 涨到 3M 以上（mermaid 2.8M + echarts 1.0M）
-const engineEntries = {
-  mermaid: packageJson.exports['.'].import,
-  echarts: packageJson.exports['.'].import
+// 图表引擎必须保持「外置 + 惰性」：内联会让产物从约 0.44M 涨到 3M 以上（mermaid 2.8M + echarts 1.0M）。
+// 注意断言方向：产物里引擎只能以**非字面量**动态导入出现，绝不能是字面量 `import("mermaid")`——
+// 字面量会被宿主打包器静态解析，没装引擎的宿主在构建/dev 阶段就会报模块解析失败，
+// 与「可选依赖、缺失即降级为代码块」的设计相悖（见 src/ui/markdown/optional-engines.ts）。
+const engines = ['mermaid', 'echarts']
+const engineStatics = {
+  from: (engine) => new RegExp(`\\bfrom\\s*["']${engine}["']`),
+  bareImport: (engine) => new RegExp(`\\bimport\\s*["']${engine}["']`),
+  require: (engine) => new RegExp(`\\brequire\\s*\\(\\s*["']${engine}["']`)
 }
-for (const [engine, entry] of Object.entries(engineEntries)) {
-  const source = readFileSync(resolve(root, entry), 'utf8')
-  if (!source.includes(`import("${engine}")`)) {
-    throw new Error(`Chart engine must stay external and be imported lazily: ${engine}`)
+const entrySources = [
+  packageJson.exports['.'].import,
+  packageJson.exports['.'].require
+].map((entry) => ({ entry, source: readFileSync(resolve(root, entry), 'utf8') }))
+
+for (const { entry, source } of entrySources) {
+  // 取出所有动态导入的说明符文本，用于判断是否被字面量化 / 是否真的引用了引擎
+  const dynamicSpecifiers = [...source.matchAll(/\bimport\(([^()]*)\)/g)].map((match) =>
+    match[1].trim()
+  )
+  for (const engine of engines) {
+    for (const pattern of Object.values(engineStatics)) {
+      if (pattern(engine).test(source)) {
+        throw new Error(`Chart engine must not be a static dependency: ${engine} in ${entry}`)
+      }
+    }
+    for (const specifier of dynamicSpecifiers) {
+      const literal = specifier.match(/^['"`](.*)['"`]$/)
+      if (literal && literal[1] === engine) {
+        throw new Error(
+          `Chart engine dynamic import must stay non-literal (else host bundlers resolve it eagerly): ${engine} in ${entry}`
+        )
+      }
+    }
+    if (!dynamicSpecifiers.some((specifier) => specifier.includes(engine))) {
+      throw new Error(`Chart engine must stay external and be imported lazily: ${engine} in ${entry}`)
+    }
   }
 }
 for (const entry of [packageJson.exports['.'].import, packageJson.exports['.'].require]) {
