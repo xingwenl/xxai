@@ -13,12 +13,20 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import event
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.modules.agent.models import Agent
 from app.modules.agent_runtime.contracts import ToolOutcome
 from app.modules.agent_runtime.error_codes import ErrorCode
 from app.modules.conversation import router as router_module
 from app.modules.conversation import services as services_module
+from app.modules.conversation.models import Conversation, ConversationMessage
+from app.modules.conversation.repositories import ConversationRepository
 from app.modules.conversation.schemas import RunResolveRequest
+from app.modules.embed.models import PlatformEndUser
+from app.modules.platform.models import Platform
+from app.shared.base_model import BaseModel
 from app.shared.exceptions import ConflictException, NotFoundException
 
 
@@ -262,6 +270,8 @@ class _FakeConversationRepo:
         self.conversation = conversation
         self.loop = loop
         self.saved: list = []
+        self.message = None
+        self.message_calls: list[tuple[int, int]] = []
 
     async def get(self, conversation_id, platform_id, user_id):
         return self.conversation
@@ -272,8 +282,12 @@ class _FakeConversationRepo:
     async def save_loop(self, loop):
         self.saved.append(loop)
 
+    async def get_message(self, message_id, conversation_id):
+        self.message_calls.append((message_id, conversation_id))
+        return self.message
+
     async def list_messages(self, conversation_id):
-        return []
+        raise AssertionError("续跑补全 citations 不应再全量读取会话消息")
 
 
 def _patch_prepare(monkeypatch, *, checkpoint, conversation, loop, claim_result=True):
@@ -411,6 +425,190 @@ def test_prepare_resume_conflict_when_claim_lost(monkeypatch):
         )
     assert excinfo.value.error_code == ErrorCode.RUN_CONFIRMATION_ALREADY_RESOLVED
     assert checkpoint_repo.claimed == [(5, "resolved")]
+
+
+# --------------------------------------------------------------------------
+# 续跑：citations 按主键取单条，而不是全量扫描会话
+# --------------------------------------------------------------------------
+
+
+def _patch_resume_tail(monkeypatch):
+    """把续跑后半段的外部依赖换成桩，让 `_prepare_resume` 走到 citations 取数。"""
+    monkeypatch.setattr(
+        router_module,
+        "_execute_pending_tool",
+        _async_value(ToolOutcome(status="completed", result={}, call_id="call_7")),
+    )
+    monkeypatch.setattr(
+        router_module, "load_runtime_context", _async_value(SimpleNamespace())
+    )
+    monkeypatch.setattr(
+        router_module,
+        "resolve_chat_model",
+        _async_value(SimpleNamespace(model_name="stub-model")),
+    )
+    for name in (
+        "KnowledgeRepository",
+        "SkillRepository",
+        "McpRepository",
+        "BuiltinToolRepository",
+    ):
+        monkeypatch.setattr(router_module, name, lambda session: object())
+
+
+def test_prepare_resume_reads_citations_from_single_message(monkeypatch):
+    citations = [{"title": "退款政策", "url": "https://example.test/refund"}]
+
+    loop = SimpleNamespace(id=5, status="waiting_confirmation", assistant_message_id=42)
+    (checkpoint_repo, conversation_repo), conversation, _ = _prepare(
+        monkeypatch, _pending_checkpoint(), loop=loop
+    )
+    conversation_repo.message = SimpleNamespace(id=42, citations=citations)
+    _patch_resume_tail(monkeypatch)
+    plan = _run(
+        router_module._prepare_resume(
+            1,
+            5,
+            RunResolveRequest(approved=True),
+            SimpleNamespace(id=4),
+            object(),
+        )
+    )
+
+    # 引用逐字段沿用挂起前落库的内容。
+    assert plan.citations == citations
+    # 只按（消息主键 + 会话归属）读一条：既没有全量扫描，也没有换会话读。
+    assert conversation_repo.message_calls == [(42, conversation.id)]
+    assert checkpoint_repo.consumed == [5]
+
+
+def test_prepare_resume_leaves_citations_empty_when_message_gone(monkeypatch):
+    loop = SimpleNamespace(id=5, status="waiting_confirmation", assistant_message_id=42)
+    (_, conversation_repo), conversation, _ = _prepare(
+        monkeypatch, _pending_checkpoint(), loop=loop
+    )
+    conversation_repo.message = None
+    _patch_resume_tail(monkeypatch)
+    plan = _run(
+        router_module._prepare_resume(
+            1,
+            5,
+            RunResolveRequest(approved=True),
+            SimpleNamespace(id=4),
+            object(),
+        )
+    )
+
+    assert plan.citations == []
+    assert conversation_repo.message_calls == [(42, conversation.id)]
+
+
+def test_prepare_resume_skips_lookup_without_assistant_message(monkeypatch):
+    loop = SimpleNamespace(
+        id=5, status="waiting_confirmation", assistant_message_id=None
+    )
+    (_, conversation_repo), _, _ = _prepare(
+        monkeypatch, _pending_checkpoint(), loop=loop
+    )
+    _patch_resume_tail(monkeypatch)
+    plan = _run(
+        router_module._prepare_resume(
+            1,
+            5,
+            RunResolveRequest(approved=True),
+            SimpleNamespace(id=4),
+            object(),
+        )
+    )
+
+    assert plan.citations == []
+    assert conversation_repo.message_calls == []
+
+
+# --------------------------------------------------------------------------
+# 仓储层：get_message 的会话归属与单条查询
+# --------------------------------------------------------------------------
+
+
+async def _make_message_session():
+    """建内存 sqlite 会话工厂，同时记录实际下发的 SQL。"""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    statements: list[str] = []
+
+    @event.listens_for(engine.sync_engine, "before_cursor_execute")
+    def record_statement(_conn, _cursor, statement, _params, _context, _executemany):
+        statements.append(statement)
+
+    async with engine.begin() as connection:
+        await connection.run_sync(BaseModel.metadata.create_all)
+    return engine, async_sessionmaker(engine, expire_on_commit=False), statements
+
+
+def test_get_message_scopes_to_own_conversation():
+    async def scenario():
+        engine, factory, statements = await _make_message_session()
+        try:
+            async with factory() as session:
+                platform = Platform(name="Acme", code="acme", is_active=True)
+                session.add(platform)
+                await session.flush()
+                agent = Agent(platform_id=platform.id, name="客服机器人", slug="support")
+                end_user = PlatformEndUser(
+                    platform_id=platform.id, external_user_id="ext-1"
+                )
+                session.add_all([agent, end_user])
+                await session.flush()
+                mine = Conversation(
+                    platform_id=platform.id,
+                    agent_id=agent.id,
+                    platform_end_user_id=end_user.id,
+                    title="本会话",
+                    status="active",
+                )
+                other = Conversation(
+                    platform_id=platform.id,
+                    agent_id=agent.id,
+                    platform_end_user_id=end_user.id,
+                    title="别的会话",
+                    status="active",
+                )
+                session.add_all([mine, other])
+                await session.flush()
+                message = ConversationMessage(
+                    conversation_id=mine.id,
+                    role="assistant",
+                    content="答",
+                    status="completed",
+                    content_blocks=[],
+                    citations=[{"title": "退款政策"}],
+                    knowledge_grounded=False,
+                    message_metadata={},
+                )
+                session.add(message)
+                await session.flush()
+                repo = ConversationRepository(session)
+
+                statements.clear()
+                found = await repo.get_message(message.id, mine.id)
+                own_count = len(statements)
+
+                statements.clear()
+                leaked = await repo.get_message(message.id, other.id)
+                other_count = len(statements)
+
+                return found, own_count, leaked, other_count
+        finally:
+            await engine.dispose()
+
+    found, own_count, leaked, other_count = _run(scenario())
+
+    assert found is not None
+    assert found.citations == [{"title": "退款政策"}]
+    # 单条主键查询：一次往返，不随会话消息条数增长。
+    assert own_count == 1
+    # 会话归属写在 SQL 里，拿别的会话 ID 读不到同一条消息。
+    assert leaked is None
+    assert other_count == 1
 
 
 # --------------------------------------------------------------------------

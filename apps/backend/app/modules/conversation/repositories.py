@@ -234,6 +234,19 @@ class ConversationRepository:
         )
         return list(result.scalars().all())
 
+    async def get_message(self, message_id: int, conversation_id: int):
+        """按主键取一条消息，并限定会话归属。
+
+        带 ``conversation_id`` 是为了让「跨会话读不到」这条约束落在 SQL 里，而不是
+        靠调用方自己比对——续跑只关心某条已知消息，没必要为它把整段会话读进内存。
+        """
+        return await self.session.scalar(
+            select(ConversationMessage).where(
+                ConversationMessage.id == message_id,
+                ConversationMessage.conversation_id == conversation_id,
+            )
+        )
+
     async def list_recent_context_messages(
         self, conversation_id: int, *, since: datetime
     ):

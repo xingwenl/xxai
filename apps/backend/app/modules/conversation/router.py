@@ -487,13 +487,13 @@ async def _prepare_resume(
     context.loop_run_id = loop.id
 
     # 续跑不重新检索：挂起那刻的系统提示词里已经带着当时的引用，这里沿用
-    # 上次落库的 assistant 消息上的引用，只为了把消息记录补全。
+    # 上次落库的 assistant 消息上的引用，只为了把消息记录补全。消息主键已知，
+    # 按主键 + 会话归属读单条即可，不必把整段会话的消息读出来再线性查找。
     citations: list = []
     if loop.assistant_message_id:
-        for message in await repo.list_messages(conversation.id):
-            if message.id == loop.assistant_message_id:
-                citations = list(message.citations or [])
-                break
+        message = await repo.get_message(loop.assistant_message_id, conversation.id)
+        if message is not None:
+            citations = list(message.citations or [])
 
     resolved = await resolve_chat_model(
         session, platform_id=agent.platform_id, agent_id=agent_id
