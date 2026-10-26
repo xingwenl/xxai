@@ -43,6 +43,8 @@ build/
 # Persistent development worktrees
 .worktrees/
 .superpowers
+# 本地 Agent（DSH）技能目录，内容派生自 .codex/skills，不入库
+.dsh/
 node_modules/
 backend-admin/
 
