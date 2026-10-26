@@ -72,7 +72,9 @@ server.listen(0, '127.0.0.1', () => {
   const port = server.address().port
   const profile = path.join(__dirname, 'chrome-profile')
   const chrome = spawn(CHROME, [
-    '--headless=new', '--disable-gpu', '--no-sandbox', '--no-first-run',
+    // --use-mock-keychain：无头 Chrome 在非 GUI 会话/沙箱里拿不到系统钥匙串，会弹
+    // 「找不到用于储存 Chrome 的钥匙串」模态弹窗并卡住进程；模拟钥匙串可避开。
+    '--headless=new', '--disable-gpu', '--no-sandbox', '--no-first-run', '--use-mock-keychain',
     `--user-data-dir=${profile}`, '--virtual-time-budget=10000',
     '--enable-logging=stderr', '--log-level=0', '--dump-dom',
     `http://127.0.0.1:${port}/`

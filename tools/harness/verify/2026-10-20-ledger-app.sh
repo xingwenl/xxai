@@ -662,8 +662,10 @@ uvicorn.run(create_app(), host='127.0.0.1', port=${port}, log_level='warning')
     wait "$pid" 2>/dev/null
     return 1
   fi
+  # --use-mock-keychain：无头 Chrome 在非 GUI 会话/沙箱里拿不到系统钥匙串，会弹
+  # 「找不到用于储存 Chrome 的钥匙串」模态弹窗并卡住进程；模拟钥匙串可彻底避开。
   "$chrome" --headless=new --disable-gpu --no-first-run --no-default-browser-check \
-    --user-data-dir="${PROBE_DIR}/premount-chrome" --virtual-time-budget=15000 \
+    --use-mock-keychain --user-data-dir="${PROBE_DIR}/premount-chrome" --virtual-time-budget=15000 \
     --dump-dom "http://127.0.0.1:${port}/" >/dev/null 2>/dev/null
   sleep 1
   kill "$pid" 2>/dev/null
