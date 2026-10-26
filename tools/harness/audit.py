@@ -11,6 +11,9 @@
 **存量跳过**：`CUTOVER_DATE` 之前创建的 request 目录（目录名首段日期早于该日期）
 一律跳过，不报错、不告警。这是 v2 与旧六阶段机制并存的边界。
 
+**已取消跳过**：`spec.md` frontmatter 标注 `status: cancelled` 的 request 只作为
+设计记录归档，不再实施，因此不校验 `verify.md`／验证脚本／ADR 等产物。
+
 用法：
     python3 tools/harness/audit.py            # 校验新机制 request
     python3 tools/harness/audit.py --all      # 同时列出被跳过的存量 request
@@ -152,6 +155,27 @@ def is_legacy(request_id):
     return created < CUTOVER_DATE
 
 
+# spec.md frontmatter 标注这些值时，request 视为已归档的设计稿：保留追溯价值，
+# 但不再实施，也就不再要求 verify.md、验证脚本或 ADR。
+CANCELLED_STATUSES = ("cancelled", "withdrawn")
+
+
+def request_status(req_dir):
+    """读取 spec.md frontmatter 的 status（小写）；读不到时返回 None。
+
+    frontmatter 解析失败也返回 None，交给正常校验把问题报出来，避免状态读取
+    掩盖真正的格式错误。
+    """
+    spec_path = os.path.join(req_dir, "spec.md")
+    if not os.path.isfile(spec_path):
+        return None
+    meta, _, errors = parse_frontmatter(spec_path)
+    if meta is None or errors:
+        return None
+    status = meta.get("status")
+    return status.strip().lower() if isinstance(status, str) else None
+
+
 def audit_request(request_id, req_dir):
     """校验单个 v2 request，返回 (errors, warnings)。"""
     errors, warnings = [], []
@@ -285,7 +309,7 @@ def main() -> int:
         return 2
 
     request_ids = sorted(os.listdir(REQUESTS_DIR))
-    all_errors, all_warnings, skipped = [], [], []
+    all_errors, all_warnings, skipped, cancelled = [], [], [], []
 
     for request_id in request_ids:
         req_dir = os.path.join(REQUESTS_DIR, request_id)
@@ -293,6 +317,9 @@ def main() -> int:
             continue
         if is_legacy(request_id):
             skipped.append(request_id)
+            continue
+        if request_status(req_dir) in CANCELLED_STATUSES:
+            cancelled.append(request_id)
             continue
         errors, warnings = audit_request(request_id, req_dir)
         all_errors.extend(errors)
@@ -302,13 +329,16 @@ def main() -> int:
         print(f"ERROR  {line}")
     for line in all_warnings:
         print(f"WARN   {line}")
+    for request_id in cancelled:
+        print(f"SKIP   {request_id}（spec.md 标记为已取消，仅归档设计记录，不校验产物）")
     if args.all:
         for request_id in skipped:
             print(f"SKIP   {request_id}（v2 生效前创建，存量不校验）")
 
-    audited = len(request_ids) - len(skipped)
+    audited = len(request_ids) - len(skipped) - len(cancelled)
     print(
         f"\nv2 requests: {audited}  存量跳过: {len(skipped)}  "
+        f"已取消跳过: {len(cancelled)}  "
         f"ERROR: {len(all_errors)}  WARN: {len(all_warnings)}"
     )
 

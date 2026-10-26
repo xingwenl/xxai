@@ -184,6 +184,8 @@ approval:
 
 对 2026-09-20 之前创建的 request 目录**一律跳过**，不报错、不告警。
 
+`spec.md` frontmatter 标注 `status: cancelled` 的 request 表示方案已取消、仅作设计记录归档：`audit.py` 跳过它的全部产物校验，并打印 SKIP 行。取消须由用户确认后添加，同时把关联 ADR 的 Status 改为 `withdrawn`，避免未实施的方案被当成现行约束。
+
 ## 规则读取顺序
 
 执行任务前按此顺序读取：
