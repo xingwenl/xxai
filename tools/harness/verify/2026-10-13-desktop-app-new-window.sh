@@ -246,11 +246,15 @@ assert len(CREATED) == 3, "重复打开不应新建窗口"
 assert child.calls == ["restore", "show"], child.calls
 print("重复打开：复用并聚焦已有窗口")
 
-# ── 系统启动器：未知协议必须被识别为失败（真机 open 命令，无副作用） ──
+# ── 系统启动器：未知协议必须解析不到处理程序（只查 LaunchServices，不真弹系统弹窗） ──
 if sys.platform == "darwin":
-    probe_launcher = host_api_module._macos_open("dsh-probe://no-such-handler")
-    assert probe_launcher is False, f"未知协议应判定失败，实际 {probe_launcher!r}"
-    print("系统启动器：未知协议返回 False（不再静默谎报成功）")
+    from AppKit import NSWorkspace
+    from Foundation import NSURL
+
+    probe_url = NSURL.URLWithString_("dsh-probe://no-such-handler")
+    probe_app = NSWorkspace.sharedWorkspace().URLForApplicationToOpenURL_(probe_url)
+    assert probe_app is None, f"未知协议不应解析出处理程序，实际 {probe_app!r}"
+    print("系统启动器：未知协议解析不到处理程序（只查 LaunchServices，不真弹系统弹窗）")
 
 # ── browser：交给系统浏览器，不建窗口（拦截启动器，避免自动验证真弹标签页） ──
 browser_calls: list[str] = []
