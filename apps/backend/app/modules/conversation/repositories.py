@@ -327,6 +327,28 @@ class ConversationRepository:
         )
         return list(result.scalars().all())
 
+    async def list_loop_steps_by_loop_ids(
+        self, loop_run_ids: list[int]
+    ) -> dict[int, list[AgentLoopStep]]:
+        """一次读回多个运行的步骤，按 ``loop_run_id`` 分组。
+
+        消息时间线要给每条 Loop 挂步骤；逐 Loop 调 ``list_loop_steps`` 会让一次
+        会话读取产生 O(轮数) 次数据库往返，这里改成一次 ``IN`` 查询后按外键分组。
+        """
+        if not loop_run_ids:
+            return {}
+        result = await self.session.execute(
+            select(AgentLoopStep)
+            .where(AgentLoopStep.loop_run_id.in_(loop_run_ids))
+            .order_by(
+                AgentLoopStep.loop_run_id, AgentLoopStep.sequence, AgentLoopStep.id
+            )
+        )
+        grouped: dict[int, list[AgentLoopStep]] = {}
+        for step in result.scalars().all():
+            grouped.setdefault(step.loop_run_id, []).append(step)
+        return grouped
+
     async def list_loops(self, conversation_id: int):
         result = await self.session.execute(
             select(AgentLoopRun)
@@ -350,6 +372,26 @@ class ConversationRepository:
             .order_by(AgentLoopRun.id)
         )
         return list(result.all())
+
+    async def list_child_loops_by_parent_ids(self, parent_loop_run_ids: list[int]):
+        """批量版 ``list_child_loops``：一次查回多组子运行，按父运行 ID 分组。
+
+        与单条版本共用同一套 join 语义（含「Agent 已删除仍可读」的 outerjoin），
+        供消息时间线这类一次性读取整段会话的场景使用，避免逐 Loop 往返。
+        """
+        if not parent_loop_run_ids:
+            return {}
+        result = await self.session.execute(
+            select(AgentLoopRun, Agent.slug, Agent.name)
+            .join(Conversation, Conversation.id == AgentLoopRun.conversation_id)
+            .outerjoin(Agent, Agent.id == Conversation.agent_id)
+            .where(AgentLoopRun.parent_loop_run_id.in_(parent_loop_run_ids))
+            .order_by(AgentLoopRun.parent_loop_run_id, AgentLoopRun.id)
+        )
+        grouped: dict[int, list] = {}
+        for row in result.all():
+            grouped.setdefault(row[0].parent_loop_run_id, []).append(row)
+        return grouped
 
     async def get_loop(self, loop_id: int, conversation_id: int):
         return await self.session.scalar(

@@ -132,12 +132,9 @@ async def build_message_snapshots(
     """
     if not hasattr(repo, "list_loops"):
         return messages
-    loop_payloads: dict[int | None, dict] = {}
-    for loop in await repo.list_loops(conversation_id):
-        delegated_runs = await load_delegated_runs(repo, loop.id)
-        loop_payloads[loop.assistant_message_id] = build_loop_payload(
-            loop, await repo.list_loop_steps(loop.id), delegated_runs
-        )
+    loop_payloads = await _build_loop_payloads(
+        repo, await repo.list_loops(conversation_id)
+    )
     return [
         {
             "id": message.id,
@@ -155,6 +152,62 @@ async def build_message_snapshots(
         }
         for message in messages
     ]
+
+
+async def _build_loop_payloads(repo, loops) -> dict[int | None, dict]:
+    """按 assistant 消息 ID 归档每条 Loop 的投影。
+
+    仓储具备批量读取能力时走批量路径：步骤、子运行各一次 ``IN`` 查询，子运行
+    用量再聚合一次，连同 Loop 列表共 4 次，与轮数无关。轻量替身（测试里的假
+    仓储）没有这些方法，退回逐 Loop 读取，行为与批量前逐字一致。
+    """
+    if not loops:
+        return {}
+    if hasattr(repo, "list_loop_steps_by_loop_ids") and hasattr(
+        repo, "list_child_loops_by_parent_ids"
+    ):
+        return await _build_loop_payloads_batched(repo, loops)
+    payloads: dict[int | None, dict] = {}
+    for loop in loops:
+        delegated_runs = await load_delegated_runs(repo, loop.id)
+        payloads[loop.assistant_message_id] = build_loop_payload(
+            loop, await repo.list_loop_steps(loop.id), delegated_runs
+        )
+    return payloads
+
+
+async def _build_loop_payloads_batched(repo, loops) -> dict[int | None, dict]:
+    """批量路径：步骤、子运行、子运行用量各只查一次。"""
+    loop_ids = [loop.id for loop in loops]
+    steps_by_loop = await repo.list_loop_steps_by_loop_ids(loop_ids)
+    children_by_parent = await repo.list_child_loops_by_parent_ids(loop_ids)
+    child_conversation_ids = [
+        child.conversation_id
+        for rows in children_by_parent.values()
+        for child, _slug, _name in rows
+    ]
+    usage_by_conversation: dict[int, dict] = {}
+    if child_conversation_ids and hasattr(repo, "usage_by_conversation_ids"):
+        usage_by_conversation = await repo.usage_by_conversation_ids(
+            child_conversation_ids
+        )
+    payloads: dict[int | None, dict] = {}
+    for loop in loops:
+        delegated_runs = [
+            build_delegated_run_payload(
+                child,
+                agent_slug=slug,
+                agent_name=name,
+                usage=usage_by_conversation.get(child.conversation_id),
+                # 自克隆 / 绑定的区分在运行期决定，落在 loop 的 metadata 里。
+                mode=(child.run_metadata or {}).get("delegationMode"),
+            )
+            for child, slug, name in children_by_parent.get(loop.id, [])
+        ]
+        payloads[loop.assistant_message_id] = build_loop_payload(
+            loop, steps_by_loop.get(loop.id, []), delegated_runs
+        )
+    return payloads
 
 
 async def load_delegated_runs(repo, loop_run_id: int) -> list[dict]:
