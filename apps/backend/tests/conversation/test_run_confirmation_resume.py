@@ -282,6 +282,10 @@ class _FakeConversationRepo:
     async def save_loop(self, loop):
         self.saved.append(loop)
 
+    async def list_loaded_tool_groups(self, conversation_id, *, exclude_loop_run_id=None):
+        """续跑会重放本次运行之前已加载的工具组；替身没有这类记录。"""
+        return set()
+
     async def get_message(self, message_id, conversation_id):
         self.message_calls.append((message_id, conversation_id))
         return self.message
@@ -630,6 +634,10 @@ class _FakeRunRepo:
 
     async def save_loop(self, loop):
         self.saved.append(loop)
+
+    async def list_loaded_tool_groups(self, conversation_id, *, exclude_loop_run_id=None):
+        """续跑会重放本次运行之前已加载的工具组；替身没有这类记录。"""
+        return set()
 
 
 def _drive_resume(monkeypatch, *, context_messages):

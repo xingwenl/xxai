@@ -140,6 +140,10 @@ class FakeConversationRepository:
     async def save_loop(self, loop):
         return loop
 
+    async def list_loaded_tool_groups(self, conversation_id, *, exclude_loop_run_id=None):
+        """加载态由历史 load_tool_group 记录重放；替身默认没有这类记录。"""
+        return set(getattr(self, "loaded_tool_groups", set()))
+
 
 def make_context(*, builtin_tools=None):
     """构造最小可运行的 RuntimeContext 替身。"""

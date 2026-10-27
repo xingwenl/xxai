@@ -340,6 +340,44 @@ class ConversationRepository:
         )
         return list(result.scalars().all())
 
+    async def list_loaded_tool_groups(
+        self, conversation_id: int, *, exclude_loop_run_id: int | None = None
+    ) -> set[str]:
+        """读回本会话历史上显式加载过的工具组。
+
+        工具组加载态不落库：它由 ``load_tool_group`` 的调用记录重放得到，所以
+        同一段历史必然推出同一个工具集合，续跑与重放都能复现。``exclude_loop_run_id``
+        用于续跑——只恢复「本次运行开始之前」的加载，让绑定与检查点里的目录一致。
+        """
+
+        # 延迟导入：agent_runtime 包的 __init__ 会拉起 runtime/loop，与 conversation
+        # 模块互相引用，这里只需要两个常量。
+        from app.modules.agent_runtime.tool_groups import (
+            LOAD_TOOL_GROUP_NAME,
+            LOADED_GROUP_METADATA_KEY,
+        )
+
+        statement = (
+            select(AgentLoopStep.step_metadata)
+            .join(AgentLoopRun, AgentLoopStep.loop_run_id == AgentLoopRun.id)
+            .where(
+                AgentLoopRun.conversation_id == conversation_id,
+                AgentLoopStep.tool_name == LOAD_TOOL_GROUP_NAME,
+            )
+        )
+        if exclude_loop_run_id is not None:
+            statement = statement.where(AgentLoopStep.loop_run_id != exclude_loop_run_id)
+        result = await self.session.execute(statement)
+        groups: set[str] = set()
+        # 元数据是 JSON 列，不同数据库方言的取值形态不同（dict 或文本），这里统一
+        # 在 Python 侧兜住，避免依赖方言特有的 JSON 函数。
+        for metadata in result.scalars().all():
+            if isinstance(metadata, dict):
+                group = metadata.get(LOADED_GROUP_METADATA_KEY)
+                if isinstance(group, str) and group:
+                    groups.add(group)
+        return groups
+
     async def list_loop_steps_by_loop_ids(
         self, loop_run_ids: list[int]
     ) -> dict[int, list[AgentLoopStep]]:

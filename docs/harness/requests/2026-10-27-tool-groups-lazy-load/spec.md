@@ -115,6 +115,15 @@ approval:
     与 `tests/gateway/test_chat_flow.py` 按新契约增补/调整（含「跳过加载直接调用」的兜底链路）。
 11. 新增 `tools/harness/verify/2026-10-27-tool-groups-lazy-load.sh`。
 
+**追加变更点（2026-10-27，加载态跨轮重放）**：
+12. `tool_groups.py`：`handle_loader_call` 成功分支带 `metadata: {tool_group: <组名>}`（失败不带）；
+    新增 `LOADED_GROUP_METADATA_KEY`、`ToolGroupState.restore(groups)`（不递增 `version`）与 `build_tool_group_state(..., active_groups=...)`。
+13. `conversation/repositories.py` 新增 `list_loaded_tool_groups(conversation_id, *, exclude_loop_run_id=None)`
+    （只挑 `load_tool_group` 步骤、Python 侧读 `step_metadata`）；`services.py` 抽出 `load_active_tool_groups()`
+    接入非流式 / `stream_chat` / `resume_stream_chat`，`gateway/runtime.py` WS 同口径。
+14. 修订变更点 8：`resume_stream_chat` 改为启用分组，只恢复本次运行之前的组（`exclude_loop_run_id=loop.id`）
+    以对齐检查点目录，中途加载的放弃；`activate_all` 不写 metadata。测试：新增仓储测试 + 4 例单测。
+
 **与初稿的偏差**（初稿变更点 3/4/5/8 已按实现收敛）：
 
 - 不再改 `build_runtime_tools` / `build_runtime_tool_list` / `merge_model_tools`：选择发生在
@@ -128,9 +137,8 @@ approval:
 
 ## 验收标准
 
-1. schema 体积（`verify.sh` 实测打印）：初始绑定 REST ≤800 字符 / WS ≤1,700 字符
-   （含 `ask_user`），加载任一组后 ≤6,500，全量基线 18,198。实测：REST 487 / WS 1,514 /
-   最大组 `ops` 5,842。
+1. schema 体积（`verify.sh` 实测打印）：初始绑定 REST ≤800 / WS ≤1,700 字符（含 `ask_user`），
+   加载任一组后 ≤6,500，全量基线 18,198。实测：REST 487 / WS 1,514 / 最大组 `ops` 5,842。
 2. 单测：首轮 `bind_tools` 只含 `basic` + `load_tool_group`；加载 `ops` 后下一轮含 4 个 ops
    工具；重复加载幂等（返回空列表、版本不递增、集合不变）。
 3. 单测：模型直接调用未加载工具 → 返回 `tool_not_loaded` 且框架自动全量激活，同一调用重试

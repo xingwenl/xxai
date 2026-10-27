@@ -6,14 +6,18 @@
   前缀、MCP 按 server_id 推导），与用户意图无关，也不需要分类器参与。
 - 常驻的只有两样：系统提示词里的工具目录（``catalog_text``）和
   ``load_tool_group`` 工具本身。
-- 加载**单调只增**：一旦加载，本次运行内不再卸载，因此前缀缓存最多每组失效
-  一次，而不是每轮失效。
+- 加载**单调只增**：一旦加载，会话内不再卸载，因此前缀缓存最多每组失效一次，
+  而不是每轮失效。
+- 加载态**不落库**：它由本会话历史上 ``load_tool_group`` 的调用记录重放得到
+  （见 :meth:`ToolGroupState.restore`），所以同一段历史必然推出同一个工具集合，
+  续跑与重放都能复现，不需要额外的状态列或状态机。
 - 兜底必须存在：模型直接调用未加载的工具时，调用器会 ``activate_all()`` 并
   回填可重试的提示，避免出现“工具不在上下文里、模型永远没有机会”的死局。
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -21,6 +25,11 @@ from app.modules.builtin_tool.groups import BASIC_GROUP, TOOL_GROUP_META
 
 # 按需加载工具名：与 load_skill 同一套「常驻目录 + 按需加载」范式。
 LOAD_TOOL_GROUP_NAME = "load_tool_group"
+
+# 加载结果里携带「这次加载了哪一组」的元数据键。工具结果的 ``metadata`` 会被
+# 工具步骤落库到 ``agent_loop_steps.step_metadata``，下一轮靠它重放加载态——
+# 不去解析面向用户的 ``output_summary`` 文本。
+LOADED_GROUP_METADATA_KEY = "tool_group"
 
 # 宿主工具名前缀无法识别时的兜底组名。
 HOST_GROUP = "host"
@@ -196,6 +205,20 @@ class ToolGroupState:
 
     # ---- 状态变更 ----
 
+    def restore(self, groups: Iterable[str] | None) -> set[str]:
+        """把历史加载过的组恢复成本轮初始加载态，返回真正恢复的组名。
+
+        只恢复「本轮工具清单里确实存在」且「尚未加载」的组；**不递增 version**：
+        这是本轮起点，第一次绑定用的就是这份集合，不需要触发重绑。
+        """
+
+        restored: set[str] = set()
+        for group in groups or ():
+            if group in self._by_group and group not in self.active:
+                self.active.add(group)
+                restored.add(group)
+        return restored
+
     def activate(self, group: str) -> list[str]:
         """加载一组，返回本次新可见的工具名；未知组或已加载返回空列表。"""
 
@@ -243,17 +266,28 @@ class ToolGroupState:
                 "tools": added,
                 "note": "该组工具从下一轮起可直接调用。",
             },
+            # 结构化记录本次加载，供下一轮/续跑重放加载态（见 restore）。
+            "metadata": {LOADED_GROUP_METADATA_KEY: group},
         }
 
 
 def build_tool_group_state(
-    tools: list[Any], *, enabled: bool = True
+    tools: list[Any],
+    *,
+    enabled: bool = True,
+    active_groups: Iterable[str] | None = None,
 ) -> ToolGroupState | None:
-    """按需创建分组状态；工具不足以分组（≤1 组）时返回 None，保持旧行为。"""
+    """按需创建分组状态；工具不足以分组（≤1 组）时返回 None，保持旧行为。
+
+    ``active_groups`` 是本会话历史上已加载过的组：把它们恢复成本轮的初始加载
+    态，同一个会话的第二轮就不用让模型把同样的组再加载一遍。不在本轮工具清单
+    里的组会被忽略——续跑与子运行的工具集合可能比上一轮更小。
+    """
 
     if not enabled:
         return None
     state = ToolGroupState(list(tools))
     if len(state.tools_by_group()) <= 1:
         return None
+    state.restore(active_groups)
     return state

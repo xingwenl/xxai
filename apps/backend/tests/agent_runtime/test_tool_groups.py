@@ -278,3 +278,47 @@ def test_builtin_registry_tools_are_grouped():
     assert ASK_USER_TOOL.group == "basic"
     assert len(state.bound_tools()) < len(tools)
     assert "ops" in state.pending_groups()
+
+
+def test_loader_call_carries_group_metadata_for_replay():
+    """加载结果带上 tool_group 元数据：落库后据此跨轮重放加载态。"""
+
+    state = ToolGroupState(_grouped_tools())
+
+    done = state.handle_loader_call({"group": "ops"})
+
+    assert done["metadata"] == {"tool_group": "ops"}
+    # 失败分支不产生加载记录，重放时不该出现「假装加载过」的组。
+    assert "metadata" not in state.handle_loader_call({"group": "nope"})
+
+
+def test_build_state_restores_history_groups_without_rebinding():
+    """恢复历史加载态：初始绑定就包含已加载组，且不递增 version（本轮起点）。"""
+
+    state = build_tool_group_state(_grouped_tools(), active_groups={"ops", "nope"})
+
+    assert state is not None
+    # 不存在的组被忽略，不会凭空出现在绑定集里。
+    assert state.active == {"basic", "ops"}
+    assert state.version == 0
+    assert "ops" not in state.pending_groups()
+    bound = [tool.name for tool in state.bound_tools()]
+    assert "order_query" in bound
+    assert "memory_search" not in bound
+    # 目录只列真正待加载的组，恢复过的组不再出现在目录里。
+    assert "memory" in (state.catalog_text() or "")
+    assert "ops" not in (state.catalog_text() or "")
+
+
+def test_restore_is_monotonic_and_idempotent():
+    """恢复只增不减；对已加载的组重复恢复不改变状态。"""
+
+    state = ToolGroupState(_grouped_tools())
+    state.activate("memory")
+
+    restored = state.restore({"memory", "ops"})
+    again = state.restore({"ops"})
+
+    assert restored == {"ops"}
+    assert again == set()
+    assert state.active == {"basic", "memory", "ops"}

@@ -150,10 +150,55 @@ PY
 echo '```'
 echo
 
-echo "### 3. 分组/加载/兜底/重绑的单元与链路测试"
+echo "### 3. 跨轮重放加载态：第二轮开局即绑定上一轮加载过的组"
+echo '```'
+"$PY" - "$BACKEND" <<'PY' || FAIL=1
+import sys
+
+sys.path.insert(0, sys.argv[1])
+
+from app.modules.agent_runtime.tool_groups import (
+    LOADED_GROUP_METADATA_KEY,
+    build_tool_group_state,
+)
+from app.modules.builtin_tool.registry import list_builtin_tools
+
+tools = list(list_builtin_tools())
+
+
+def bound_names(state):
+    return {tool.name for tool in state.bound_tools()}
+
+
+# 第一轮：只绑常驻组，模型显式加载 ops。
+first = build_tool_group_state(tools)
+result = first.handle_loader_call({"group": "ops"})
+loaded = result["metadata"][LOADED_GROUP_METADATA_KEY]
+assert "order_query" in bound_names(first), "第一轮加载后应绑定 ops 工具"
+
+# 第二轮：从历史记录重放（真实链路里这份集合由 agent_loop_steps.step_metadata
+# 读回），开局就绑定 ops，不需要模型再加载一次，且不递增 version。
+second = build_tool_group_state(tools, active_groups={loaded})
+assert "order_query" in bound_names(second), "第二轮开局应已绑定 ops"
+assert second.version == 0, "重放是起点态，不应触发重绑"
+assert "ops" not in (second.catalog_text() or ""), "已加载的组不应再出现在目录里"
+assert "memory" in (second.catalog_text() or ""), "未加载的组仍应留在目录里"
+
+# 不存在的组被忽略：工具集合变小（续跑/子运行）时不会凭空绑定。
+third = build_tool_group_state(tools, active_groups={"ops", "ghost"})
+assert bound_names(third) == bound_names(second), "未知组不应改变绑定集合"
+print("PASS  加载结果携带 tool_group 元数据：" + str(result["metadata"]))
+print("PASS  第二轮开局即绑定 ops，version=0，目录只列未加载的组")
+print("PASS  未知组名被忽略")
+PY
+echo '```'
+echo
+
+echo "### 4. 分组/加载/兜底/重绑的单元与链路测试"
 echo '```'
 cd "$BACKEND" || exit 1
 "$PY" -m pytest tests/agent_runtime/test_tool_groups.py -q 2>&1 | tail -5 || FAIL=1
+"$PY" -m pytest tests/conversation/test_repository_loaded_tool_groups.py -q 2>&1 | tail -5 || FAIL=1
 echo
 echo "--- 受影响包的回归（分批执行，规避测试模块同名收集冲突）"
 for pkg in agent_runtime conversation gateway builtin_tool skill_runner workflows; do
@@ -163,7 +208,7 @@ done
 echo '```'
 echo
 
-echo "### 4. 静态检查"
+echo "### 5. 静态检查"
 echo '```'
 cd "$BACKEND" || exit 1
 "$PY" -m ruff check \
@@ -174,10 +219,12 @@ cd "$BACKEND" || exit 1
   app/modules/builtin_tool/groups.py \
   app/modules/builtin_tool/registry.py \
   app/modules/conversation/runtime.py \
+  app/modules/conversation/repositories.py \
   app/modules/conversation/services.py \
   app/modules/gateway/runtime.py \
   tests/agent_runtime/test_tool_groups.py \
   tests/gateway/test_chat_flow.py \
+  tests/conversation/test_repository_loaded_tool_groups.py \
   tests/conversation/test_runtime.py 2>&1 | tail -5 || FAIL=1
 echo '```'
 echo
@@ -192,7 +239,7 @@ echo
 echo "## 验收结论"
 echo
 if [[ "$FAIL" -eq 0 ]]; then
-  echo "通过：体积断言、幂等/兜底语义、REST/WS 目录一致性、受影响包单测与 ruff 全部成功。"
+  echo "通过：体积断言、跨轮重放语义、幂等/兜底语义、REST/WS 目录一致性、受影响包单测与 ruff 全部成功。"
 else
   echo "未通过：脚本内有失败项，见上方输出。"
 fi

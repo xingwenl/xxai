@@ -122,6 +122,13 @@ class FakeConversationRepository:
         self.loop = loop
         return loop
 
+    async def list_loaded_tool_groups(self, conversation_id, *, exclude_loop_run_id=None):
+        """加载态由历史 load_tool_group 记录重放；替身默认没有这类记录。
+
+        用例可预设 ``repo.loaded_tool_groups`` 模拟「上一轮已经加载过某组」。
+        """
+        return set(getattr(self, "loaded_tool_groups", set()))
+
 
 class FakeStreamingModel:
     async def astream(self, _messages):
@@ -266,6 +273,61 @@ def test_embed_chat_binds_host_tools_only_after_group_load():
 
     assert model.bound_names == ["load_tool_group"]
     assert any(event["type"] == "message_completed" for event in events)
+
+
+def test_embed_chat_replays_groups_loaded_by_previous_turns():
+    """上一轮已加载的组在下一轮开局就在绑定集里，不必再让模型加载一遍。
+
+    加载态不落库，由历史 ``load_tool_group`` 记录重放（仓储替身这里直接给出
+    结果集）。目录只列仍未加载的组，保证「模型看到的目录」与「它能直接调的
+    工具」始终一致。
+    """
+
+    model = RecordingBindModel()
+    repo = FakeConversationRepository()
+    repo.loaded_tool_groups = {"content"}
+    host_tool = SimpleNamespace(
+        name="page_click",
+        description="点击页面元素",
+        input_schema={"type": "object", "properties": {}},
+    )
+    runtime_tool = SimpleNamespace(
+        name="http_get",
+        group="content",
+        description="请求网页",
+        input_schema={"type": "object"},
+        kind="builtin",
+    )
+
+    async def run():
+        events = []
+        async for event in stream_embed_chat(
+            repo,
+            SimpleNamespace(
+                agent=SimpleNamespace(id=11),
+                version=SimpleNamespace(system_prompt="回答"),
+                skill_instructions=[],
+                mcp_tools=[],
+            ),
+            model=model,
+            platform_id=1,
+            end_user_id=2,
+            message="继续查页面",
+            conversation_id=None,
+            request_id="req-restore",
+            citations=[],
+            host_tools=[host_tool],
+            runtime_tools=[runtime_tool],
+        ):
+            events.append(wire(event, len(events) + 1))
+        return events
+
+    asyncio.run(run())
+
+    # content 组已恢复 → 直接绑定 http_get；host 组仍未加载 → 保留加载工具。
+    assert "http_get" in model.bound_names
+    assert "load_tool_group" in model.bound_names
+    assert "page_click" not in model.bound_names
 
 
 class ScriptedStreamingModel:

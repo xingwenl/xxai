@@ -8,6 +8,7 @@ from app.core.logging import get_logger
 from app.modules.conversation.repositories import ConversationRepository
 from app.modules.conversation.services import (
     build_loop_with_steps,
+    load_active_tool_groups,
     load_recent_history,
     orchestration_event_stream,
 )
@@ -797,8 +798,11 @@ async def stream_embed_chat(
     )
     memory_index = await load_embed_memory_index(repo, memory_principal)
     # 工具按组按需加载：首轮只绑常驻组 + load_tool_group，其余组靠目录现取。
-    # 目录（提示词）与加载态（runtime）必须来自同一个 state 对象。
-    tool_groups = build_tool_group_state(tools)
+    # 目录（提示词）与加载态（runtime）必须来自同一个 state 对象；同会话上一轮
+    # 已加载过的组按历史重放，避免每轮都让模型重复加载同一个组。
+    tool_groups = build_tool_group_state(
+        tools, active_groups=await load_active_tool_groups(repo, conversation.id)
+    )
     ws_system_prompt = build_system_prompt(
         context.version,
         context.skill_instructions,

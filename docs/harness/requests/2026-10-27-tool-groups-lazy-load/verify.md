@@ -1,7 +1,7 @@
 ---
 source: script
 request: 2026-10-27-tool-groups-lazy-load
-ranAt: "2026-10-27 14:04:14 CST"
+ranAt: "2026-10-27 14:43:30 CST"
 exitCode: 0
 ---
 
@@ -44,33 +44,42 @@ PASS  目录文本不含 JSON schema（只常驻组名与工具名）
 初始绑定：ask_user、load_tool_group
 ```
 
-### 3. 分组/加载/兜底/重绑的单元与链路测试
+### 3. 跨轮重放加载态：第二轮开局即绑定上一轮加载过的组
 ```
-...............                                                          [100%]
-15 passed in 2.11s
+PASS  加载结果携带 tool_group 元数据：{'tool_group': 'ops'}
+PASS  第二轮开局即绑定 ops，version=0，目录只列未加载的组
+PASS  未知组名被忽略
+```
+
+### 4. 分组/加载/兜底/重绑的单元与链路测试
+```
+..................                                                       [100%]
+18 passed in 1.78s
+..                                                                       [100%]
+2 passed in 1.89s
 
 --- 受影响包的回归（分批执行，规避测试模块同名收集冲突）
 $ pytest tests/agent_runtime -q
-..............................................................           [100%]
-134 passed in 2.21s
+.................................................................        [100%]
+137 passed in 1.81s
 $ pytest tests/conversation -q
-.........................                                                [100%]
-169 passed in 8.00s
+...........................                                              [100%]
+171 passed in 6.23s
 $ pytest tests/gateway -q
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-122 passed, 1 skipped, 1 warning in 5.85s
+123 passed, 1 skipped, 1 warning in 2.55s
 $ pytest tests/builtin_tool -q
 ..................................................................       [100%]
-66 passed in 4.67s
+66 passed in 2.48s
 $ pytest tests/skill_runner -q
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-10 passed, 1 warning in 3.13s
+10 passed, 1 warning in 2.83s
 $ pytest tests/workflows -q
 ..........................................                               [100%]
-186 passed in 18.90s
+186 passed in 17.33s
 ```
 
-### 4. 静态检查
+### 5. 静态检查
 ```
 All checks passed!
 ```
@@ -84,4 +93,4 @@ All checks passed!
 
 ## 验收结论
 
-通过：体积断言、幂等/兜底语义、REST/WS 目录一致性、受影响包单测与 ruff 全部成功。
+通过：体积断言、跨轮重放语义、幂等/兜底语义、REST/WS 目录一致性、受影响包单测与 ruff 全部成功。

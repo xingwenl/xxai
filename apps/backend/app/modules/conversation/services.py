@@ -488,6 +488,27 @@ async def retrieve_citations(knowledge_repo, knowledge_bases, query: str):
     return citations
 
 
+async def load_active_tool_groups(
+    repo: ConversationRepository,
+    conversation_id: int | None,
+    *,
+    exclude_loop_run_id: int | None = None,
+) -> set[str]:
+    """读回本会话已加载过的工具组，作为本轮按需加载的起点。
+
+    工具组加载态本身不落库：它由历史上 ``load_tool_group`` 的调用记录重放得到，
+    因此同一段历史必然推出同一个工具集合，续跑与重放都能复现，不依赖模型记忆。
+    读不到（新会话、或还没有加载记录）就返回空集合，退回「只绑常驻组」的默认
+    行为。``exclude_loop_run_id`` 供续跑使用：只恢复本次运行开始之前的加载。
+    """
+
+    if conversation_id is None:
+        return set()
+    return await repo.list_loaded_tool_groups(
+        conversation_id, exclude_loop_run_id=exclude_loop_run_id
+    )
+
+
 async def _run_execute_chat_model_round(
     *,
     model,
@@ -520,8 +541,12 @@ async def _run_execute_chat_model_round(
 
     # 工具按组按需加载：首轮只绑常驻工具 + load_tool_group，其余组靠目录提示现取。
     # 提示词里的目录与 runtime 的绑定状态必须来自同一个 state 对象，否则模型看到
-    # 的目录和它能加载的组会对不上。
-    tool_groups = build_tool_group_state(runtime_tools)
+    # 的目录和它能加载的组会对不上。上一轮已加载过的组按历史重放，避免同一个会话
+    # 每一轮都要求模型把同样的组再加载一遍。
+    tool_groups = build_tool_group_state(
+        runtime_tools,
+        active_groups=await load_active_tool_groups(repo, context.conversation_id),
+    )
     system_prompt = build_system_prompt(
         context.version,
         context.skill_instructions,
@@ -985,8 +1010,12 @@ async def stream_chat(
     memory_index = await _load_memory_index(
         repo, platform_id=platform_id, user_id=user_id, allow_memory=allow_memory
     )
-    # 与非流式同口径：目录进提示词、加载态进 runtime，两者共用一个 state。
-    tool_groups = build_tool_group_state(runtime_tools)
+    # 与非流式同口径：目录进提示词、加载态进 runtime，两者共用一个 state；
+    # 已加载过的组按历史重放，多轮对话不必每轮重复 load_tool_group。
+    tool_groups = build_tool_group_state(
+        runtime_tools,
+        active_groups=await load_active_tool_groups(repo, context.conversation_id),
+    )
     system_prompt = build_system_prompt(
         context.version,
         context.skill_instructions,
@@ -1396,12 +1425,21 @@ async def resume_stream_chat(
         window_tokens=window_tokens,
         enabled=False,
     )
-    # 续跑不启用工具分组：系统提示词来自检查点快照、无法重建目录，此时若只绑
-    # 已加载组，模型手里的目录与绑定集合会脱节。这里保持全量绑定，代价是这一次
-    # 续跑多付全量 schema 的 token，换来「继续」语义的确定性。
+    # 续跑同样启用按组按需加载：系统提示词来自检查点快照（目录文本是那次运行
+    # **开始时刻**的待加载组），所以只恢复「本次运行开始之前」已加载过的组，让
+    # 绑定集合与快照里的目录严格一致。运行中途加载过的组在这里放弃——最坏是模型
+    # 再加载一次，或直接调用未加载的工具触发 tool_not_loaded 兜底，不会出现「工具
+    # 不在上下文、模型也无从得知」的死局。
+    runtime_tools = build_runtime_tool_list(context)
+    tool_groups = build_tool_group_state(
+        runtime_tools,
+        active_groups=await load_active_tool_groups(
+            repo, conversation.id, exclude_loop_run_id=loop.id
+        ),
+    )
     runtime = build_langchain_runtime(
         model,
-        build_runtime_tool_list(context),
+        runtime_tools,
         invoke_tool_fn,
         streaming=True,
         context_transform=compaction_controller.transform,
@@ -1410,6 +1448,7 @@ async def resume_stream_chat(
         # 续跑没有原始用户消息，无法重建「上下文超限」时的降级重试消息，
         # 因此不注入 on_model_error。
         on_task_started=on_model_task_started,
+        tool_group_state=tool_groups,
     )
     event_stream = stream_runtime_as_conversation(
         runtime.stream(messages, request_id=loop.request_id)
