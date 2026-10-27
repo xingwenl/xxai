@@ -25,6 +25,24 @@ LOAD_TOOL_GROUP_NAME = "load_tool_group"
 # 宿主工具名前缀无法识别时的兜底组名。
 HOST_GROUP = "host"
 
+# 宿主工具按名称前缀分组：页面注册链路不携带分组信息（入站契约
+# ``HostToolRegistration`` 只有 name/description/input_schema），所以只能按命名
+# 约定推导。**只认登记过的前缀**——未登记的一律归 ``host``，避免 ``debug_ping``、
+# ``get_weather``、``navigate_to_page`` 这类名字按首段凭空造出 debug、get、
+# navigate 组，把一个工具的组塞进工具目录。
+HOST_TOOL_GROUP_PREFIXES: dict[str, str] = {
+    "note": "note",
+    "ledger": "ledger",
+    "page": "page",
+}
+
+# 宿主工具组的展示信息：组名 →（标题，一句话说明）。
+_HOST_GROUP_META: dict[str, tuple[str, str]] = {
+    "note": ("念记", "念记笔记子应用注册的方法"),
+    "ledger": ("记账", "记账子应用注册的方法"),
+    "page": ("页面操作", "当前页面注册的通用页面操作工具"),
+}
+
 # 兜底提示：模型调用了未加载的工具时返回，明确要求它重试同一次调用。
 RETRY_HINT = "工具组已全部加载，请立即重试刚才的工具调用，不需要再调用 {loader}。"
 
@@ -49,12 +67,14 @@ def tool_group(tool: Any) -> str:
 
 
 def _host_group(name: str) -> str:
-    """宿主工具按名称首段分组：``ledger_add_entry`` → ``ledger``。"""
+    """宿主工具按**登记过的**名称前缀分组：``ledger_add_entry`` → ``ledger``。
+
+    前缀未登记（含没有分隔符的名字，如 ``snapshot``）时统一归 ``host``，
+    不按首段猜组名——猜出来的组名只是噪音，还会让目录里多出无意义的条目。
+    """
 
     head = name.split("_", 1)[0].split(".", 1)[0]
-    if not head or head == name:
-        return HOST_GROUP
-    return head
+    return HOST_TOOL_GROUP_PREFIXES.get(head, HOST_GROUP)
 
 
 def group_meta(group: str) -> tuple[str, str]:
@@ -67,6 +87,9 @@ def group_meta(group: str) -> tuple[str, str]:
         return ("MCP", f"MCP 服务 {group.split(':', 1)[1]} 注册的工具")
     if group == BASIC_GROUP:
         return ("常驻", "平台级交互工具，始终可用")
+    host_meta = _HOST_GROUP_META.get(group)
+    if host_meta is not None:
+        return host_meta
     return ("页面", "页面宿主注册的工具")
 
 

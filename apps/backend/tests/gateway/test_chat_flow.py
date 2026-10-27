@@ -229,8 +229,11 @@ def test_embed_chat_binds_host_tools_only_after_group_load():
         description="调试用页面方法",
         input_schema={"type": "object", "properties": {}},
     )
+    # 内置工具替身要带 group（与 BuiltinToolDefinition 一致），否则会被当成
+    # 无前缀的宿主工具併入 host 组，工具集合只剩一个组、按需加载按旧行为关闭。
     runtime_tool = SimpleNamespace(
         name="http_get",
+        group="content",
         description="请求网页",
         input_schema={"type": "object"},
         kind="builtin",
@@ -312,10 +315,11 @@ def test_embed_chat_dispatches_registered_host_tool_call():
     )
 
     async def run():
-        # 按需加载：先加载页面工具组，下一轮才真正调用宿主工具。
+        # 按需加载：先加载页面工具组（未登记前缀的宿主工具归 host 组），
+        # 下一轮才真正调用宿主工具。
         model = ScriptedStreamingModel(
             [
-                ("load_tool_group", {"group": "debug"}, "call-load-1"),
+                ("load_tool_group", {"group": "host"}, "call-load-1"),
                 ("debug_ping", {}, "call-host-1"),
             ]
         )
@@ -879,11 +883,16 @@ class MaxTurnsEmbedStreamingModel:
 
 
 def lookup_runtime_tool():
-    """与 REST parity 同形状的内置工具替身，供 WS 两条路径绑定。"""
+    """与 REST parity 同形状的内置工具替身，供 WS 两条路径绑定。
+
+    与 ``BuiltinToolDefinition`` 一样带 ``group``：缺这个字段的 ``kind="builtin"``
+    对象会走宿主前缀推导，被误归到 host 组。
+    """
 
     return SimpleNamespace(
         name="lookup",
         kind="builtin",
+        group="content",
         description="查天气",
         input_schema={"type": "object"},
     )

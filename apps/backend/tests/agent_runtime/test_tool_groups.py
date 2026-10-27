@@ -15,6 +15,7 @@ from app.modules.agent_runtime.tool_groups import (
     LOAD_TOOL_GROUP_NAME,
     ToolGroupState,
     build_tool_group_state,
+    group_meta,
     tool_group,
 )
 from app.modules.builtin_tool.registry import ASK_USER_TOOL, list_builtin_tools
@@ -46,9 +47,26 @@ def test_tool_group_prefers_declared_group_then_source_attributes():
     assert tool_group(_tool("order_query", group="ops")) == "ops"
     assert tool_group(_tool("lookup", kind="mcp", server_id=7)) == "mcp:7"
     assert tool_group(_tool("run_skill_script", kind="skill_script")) == "skill"
+    # 已登记前缀的宿主工具按子应用成组。
     assert tool_group(_tool("ledger_add_entry", kind="host")) == "ledger"
-    # 没有下划线的宿主工具无法推断归属，统一归到 host 组。
+    assert tool_group(_tool("note_save_note", kind="host")) == "note"
+    assert tool_group(_tool("page_click", kind="host")) == "page"
+    # 未登记的前缀不按首段猜组名，统一归 host：否则目录里会冒出 debug、get、
+    # navigate 这种「一个工具一个组」的噪音条目。
+    assert tool_group(_tool("debug_ping", kind="host")) == "host"
+    assert tool_group(_tool("get_weather", kind="host")) == "host"
+    assert tool_group(_tool("navigate_to_page", kind="host")) == "host"
+    # 没有下划线的宿主工具同样归到 host 组。
     assert tool_group(_tool("snapshot", kind="host")) == "host"
+
+
+def test_host_group_meta_covers_registered_prefixes():
+    """已登记前缀要有可读标题，未登记前缀仍回落「页面」说明。"""
+
+    assert group_meta("note")[0] == "念记"
+    assert group_meta("ledger")[0] == "记账"
+    assert group_meta("page")[0] == "页面操作"
+    assert group_meta("host") == ("页面", "页面宿主注册的工具")
 
 
 def test_single_group_keeps_legacy_behaviour():

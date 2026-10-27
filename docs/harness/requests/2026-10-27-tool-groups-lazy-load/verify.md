@@ -1,7 +1,7 @@
 ---
 source: script
 request: 2026-10-27-tool-groups-lazy-load
-ranAt: "2026-10-27 11:29:16 CST"
+ranAt: "2026-10-27 14:04:14 CST"
 exitCode: 0
 ---
 
@@ -46,28 +46,28 @@ PASS  目录文本不含 JSON schema（只常驻组名与工具名）
 
 ### 3. 分组/加载/兜底/重绑的单元与链路测试
 ```
-..............                                                           [100%]
-14 passed in 2.61s
+...............                                                          [100%]
+15 passed in 2.11s
 
 --- 受影响包的回归（分批执行，规避测试模块同名收集冲突）
 $ pytest tests/agent_runtime -q
-.............................................................            [100%]
-133 passed in 2.87s
+..............................................................           [100%]
+134 passed in 2.21s
 $ pytest tests/conversation -q
 .........................                                                [100%]
-169 passed in 8.34s
+169 passed in 8.00s
 $ pytest tests/gateway -q
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-122 passed, 1 skipped, 1 warning in 3.51s
+122 passed, 1 skipped, 1 warning in 5.85s
 $ pytest tests/builtin_tool -q
 ..................................................................       [100%]
-66 passed in 3.67s
+66 passed in 4.67s
 $ pytest tests/skill_runner -q
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-10 passed, 1 warning in 3.72s
+10 passed, 1 warning in 3.13s
 $ pytest tests/workflows -q
 ..........................................                               [100%]
-186 passed in 19.98s
+186 passed in 18.90s
 ```
 
 ### 4. 静态检查
