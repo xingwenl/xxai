@@ -75,13 +75,20 @@ class AgentRuntime:
         | None = None,
         on_task_started: Callable[[asyncio.Task], None] | None = None,
         streaming: bool = False,
+        tool_group_state: Any | None = None,
     ) -> "AgentRuntime":
-        """用 LangChain 模型创建 runtime，集中收口供应商 Adapter 组合。"""
+        """用 LangChain 模型创建 runtime，集中收口供应商 Adapter 组合。
+
+        ``tool_group_state`` 非空表示启用按需加载的工具组：模型侧只绑定已加载
+        组的 schema，每次加载后由 adapter 重绑。
+        """
 
         from app.modules.agent_runtime.langchain_adapter import LangChainModelInvoker
 
         return cls(
-            model=LangChainModelInvoker(model, tools, streaming=streaming),
+            model=LangChainModelInvoker(
+                model, tools, streaming=streaming, tool_group_state=tool_group_state
+            ),
             tool_invoker=tool_invoker,
             hooks=hooks,
             persistence=persistence,

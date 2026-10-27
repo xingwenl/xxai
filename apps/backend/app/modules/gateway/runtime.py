@@ -59,6 +59,7 @@ from app.modules.agent_runtime.langchain_adapter import build_langchain_messages
 from app.modules.agent_runtime.composition import (
     build_langchain_runtime,
 )
+from app.modules.agent_runtime.tool_groups import build_tool_group_state
 from app.modules.agent_runtime.lifecycle import (
     AgentRunLifecycle,
     RunStatus,
@@ -795,16 +796,21 @@ async def stream_embed_chat(
         end_user_id=end_user_id,
     )
     memory_index = await load_embed_memory_index(repo, memory_principal)
+    # 工具按组按需加载：首轮只绑常驻组 + load_tool_group，其余组靠目录现取。
+    # 目录（提示词）与加载态（runtime）必须来自同一个 state 对象。
+    tool_groups = build_tool_group_state(tools)
     ws_system_prompt = build_system_prompt(
         context.version,
         context.skill_instructions,
         citations,
-        # 只有连接注册了宿主工具时才追加"可用工具清单"段落，避免无宿主工具的
-        # 请求提示词变化；清单取实际绑定集合，保证提示词与 bind_tools 一致。
-        host_tools=tools if host_tool_list else None,
+        # 分组模式下不再逐个列出「当前已绑定工具」：这份清单会随加载变化，
+        # 一次性写进提示词反而与后续绑定集脱节，稳定视图交给工具目录。
+        host_tools=tools if host_tool_list and tool_groups is None else None,
         caller_system_prompt=system_prompt,
         chat_model_name=getattr(model, "model_name", None),
         memory_index=memory_index,
+        tool_catalog=tool_groups.catalog_text() if tool_groups is not None else None,
+        capability_tool_names={tool.name for tool in tools},
     )
     # 上下文计量与压缩必须与 REST/SSE 同口径：历史走统一的模型消息视图
     # （含已生效的压缩摘要），窗口解析也用同一个函数。
@@ -834,6 +840,7 @@ async def stream_embed_chat(
         max_turns=get_settings().agent_max_iterations,
         on_model_error=make_multimodal_degrade_recoverer(ws_system_prompt, message),
         on_task_started=on_model_task_started,
+        tool_group_state=tool_groups,
     )
     # Agent 绑定了编排工作流时，这一轮由工作流接管：产出仍是同一套 AgentEvent，
     # 因此下面的消费循环、assistant 落库与用量记账一行都不用改。

@@ -166,14 +166,20 @@ class FailingStreamingModel:
 
 
 class RecordingBindModel:
-    """记录 bind_tools 收到的工具 Schema，用于验证模型可见的工具集合。"""
+    """记录每次 bind_tools 的工具名，用于验证模型可见的工具集合。"""
 
     def __init__(self):
         self.bound_tools = None
+        self.binds = []
 
     def bind_tools(self, tools):
         self.bound_tools = tools
+        self.binds.append([item["function"]["name"] for item in tools])
         return self
+
+    @property
+    def bound_names(self):
+        return self.binds[-1] if self.binds else []
 
     async def astream(self, _messages):
         yield SimpleNamespace(content="已收到")
@@ -208,12 +214,13 @@ def test_merge_model_tools_keeps_runtime_and_host_tools():
     assert [tool.name for tool in merged] == ["http_get", "debug_ping"]
 
 
-def test_embed_chat_binds_host_tools_to_model():
-    """注册的页面宿主工具必须进入 bind_tools。
+def test_embed_chat_binds_host_tools_only_after_group_load():
+    """分组后首轮只绑常驻工具，宿主工具在 load_tool_group 之后进入 bind_tools。
 
     回归用例：此前 ``runtime_tools`` 与 ``host_tools`` 被写成二选一，宿主工具
     只出现在 system prompt 里，模型无法产生 tool_call，表现为"页面注册成功但
-    工具永远不被调用"。
+    工具永远不被调用"。按需加载后这条链路中间多一步显式加载，因此断言改成
+    「首轮不全量绑定 → 加载后绑定」。
     """
 
     model = RecordingBindModel()
@@ -254,35 +261,35 @@ def test_embed_chat_binds_host_tools_to_model():
 
     events = asyncio.run(run())
 
-    assert [item["function"]["name"] for item in model.bound_tools] == [
-        "http_get",
-        "debug_ping",
-    ]
+    assert model.bound_names == ["load_tool_group"]
     assert any(event["type"] == "message_completed" for event in events)
 
 
-class HostToolCallStreamingModel:
-    """第一轮请求宿主工具，第二轮基于工具结果作答。"""
+class ScriptedStreamingModel:
+    """按脚本逐轮产出：脚本项为 (工具名, 参数, call_id)，脚本用尽后输出文本。"""
 
-    def __init__(self):
+    def __init__(self, script, final_text="页面标题是 repro-page。"):
+        self.script = list(script)
+        self.final_text = final_text
         self.calls = 0
 
     async def astream(self, _messages):
         self.calls += 1
-        if self.calls == 1:
-            yield AIMessageChunk(
-                content="",
-                tool_call_chunks=[
-                    {
-                        "name": "debug_ping",
-                        "args": "{}",
-                        "id": "call-host-1",
-                        "index": 0,
-                    }
-                ],
-            )
+        if not self.script:
+            yield AIMessageChunk(content=self.final_text)
             return
-        yield AIMessageChunk(content="页面标题是 repro-page。")
+        name, arguments, call_id = self.script.pop(0)
+        yield AIMessageChunk(
+            content="",
+            tool_call_chunks=[
+                {
+                    "name": name,
+                    "args": json.dumps(arguments),
+                    "id": call_id,
+                    "index": 0,
+                }
+            ],
+        )
 
 
 def test_embed_chat_dispatches_registered_host_tool_call():
@@ -305,7 +312,13 @@ def test_embed_chat_dispatches_registered_host_tool_call():
     )
 
     async def run():
-        model = HostToolCallStreamingModel()
+        # 按需加载：先加载页面工具组，下一轮才真正调用宿主工具。
+        model = ScriptedStreamingModel(
+            [
+                ("load_tool_group", {"group": "debug"}, "call-load-1"),
+                ("debug_ping", {}, "call-host-1"),
+            ]
+        )
         events = []
         async for event in stream_embed_chat(
             FakeConversationRepository(),
@@ -332,7 +345,7 @@ def test_embed_chat_dispatches_registered_host_tool_call():
     model, events = asyncio.run(run())
 
     assert [name for name, _ in invoked] == ["debug_ping"]
-    assert model.calls == 2
+    assert model.calls == 3
 
     host_steps = [
         event
@@ -349,6 +362,65 @@ def test_embed_chat_dispatches_registered_host_tool_call():
         if event["type"] == "message_completed"
     )
     assert "repro-page" in final_text
+
+
+def test_embed_chat_auto_activates_groups_when_model_skips_loading():
+    """模型直接调用未加载的宿主工具时，必须自动加载全部组并给出重试提示。
+
+    这是「工具不可见 → 模型永远没有机会」的死局唯一出口：兜底失败一次，
+    但下一次调用必须能成功。
+    """
+
+    invoked: list[str] = []
+
+    async def invoke_host_tool(tool=None, call=None, **_kwargs):
+        invoked.append(tool.name)
+        return {"status": "completed", "result": {"title": "repro-page"}}
+
+    host_tool = SimpleNamespace(
+        name="debug_ping",
+        description="调试用页面方法",
+        input_schema={"type": "object", "properties": {}},
+    )
+
+    async def run():
+        model = ScriptedStreamingModel([("debug_ping", {}, "call-host-1")])
+        events = []
+        async for event in stream_embed_chat(
+            FakeConversationRepository(),
+            SimpleNamespace(
+                agent=SimpleNamespace(id=11),
+                version=SimpleNamespace(system_prompt="回答"),
+                skill_instructions=[],
+                mcp_tools=[],
+            ),
+            model=model,
+            platform_id=1,
+            end_user_id=2,
+            message="调用 debug_ping",
+            conversation_id=None,
+            request_id="req-host-skip-load",
+            citations=[],
+            host_tools=[host_tool],
+            runtime_tools=[lookup_runtime_tool()],
+            invoke_host_tool_fn=invoke_host_tool,
+        ):
+            events.append(wire(event, len(events) + 1))
+        return model, events
+
+    model, events = asyncio.run(run())
+
+    steps = [
+        event["payload"]
+        for event in events
+        if event["type"] == "agent_step_completed"
+        and event["payload"].get("toolName") == "debug_ping"
+    ]
+    assert [step["status"] for step in steps] == ["failed"]
+    assert "load_tool_group" in json.dumps(steps[0], ensure_ascii=False)
+    assert invoked == []
+    # 兜底已经加载了全部组，所以下一轮 page tool 已在绑定集合里。
+    assert model.calls == 2
 
 
 def test_embed_stream_sends_terminal_error_and_marks_loop_failed():

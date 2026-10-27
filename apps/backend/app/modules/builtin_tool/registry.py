@@ -15,6 +15,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from app.modules.builtin_tool.groups import BASIC_GROUP, BUILTIN_TOOL_GROUPS
 from app.modules.tools.basic.registry import get_basic_tool
 from app.modules.tools.business.framework import (
     BusinessTool,
@@ -35,6 +36,9 @@ class BuiltinToolDefinition:
     executor: BusinessToolHandler | None
     kind: str = "builtin"
     side_effect: SideEffect = "none"
+    # 工具所属分组（工具侧常量，见 builtin_tool/groups.py）。空串代表漏登记，
+    # 由下方启动校验直接报错：不在任何组里的工具永远不会被绑定。
+    group: str = BASIC_GROUP
 
 
 def _from_business(tool: BusinessTool) -> BuiltinToolDefinition:
@@ -45,6 +49,7 @@ def _from_business(tool: BusinessTool) -> BuiltinToolDefinition:
         input_schema=tool.input_schema,
         executor=tool.handler,
         side_effect=effective_side_effect(tool, get_basic_tool),
+        group=BUILTIN_TOOL_GROUPS.get(tool.name, ""),
     )
 
 
@@ -108,6 +113,7 @@ ASK_USER_TOOL = BuiltinToolDefinition(
         "additionalProperties": False,
     },
     executor=None,  # ask_user 由网关直连处理，不注册业务 handler
+    group=BASIC_GROUP,
 )
 
 # 业务工具自动纳入目录：新增工具只需在 tools/business 完成注册（含收集页 import），
@@ -116,6 +122,17 @@ BUILTIN_TOOL_REGISTRY = {
     tool.name: _from_business(tool) for tool in list_business_tools()
 }
 BUILTIN_TOOL_REGISTRY[ASK_USER_TOOL.name] = ASK_USER_TOOL
+
+# 启动校验：分组是“工具能否被绑定”的判据，漏登记等于该工具永远不可用，
+# 因此这里让导入直接失败，而不是等到线上发现模型从不调用某个工具。
+_untagged = sorted(
+    tool.name for tool in BUILTIN_TOOL_REGISTRY.values() if not tool.group
+)
+if _untagged:
+    raise RuntimeError(
+        "内置工具缺少分组登记，请在 app/modules/builtin_tool/groups.py 补登记："
+        + ", ".join(_untagged)
+    )
 
 
 def get_builtin_tool(name: str) -> BuiltinToolDefinition | None:

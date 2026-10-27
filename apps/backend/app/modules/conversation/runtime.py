@@ -61,7 +61,9 @@ _SNAPSHOT_LIMIT_NOTE = "此前工具查询快照因上下文限制未保留，�
 
 # 压缩摘要注入抬头：模型据此区分「被压缩的历史」与逐条回放的历史正文，
 # 上下文护栏也把摘要消息视为不可删除（见 _guardrail_protected_starts）。
-COMPACTION_SUMMARY_TITLE = "以下内容是此前对话的压缩摘要（原始消息仍完整保留在会话记录中）："
+COMPACTION_SUMMARY_TITLE = (
+    "以下内容是此前对话的压缩摘要（原始消息仍完整保留在会话记录中）："
+)
 
 # 内置「模型名 → 已知上下文窗口」小映射：仅收录已核对的已知别名，
 # 其余模型须在智能体版本上显式填写 context_window_tokens。
@@ -273,11 +275,7 @@ def _snapshot_summary_text(event: dict, *, max_chars: int) -> str:
         return ""
     if isinstance(result, dict):
         list_key = next(
-            (
-                key
-                for key, value in result.items()
-                if isinstance(value, list) and value
-            ),
+            (key for key, value in result.items() if isinstance(value, list) and value),
             None,
         )
         if list_key is not None:
@@ -373,9 +371,7 @@ def _cap_snapshot_entries(
     return kept_reversed
 
 
-def attach_tool_snapshots(
-    metadata: dict | None, snapshots: list[dict]
-) -> dict:
+def attach_tool_snapshots(metadata: dict | None, snapshots: list[dict]) -> dict:
     """把快照写入消息扩展元数据；无快照时保持原元数据不变。"""
     merged = dict(metadata or {})
     if snapshots:
@@ -405,9 +401,10 @@ def collect_tool_snapshots(
             queried_at = entry.get("queried_at")
             if queried_at and retention_seconds:
                 parsed = _parse_iso_datetime(queried_at)
-                if parsed is not None and (
-                    now - parsed
-                ).total_seconds() > retention_seconds:
+                if (
+                    parsed is not None
+                    and (now - parsed).total_seconds() > retention_seconds
+                ):
                     continue
             entries.append(entry)
     # 同一查询条件（tool+params）多版本并存时只保留最新一份，避免歧义并省 token。
@@ -522,9 +519,7 @@ def make_context_degrade_recoverer(system_prompt: str, user_message: str):
     return recover
 
 
-def make_multimodal_degrade_recoverer(
-    system_prompt: str, user_message: str
-):
+def make_multimodal_degrade_recoverer(system_prompt: str, user_message: str):
     """AgentRuntime 的多模态降级恢复器（WS embed 专用）。
 
     依次处理两种真实供应商错误，各自只降级重试一次：
@@ -582,11 +577,7 @@ def _resolve_guardrail_budget(
     """按上下文窗口与估算比例计算护栏允许的字符预算。"""
 
     settings = get_settings()
-    ratio = (
-        input_ratio
-        if input_ratio is not None
-        else settings.context_input_ratio
-    )
+    ratio = input_ratio if input_ratio is not None else settings.context_input_ratio
     cpt = (
         chars_per_token
         if chars_per_token is not None
@@ -601,7 +592,9 @@ def _assistant_tool_call_ids(message: Any) -> set[str]:
     calls = getattr(message, "tool_calls", None) or []
     ids = set()
     for call in calls:
-        call_id = call.get("id") if isinstance(call, dict) else getattr(call, "id", None)
+        call_id = (
+            call.get("id") if isinstance(call, dict) else getattr(call, "id", None)
+        )
         if call_id:
             ids.add(str(call_id))
     return ids
@@ -639,7 +632,9 @@ def _message_payload_chars(message: Any) -> int:
     total = _messages_chars([message])
     calls = getattr(message, "tool_calls", None) or []
     for call in calls:
-        args = call.get("args") if isinstance(call, dict) else getattr(call, "args", None)
+        args = (
+            call.get("args") if isinstance(call, dict) else getattr(call, "args", None)
+        )
         if args is None:
             continue
         try:
@@ -771,9 +766,7 @@ def build_compaction_summary_message(compaction: Any | None) -> SystemMessage | 
     summary = getattr(compaction, "summary", None)
     if not isinstance(summary, str) or not summary.strip():
         return None
-    return SystemMessage(
-        content=f"{COMPACTION_SUMMARY_TITLE}\n\n{summary.strip()}"
-    )
+    return SystemMessage(content=f"{COMPACTION_SUMMARY_TITLE}\n\n{summary.strip()}")
 
 
 def _split_guardrail_units(
@@ -798,9 +791,10 @@ def _split_guardrail_units(
         cursor = index + 1
         consumed: set[str] = set()
         while cursor < total:
-            if isinstance(
-                messages[cursor], (ToolMessage, ToolOutcome)
-            ) and _tool_result_call_id(messages[cursor]) in call_ids:
+            if (
+                isinstance(messages[cursor], (ToolMessage, ToolOutcome))
+                and _tool_result_call_id(messages[cursor]) in call_ids
+            ):
                 call_id = _tool_result_call_id(messages[cursor])
                 if call_id not in consumed:
                     consumed.add(call_id)
@@ -1160,8 +1154,7 @@ def build_agent_error_payload(error: BaseException) -> dict[str, Any]:
         return {
             "code": ErrorCode.CONTEXT_LENGTH_EXCEEDED,
             "message": (
-                "对话或本次查询结果超过模型上下文上限，"
-                "请缩小查询范围或开启新对话"
+                "对话或本次查询结果超过模型上下文上限，请缩小查询范围或开启新对话"
             ),
             "retryable": False,
             "details": {
@@ -1531,7 +1524,9 @@ async def load_runtime_context(
 _RUNTIME_METADATA_CAPABILITY_KEYS = ("image", "native_file", "text_retrieval")
 
 
-def build_runtime_metadata_block(version, *, chat_model_name: str | None = None) -> str | None:
+def build_runtime_metadata_block(
+    version, *, chat_model_name: str | None = None
+) -> str | None:
     """构建注入系统提示词的运行时信息段（字段白名单）。
 
     只披露模型名、Agent 版本、服务版本、SDK 最低版本、温度与能力摘要；
@@ -1578,6 +1573,8 @@ def build_system_prompt(
     *,
     chat_model_name: str | None = None,
     memory_index: str | None = None,
+    tool_catalog: str | None = None,
+    capability_tool_names: set[str] | None = None,
 ):
     """
     构建系统提示词，将多个上下文片段组合为完整的系统提示
@@ -1589,6 +1586,7 @@ def build_system_prompt(
         4. 技能指令（skill_instructions），提供技能使用说明
         5. 知识库引用（citations），注入检索到的知识片段
         6. 宿主工具说明（host_tools），告知模型前端可用的工具列表
+        7. 工具目录（tool_catalog），未加载工具组的清单，供模型按需加载
 
     Args:
         version: Agent 版本对象，包含 system_prompt 模板
@@ -1597,6 +1595,10 @@ def build_system_prompt(
         host_tools: 宿主（前端）可用的工具列表，每项包含 name 和 description
         caller_system_prompt: SDK 调用方补充的系统提示词，不能替代平台基础约束
         memory_index: 用户记忆索引行（由 memory 模块构造），个人记忆内容不在此处注入
+        tool_catalog: 按组按需加载时的工具目录文本；与 host_tools 互斥使用，
+            因为「当前可调用列表」在加载过程中会变，目录才是稳定视图
+        capability_tool_names: 本次运行绑定过的全部工具名，用于判断 ask_user /
+            图片渲染等能力规则是否该注入；缺省时回落到 host_tools 的名字集合
 
     Returns:
         str: 拼接完成的系统提示词，各段落之间以双换行符分隔
@@ -1617,7 +1619,6 @@ def build_system_prompt(
     # 个人事实不预置进上下文，避免模型在无关话题里引用用户没打算分享的信息。
     if memory_index:
         sections.append(memory_index)
-
 
     # 追加技能指令段落
     if skill_instructions:
@@ -1645,19 +1646,29 @@ def build_system_prompt(
             "用户请求与工具能力匹配的操作时，应调用对应工具，"
             "不能只描述应该怎么做，也不能编造未列出的工具。"
         )
-        # 仅在 ask_user 工具可见时提示提问策略，避免 REST 路径误导模型。
-        if any(getattr(tool, "name", None) == "ask_user" for tool in host_tools):
+    # 按需加载模式下，「当前可调用工具」逐轮变化，稳定视图是工具目录：
+    # 只常驻组名与组内工具名，schema 靠 load_tool_group 现取。
+    if tool_catalog:
+        sections.append(tool_catalog)
+
+    if host_tools or tool_catalog:
+        # 能力规则按「本次运行绑定过的工具全集」判断，而不是按当前可见性：
+        # 工具未加载时规则也必须生效，否则模型永远等不到那条提示。
+        capability_names = capability_tool_names
+        if capability_names is None:
+            capability_names = {
+                getattr(tool, "name", None) for tool in (host_tools or [])
+            }
+        # 仅在 ask_user 工具可用时提示提问策略，避免 REST 路径误导模型。
+        if "ask_user" in capability_names:
             sections.append(
                 "当任务存在歧义、需要在方案之间做出选择或行动前缺少关键信息时，"
                 "可以调用 ask_user 工具向用户提问。问题应一次一个，提供 2-4 个选项；"
                 "只有确实需要用户决策时才提问，不要用提问替代普通的信息回复。"
                 "用户回答后，根据答案继续执行原任务。"
             )
-        # 图片工具可见时补充图片渲染规则：前端只能按 download_url 渲染图片。
-        if any(
-            getattr(tool, "name", None) in {"image_read", "image_generate"}
-            for tool in host_tools
-        ):
+        # 图片工具可用时补充图片渲染规则：前端只能按 download_url 渲染图片。
+        if capability_names & {"image_read", "image_generate"}:
             sections.append(
                 "图片展示规则：image_read/image_generate 等工具返回的图片资源，"
                 "回复中如需展示图片，必须使用结果中的 download_url 字段作为 "
@@ -1668,11 +1679,13 @@ def build_system_prompt(
     # 使用双换行符拼接所有非空段落
     prompt = "\n\n".join(section for section in sections if section)
     logger.info(
-        "Built system prompt sections=%s skill_count=%s citation_count=%s host_tool_count=%s prompt_chars=%s",
+        "Built system prompt sections=%s skill_count=%s citation_count=%s host_tool_count=%s "
+        "tool_catalog_chars=%s prompt_chars=%s",
         len(sections),
         len(skill_instructions),
         len(citations),
         len(host_tools or []),
+        len(tool_catalog or ""),
         len(prompt),
     )
     return prompt

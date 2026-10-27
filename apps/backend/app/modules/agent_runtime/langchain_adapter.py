@@ -12,7 +12,12 @@ from langchain_core.messages import (
     messages_to_dict,
 )
 
-from app.modules.agent_runtime.contracts import AgentEvent, AgentEventType, ToolCall, ToolOutcome
+from app.modules.agent_runtime.contracts import (
+    AgentEvent,
+    AgentEventType,
+    ToolCall,
+    ToolOutcome,
+)
 from app.modules.agent_runtime.loop import ModelTurn
 from app.modules.agent_runtime.message_text import (
     extract_text_content,
@@ -30,7 +35,9 @@ def _normalize_usage(usage: Any) -> dict[str, int] | None:
     total = usage.get("total_tokens")
     if total is None and isinstance(prompt, int) and isinstance(completion, int):
         total = prompt + completion
-    if not all(isinstance(value, int) and value >= 0 for value in (prompt, completion, total)):
+    if not all(
+        isinstance(value, int) and value >= 0 for value in (prompt, completion, total)
+    ):
         return None
     return {
         "prompt_tokens": prompt,
@@ -134,11 +141,7 @@ def messages_for_model(messages: list[Any]) -> list[Any]:
             )
         elif isinstance(item, ToolOutcome):
             call_id = item.call_id or item.metadata.get("call_id") or "unknown"
-            converted.append(
-                tool_message_from_outcome(
-                    ToolCall(call_id, "tool"), item
-                )
-            )
+            converted.append(tool_message_from_outcome(ToolCall(call_id, "tool"), item))
         elif isinstance(item, str):
             converted.append(HumanMessage(content=item))
     return converted
@@ -268,14 +271,36 @@ class LangChainModelInvoker:
         tools: list[Any] | None = None,
         *,
         streaming: bool = False,
+        tool_group_state: Any | None = None,
     ) -> None:
         self._model = model
         self._tools = tools or []
         self._streaming = streaming
-        self._bound_model = self._bind_tools(model)
+        # 按需加载的工具组状态：非空时绑定集合来自它，且每次加载后要重绑。
+        # 绑定态是 LangChain Runnable，做不到原地增删，只能重建一次。
+        self._group_state = tool_group_state
+        self._bound_version: int | None = None
+        self._bound_tools: list[Any] = []
+        self._bound_model = self._rebind(force=True)
 
-    def _bind_tools(self, model: Any) -> Any:
-        if not self._tools or not hasattr(model, "bind_tools"):
+    def _current_tools(self) -> list[Any]:
+        if self._group_state is None:
+            return self._tools
+        return self._group_state.bound_tools()
+
+    def _rebind(self, *, force: bool = False) -> Any:
+        """按工具组版本重建绑定模型；版本未变时复用上一次的绑定。"""
+
+        version = self._group_state.version if self._group_state is not None else 0
+        if not force and self._bound_version == version:
+            return self._bound_model
+        tools = self._current_tools()
+        self._bound_tools = tools
+        self._bound_version = version
+        return self._bind_tools(self._model, tools)
+
+    def _bind_tools(self, model: Any, tools: list[Any]) -> Any:
+        if not tools or not hasattr(model, "bind_tools"):
             return model
         return model.bind_tools(
             [
@@ -287,11 +312,16 @@ class LangChainModelInvoker:
                         "parameters": tool.input_schema or {"type": "object"},
                     },
                 }
-                for tool in self._tools
+                for tool in tools
             ]
         )
 
-    async def __call__(self, messages: list[Any], *, emit, allow_tools: bool = True) -> ModelTurn:
+    async def __call__(
+        self, messages: list[Any], *, emit, allow_tools: bool = True
+    ) -> ModelTurn:
+        # 加载组发生在上一轮的工具执行期，这里在每次模型调用前对齐绑定集合，
+        # 保证新加载的工具从下一轮起对模型可见。
+        self._bound_model = self._rebind()
         # 收尾轮必须使用未绑定工具的原始模型；仅靠调用方忽略 tool_calls
         # 不够，因为供应商仍可能执行或生成工具调用。
         model = self._bound_model if allow_tools else self._model
@@ -326,15 +356,17 @@ class LangChainModelInvoker:
             if response is None:
                 response = AIMessage(content="")
             if not isinstance(response, AIMessage):
-                response = AIMessage(content=getattr(response, "content", str(response)))
-            turn = model_turn_from_message(response, tools=self._tools)
+                response = AIMessage(
+                    content=getattr(response, "content", str(response))
+                )
+            turn = model_turn_from_message(response, tools=self._bound_tools)
             if thinking_parts:
                 turn.metadata["thinking_text"] = "".join(thinking_parts)
             return turn
         response = await model.ainvoke(messages_for_model(messages))
         if not isinstance(response, AIMessage):
             response = AIMessage(content=getattr(response, "content", str(response)))
-        turn = model_turn_from_message(response, tools=self._tools)
+        turn = model_turn_from_message(response, tools=self._bound_tools)
         thinking = extract_thinking_text(response)
         if thinking:
             turn.metadata["thinking_text"] = thinking

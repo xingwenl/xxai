@@ -59,6 +59,7 @@ from app.modules.agent_runtime.composition import (
     build_langchain_runtime,
     build_runtime_tools,
 )
+from app.modules.agent_runtime.tool_groups import build_tool_group_state
 from app.shared.exceptions import NotFoundException
 
 
@@ -517,6 +518,10 @@ async def _run_execute_chat_model_round(
     两者不该共用同一档。
     """
 
+    # 工具按组按需加载：首轮只绑常驻工具 + load_tool_group，其余组靠目录提示现取。
+    # 提示词里的目录与 runtime 的绑定状态必须来自同一个 state 对象，否则模型看到
+    # 的目录和它能加载的组会对不上。
+    tool_groups = build_tool_group_state(runtime_tools)
     system_prompt = build_system_prompt(
         context.version,
         context.skill_instructions,
@@ -526,6 +531,8 @@ async def _run_execute_chat_model_round(
         memory_index=memory_index,
         # 委派自克隆时调用方传入的本次角色说明，只作为补充段落追加。
         caller_system_prompt=caller_system_prompt,
+        tool_catalog=tool_groups.catalog_text() if tool_groups is not None else None,
+        capability_tool_names={tool.name for tool in runtime_tools},
     )
     # 模型名取自实际调用模型：注册表解析后版本行不再有模型名，
     # 不传就会让内置窗口映射失效（压缩与护栏都会静默关闭）。
@@ -551,6 +558,7 @@ async def _run_execute_chat_model_round(
         context_metrics=compaction_controller,
         max_turns=max_iterations or get_settings().agent_max_iterations,
         on_model_error=make_context_degrade_recoverer(system_prompt, message),
+        tool_group_state=tool_groups,
     )
     messages = build_langchain_messages(
         system_prompt=system_prompt,
@@ -977,12 +985,16 @@ async def stream_chat(
     memory_index = await _load_memory_index(
         repo, platform_id=platform_id, user_id=user_id, allow_memory=allow_memory
     )
+    # 与非流式同口径：目录进提示词、加载态进 runtime，两者共用一个 state。
+    tool_groups = build_tool_group_state(runtime_tools)
     system_prompt = build_system_prompt(
         context.version,
         context.skill_instructions,
         citations,
         chat_model_name=getattr(model, "model_name", None),
         memory_index=memory_index,
+        tool_catalog=tool_groups.catalog_text() if tool_groups is not None else None,
+        capability_tool_names={tool.name for tool in runtime_tools},
     )
     # 绑定编排时用「同一套 AgentEvent」替换模型流：下游从事件消费到 assistant
     # 落库全都不用改，两条来源在收尾处自然合流。
@@ -1021,6 +1033,7 @@ async def stream_chat(
             max_turns=max_iterations or get_settings().agent_max_iterations,
             on_model_error=make_context_degrade_recoverer(system_prompt, message),
             on_task_started=on_model_task_started,
+            tool_group_state=tool_groups,
         )
         event_stream = stream_runtime_as_conversation(
             runtime.stream(
@@ -1383,6 +1396,9 @@ async def resume_stream_chat(
         window_tokens=window_tokens,
         enabled=False,
     )
+    # 续跑不启用工具分组：系统提示词来自检查点快照、无法重建目录，此时若只绑
+    # 已加载组，模型手里的目录与绑定集合会脱节。这里保持全量绑定，代价是这一次
+    # 续跑多付全量 schema 的 token，换来「继续」语义的确定性。
     runtime = build_langchain_runtime(
         model,
         build_runtime_tool_list(context),

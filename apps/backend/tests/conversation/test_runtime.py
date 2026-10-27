@@ -614,3 +614,32 @@ def test_system_prompt_appends_runtime_metadata_block_after_base_prompt():
     assert "base prompt" in prompt
     assert "【运行时信息】" in prompt
     assert prompt.index("base prompt") < prompt.index("【运行时信息】")
+
+
+def test_system_prompt_injects_tool_catalog_instead_of_bound_tool_list():
+    prompt = build_system_prompt(
+        SimpleNamespace(system_prompt="base prompt"),
+        [],
+        [],
+        tool_catalog="工具目录（按组加载）：\n- ops（运营）：店铺数据。工具：order_query",
+        capability_tool_names={"ask_user", "image_read"},
+    )
+
+    assert "工具目录（按组加载）" in prompt
+    assert "ops（运营）" in prompt
+    # 目录模式下不再逐个列「当前已绑定工具」，否则与后续加载集脱节。
+    assert "当前会话已注册且授权的工具如下" not in prompt
+
+
+def test_system_prompt_capability_rules_follow_full_tool_set_not_visibility():
+    prompt = build_system_prompt(
+        SimpleNamespace(system_prompt="base prompt"),
+        [],
+        [],
+        tool_catalog="工具目录（按组加载）：\n- ops（运营）：店铺数据。工具：order_query",
+        capability_tool_names={"ask_user", "image_read"},
+    )
+
+    # 工具可能尚未加载，但能力规则必须提前注入，否则模型等不到那条提示。
+    assert "可以调用 ask_user 工具向用户提问" in prompt
+    assert "图片展示规则" in prompt
