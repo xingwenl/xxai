@@ -8,8 +8,9 @@
 #   4) 回归：后端 builtin_tool / agent_runtime 测试与 ruff 通过；
 #   5) 前端：改动文件的 prettier 与 eslint 通过，类型检查无新增错误。
 #
-# 说明：`pnpm --dir apps/front build` 在本仓库基线就是红的（3 个 .test.ts 缺
-# @types/node），故前端以「tsc 输出只剩这 3 个预存在错误」作为类型检查结论。
+# 说明：前端以完整 `pnpm --dir apps/front build`（`tsc -b` 覆盖 app / node / test
+# 三个 tsconfig 项目 + vite build）作为类型与打包结论，测试文件由 tsconfig.test.json
+# 单独带 `types: ["node"]` 检查，浏览器代码的 program 里不引入 node 全局。
 # 脚本只读运行，不修改任何仓库文件。
 
 set -uo pipefail
@@ -166,22 +167,22 @@ echo '```'
 echo '```'
 echo
 
-echo "### 6. 前端：改动文件格式、lint 与类型检查"
+echo "### 6. 前端：改动文件格式、lint 与完整构建（含全部 tsconfig 项目的类型检查）"
 echo '```'
 cd "$FRONT" || exit 1
 FILES="src/api/builtin-tools.ts src/features/agents/builtin-tools-section.tsx src/features/agents/host-tools-section.tsx"
 npx prettier --check $FILES || FAIL=1
 npx eslint $FILES && echo "PASS  eslint 无告警" || FAIL=1
-TS_OUT="$(npx tsc -p tsconfig.app.json --noEmit 2>&1)"
-BASELINE="$(printf '%s\n' "$TS_OUT" | grep -c 'node:assert' || true)"
-UNEXPECTED="$(printf '%s\n' "$TS_OUT" | grep -v 'node:assert' | grep -v 'type definitions for node' | grep -v '^$' || true)"
-if [ -n "$UNEXPECTED" ]; then
-  echo "FAIL  出现预期外的类型错误："
-  printf '%s\n' "$UNEXPECTED"
-  FAIL=1
+BUILD_LOG="$(mktemp)"
+if pnpm --dir "$FRONT" build >"$BUILD_LOG" 2>&1; then
+  echo "PASS  pnpm --dir apps/front build 通过（tsc -b: app + node + test + vite build）"
+  grep -E "built in|modules transformed" "$BUILD_LOG" | tail -2
 else
-  echo "PASS  类型检查只剩 $BASELINE 个预存在错误（.test.ts 缺 @types/node，与本次改动无关）"
+  echo "FAIL  前端构建失败，末尾 20 行："
+  tail -20 "$BUILD_LOG"
+  FAIL=1
 fi
+rm -f "$BUILD_LOG"
 echo '```'
 echo
 
@@ -189,7 +190,7 @@ echo "## 未执行项与原因"
 echo
 cat <<'TXT'
 - 真实浏览器里点开管理台页面逐组展开、切换开关：需要登录态与后端服务，本轮未启动前端 dev server 做人工走查。
-- `pnpm --dir apps/front build` 全量构建：仓库基线即失败（3 个 .test.ts 缺 `@types/node` 的 TS2591），与本次改动无关，故改用 `tsc -p tsconfig.app.json` 比对基线错误数。
+- 三个 `*.test.ts` 的**运行**（`node --experimental-strip-types` 直跑）：仓库未配测试运行器（无 `test` 脚本、无 vitest/tsx 依赖），本次只做类型检查，不声称跑过断言。
 - 真实桌面宿主连接后宿主工具组的实时显示：需要 ai-sdk 客户端接入真实连接，本轮只用假策略验证分组判定与排序。
 TXT
 echo
@@ -197,8 +198,8 @@ echo
 echo "## 验收结论"
 echo
 if [ "$FAIL" -eq 0 ]; then
-  echo "- 所有断言通过：端点契约、内置组覆盖与排序、宿主组复用运行期判定、后端回归与 ruff、前端格式与类型检查（扣预存在基线）。"
-  echo '- 前端类型检查结论：除 3 个预存在的 .test.ts 缺 node 类型错误外无新增错误。'
+  echo "- 所有断言通过：端点契约、内置组覆盖与排序、宿主组复用运行期判定、后端回归与 ruff、前端格式/lint 与完整构建。"
+  echo '- 前端结论：`pnpm --dir apps/front build` 通过，测试文件由独立 tsconfig 项目检查。'
   echo "- 未执行项已在上一节逐条列出，未验证部分不作为通过结论。"
   exit 0
 else
