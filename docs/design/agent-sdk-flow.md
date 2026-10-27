@@ -280,6 +280,26 @@ flowchart LR
     Blocks --> Asset[asset_id -> 按权限生成临时 URL]
 ```
 
+### 8.1 逐轮用量（usage）
+
+`message_completed` 的 `payload.usage` 与本轮 assistant 消息的 `message_metadata.usage` 是同一份数据：
+
+```json
+{
+  "prompt_tokens": 1332145,
+  "completion_tokens": 12823,
+  "total_tokens": 1334185,
+  "cache_read_tokens": 1239936,
+  "cache_creation_tokens": 0,
+  "model": "deepseek/deepseek-v4.1-flash",
+  "provider": "deepseek"
+}
+```
+
+`cache_read_tokens` / `cache_creation_tokens` 来自 provider 的 usage 明细（`input_token_details.cache_read`，兼容 `priority_` / `flex_` 前缀、OpenAI 的 `prompt_tokens_details.cached_tokens` 与 DeepSeek 的 `prompt_cache_hit_tokens`）；provider 没报缓存时这两个键不出现，SDK 据此隐藏「缓存命中 / 未缓存输入」明细，而不是显示 0%。SDK 的展示口径：总量取 `total_tokens`、命中率 = 缓存读取 / 总输入、未缓存输入 = 总输入 − 缓存读取。
+
+这份明细是**展示数据**，不是计费事实：计费仍以 `model_usage_records` 为准，两者由同一次模型调用分别写入。历史消息通过 `GET /embed/conversations/{conversation_id}/messages` 的快照字段 `usage` 回放，形状相同；本方案上线前创建的存量消息没有该字段，SDK 对它们不显示用量 chip（不会补算，也不会用计费表反推）。
+
 ## 9. 当前明确未完成项
 
 - SDK `systemPrompt` 尚未进入后端 Prompt 组合链路。

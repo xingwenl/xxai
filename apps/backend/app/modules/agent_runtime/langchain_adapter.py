@@ -24,10 +24,16 @@ from app.modules.agent_runtime.message_text import (
     extract_thinking_text,
 )
 from app.modules.agent_runtime.tool_events import classify_tool_type
+from app.modules.agent_runtime.usage import normalize_cache_tokens
 
 
 def _normalize_usage(usage: Any) -> dict[str, int] | None:
-    """统一不同 LangChain/provider 的 token 字段名。"""
+    """统一不同 LangChain/provider 的 token 字段名。
+
+    缓存计数一并收敛进同一份 usage：它们参加跨轮 ``merge_usage`` 的整数相加，
+    也是明细卡「缓存命中率/缓存读取」的唯一来源。provider 没报缓存时这里不产出
+    对应键，避免把「未知」累加成 0。
+    """
     if not isinstance(usage, dict):
         return None
     prompt = usage.get("prompt_tokens", usage.get("input_tokens"))
@@ -39,11 +45,13 @@ def _normalize_usage(usage: Any) -> dict[str, int] | None:
         isinstance(value, int) and value >= 0 for value in (prompt, completion, total)
     ):
         return None
-    return {
+    normalized = {
         "prompt_tokens": prompt,
         "completion_tokens": completion,
         "total_tokens": total,
     }
+    normalized.update(normalize_cache_tokens(usage))
+    return normalized
 
 
 def build_langchain_messages(

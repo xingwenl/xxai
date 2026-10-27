@@ -267,11 +267,14 @@ def message_completed(
     loop_run_id=None,
     loop_status: str | None = None,
     loop_summary: str | None = None,
+    usage: dict | None = None,
 ) -> RunEvent:
     """最终回答事件，payload 组装最终状态、用量与 loop 摘要。
 
     ``loop_status``/``loop_summary`` 由调用方传入运行的真实终态：挂起等待
     确认时是 ``waiting_confirmation``，其余情况省略即沿用「已完成回答」。
+    ``usage`` 是可选覆盖：调用方已把用量整理成展示口径（含缓存/模型键）时传入，
+    否则沿用 ``result.usage``，保持既有消费方读到的 token 统计不变。
     """
 
     return RunEvent(
@@ -281,7 +284,7 @@ def message_completed(
             "contentBlocks": content_blocks,
             "citations": result.citations,
             "knowledgeGrounded": result.knowledge_grounded,
-            "usage": result.usage,
+            "usage": usage if usage is not None else result.usage,
             "loop": (
                 {
                     "id": str(loop_run_id),
@@ -543,6 +546,7 @@ class LoopEventBuilder:
         loop_run_id=None,
         loop_status: str | None = None,
         loop_summary: str | None = None,
+        usage: dict | None = None,
     ) -> RunEvent:
         return message_completed(
             conversation_id=self.conversation.id,
@@ -553,6 +557,7 @@ class LoopEventBuilder:
             loop_run_id=loop_run_id,
             loop_status=loop_status,
             loop_summary=loop_summary,
+            usage=usage,
         )
 
     def error(self, payload: dict) -> RunEvent:

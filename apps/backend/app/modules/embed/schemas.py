@@ -87,6 +87,23 @@ class EmbedTokenResponse(BaseModel):
     jti: str
 
 
+class MessageUsage(BaseModel):
+    """单条 assistant 消息的模型用量明细（展示口径，非计费事实）。
+
+    缓存字段缺失表示 provider 没有报告该计数（前端据此隐藏「缓存命中」行），
+    与「报告了 0」区分开；``model``/``provider`` 是生成该消息时实际调用的模型
+    快照，便于历史消息在模型配置变化后仍显示原样。
+    """
+
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    cache_read_tokens: int | None = None
+    cache_creation_tokens: int | None = None
+    model: str | None = None
+    provider: str | None = None
+
+
 class ConversationMessageRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -102,6 +119,7 @@ class ConversationMessageRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     loop: dict | None = None
+    usage: MessageUsage | None = None
 
 
 class EmbedConversationRead(BaseModel):

@@ -171,6 +171,29 @@ agent.on('error', (error) => {
 })
 ```
 
+自绘界面时可以读每轮用量（形状见 [`agent-sdk-flow.md`](../design/agent-sdk-flow.md) 8.1 节）：
+
+```typescript
+agent.on('message', (message) => {
+  const usage = message.metadata?.usage as
+    | { prompt_tokens: number; completion_tokens: number; total_tokens: number; cache_read_tokens?: number }
+    | undefined
+  if (usage) {
+    renderUsageChip(`${usage.total_tokens} tokens`)
+  }
+})
+
+// 历史消息同样带 metadata.usage；上线前的老消息没有该字段。
+const messages = await agent.openConversation(conversationId)
+const sessionTotal = messages.reduce(
+  (sum, message) =>
+    sum + Number((message.metadata?.usage as { total_tokens?: number } | undefined)?.total_tokens ?? 0),
+  0
+)
+```
+
+官方 Vue UI（`createChatUI()`）已内置这件事：每条 assistant 消息底部有「用量 … tok」chip，点开是逐轮明细；消息列表末尾一行是本会话累计。缓存字段缺失时 chip 只显示总量与输出，不显示「缓存命中」。
+
 ## 六、注册页面工具
 
 页面工具在浏览器中执行，适合打开业务页面、读取当前页面状态或提交受控操作：

@@ -54,6 +54,7 @@
             />
             <AgentLoopPanel v-if="showAgentSteps" :message="message" />
           </template>
+          <UsageChip v-if="usage" :usage="usage" />
         </div>
       </div>
     </div>
@@ -68,11 +69,13 @@ import type {
   Message,
   MessageContentBlock,
 } from '../../core';
+import { parseUsage } from '../../core';
 import AgentLoopPanel from './AgentLoopPanel.vue';
 import AgentLoopSkillGroup from './AgentLoopSkillGroup.vue';
 import AgentLoopStepCard from './AgentLoopStepCard.vue';
 import MessageContent from './MessageContent.vue';
 import TypingIndicator from './TypingIndicator.vue';
+import UsageChip from './UsageChip.vue';
 import {
   hasRenderableMessageContent,
   leadingSkillSteps,
@@ -108,6 +111,9 @@ const contentBlocks = computed<MessageContentBlock[]>(() =>
 const hasRenderableContent = computed(() =>
   hasRenderableMessageContent(contentBlocks.value),
 );
+
+// 逐轮用量明细随消息元数据下发（实时事件与历史快照同形状）；解析失败就不渲染。
+const usage = computed(() => parseUsage(props.message.metadata?.usage));
 
 // 非文本块（custom/image/actions 等）不属于 timeline 文本流，
 // 单独渲染，避免消息带工具步骤时被 timeline 分支整块丢弃。

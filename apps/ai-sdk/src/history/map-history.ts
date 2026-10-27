@@ -23,6 +23,8 @@ export interface HistoryMessageLike {
   loop?: Message['loop'] | null
   requestId?: string | null
   request_id?: string | null
+  /** 逐轮用量明细（后端 `ConversationMessageRead.usage`）；历史消息可能没有。 */
+  usage?: unknown
 }
 
 /**
@@ -52,7 +54,12 @@ export function mapHistoryMessage(
     loop: item.loop ?? undefined,
     timestamp: item.created_at ? new Date(item.created_at) : new Date(),
     conversationId,
-    requestId: item.requestId || item.request_id || undefined
+    requestId: item.requestId || item.request_id || undefined,
+    // 与实时 `message_completed` 的 metadata.usage 同形状，渲染层一套解析即可；
+    // 空对象（存量/异常数据）不塞进 metadata，免得下游误以为有明细。
+    metadata: item.usage && Object.keys(item.usage).length
+      ? { usage: item.usage }
+      : undefined
   }
 }
 

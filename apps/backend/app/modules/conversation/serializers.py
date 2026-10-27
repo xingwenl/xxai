@@ -11,6 +11,7 @@ from app.modules.conversation.models import (
     AgentLoopStep,
     ConversationMessage,
 )
+from app.modules.agent_runtime.usage import usage_from_message_metadata
 
 # 列表项只渲染一行摘要，超长正文在服务端截断，避免把整段消息塞进列表响应。
 PREVIEW_LIMIT = 80
@@ -148,6 +149,9 @@ async def build_message_snapshots(
             "tool_call_id": message.tool_call_id,
             "created_at": message.created_at,
             "updated_at": message.updated_at,
+            "usage": usage_from_message_metadata(
+                getattr(message, "message_metadata", None)
+            ),
             "loop": loop_payloads.get(message.id),
         }
         for message in messages

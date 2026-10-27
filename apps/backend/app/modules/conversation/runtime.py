@@ -36,7 +36,8 @@ from app.modules.skill_runner.tools import (
     build_skill_script_tools,
 )
 from app.modules.conversation.schemas import RuntimeContext
-from app.modules.agent_runtime.contracts import ToolOutcome
+from app.modules.agent_runtime.contracts import ToolOutcome, merge_usage
+from app.modules.agent_runtime.usage import normalize_cache_tokens
 from app.modules.agent_runtime.events import (
     # 事件模型下沉到 agent_runtime/events.py 后按原路径再导出：REST/网关两侧
     # 只在 events.py 定义一次 payload 与 SSE 编码，这里保留历史 import 位置。
@@ -1285,6 +1286,9 @@ def extract_token_usage(message: Any) -> dict[str, int] | None:
     }
     if any(not isinstance(value, int) or value < 0 for value in values.values()):
         return None
+    # 缓存计数与三项 token 同一口径收敛：明细卡的「缓存命中/缓存读取」依赖它，
+    # provider 没报缓存时不产出该键。
+    values.update(normalize_cache_tokens(usage))
     return values
 
 
@@ -1305,14 +1309,8 @@ def merge_token_usage(
         合并后的 Token 使用量统计字典，各字段对应相加。
         若两者均为 None，则返回 None。
     """
-    if incoming is None:
-        return current
-    if current is None:
-        return dict(incoming)
-    return {
-        key: current[key] + incoming[key]
-        for key in ("prompt_tokens", "completion_tokens", "total_tokens")
-    }
+    # 字段集取两侧并集：缓存计数只在部分轮次出现，逐轮累加时缺失一侧按 0 计。
+    return merge_usage(current, incoming)
 
 
 async def _apply_delegation_policy(

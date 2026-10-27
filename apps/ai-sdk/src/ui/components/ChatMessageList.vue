@@ -26,6 +26,13 @@
       pending
       @button-click="handleButtonClick"
     />
+    <div
+      v-if="sessionUsage"
+      class="xxai-session-usage"
+      :title="sessionUsage.detail"
+    >
+      {{ sessionUsage.text }}
+    </div>
   </div>
 </template>
 
@@ -33,7 +40,9 @@
 import { computed, ref, watch, nextTick } from 'vue'
 import ChatMessage from './ChatMessage.vue'
 import type { AgentClient, AssistantTimelineEntry, Message, AgentLoopRun } from '../../core'
+import { parseUsage, sumUsage } from '../../core'
 import { isNearScrollBottom } from '../chat-scroll'
+import { sessionUsageView } from '../usage-view'
 
 interface Props {
   messages: Message[]
@@ -52,6 +61,11 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   buttonClick: [value: string]
 }>()
+
+// 会话累计 = 已加载消息的逐轮用量之和：与逐轮 chip 同源，不会出现两套数字。
+const sessionUsage = computed(() =>
+  sessionUsageView(sumUsage(props.messages.map((msg) => parseUsage(msg.metadata?.usage)))),
+)
 
 const messagesRef = ref<HTMLElement | null>(null)
 const followsStream = ref(true)
@@ -106,3 +120,14 @@ function handleButtonClick(value: string) {
   emit('buttonClick', value)
 }
 </script>
+
+<style scoped>
+.xxai-session-usage {
+  align-self: center;
+  padding: 2px 10px;
+  color: var(--agent-muted-foreground);
+  font-size: 11px;
+  line-height: 1.8;
+  text-align: center;
+}
+</style>

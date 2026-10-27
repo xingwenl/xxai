@@ -57,6 +57,10 @@ from app.modules.agent_runtime.conversation_adapter import (
 )
 from app.modules.agent_runtime.tool_events import summarize_tool_value
 from app.modules.agent_runtime.langchain_adapter import build_langchain_messages
+from app.modules.agent_runtime.usage import (
+    decorate_usage,
+    provider_from_base_url,
+)
 from app.modules.agent_runtime.composition import (
     build_langchain_runtime,
 )
@@ -496,6 +500,7 @@ async def _finish_embed_chat(
     client_id: str | None,
     events: LoopEventBuilder,
     model_name: str | None = None,
+    provider_name: str | None = None,
 ) -> AsyncIterator[dict]:
     """保存助手消息、用量和剩余工具步骤，输出收尾事件流。"""
     content_blocks = sanitize_content_blocks(
@@ -510,6 +515,12 @@ async def _finish_embed_chat(
         + image_content_blocks(result.tool_events)
         + custom_content_blocks(result.tool_events)
     )
+    # 逐轮用量明细跟消息一起存：历史回放、消息快照与实时事件读到同一份自包含
+    # 数据，后续换模型配置也不会让旧消息的显示漂移。计费事实仍在
+    # model_usage_records，缓存明细不进计费表。
+    usage_payload = decorate_usage(
+        result.usage, model=model_name, provider=provider_name
+    )
     assistant = await repo.create_message(
         conversation.id,
         role="assistant",
@@ -518,10 +529,12 @@ async def _finish_embed_chat(
         citations=result.citations,
         knowledge_grounded=result.knowledge_grounded,
         message_metadata=attach_tool_snapshots(
-            {}, build_tool_snapshots(result.tool_events)
+            {"usage": usage_payload} if usage_payload else {},
+            build_tool_snapshots(result.tool_events),
         ),
     )
     if result.usage is not None:
+        recorded_usage = usage_payload or result.usage
         await repo.record_model_usage(
             platform_id=platform_id,
             agent_id=context.agent.id,
@@ -534,9 +547,9 @@ async def _finish_embed_chat(
             # 用量记录里的模型名快照取自实际调用的模型（注册表解析结果）；
             # 版本行自本次改动起不再承载模型名，读它只会记成 NULL。
             model_name=model_name,
-            prompt_tokens=result.usage["prompt_tokens"],
-            completion_tokens=result.usage["completion_tokens"],
-            total_tokens=result.usage["total_tokens"],
+            prompt_tokens=recorded_usage["prompt_tokens"],
+            completion_tokens=recorded_usage["completion_tokens"],
+            total_tokens=recorded_usage["total_tokens"],
         )
     for offset, tool_event in enumerate(result.tool_events or [], start=2):
         if str(tool_event.get("tool_call_id", tool_event["tool"])) in tool_steps:
@@ -583,6 +596,7 @@ async def _finish_embed_chat(
         content=result.content,
         content_blocks=content_blocks,
         loop_run_id=loop.id,
+        usage=usage_payload,
     )
 
 
@@ -1036,6 +1050,11 @@ async def stream_embed_chat(
             resolved_model.model_name
             if resolved_model
             else getattr(model, "model_name", None)
+        ),
+        provider_name=provider_from_base_url(
+            resolved_model.base_url
+            if resolved_model
+            else getattr(model, "openai_api_base", None)
         ),
     ):
         yield event

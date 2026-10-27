@@ -166,6 +166,27 @@ class FakeUsageStreamingModel:
         )
 
 
+class FakeCachedUsageStreamingModel(FakeUsageStreamingModel):
+    """带缓存明细的流式模型：验证缓存计数一路进到事件与消息元数据。
+
+    服务档前缀变体（``priority_cache_read``）也一并给出，确保归一化在真实
+    链路上生效，而不只是单元测试里生效。
+    """
+
+    openai_api_base = "https://api.deepseek.com/v1"
+
+    async def astream(self, _messages):
+        yield AIMessageChunk(
+            content="你好",
+            usage_metadata={
+                "input_tokens": 120,
+                "output_tokens": 8,
+                "total_tokens": 128,
+                "input_token_details": {"cache_read": 90, "priority_cache_read": 10},
+            },
+        )
+
+
 class FailingStreamingModel:
     async def astream(self, _messages):
         raise RuntimeError("HTTP 502 Bad Gateway")
@@ -696,6 +717,14 @@ def test_embed_chat_records_model_usage_in_independent_detail_table():
             "prompt_tokens": 12,
             "completion_tokens": 5,
             "total_tokens": 17,
+            # 展示口径会带上实际调用的模型快照（明细卡「提供方/模型」行）。
+            "model": "deepseek-v4-pro",
+        }
+        assert repo.messages[-1]["message_metadata"]["usage"] == {
+            "prompt_tokens": 12,
+            "completion_tokens": 5,
+            "total_tokens": 17,
+            "model": "deepseek-v4-pro",
         }
         assert repo.usage_records == [
             {
@@ -713,6 +742,51 @@ def test_embed_chat_records_model_usage_in_independent_detail_table():
                 "total_tokens": 17,
             }
         ]
+
+    asyncio.run(run())
+
+
+def test_embed_chat_persists_cache_detail_and_provider_in_message_metadata():
+    """缓存/模型明细既进 message_completed 事件，也随消息元数据落库。"""
+
+    async def run():
+        repo = FakeConversationRepository()
+        events = []
+        async for event in stream_embed_chat(
+            repo,
+            SimpleNamespace(
+                agent=SimpleNamespace(id=11),
+                version=SimpleNamespace(id=3, system_prompt="回答"),
+                skill_instructions=[],
+                mcp_tools=[],
+            ),
+            model=FakeCachedUsageStreamingModel(),
+            platform_id=7,
+            client_id="client_live",
+            end_user_id=22,
+            message="你好",
+            conversation_id=None,
+            request_id="req-usage-cache",
+            citations=[],
+        ):
+            events.append(wire(event, len(events) + 1))
+
+        expected = {
+            "prompt_tokens": 120,
+            "completion_tokens": 8,
+            "total_tokens": 128,
+            "cache_read_tokens": 100,
+            "model": "deepseek-v4-pro",
+            "provider": "deepseek",
+        }
+        completed = events[-1]
+        assert completed["type"] == "message_completed"
+        assert completed["payload"]["usage"] == expected
+        assert repo.messages[-1]["message_metadata"]["usage"] == expected
+        # 计费事实仍只有三个 token 数，缓存明细不写进 model_usage_records。
+        assert repo.usage_records[-1]["prompt_tokens"] == 120
+        assert repo.usage_records[-1]["total_tokens"] == 128
+        assert "cache_read_tokens" not in repo.usage_records[-1]
 
     asyncio.run(run())
 
