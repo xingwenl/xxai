@@ -16,9 +16,11 @@ from app.modules.tools.shop.data.client import fetch_orders
 @business_tool(
     name="order_query",
     description=(
-        "查询店铺运营平台（hua8）中当前用户的订单数据，用于文字回答关于订单的问题，"
-        "例如有哪些订单、今日/最近订单、订单状态、收货人、配送与送达时间、备注、"
-        "商品与金额等。"
+        "查询订单：读取店铺运营平台（hua8）中当前用户的订单数据，用于文字回答"
+        "「有哪些订单、今日/最近订单、订单状态、收货人、配送与送达时间、备注、"
+        "金额」这类问题。"
+        "不要用本工具查店铺信息（用 store_ops_query）或商品（用 product_query），"
+        "也不要指望它渲染卡片：用户要看订单列表时直接用文字列出即可。"
         "用法：当用户询问我的订单、订单列表、今日订单或具体订单信息时调用；"
         "start_date/end_date 为 YYYY-MM-DD 格式的日期区间（都传则查询该区间），"
         "不传默认按下单时间倒序返回最近订单；keyword/platform_type/status 可选过滤。"

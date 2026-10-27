@@ -16,8 +16,10 @@ from app.modules.tools.shop.data.client import fetch_products
 @business_tool(
     name="product_query",
     description=(
-        "查询店铺运营平台（hua8）总商品池中的商品数据，用于文字回答关于商品的问题，"
-        "例如有哪些商品、某个商品的价格/库存/月售/类目、按销量或价格排序看热门商品等。"
+        "查询商品：读取店铺运营平台（hua8）总商品池（product-library/all-pool）中的"
+        "商品数据，用于文字回答「有哪些商品、某个商品的价格/库存/月售/类目、"
+        "按销量或价格排序看热门商品」这类问题。"
+        "不要用本工具查订单（用 order_query）或店铺（用 store_ops_query）。"
         "用法：当用户询问商品、商品列表、商品池、某商品多少钱、库存多少、卖得怎么样时调用；"
         "keyword 按商品名称模糊搜索（只传商品名关键词，不要带标点或整句）；"
         "sort_by 支持 monthSales（月售）/price（价格），sort_direction 为 asc/desc，"

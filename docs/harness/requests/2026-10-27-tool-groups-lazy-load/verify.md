@@ -1,7 +1,7 @@
 ---
 source: script
 request: 2026-10-27-tool-groups-lazy-load
-ranAt: "2026-10-27 15:40:41 CST"
+ranAt: "2026-10-27 16:03:00 CST"
 exitCode: 0
 ---
 
@@ -9,7 +9,7 @@ exitCode: 0
 
 ### 1. 工具 schema 体积实测（/Users/lixingwen/xw/study/ai-base/apps/backend/.venv/bin/python 直接序列化 bind_tools 形状）
 ```
-基线：全量绑定 19 个工具 = 18198 字符
+基线：全量绑定 19 个工具 = 18454 字符
 PASS  WS 入口 初始绑定（常驻工具 + 目录工具）: 1514 字符（阈值 ≤1700）
        常驻工具：['ask_user']
        可加载组：['content', 'knowledge', 'memory', 'ops', 'skill', 'task', 'ui']
@@ -19,7 +19,7 @@ PASS  REST 入口 初始绑定（常驻工具 + 目录工具）: 487 字符（�
 PASS  REST 加载 content 组之后: 4901 字符（阈值 ≤6500）
 PASS  REST 加载 knowledge 组之后: 1797 字符（阈值 ≤6500）
 PASS  REST 加载 memory 组之后: 3458 字符（阈值 ≤6500）
-PASS  REST 加载 ops 组之后: 5842 字符（阈值 ≤6500）
+PASS  REST 加载 ops 组之后: 6098 字符（阈值 ≤6500）
 PASS  REST 加载 skill 组之后: 2160 字符（阈值 ≤6500）
 PASS  REST 加载 task 组之后: 3718 字符（阈值 ≤6500）
 PASS  REST 加载 ui 组之后: 1813 字符（阈值 ≤6500）
@@ -62,34 +62,34 @@ PASS  eager 组首轮绑定、不待加载，目录标常驻
 ### 5. 分组/加载/兜底/重绑/预取的单元与链路测试
 ```
 ................................                                         [100%]
-32 passed in 1.71s
+32 passed in 1.75s
 ......                                                                   [100%]
-6 passed in 1.70s
+6 passed in 1.78s
 ..                                                                       [100%]
-2 passed in 1.89s
+2 passed in 2.06s
 
 --- 受影响包的回归（分批执行，规避测试模块同名收集冲突）
 $ pytest tests/agent_runtime -q
 .......                                                                  [100%]
-151 passed in 1.86s
+151 passed in 1.93s
 $ pytest tests/conversation -q
 ...........................                                              [100%]
-171 passed in 6.31s
+171 passed in 7.21s
 $ pytest tests/gateway -q
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-123 passed, 1 skipped, 1 warning in 2.50s
+123 passed, 1 skipped, 1 warning in 2.61s
 $ pytest tests/builtin_tool -q
 .....................................................................    [100%]
-69 passed in 2.43s
+69 passed in 2.51s
 $ pytest tests/host_tool -q
 ................                                                         [100%]
-16 passed in 1.88s
+16 passed in 1.93s
 $ pytest tests/skill_runner -q
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-10 passed, 1 warning in 2.80s
+10 passed, 1 warning in 2.95s
 $ pytest tests/workflows -q
 ..........................................                               [100%]
-186 passed in 17.42s
+186 passed in 18.06s
 ```
 
 ### 6. 静态检查

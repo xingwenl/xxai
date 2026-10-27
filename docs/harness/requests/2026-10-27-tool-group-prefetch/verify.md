@@ -1,7 +1,7 @@
 ---
 source: script
 request: 2026-10-27-tool-group-prefetch
-ranAt: "2026-10-27 15:37:53 CST"
+ranAt: "2026-10-27 16:03:46 CST"
 exitCode: 0
 ---
 
@@ -33,36 +33,36 @@ PASS  不带 group → host 组常驻；带 group → 默认按需；eager=True 
 ```
 $ pytest tests/agent_runtime/test_tool_prefetch.py -q
 .........                                                                [100%]
-9 passed in 1.69s
+9 passed in 2.35s
 $ pytest tests/agent_runtime/test_tool_groups.py -q
 .......................                                                  [100%]
-23 passed in 1.69s
+23 passed in 1.91s
 $ pytest tests/builtin_tool/test_groups.py -q
 ...                                                                      [100%]
-3 passed in 1.70s
+3 passed in 2.00s
 $ pytest tests/host_tool/test_group_declarations.py -q
 ...                                                                      [100%]
-3 passed in 1.67s
+3 passed in 2.02s
 $ pytest tests/conversation/test_repository_loaded_tool_groups.py -q
 ..                                                                       [100%]
-2 passed in 1.85s
+2 passed in 1.92s
 
 --- 受影响包的回归
 $ pytest tests/agent_runtime -q
 .......                                                                  [100%]
-151 passed in 1.96s
+151 passed in 1.92s
 $ pytest tests/conversation -q
 ...........................                                              [100%]
-171 passed in 6.51s
+171 passed in 7.07s
 $ pytest tests/gateway -q
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-123 passed, 1 skipped, 1 warning in 2.51s
+123 passed, 1 skipped, 1 warning in 2.69s
 $ pytest tests/builtin_tool -q
 .....................................................................    [100%]
-69 passed in 2.48s
+69 passed in 2.83s
 $ pytest tests/host_tool -q
 ................                                                         [100%]
-16 passed in 1.75s
+16 passed in 1.84s
 ```
 
 ### 5. 静态检查（Python + ai-sdk 类型）

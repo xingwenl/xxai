@@ -18,8 +18,9 @@ from app.modules.tools.shop.data.client import SHOP_LIST_FILTER_KEYS, fetch_my_s
 @business_tool(
     name="store_ops_query",
     description=(
-        "查询店铺运营平台（hua8）中当前用户的店铺数据，用于文字回答关于店铺的"
-        "具体问题（有哪些店、店铺 ID、负责人、标签、地址、联系方式、营业状态等）。"
+        "查询店铺：读取店铺运营平台（hua8）中当前用户的店铺数据，用于文字回答"
+        "「有哪些店、店铺 ID、负责人、标签、地址、联系方式、营业状态」这类具体问题。"
+        "不要用本工具查订单（用 order_query）或商品（用 product_query）。"
         "用法：当用户询问我的店铺、门店、商户相关信息并期望得到信息回答时调用；"
         "可用筛选条件缩小范围，例如只查美团（platformType=MT）、只看在售店铺"
         "（isOnline=1）、按店铺名/关键词搜索（keyword）或按负责人（principalUserName）等。"

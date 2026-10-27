@@ -35,7 +35,9 @@ def _build_fallback(shops: list[dict], total: int) -> str:
 @business_tool(
     name="show_shop_list",
     description=(
-        "把当前用户的店铺列表以 ShopList 卡片形式展示给用户。"
+        "展示店铺卡片：把当前用户的店铺列表以 ShopList 卡片形式渲染给用户。"
+        "只要文字回答（有哪些店、店铺 ID、负责人、地址等）就用 store_ops_query，"
+        "不要用本工具。"
         "用法：仅当用户明确要求「展示/查看我的店铺、店铺列表、门店列表或有哪些店」时调用；"
         "内部会自动读取店铺系统登录态并查询真实数据，不需要也不能由模型传入店铺数据。"
         "输出规范：调用成功后只给一行总览（例如「共 N 家店铺，见下方卡片」），"
