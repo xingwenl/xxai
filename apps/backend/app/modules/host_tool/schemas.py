@@ -92,6 +92,9 @@ class HostToolRegistration(BaseModel):
     name: str
     description: str
     input_schema: dict[str, Any]
+    # 宿主声明该工具属于哪个工具组（按需加载用）。留空表示不分组，按后端登记的
+    # 名称前缀回落；缺省不影响注册本身，只是少了一处语义信息。
+    group: str | None = None
 
 
 class HostToolCall(BaseModel):

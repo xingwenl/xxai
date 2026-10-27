@@ -547,6 +547,11 @@ async def _run_execute_chat_model_round(
         runtime_tools,
         active_groups=await load_active_tool_groups(repo, context.conversation_id),
     )
+    if tool_groups is not None:
+        # 首轮预取：把第一次加载提到历史最短的时刻——一次前缀 miss 的绝对代价
+        # 最小，还能省掉一轮 load_tool_group 往返。猜错不影响正确性（目录仍在，
+        # 模型可以自己加载），因此这里不需要任何兜底分支。
+        tool_groups.prefetch(message)
     system_prompt = build_system_prompt(
         context.version,
         context.skill_instructions,
@@ -1016,6 +1021,11 @@ async def stream_chat(
         runtime_tools,
         active_groups=await load_active_tool_groups(repo, context.conversation_id),
     )
+    if tool_groups is not None:
+        # 首轮预取：把第一次加载提到历史最短的时刻——一次前缀 miss 的绝对代价
+        # 最小，还能省掉一轮 load_tool_group 往返。猜错不影响正确性（目录仍在，
+        # 模型可以自己加载），因此这里不需要任何兜底分支。
+        tool_groups.prefetch(message)
     system_prompt = build_system_prompt(
         context.version,
         context.skill_instructions,

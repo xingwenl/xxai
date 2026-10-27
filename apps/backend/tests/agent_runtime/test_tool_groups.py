@@ -107,6 +107,60 @@ def test_catalog_lists_group_meta_and_tool_names():
     assert "ask_user" not in catalog
 
 
+def test_prefetch_loads_matched_groups_before_first_bind():
+    """入口预取：命中关键词的组在第一次绑定前就已加载，且不递增 version。"""
+
+    state = ToolGroupState(_grouped_tools())
+
+    loaded = state.prefetch("帮我把上周的订单和商品库存整理一下")
+
+    assert loaded == {"ops"}
+    assert state.version == 0
+    assert "order_query" in [tool.name for tool in state.bound_tools()]
+
+
+def test_prefetch_ignores_single_keyword_hit_and_unknown_groups():
+    """只命中一个关键词时不预取；不存在的组不会被预取。"""
+
+    state = ToolGroupState(_grouped_tools())
+
+    assert state.prefetch("订单呢") == set()
+    assert state.prefetch("") == set()
+
+
+def test_undeclared_host_tools_stay_bound_and_are_marked_eager():
+    """未声明分组的宿主工具归 host 组，host 组立即加载、目录里标「常驻」。"""
+
+    tools = _grouped_tools() + [
+        SimpleNamespace(name="debug_ping", description="ping", input_schema={}, kind="host"),
+    ]
+    state = ToolGroupState(tools)
+
+    assert "debug_ping" in [tool.name for tool in state.bound_tools()]
+    assert "host" not in state.pending_groups()
+    assert "host（页面，常驻）" in (state.catalog_text() or "")
+
+
+def test_declared_host_group_overrides_prefix_and_can_be_eager():
+    """连接声明的分组优先于名称前缀；声明 eager 的组首轮就绑定。"""
+
+    tools = _grouped_tools() + [
+        SimpleNamespace(
+            name="note_create_note", description="记笔记", input_schema={}, kind="host"
+        ),
+    ]
+    state = ToolGroupState(
+        tools,
+        host_groups={"note_create_note": "notes"},
+        host_group_meta={"notes": ("笔记", "用户自己的笔记")},
+        eager_groups=frozenset({"notes"}),
+    )
+
+    assert "note_create_note" in [tool.name for tool in state.bound_tools()]
+    assert "notes" not in state.pending_groups()
+    assert "notes（笔记，常驻）：用户自己的笔记" in (state.catalog_text() or "")
+
+
 def test_activate_is_idempotent_and_monotonic():
     state = ToolGroupState(_grouped_tools())
 
@@ -127,8 +181,24 @@ def test_loader_disappears_once_every_group_is_loaded():
     state.activate_all()
 
     assert state.loader_tool() is None
-    assert state.catalog_text() is None
     assert LOAD_TOOL_GROUP_NAME not in [tool.name for tool in state.bound_tools()]
+    # 目录与会话内的加载状态无关：全部加载完也照旧列出，避免每次加载都改
+    # 系统提示词、多打一次前缀缓存 miss。
+    catalog = state.catalog_text()
+    assert catalog is not None
+    assert "ops（运营）" in catalog
+
+
+def test_catalog_text_is_constant_while_groups_are_loaded():
+    """目录恒定：加载前后逐字相同，否则每次加载都会让系统提示词失效。"""
+
+    state = ToolGroupState(_grouped_tools())
+    before = state.catalog_text()
+
+    state.activate("ops")
+    state.prefetch("帮我看看订单和商品销量")
+
+    assert state.catalog_text() == before
 
 
 def test_loader_call_reports_completed_and_unknown_group():
@@ -143,6 +213,10 @@ def test_loader_call_reports_completed_and_unknown_group():
     assert unknown["status"] == "failed"
     assert unknown["error"]["code"] == "tool_group_unknown"
     assert missing["error"]["code"] == "tool_group_required"
+    # 已加载的组不报「不存在」：直接告诉模型可以调用，省一轮往返。
+    again = state.handle_loader_call({"group": "ops"})
+    assert again["error"]["code"] == "tool_group_loaded"
+    assert "order_query" in again["error"]["message"]
 
 
 def test_invoker_intercepts_loader_without_touching_business_callback():
@@ -305,9 +379,10 @@ def test_build_state_restores_history_groups_without_rebinding():
     bound = [tool.name for tool in state.bound_tools()]
     assert "order_query" in bound
     assert "memory_search" not in bound
-    # 目录只列真正待加载的组，恢复过的组不再出现在目录里。
-    assert "memory" in (state.catalog_text() or "")
-    assert "ops" not in (state.catalog_text() or "")
+    # 目录恒定：恢复过的组照旧列出（只影响 load_tool_group 的 enum）。
+    catalog = state.catalog_text() or ""
+    assert "memory" in catalog
+    assert "ops" in catalog
 
 
 def test_restore_is_monotonic_and_idempotent():

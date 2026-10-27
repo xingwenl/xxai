@@ -14,6 +14,12 @@ from __future__ import annotations
 # 常驻组：无论是否加载其他组都始终绑定，用于平台级交互能力（ask_user）。
 BASIC_GROUP = "basic"
 
+# 立即绑定（不参与按需加载）的组名。默认只有宿主回落组（``agent_runtime`` 侧
+# 的 ``host``）：它的成员没有声明过分组、无法被 ``load_tool_group`` 定向加载，
+# 只能始终绑定。内置组默认「异步加载」——等模型自己调 ``load_tool_group`` 或
+# 入口预取命中；需要让某个组常驻时，在 ``register_tool_group`` 里传 ``eager=True``。
+EAGER_TOOL_GROUPS: set[str] = set()
+
 # 分组展示信息：组名 → (中文标题, 一句话说明)。说明面向模型，回答“这组里大概
 # 有什么能力”，不追求覆盖组内每个工具。
 TOOL_GROUP_META: dict[str, tuple[str, str]] = {
@@ -54,3 +60,32 @@ BUILTIN_TOOL_GROUPS: dict[str, str] = {
     # 界面
     "show_user_card": "ui",
 }
+
+
+def register_tool_group(
+    name: str,
+    title: str,
+    description: str,
+    *,
+    eager: bool = False,
+) -> None:
+    """注册一个工具组，供「按组按需加载」使用。
+
+    这是「往组里加工具」的另一半：本函数只登记组的展示信息与加载时机，工具
+    通过 ``@business_tool(group=...)`` 声明归属，两者在启动校验里对齐（见
+    ``registry``：任一工具的分组必须已登记，否则导入即失败）。
+
+    ``eager=True`` 表示该组不参与按需加载、每轮都绑定；默认 ``False``（异步
+    加载：由模型调 ``load_tool_group`` 或入口预取触发）。
+    """
+
+    key = (name or "").strip()
+    if not key:
+        raise ValueError("工具组名不能为空")
+    if key in TOOL_GROUP_META:
+        raise RuntimeError(f"工具组 {key} 已注册，不能重复注册")
+    if not title or not description:
+        raise ValueError(f"工具组 {key} 缺少标题或说明")
+    TOOL_GROUP_META[key] = (title, description)
+    if eager:
+        EAGER_TOOL_GROUPS.add(key)

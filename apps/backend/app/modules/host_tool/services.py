@@ -11,6 +11,51 @@ from jsonschema import ValidationError, validate
 
 from app.modules.host_tool.schemas import HostToolStatus
 
+class HostToolGroupDeclarations:
+    """连接级宿主工具分组声明（不落库，随连接存活）。
+
+    页面注册工具时可能同时声明「该工具属于哪个组」以及「组叫什么」。这些都只是
+    「一次请求里怎么分批绑定工具」的提示，不属于工具契约，所以不进数据库、也不
+    参与 schema 校验：连接断开即失效，重连时由页面重新声明。
+    """
+
+    def __init__(self) -> None:
+        # 工具名 → 组名
+        self.groups: dict[str, str] = {}
+        # 组名 →（标题，一句话说明）
+        self.group_meta: dict[str, tuple[str, str]] = {}
+        # 声明为「立即加载」（不参与按需加载）的组
+        self.eager_groups: set[str] = set()
+
+    def declare_tool(self, name: object, group: object) -> None:
+        """记录单个工具的分组声明；非法值直接忽略，不影响工具注册。"""
+
+        if not isinstance(name, str) or not name:
+            return
+        if not isinstance(group, str) or not group.strip():
+            return
+        self.groups[name] = group.strip()
+
+    def declare_group(
+        self,
+        name: object,
+        title: object = None,
+        description: object = None,
+        eager: object = False,
+    ) -> None:
+        """记录组元数据与加载时机；缺标题/说明时用组名占位。"""
+
+        if not isinstance(name, str) or not name.strip():
+            return
+        key = name.strip()
+        self.group_meta[key] = (
+            title.strip() if isinstance(title, str) and title.strip() else key,
+            description.strip() if isinstance(description, str) and description.strip() else key,
+        )
+        if eager is True:
+            self.eager_groups.add(key)
+
+
 _TRANSITIONS: dict[str, set[str]] = {
     "requested": {"awaiting_confirmation", "running"},
     "awaiting_confirmation": {"running", "rejected", "expired"},

@@ -188,8 +188,28 @@ export interface ToolDefinition {
   inputSchema: Record<string, unknown>
   outputSchema?: Record<string, unknown>
   sideEffect?: 'none' | 'navigation' | 'write' | 'financial' | 'external'
+  /**
+   * 工具组名：后端按组按需加载工具时用它把工具分批绑定。
+   * 不填时后端按工具名前缀回落（未登记前缀统一归 host 组并始终加载）。
+   */
+  group?: string
   timeoutMs?: number
   execute: (params: unknown, context: ToolContext) => Promise<unknown>
+}
+
+/** 工具组声明：只影响一次请求里怎么分批绑定工具，不参与授权与 schema 校验。 */
+export interface ToolGroupDeclaration {
+  /** 组名，与 ToolDefinition.group 对应 */
+  name: string
+  /** 中文标题，用于系统提示词里的工具目录 */
+  title?: string
+  /** 一句话说明，告诉模型这组里有什么能力 */
+  description?: string
+  /**
+   * 是否立即加载（每轮都绑定）。默认 false：异步加载，等模型调用
+   * load_tool_group 或入口预取命中后才绑定。
+   */
+  eager?: boolean
 }
 
 export interface ToolContext {

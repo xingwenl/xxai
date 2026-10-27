@@ -17,11 +17,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.modules.builtin_tool.groups import BASIC_GROUP, TOOL_GROUP_META
+from app.modules.agent_runtime.tool_prefetch import prefetch_tool_groups
+from app.modules.builtin_tool.groups import (
+    BASIC_GROUP,
+    EAGER_TOOL_GROUPS,
+    TOOL_GROUP_META,
+)
 
 # 按需加载工具名：与 load_skill 同一套「常驻目录 + 按需加载」范式。
 LOAD_TOOL_GROUP_NAME = "load_tool_group"
@@ -56,16 +61,20 @@ _HOST_GROUP_META: dict[str, tuple[str, str]] = {
 RETRY_HINT = "工具组已全部加载，请立即重试刚才的工具调用，不需要再调用 {loader}。"
 
 
-def tool_group(tool: Any) -> str:
+def tool_group(tool: Any, host_groups: Mapping[str, str] | None = None) -> str:
     """判定工具所属分组：优先工具自身声明，其次按来源形态推导。
 
-    内置业务工具带 ``group`` 字段；MCP 工具带 ``server_id``；技能脚本/指令工具
-    带 ``kind``；宿主（页面）工具只有名称，按「子应用_动作」的前缀约定分组。
+    内置业务工具带 ``group`` 字段；宿主（页面）工具的分组由连接注册时声明，
+    落在 ``host_groups``（工具名 → 组名）；MCP 工具带 ``server_id``；技能脚本/
+    指令工具带 ``kind``；最后才按「子应用_动作」的登记前缀归组。
     """
 
     declared = getattr(tool, "group", None)
     if isinstance(declared, str) and declared:
         return declared
+    name = str(getattr(tool, "name", "") or "")
+    if host_groups and name in host_groups:
+        return host_groups[name]
     server_id = getattr(tool, "server_id", None)
     if server_id is not None:
         return f"mcp:{server_id}"
@@ -86,8 +95,14 @@ def _host_group(name: str) -> str:
     return HOST_TOOL_GROUP_PREFIXES.get(head, HOST_GROUP)
 
 
-def group_meta(group: str) -> tuple[str, str]:
-    """分组展示信息：返回（标题，一句话说明），未知组按名称原样展示。"""
+def group_meta(
+    group: str, host_group_meta: Mapping[str, tuple[str, str]] | None = None
+) -> tuple[str, str]:
+    """分组展示信息：返回（标题，一句话说明），未知组按名称原样展示。
+
+    ``host_group_meta`` 是宿主连接注册时声明的组元数据（组名 →（标题，说明）），
+    优先级高于内置的前缀白名单：子应用能自己描述它注册的这组工具。
+    """
 
     meta = TOOL_GROUP_META.get(group)
     if meta is not None:
@@ -96,6 +111,10 @@ def group_meta(group: str) -> tuple[str, str]:
         return ("MCP", f"MCP 服务 {group.split(':', 1)[1]} 注册的工具")
     if group == BASIC_GROUP:
         return ("常驻", "平台级交互工具，始终可用")
+    if host_group_meta:
+        declared_meta = host_group_meta.get(group)
+        if declared_meta is not None:
+            return declared_meta
     host_meta = _HOST_GROUP_META.get(group)
     if host_meta is not None:
         return host_meta
@@ -116,9 +135,17 @@ class ToolGroupLoaderTool:
 
 @dataclass
 class ToolGroupState:
-    """一次运行内的工具分组与加载状态（不落库，续跑时按清单重建）。"""
+    """一次运行内的工具分组与加载状态（不落库，续跑时按清单重建）。
+
+    ``host_groups`` / ``host_group_meta`` 来自宿主连接注册时的声明（工具名 → 组名、
+    组名 →（标题，说明））；``eager_groups`` 是声明为「立即加载」的宿主组。三者
+    都只影响分组与加载时机，不影响工具语义。
+    """
 
     all_tools: list[Any]
+    host_groups: Mapping[str, str] = field(default_factory=dict)
+    host_group_meta: Mapping[str, tuple[str, str]] = field(default_factory=dict)
+    eager_groups: frozenset[str] = frozenset()
     active: set[str] = field(default_factory=lambda: {BASIC_GROUP})
     # 每次加载递增；模型适配器据此判断是否需要重新 bind_tools。
     version: int = 0
@@ -131,7 +158,23 @@ class ToolGroupState:
             if not name:
                 continue
             self._by_name[name] = tool
-            self._by_group.setdefault(tool_group(tool), []).append(name)
+            self._by_group.setdefault(self._group_of(tool), []).append(name)
+        # 立即加载的组在第一次绑定前就进入 active：它们不参与按需加载，
+        # 但也必须出现在目录里（目录恒定，见 catalog_text）。
+        self.active.update(
+            group for group in self._by_group if group in self._eager()
+        )
+
+    def _eager(self) -> set[str]:
+        """本轮「立即加载」的组名集合：内置常量 + 连接声明。"""
+
+        return EAGER_TOOL_GROUPS | set(self.eager_groups) | {HOST_GROUP}
+
+    def _group_of(self, tool: Any) -> str:
+        return tool_group(tool, self.host_groups)
+
+    def _meta_of(self, group: str) -> tuple[str, str]:
+        return group_meta(group, self.host_group_meta)
 
     # ---- 只读视图 ----
 
@@ -153,7 +196,7 @@ class ToolGroupState:
     def bound_tools(self) -> list[Any]:
         """本轮应绑定的工具：已加载分组内的工具 + 目录工具。"""
 
-        bound = [tool for tool in self.all_tools if tool_group(tool) in self.active]
+        bound = [tool for tool in self.all_tools if self._group_of(tool) in self.active]
         loader = self.loader_tool()
         if loader is not None:
             bound.append(loader)
@@ -165,7 +208,7 @@ class ToolGroupState:
         pending = self.pending_groups()
         if not pending:
             return None
-        options = "、".join(f"{group}（{group_meta(group)[0]}）" for group in pending)
+        options = "、".join(f"{group}（{self._meta_of(group)[0]}）" for group in pending)
         return ToolGroupLoaderTool(
             description=(
                 "按组加载工具定义。平台工具较多，默认只绑定少量常用工具；"
@@ -188,19 +231,28 @@ class ToolGroupState:
         )
 
     def catalog_text(self) -> str | None:
-        """系统提示词里的工具目录：组名 + 一句话 + 组内工具名。"""
+        """系统提示词里的工具目录：组名 + 一句话 + 组内工具名。
 
-        pending = self.pending_groups()
-        if not pending:
+        **列全部组、且与会话内的加载状态无关**：目录进系统提示词，只要文本随
+        加载变化，每次加载就会多打一次前缀缓存 miss。代价是模型看不到「哪些组
+        已加载」，由 ``load_tool_group`` 的 enum（只含待加载组）和失败文案兜住。
+        标记「常驻」的组是立即绑定的组，这个标记只取决于工具清单，同样恒定。
+        """
+
+        groups = [group for group in sorted(self._by_group) if group != BASIC_GROUP]
+        if not groups:
             return None
+        eager = self._eager()
         lines = [
-            "工具目录（按组加载）：默认只绑定了部分工具，其他能力需要先调用 "
-            f"{LOAD_TOOL_GROUP_NAME} 加载对应分组，加载后下一轮即可调用。"
+            "工具目录（按组加载）：每组工具默认不预绑定，需要时调用 "
+            f"{LOAD_TOOL_GROUP_NAME} 加载对应分组，加载后下一轮即可调用；"
+            "标记「常驻」的组已经可用，不必加载。"
         ]
-        for group in pending:
-            title, summary = group_meta(group)
+        for group in groups:
+            title, summary = self._meta_of(group)
             names = "、".join(sorted(self._by_group[group]))
-            lines.append(f"- {group}（{title}）：{summary}。工具：{names}")
+            marker = "，常驻" if group in eager else ""
+            lines.append(f"- {group}（{title}{marker}）：{summary}。工具：{names}")
         return "\n".join(lines)
 
     # ---- 状态变更 ----
@@ -218,6 +270,15 @@ class ToolGroupState:
                 self.active.add(group)
                 restored.add(group)
         return restored
+
+    def prefetch(self, message: str) -> set[str]:
+        """入口预取：按用户消息把达标的分组并入本轮初始加载态。
+
+        与 :meth:`restore` 一样发生在第一次绑定之前，因此**不递增 version**。
+        没猜中（返回空集）时行为与不预取完全一致：模型仍会看到完整目录。
+        """
+
+        return self.restore(prefetch_tool_groups(message, self.pending_groups()))
 
     def activate(self, group: str) -> list[str]:
         """加载一组，返回本次新可见的工具名；未知组或已加载返回空列表。"""
@@ -249,14 +310,22 @@ class ToolGroupState:
                     "message": "缺少 group 参数，可选值：" + "、".join(available),
                 },
             }
+        if group in self.active:
+            tools = "、".join(sorted(self._by_group.get(group, [])))
+            return {
+                "status": "failed",
+                "error": {
+                    "code": "tool_group_loaded",
+                    "message": f"工具组 {group} 已加载，可直接调用组内工具：{tools}",
+                },
+            }
         added = self.activate(group)
         if not added:
             return {
                 "status": "failed",
                 "error": {
                     "code": "tool_group_unknown",
-                    "message": f"工具组 {group} 不存在或已加载，可选值："
-                    + "、".join(available),
+                    "message": f"工具组 {group} 不存在，可选值：" + "、".join(available),
                 },
             }
         return {
@@ -276,17 +345,28 @@ def build_tool_group_state(
     *,
     enabled: bool = True,
     active_groups: Iterable[str] | None = None,
+    host_groups: Mapping[str, str] | None = None,
+    host_group_meta: Mapping[str, tuple[str, str]] | None = None,
+    eager_groups: Iterable[str] | None = None,
 ) -> ToolGroupState | None:
     """按需创建分组状态；工具不足以分组（≤1 组）时返回 None，保持旧行为。
 
     ``active_groups`` 是本会话历史上已加载过的组：把它们恢复成本轮的初始加载
     态，同一个会话的第二轮就不用让模型把同样的组再加载一遍。不在本轮工具清单
     里的组会被忽略——续跑与子运行的工具集合可能比上一轮更小。
+
+    ``host_groups`` / ``host_group_meta`` / ``eager_groups`` 来自宿主连接注册时的
+    声明（见 ai-sdk 的 ``registerTools(group=...)`` 与 ``registerToolGroups``）。
     """
 
     if not enabled:
         return None
-    state = ToolGroupState(list(tools))
+    state = ToolGroupState(
+        list(tools),
+        host_groups=dict(host_groups or {}),
+        host_group_meta=dict(host_group_meta or {}),
+        eager_groups=frozenset(eager_groups or ()),
+    )
     if len(state.tools_by_group()) <= 1:
         return None
     state.restore(active_groups)

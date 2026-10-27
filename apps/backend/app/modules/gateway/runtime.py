@@ -637,6 +637,7 @@ async def stream_embed_chat(
     request_id: str,
     citations: list[dict],
     host_tools: list | None = None,
+    host_tool_groups=None,
     runtime_tools: list | None = None,
     invoke_host_tool_fn=None,
     on_model_task_started=None,
@@ -649,7 +650,8 @@ async def stream_embed_chat(
     流程分为四段：先按平台和最终用户校验/创建会话，再写入用户消息，
     然后把模型和宿主工具的中间事件转成网关事件，最后保存并发送助手消息。
     ``host_tools`` 与 ``invoke_host_tool_fn`` 由 WebSocket 连接层注入，
-    因此这个运行时不会绕过当前连接的 token 和页面注册权限。
+    因此这个运行时不会绕过当前连接的 token 和页面注册权限。``host_tool_groups``
+    是页面声明的分组（连接级、不落库），只影响工具分批绑定，不影响权限。
     """
     logger.info(
         "Embed chat started request_id=%s platform_id=%s end_user_id=%s client_id=%s conversation_id=%s message_chars=%s citation_count=%s host_tool_count=%s",
@@ -801,8 +803,19 @@ async def stream_embed_chat(
     # 目录（提示词）与加载态（runtime）必须来自同一个 state 对象；同会话上一轮
     # 已加载过的组按历史重放，避免每轮都让模型重复加载同一个组。
     tool_groups = build_tool_group_state(
-        tools, active_groups=await load_active_tool_groups(repo, conversation.id)
+        tools,
+        active_groups=await load_active_tool_groups(repo, conversation.id),
+        host_groups=host_tool_groups.groups if host_tool_groups is not None else None,
+        host_group_meta=(
+            host_tool_groups.group_meta if host_tool_groups is not None else None
+        ),
+        eager_groups=(
+            host_tool_groups.eager_groups if host_tool_groups is not None else None
+        ),
     )
+    if tool_groups is not None:
+        # 首轮预取：同 REST 入口，把第一次加载提到历史最短的时刻。
+        tool_groups.prefetch(message)
     ws_system_prompt = build_system_prompt(
         context.version,
         context.skill_instructions,

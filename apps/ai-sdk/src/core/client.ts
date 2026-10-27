@@ -23,6 +23,7 @@ import type {
   QuestionOption,
   QuotaUsage,
   ToolDefinition,
+  ToolGroupDeclaration,
   ToolConfirmation,
   WebSocketMessage
 } from './types'
@@ -1541,6 +1542,20 @@ export class AgentClient {
             { ...baseDefinition, ...(sideEffect ? { sideEffect } : {}) }
           )),
         }
+      })
+    }
+  }
+
+  /**
+   * 声明工具组的元信息（可选）。不声明也能用：后端对未声明的组按组名前缀
+   * 生成占位标题。`eager: true` 表示该组不参与按需加载、每轮都绑定。
+   */
+  registerToolGroups(groups: ToolGroupDeclaration[]): void {
+    if (!Array.isArray(groups) || groups.length === 0) return
+    if (this.transport instanceof WebSocketTransport) {
+      this.transport.registerHostTools({
+        type: 'host_tools_register',
+        payload: { groups },
       })
     }
   }

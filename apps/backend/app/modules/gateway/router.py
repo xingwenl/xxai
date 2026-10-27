@@ -61,6 +61,7 @@ from app.modules.model_registry.resolver import resolve_chat_model
 from app.modules.mcp.repositories import McpRepository
 from app.modules.host_tool.repositories import HostToolRepository
 from app.modules.host_tool.services import (
+    HostToolGroupDeclarations,
     allowed_host_tool_names,
     build_temporary_host_tool_policy,
     canonical_fingerprint,
@@ -168,10 +169,13 @@ async def _handle_host_tools_register(
     host_tool_repo: HostToolRepository,
     registered_host_tools: set[str],
     registered_host_policies: dict[str, object],
+    host_tool_groups: HostToolGroupDeclarations | None = None,
 ) -> None:
     """处理页面宿主工具注册，仅采纳 token 与后台策略都允许的能力。"""
     # 页面提交的只是候选能力，最终可用集合必须是：
     # token claim ∩ Agent 后台绑定 ∩ 当前页面注册，并且 Schema 完全一致。
+    if host_tool_groups is None:
+        host_tool_groups = HostToolGroupDeclarations()
     registrations = message.get("payload", {}).get("tools", [])
     if not isinstance(registrations, list):
         await _send_protocol_error(
@@ -182,6 +186,21 @@ async def _handle_host_tools_register(
             retryable=False,
         )
         return
+    # 分组声明只影响「一次请求里分批绑定工具」，不参与授权与 schema 校验：
+    # 非法声明直接忽略，工具该注册还是注册。
+    declared_groups = message.get("payload", {}).get("groups", [])
+    if isinstance(declared_groups, list):
+        for declared in declared_groups:
+            if isinstance(declared, dict):
+                host_tool_groups.declare_group(
+                    declared.get("name"),
+                    declared.get("title"),
+                    declared.get("description"),
+                    eager=declared.get("eager"),
+                )
+    for item in registrations:
+        if isinstance(item, dict):
+            host_tool_groups.declare_tool(item.get("name"), item.get("group"))
     token_names = set(payload.get("host_tools", []))
     if payload.get("temporary_tools") is True:
         for item in registrations:
@@ -460,6 +479,7 @@ async def _handle_message_send(
     host_tool_repo: HostToolRepository,
     registered_host_tools: set[str],
     registered_host_policies: dict[str, object],
+    host_tool_groups: HostToolGroupDeclarations | None = None,
 ) -> tuple[str | None, asyncio.Task | None]:
     """启动一次聊天请求，返回更新后的活跃请求与任务状态。"""
     record_message("message_send")
@@ -631,6 +651,7 @@ async def _handle_message_send(
             pending_questions=pending_questions,
             registered_host_tools=registered_host_tools,
             registered_host_policies=registered_host_policies,
+            host_tool_groups=host_tool_groups,
         )
     )
     registry.register(request_id, new_task)
@@ -649,6 +670,7 @@ async def produce_embed_request(
     pending_questions: dict[str, asyncio.Future],
     registered_host_tools: set[str],
     registered_host_policies: dict[str, object],
+    host_tool_groups: HostToolGroupDeclarations | None = None,
 ) -> None:
     """执行一次模型请求，并把中间事件放入连接级队列。
 
@@ -776,6 +798,7 @@ async def produce_embed_request(
                     request_id=request_id,
                     citations=[item.model_dump() for item in citations],
                     host_tools=context.host_tools,
+                    host_tool_groups=host_tool_groups,
                     runtime_tools=runtime_tools,
                     invoke_host_tool_fn=invoke_runtime_tool,
                     on_model_task_started=model_tasks.add,
@@ -1103,6 +1126,8 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
         # 以及模型正在等待的页面工具结果 Future。
         registered_host_tools: set[str] = set()
         registered_host_policies: dict[str, object] = {}
+        # 页面声明的工具分组：连接级、不落库，重连后由页面重新声明。
+        host_tool_groups = HostToolGroupDeclarations()
         pending_host_results: dict[str, asyncio.Future] = {}
         pending_mcp_confirmations: dict[str, asyncio.Future] = {}
         pending_questions: dict[str, asyncio.Future] = {}
@@ -1263,6 +1288,7 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                         host_tool_repo=host_tool_repo,
                         registered_host_tools=registered_host_tools,
                         registered_host_policies=registered_host_policies,
+                        host_tool_groups=host_tool_groups,
                     )
                 elif message_type == "host_tools_register":
                     await _handle_host_tools_register(
@@ -1274,6 +1300,7 @@ async def agent_websocket(websocket: WebSocket, agent_id: int):
                         host_tool_repo=host_tool_repo,
                         registered_host_tools=registered_host_tools,
                         registered_host_policies=registered_host_policies,
+                        host_tool_groups=host_tool_groups,
                     )
                 elif message_type == "confirmation_resolve":
                     await _handle_confirmation_resolve(

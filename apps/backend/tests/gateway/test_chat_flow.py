@@ -231,9 +231,11 @@ def test_embed_chat_binds_host_tools_only_after_group_load():
     """
 
     model = RecordingBindModel()
+    # 用登记过前缀的页面工具：未登记前缀的宿主工具归 host 组、默认常驻，
+    # 那样首轮就会绑定它，验证不到「先给目录、后给 schema」。
     host_tool = SimpleNamespace(
-        name="debug_ping",
-        description="调试用页面方法",
+        name="page_click",
+        description="点击页面元素",
         input_schema={"type": "object", "properties": {}},
     )
     # 内置工具替身要带 group（与 BuiltinToolDefinition 一致），否则会被当成
@@ -259,7 +261,7 @@ def test_embed_chat_binds_host_tools_only_after_group_load():
             model=model,
             platform_id=1,
             end_user_id=2,
-            message="调用 debug_ping",
+            message="点一下页面上的按钮",
             conversation_id=None,
             request_id="req-host-bind",
             citations=[],
@@ -443,14 +445,15 @@ def test_embed_chat_auto_activates_groups_when_model_skips_loading():
         invoked.append(tool.name)
         return {"status": "completed", "result": {"title": "repro-page"}}
 
+    # 同样用懒加载的页面组工具：host 组默认常驻，验证不到兜底。
     host_tool = SimpleNamespace(
-        name="debug_ping",
-        description="调试用页面方法",
+        name="page_click",
+        description="点击页面元素",
         input_schema={"type": "object", "properties": {}},
     )
 
     async def run():
-        model = ScriptedStreamingModel([("debug_ping", {}, "call-host-1")])
+        model = ScriptedStreamingModel([("page_click", {}, "call-host-1")])
         events = []
         async for event in stream_embed_chat(
             FakeConversationRepository(),
@@ -463,7 +466,7 @@ def test_embed_chat_auto_activates_groups_when_model_skips_loading():
             model=model,
             platform_id=1,
             end_user_id=2,
-            message="调用 debug_ping",
+            message="点一下页面上的按钮",
             conversation_id=None,
             request_id="req-host-skip-load",
             citations=[],
@@ -480,7 +483,7 @@ def test_embed_chat_auto_activates_groups_when_model_skips_loading():
         event["payload"]
         for event in events
         if event["type"] == "agent_step_completed"
-        and event["payload"].get("toolName") == "debug_ping"
+        and event["payload"].get("toolName") == "page_click"
     ]
     assert [step["status"] for step in steps] == ["failed"]
     assert "load_tool_group" in json.dumps(steps[0], ensure_ascii=False)

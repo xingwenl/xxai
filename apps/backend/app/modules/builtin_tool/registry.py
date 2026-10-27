@@ -15,7 +15,11 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from app.modules.builtin_tool.groups import BASIC_GROUP, BUILTIN_TOOL_GROUPS
+from app.modules.builtin_tool.groups import (
+    BASIC_GROUP,
+    BUILTIN_TOOL_GROUPS,
+    TOOL_GROUP_META,
+)
 from app.modules.tools.basic.registry import get_basic_tool
 from app.modules.tools.business.framework import (
     BusinessTool,
@@ -132,6 +136,22 @@ if _untagged:
     raise RuntimeError(
         "内置工具缺少分组登记，请在 app/modules/builtin_tool/groups.py 补登记："
         + ", ".join(_untagged)
+    )
+
+# 组也必须登记过：组名写错时工具会落进一个没有标题、也永远不会被预取命中的
+# 幽灵组，同样表现为「这个工具从来不被调用」，所以一并让导入失败。
+_unknown_groups = sorted(
+    {
+        tool.group
+        for tool in BUILTIN_TOOL_REGISTRY.values()
+        if tool.group and tool.group != BASIC_GROUP and tool.group not in TOOL_GROUP_META
+    }
+)
+if _unknown_groups:
+    raise RuntimeError(
+        "内置工具引用了未注册的分组，请在 app/modules/builtin_tool/groups.py 用 "
+        "register_tool_group 或 TOOL_GROUP_META 登记："
+        + ", ".join(_unknown_groups)
     )
 
 
