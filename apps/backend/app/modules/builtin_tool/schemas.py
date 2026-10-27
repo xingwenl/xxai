@@ -24,6 +24,31 @@ class AgentBuiltinToolRead(BaseModel):
     is_enabled: bool
 
 
+class ToolGroupRead(BaseModel):
+    """工具组清单条目：组名 + 展示信息 + 组内工具名。
+
+    ``eager`` 表示该组每轮都绑定（不参与按需加载）；它来自运行期的
+    ``EAGER_TOOL_GROUPS`` 与宿主兜底组，不是可以在管理台改的开关。
+    """
+
+    group: str
+    title: str
+    description: str
+    eager: bool
+    tool_names: list[str] = Field(default_factory=list)
+
+
+class ToolGroupCatalogRead(BaseModel):
+    """按组展示工具的目录：内置组与宿主组分开，组内工具名用于让前端建索引。
+
+    不修改既有 ``BuiltinToolCatalogRead`` / ``AgentBuiltinToolRead``：那些响应已被
+    前端与外部消费点依赖，分组信息通过这个独立接口增量提供。
+    """
+
+    builtin: list[ToolGroupRead] = Field(default_factory=list)
+    host: list[ToolGroupRead] = Field(default_factory=list)
+
+
 class AgentBuiltinToolUpdate(BaseModel):
     is_enabled: bool
 

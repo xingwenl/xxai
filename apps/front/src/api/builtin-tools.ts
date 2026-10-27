@@ -20,6 +20,27 @@ export async function listAgentBuiltinTools(
   return data ?? []
 }
 
+/** 工具组目录（只读）：组与成员关系由后端常量与工具声明决定。 */
+export type ToolGroup = {
+  group: string
+  title: string
+  description: string
+  eager: boolean
+  tool_names: string[]
+}
+
+export type ToolGroupCatalog = {
+  builtin: ToolGroup[]
+  host: ToolGroup[]
+}
+
+export async function listToolGroups(platformId: number) {
+  const { data } = await http.get<ToolGroupCatalog>(
+    `/platforms/${platformId}/tool-groups`
+  )
+  return data ?? { builtin: [], host: [] }
+}
+
 export async function updateAgentBuiltinTool(
   platformId: number,
   agentId: number,
