@@ -17,6 +17,10 @@ x-backend-environment: &backend-environment
   DB_HOST: db
   DB_PORT: 5432
   DATABASE_URL: postgresql+asyncpg://${DB_USER:-root}:${DB_PASSWORD:-Dd123456}@db:5432/${DB_NAME:-ai_db}
+  # 只读查库工具（db_schema / db_query）用的独立 reader 连接串；留空表示该能力未开通，
+  # 工具会返回 db_reader_not_configured 且不影响其它功能。密码只放根目录 .env（已 gitignore），
+  # 这里按 ${VAR:-} 原样透传，未配置时 api 仍能正常启动。
+  DATABASE_READER_URL: ${DATABASE_READER_URL:-}
   CELERY_BROKER_URL: redis://redis:6379/0
   CELERY_RESULT_BACKEND: redis://redis:6379/0
   AGENT_FILE_STORAGE_PATH: /app/storage

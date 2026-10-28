@@ -259,3 +259,15 @@ _Avoid_: 插件文件、附件、图床、blob 存储、plugin-files
 **资产 key（Asset Key）**:
 插件资产的文件名，由宿主按内容生成：`sha256(内容)[:16]` + 由 MIME 决定的扩展名（如 `a1b2c3d4e5f60718.webp`）。客户端不参与命名，因此天然去重、无重名与路径穿越，也可放心长缓存。
 _Avoid_: 文件名、resource id、hash 路径
+
+**只读查询工具（Read-Only Query Tool）**:
+Agent 用来读本平台数据的两个内置工具：`db_schema` 看表结构与中文列备注、`db_query` 执行一条只读 SQL。它们 `side_effect=none`，所以不走工具确认闸口，代价是每次调用（含被拒）都落一条 `db_query_audits`。能看到哪些行由数据库行级策略决定，不由工具入参决定。
+_Avoid_: 数据库 MCP、SQL 执行器、查库接口、DB 助手
+
+**库查询技能（DB Query Skill）**:
+纯指令技能（源文件 `docs/skills/db-query/SKILL.md`，导入后是 `skills.instruction_template` 文本），只规定何时该查、怎么写 SQL、怎么报结果，自身不取数；真实数据必须由「只读查询工具」取回。未绑定这两个工具的 Agent 用不了本技能。
+_Avoid_: SQL 技能模板、查库脚本、数据问答技能
+
+**只读角色（Reader Role，`agent_reader`）**:
+查库专用的数据库登录角色：只有 `public` 下表的 `SELECT` 权限、会话默认只读事务、带语句与空闲事务超时，连接串来自 `DATABASE_READER_URL`。它既不是超级用户也不是表 owner，因此行级策略对它真正生效——超级用户与表 owner 默认绕过策略，这正是「不能用应用连接查库」的原因。
+_Avoid_: 只读账号、DB 用户、查询用户、只读副本

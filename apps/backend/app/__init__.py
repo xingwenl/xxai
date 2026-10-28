@@ -9,6 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.core.database import dispose_database
 from app.core.logging import get_logger, setup_logging
+from app.modules.db_query.engine import dispose_reader_engine
+from app.modules.db_query.health import ensure_rls_coverage
 from app.modules.auth.router import router as auth_router
 from app.modules.agent.router import router as agent_router
 from app.modules.knowledge.router import (
@@ -57,8 +59,23 @@ async def lifespan(app: FastAPI):
     )
     logger = get_logger(__name__)
     logger.info("Starting %s in %s mode", settings.app_name, settings.app_env)
+    # 只读查库的租户隔离依赖「每张平台表都开了 RLS 且有策略」，漏表不会报错、
+    # 只会静默越权读取，因此把检查放到启动路径上（未配置 DATABASE_READER_URL 时
+    # 检查内部直接跳过，不拦本地启动）。
+    try:
+        await ensure_rls_coverage()
+    except RuntimeError:
+        # 策略覆盖缺失是安全问题，必须中止启动，不能降级为告警
+        raise
+    except Exception:
+        # 连接失败/权限不足属环境问题，不阻断启动，但必须留下明确告警
+        logger.warning(
+            "只读查库启动检查未完成（可能未配置 DATABASE_READER_URL 或连接失败）",
+            exc_info=True,
+        )
     yield
     await dispose_database()
+    await dispose_reader_engine()
     logger.info("Stopped %s", settings.app_name)
 
 

@@ -52,3 +52,6 @@ backend-admin/
 draw-things-output
 
 .pnpm-store
+
+# 技能导入包：由 SKILL.md 现场打包即可，不提交带 __MACOSX 的压缩副产物
+docs/skills/**/*.zip

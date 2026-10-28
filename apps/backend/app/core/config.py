@@ -80,6 +80,14 @@ class Settings:
     log_file_backup_count: int
     database_url: str
     database_echo: bool
+    # 只读查库（db_schema / db_query）使用独立的 reader 角色连接，空串表示未配置，
+    # 此时工具返回 db_reader_not_configured，不影响应用启动。
+    database_reader_url: str
+    db_query_statement_timeout_ms: int
+    db_query_max_rows: int
+    db_query_max_result_bytes: int
+    db_query_max_cell_chars: int
+    db_query_pool_size: int
     docs_url: str | None
     openapi_url: str | None
     jwt_secret_key: str
@@ -238,6 +246,12 @@ def get_settings() -> Settings:
         log_file_backup_count=int(os.getenv("LOG_FILE_BACKUP_COUNT", "14")),
         database_url=_build_database_url(),
         database_echo=_get_bool("DATABASE_ECHO", default=False),
+        database_reader_url=os.getenv("DATABASE_READER_URL", ""),
+        db_query_statement_timeout_ms=int(os.getenv("DB_QUERY_STATEMENT_TIMEOUT_MS", "5000")),
+        db_query_max_rows=int(os.getenv("DB_QUERY_MAX_ROWS", "200")),
+        db_query_max_result_bytes=int(os.getenv("DB_QUERY_MAX_RESULT_BYTES", "65536")),
+        db_query_max_cell_chars=int(os.getenv("DB_QUERY_MAX_CELL_CHARS", "8192")),
+        db_query_pool_size=int(os.getenv("DB_QUERY_POOL_SIZE", "2")),
         docs_url="/docs" if docs_enabled else None,
         openapi_url="/openapi.json" if docs_enabled else None,
         jwt_secret_key=os.getenv("JWT_SECRET_KEY", "dev-secret-change-me"),

@@ -57,6 +57,9 @@ BUILTIN_TOOL_GROUPS: dict[str, str] = {
     "knowledge_search": "knowledge",
     # 技能
     "create_skill": "skill",
+    # 数据库（只读查询本平台数据）
+    "db_schema": "db",
+    "db_query": "db",
     # 界面
     "show_user_card": "ui",
 }
@@ -89,3 +92,12 @@ def register_tool_group(
     TOOL_GROUP_META[key] = (title, description)
     if eager:
         EAGER_TOOL_GROUPS.add(key)
+
+
+# 「数据库」组：db_schema / db_query 两个只读查库工具。默认异步加载（不 eager），
+# 与其它业务组一致：等模型调 load_tool_group 或入口预取命中时才绑定。
+register_tool_group(
+    "db",
+    "数据库",
+    "只读查询本平台数据：查看表结构与执行只读 SQL",
+)
